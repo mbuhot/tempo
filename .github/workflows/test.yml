@@ -10,6 +10,34 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Ephemeral PG19 per run (ARCHITECTURE.md §10). PG19 (beta) is required for
+    # native application-time temporal tables; the image must be 19, not the
+    # runner's bundled Postgres. Verified tag: 19beta1 (matches docker-compose.yml).
+    services:
+      db:
+        image: postgres:19beta1
+        env:
+          POSTGRES_USER: tempo
+          POSTGRES_PASSWORD: tempo
+          POSTGRES_DB: tempo
+        ports:
+          # Expose on host 5434 to match the dev default in context.gleam.
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U tempo -d tempo"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    # Connection settings consumed by tempo/server/context.gleam.
+    env:
+      TEMPO_DB_HOST: 127.0.0.1
+      TEMPO_DB_PORT: 5434
+      TEMPO_DB_NAME: tempo
+      TEMPO_DB_USER: tempo
+      TEMPO_DB_PASSWORD: tempo
+
     steps:
       - uses: actions/checkout@v6
       - uses: erlef/setup-beam@v1
@@ -19,5 +47,6 @@ jobs:
           rebar3-version: "3"
           # elixir-version: "1"
       - run: gleam deps download
+      - run: gleam run -m tempo/migrate
       - run: gleam test
       - run: gleam format --check src test

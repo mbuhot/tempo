@@ -2,10 +2,10 @@
 id: P0-T04
 phase: 0
 title: Migration runner + schema_migrations
-status: todo
+status: done
 depends_on: [P0-T02, P0-T03]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T04 — Migration runner + `schema_migrations`

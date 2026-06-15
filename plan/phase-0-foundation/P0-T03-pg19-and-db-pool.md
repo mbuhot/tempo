@@ -2,10 +2,10 @@
 id: P0-T03
 phase: 0
 title: PG19 provisioning + pog pool
-status: todo
+status: done
 depends_on: []
 parallelizable_with: [P0-T01]
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T03 — PG19 provisioning + pog pool

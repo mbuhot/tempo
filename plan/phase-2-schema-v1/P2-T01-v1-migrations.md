@@ -19,7 +19,10 @@ eight fact tables, with `allocation` carrying the denormalized `day_rate` (the "
 - `DECISIONS.md` ADR-004, ADR-007, ADR-008, ADR-009
 
 ## Work
-- [ ] `priv/migrations/001_identity.sql` — `engineer`, `client`.
+- [ ] `priv/migrations/001_init.sql` — first statement `CREATE EXTENSION IF NOT EXISTS btree_gist;`
+      (verified required by spike P1-T01: `WITHOUT OVERLAPS` builds a GiST exclusion PK, and
+      `int + daterange` keys otherwise fail with "integer has no default operator class for access
+      method gist"). Then the identity tables `engineer`, `client`.
 - [ ] `priv/migrations/002_facts.sql` — `employment`, `engineer_role`, `rate_card`, `contract`,
       `project`, `allocation` (**with** `day_rate`), `leave`, `timesheet` — temporal PKs +
       `PERIOD` FKs exactly as in ARCHITECTURE §4.

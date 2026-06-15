@@ -2,10 +2,10 @@
 id: P0-T05
 phase: 0
 title: Playwright harness skeleton
-status: todo
+status: done
 depends_on: []
 parallelizable_with: [P0-T01]
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T05 — Playwright harness skeleton

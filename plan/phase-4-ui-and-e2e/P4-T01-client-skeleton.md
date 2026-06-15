@@ -29,3 +29,7 @@ Get a minimal Lustre app building to `priv/static` and served by Wisp, importing
 
 ## Notes
 Client must import only `shared/*`. This unblocks T02/T03 view work.
+
+Carried from Phase 1: `lustre/dev build` emits the bundle to `./dist` (gitignored), not
+`priv/static`. Wire the build to output into `priv/static` (or point Wisp's static serving at the
+build output) so the served page and the bundle agree.

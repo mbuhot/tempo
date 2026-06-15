@@ -2,10 +2,10 @@
 id: P0-T01
 phase: 0
 title: Add Gleam dependencies
-status: todo
+status: done
 depends_on: []
 parallelizable_with: [P0-T03, P0-T05]
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T01 — Add Gleam dependencies

@@ -1,0 +1,15 @@
+{
+  "name": "tempo-e2e",
+  "version": "1.0.0",
+  "description": "Playwright end-to-end harness for the Tempo PG19 temporal-tables demo. See PRD.md and ARCHITECTURE.md.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "http-server": "^14.1.1"
+  }
+}

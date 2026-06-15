@@ -2,10 +2,10 @@
 id: P0-T02
 phase: 0
 title: Module structure (shared/server/client)
-status: todo
+status: done
 depends_on: [P0-T01]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T02 — Module structure (shared/server/client)

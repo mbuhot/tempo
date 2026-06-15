@@ -1,0 +1,26 @@
+services:
+  db:
+    # PostgreSQL 19 (beta) — required for native application-time temporal tables
+    # (WITHOUT OVERLAPS, PERIOD foreign keys, FOR PORTION OF). The local server
+    # is v17, so PG19 MUST come from this container. Verified tag: 19beta1.
+    # Host port defaults to 5434 (5432 = local PG17; 5433 may be taken by other projects).
+    image: postgres:19beta1
+    container_name: tempo-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tempo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tempo}
+      POSTGRES_DB: ${POSTGRES_DB:-tempo}
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      # PG18+ images store data under a major-version subdir of this path; the
+      # mount must be /var/lib/postgresql (NOT .../data, which the image rejects).
+      - tempo-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tempo} -d ${POSTGRES_DB:-tempo}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  tempo-db-data:

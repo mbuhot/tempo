@@ -2,3 +2,14 @@
 *.ez
 /build
 erl_crash.dump
+
+#Added automatically by Lustre Dev Tools
+/.lustre
+/dist
+
+# Playwright (e2e harness)
+/node_modules
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache

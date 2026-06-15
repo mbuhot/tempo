@@ -2,10 +2,10 @@
 id: P0-T06
 phase: 0
 title: CI skeleton
-status: todo
+status: done
 depends_on: [P0-T03]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P0-T06 — CI skeleton

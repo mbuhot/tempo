@@ -32,3 +32,10 @@ Author the `.sql` query sources and generate typed Gleam, using the range-decomp
 
 ## Notes
 Keep SELECT lists returning plain scalars/`date`s so shared types stay simple.
+
+Carried from Phase 1 spikes:
+- Squirrel only discovers `.sql` files in a dir literally named `sql` (use `src/tempo/server/sql/`).
+- Codegen needs a live DB connection, e.g.
+  `DATABASE_URL="postgres://tempo:tempo@127.0.0.1:5434/tempo" gleam run -m squirrel`.
+- `FOR PORTION OF` reports `UPDATE 1` even when it splits a row into two — never rely on the
+  affected-row count to detect a split.
