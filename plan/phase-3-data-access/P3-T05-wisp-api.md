@@ -2,10 +2,10 @@
 id: P3-T05
 phase: 3
 title: Wisp JSON API
-status: todo
+status: done
 depends_on: [P3-T01, P3-T02]
 parallelizable_with: [P3-T04]
-agent: unassigned
+agent: workflow
 ---
 
 # P3-T05 — Wisp JSON API

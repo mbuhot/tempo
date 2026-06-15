@@ -2,10 +2,10 @@
 id: P3-T02
 phase: 3
 title: Shared types + JSON codecs
-status: todo
+status: done
 depends_on: [P0-T02]
 parallelizable_with: [P3-T01]
-agent: unassigned
+agent: workflow
 ---
 
 # P3-T02 — Shared types + JSON codecs

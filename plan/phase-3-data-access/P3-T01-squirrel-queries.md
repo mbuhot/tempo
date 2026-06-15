@@ -2,10 +2,10 @@
 id: P3-T01
 phase: 3
 title: Squirrel queries (board, timesheet)
-status: todo
+status: done
 depends_on: [P2-T01, P1-T02, P1-T03, P1-T04]
 parallelizable_with: [P3-T02]
-agent: unassigned
+agent: workflow
 ---
 
 # P3-T01 — Squirrel queries (board, timesheet)

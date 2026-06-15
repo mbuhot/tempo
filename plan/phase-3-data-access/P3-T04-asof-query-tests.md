@@ -2,10 +2,10 @@
 id: P3-T04
 phase: 3
 title: As-of query tests (layer 3)
-status: todo
+status: done
 depends_on: [P3-T01, P2-T03]
 parallelizable_with: [P3-T03]
-agent: unassigned
+agent: workflow
 ---
 
 # P3-T04 — As-of query tests (TDD layer 3)

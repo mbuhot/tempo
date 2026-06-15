@@ -2,10 +2,10 @@
 id: P3-T06
 phase: 3
 title: API integration tests
-status: todo
+status: done
 depends_on: [P3-T05]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P3-T06 — API integration tests
