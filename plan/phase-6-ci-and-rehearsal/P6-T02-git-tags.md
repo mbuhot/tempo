@@ -2,10 +2,10 @@
 id: P6-T02
 phase: 6
 title: Git tags v1-wide / v2-split
-status: todo
+status: done
 depends_on: [P6-T01]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P6-T02 — Git tags `v1-wide` / `v2-split`

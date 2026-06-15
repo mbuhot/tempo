@@ -1,0 +1,221 @@
+/* Tempo — legibility-only styling (PRD §10: legibility over polish).
+ *
+ * Goals: large, high-contrast type readable from the back of a room; a clear
+ * column layout for the org board; a prominent slider with a big "As of <date>"
+ * heading; and visually distinct on-leave and unassigned rows. No decorative
+ * polish — every rule serves readability on a projector.
+ *
+ * This file styles by class only and never alters the page's visible text, so
+ * the behaviour-driven Playwright suite (which asserts text and ARIA labels,
+ * never CSS) is unaffected. */
+
+:root {
+  --ink: #10151c;
+  --muted: #475569;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --line: #cbd5e1;
+  --accent: #1d4ed8;
+  --leave: #b45309;
+  --leave-bg: #fff7ed;
+  --leave-line: #f59e0b;
+  --unassigned: #6b7280;
+  --unassigned-bg: #f1f5f9;
+}
+
+html {
+  font-size: 20px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  line-height: 1.4;
+}
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 4rem;
+}
+
+.page > h1 {
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+}
+
+/* --- Slider: the visual spine. Big "As of" date, full-width range input. --- */
+
+.slider {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.slider h2 {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+
+.slider input[type="range"] {
+  width: 100%;
+  height: 2rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.slider-bounds {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Org board: one high-contrast row per engineer, in three columns. --- */
+
+.board {
+  list-style: none;
+  margin: 0 0 2rem;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 14rem 4rem 1fr;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  font-size: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.board-row:first-child {
+  border-top: none;
+}
+
+.board-row .engineer {
+  font-weight: 700;
+}
+
+.board-row .level {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.board-row .engagement {
+  color: var(--ink);
+}
+
+/* On-leave rows: warm tint, accent left border, so leave reads at a glance. */
+.board-row.on-leave {
+  background: var(--leave-bg);
+  box-shadow: inset 0.4rem 0 0 var(--leave-line);
+}
+
+.board-row.on-leave .engagement {
+  color: var(--leave);
+  font-weight: 700;
+}
+
+/* Unassigned rows: muted, italic, so an idle engineer is obviously distinct. */
+.board-row.unassigned {
+  background: var(--unassigned-bg);
+}
+
+.board-row.unassigned .engagement {
+  color: var(--unassigned);
+  font-style: italic;
+}
+
+/* --- Timesheet panel. --- */
+
+.timesheet {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.timesheet h2 {
+  font-size: 1.9rem;
+  font-weight: 800;
+  margin: 0 0 0.75rem;
+}
+
+.timesheet > label {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.timesheet select {
+  font-size: 1.2rem;
+  padding: 0.35rem 0.5rem;
+  margin-left: 0.4rem;
+}
+
+.timesheet-lines {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.timesheet-lines > li {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 1.2rem;
+}
+
+.timesheet-lines > li:first-child {
+  border-top: none;
+}
+
+.timesheet-lines > li > label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.timesheet-lines .project {
+  font-weight: 700;
+  min-width: 16rem;
+}
+
+.timesheet-lines input[type="number"] {
+  font-size: 1.2rem;
+  width: 6rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.timesheet-lines button {
+  font-size: 1.1rem;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.save-state {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 0.75rem;
+}

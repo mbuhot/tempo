@@ -2,10 +2,10 @@
 id: P6-T04
 phase: 6
 title: Legibility / styling pass
-status: todo
+status: done
 depends_on: [P4-T02, P4-T03]
 parallelizable_with: [P6-T01, P6-T03]
-agent: unassigned
+agent: workflow
 ---
 
 # P6-T04 — Legibility / styling pass

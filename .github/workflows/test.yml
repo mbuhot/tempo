@@ -11,9 +11,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # Ephemeral PG19 per run (ARCHITECTURE.md §10). PG19 (beta) is required for
-    # native application-time temporal tables; the image must be 19, not the
-    # runner's bundled Postgres. Verified tag: 19beta1 (matches docker-compose.yml).
+    # Ephemeral PG19 per run (ARCHITECTURE.md §10, ADR-013). PG19 (beta) is
+    # required for native application-time temporal tables (WITHOUT OVERLAPS,
+    # PERIOD foreign keys, FOR PORTION OF); the image MUST be 19, not the runner's
+    # bundled Postgres. Verified tag: 19beta1 (matches docker-compose.yml).
     services:
       db:
         image: postgres:19beta1
@@ -30,43 +31,105 @@ jobs:
           --health-timeout 5s
           --health-retries 15
 
-    # Connection settings consumed by tempo/server/context.gleam.
+    # Connection settings consumed by tempo/server/context.gleam (and psql below).
     env:
       TEMPO_DB_HOST: 127.0.0.1
       TEMPO_DB_PORT: 5434
       TEMPO_DB_NAME: tempo
       TEMPO_DB_USER: tempo
       TEMPO_DB_PASSWORD: tempo
+      # PG* let the inline psql v1-seed step authenticate without an interactive
+      # prompt; they mirror the TEMPO_* values above.
+      PGHOST: 127.0.0.1
+      PGPORT: 5434
+      PGDATABASE: tempo
+      PGUSER: tempo
+      PGPASSWORD: tempo
 
     steps:
       - uses: actions/checkout@v6
+
+      # --- toolchains ------------------------------------------------------
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "29"
           gleam-version: "1.17.0"
           rebar3-version: "3"
           # elixir-version: "1"
-      - run: gleam deps download
-      - run: gleam run -m tempo/migrate
-      - run: gleam test
-      - run: gleam format --check src test
-
-      # End-to-end (TDD layer 5): the behaviour-driven Playwright suite against
-      # the real app on the v1-wide seed loaded above (PRD §7, ARCHITECTURE.md
-      # §10.5). The same suite runs again on v2-split in Phase 5; both passes must
-      # be green.
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      # Build the Lustre client bundle into priv/static from the JS `client`
-      # package (path-depends on `shared`, ADR-014), which Wisp serves under
-      # /static.
-      - run: gleam run -m lustre/dev build client/app
+          # Cache the npm download cache, keyed on package-lock.json, so `npm ci`
+          # for the Playwright harness is fast on repeat runs.
+          cache: npm
+
+      - run: gleam deps download
+
+      # --- Gleam layers 1-4: 52 unit tests against a seeded PG19 -----------
+      # The migration runner applies 001 -> 002 -> 003 (v1-wide schema + seed) and
+      # then 010 (v2-split), bringing the DB to the final v2-split state the suite
+      # is verified against (ARCHITECTURE.md §10.1-§10.4). `gleam test` covers the
+      # temporal-constraint, as-of query, and shared-codec layers, plus the migrate
+      # runner's idempotency check (which re-runs `migrate.run` and asserts nothing
+      # new is applied).
+      - name: Apply migrations (001-010 -> v2-split)
+        run: gleam run -m tempo/migrate
+      - name: Gleam tests (layers 1-4)
+        run: gleam test
+      - name: Gleam format check
+        run: gleam format --check src test
+
+      # --- build the client bundle ----------------------------------------
+      # Build the Lustre client into priv/static from the JS `client` package
+      # (path-depends on `shared`, ADR-014), which Wisp serves under /static. Built
+      # once here and reused by both Playwright passes below.
+      - name: Build the Lustre client bundle
+        run: gleam run -m lustre/dev build client/app
         working-directory: client
-      # Boot the Wisp server (serves the SPA + JSON API on :8000) and wait for it.
-      - name: Start the server
+
+      # --- migration oracle (the standout gate) ---------------------------
+      # Run in isolation (ARCHITECTURE.md §10.2): it drops and rebuilds the public
+      # schema (fresh v1 seed), snapshots the board for every day of the seed span
+      # (2024-01-01 .. 2026-12-31, 1096 days), applies 010, re-snapshots, and
+      # asserts the user-visible board is identical for every date. Exits non-zero
+      # on the first differing date, failing the job. Leaves the DB at v2-split.
+      - name: Migration oracle (board identical across v1 -> v2)
+        run: gleam run -m tempo/oracle
+
+      # --- Playwright browser cache ---------------------------------------
+      # Cache the downloaded chromium build, keyed on the @playwright/test version
+      # pinned in package-lock.json, so `playwright install` is a no-op on hits.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install the Playwright harness
+        run: npm ci
+      - name: Install Playwright chromium (+ OS deps)
+        # On a cache hit the browser binary is already present; --with-deps still
+        # installs the OS libraries chromium needs, which are not cached.
+        run: npx playwright install --with-deps chromium
+
+      # --- Playwright pass 1: v1-wide -------------------------------------
+      # The behaviour-driven suite (one spec per demo beat, PRD §7) must be green
+      # on BOTH schema states, unmodified (ADR-013). Pass 1 runs against a freshly
+      # seeded v1-wide DB. The oracle above left the DB at v2-split, so rebuild the
+      # public schema and apply ONLY 001-003 (NOT 010) via psql, recording each in
+      # schema_migrations exactly as the production runner would -- so the migrate
+      # step before pass 2 sees 001-003 as done and applies only 010. psql handles
+      # the dollar-quoted blocks in 003_seed.sql natively.
+      - name: Seed the v1-wide DB (migrations 001-003 only)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+          psql -v ON_ERROR_STOP=1 -q -c "CREATE TABLE schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());"
+          for version in 001_init 002_facts 003_seed; do
+            psql -v ON_ERROR_STOP=1 -q -f "priv/migrations/${version}.sql"
+            psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO schema_migrations (version) VALUES ('${version}.sql');"
+          done
+      - name: Start the server (v1-wide)
         run: |
           gleam run > /tmp/tempo-server.log 2>&1 &
           for i in $(seq 1 60); do
@@ -74,13 +137,33 @@ jobs:
             sleep 1
           done
           echo "server did not come up"; cat /tmp/tempo-server.log; exit 1
-      - name: Run the Playwright suite (v1-wide)
+      - name: Playwright suite (v1-wide)
         run: npx playwright test
         env:
           TEMPO_BASE_URL: http://127.0.0.1:8000
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-v1-wide
+          path: playwright-report/
+          retention-days: 7
+
+      # --- Playwright pass 2: v2-split ------------------------------------
+      # Apply the migration to the SAME seeded data to produce v2-split, then run
+      # the identical suite again. The running server reads the DB live per
+      # request, so no restart is needed. Because the v2 state is the v1 seed after
+      # the migration, this also exercises the migration end to end at the UI layer
+      # and proves observable behaviour is unchanged (ADR-013). The migrate runner
+      # sees 001-003 already recorded and applies only 010.
+      - name: Apply the migration to v2-split
+        run: gleam run -m tempo/migrate
+      - name: Playwright suite (v2-split)
+        run: npx playwright test
+        env:
+          TEMPO_BASE_URL: http://127.0.0.1:8000
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-v2-split
           path: playwright-report/
           retention-days: 7

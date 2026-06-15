@@ -2,10 +2,10 @@
 id: P6-T03
 phase: 6
 title: Demo run-book + clean-checkout dry run
-status: todo
+status: done
 depends_on: [P5-T04]
 parallelizable_with: [P6-T01, P6-T04]
-agent: unassigned
+agent: workflow
 ---
 
 # P6-T03 — Demo run-book + clean-checkout dry run

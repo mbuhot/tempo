@@ -194,25 +194,74 @@ dangle past it (PRD FR-5).
 
 All temporal columns are `daterange`; the as-of predicate is `valid_at @> $when::date`.
 
-**Org board, as of a date** (per engineer × project; leave suppresses allocations):
+**Org board, as of a date.** The board is **three** as-of queries, one per `Engagement`
+variant of the shared `BoardRow`, merged and re-sorted by engineer name in
+`board.snapshot` (`src/tempo/server/board.gleam`). Every employed engineer is represented
+**exactly once** as of any date: allocated (one row per project), unassigned, or on leave.
+The split is forced by Squirrel typing — a `LEFT JOIN`ed column comes back as non-null, so
+a single `LEFT JOIN` board query cannot represent the employed-but-unallocated row and
+500s on those dates; see ADR-015. Each query therefore uses **`INNER JOIN`s only**, so
+every selected column is non-null and decodes without `Option` plumbing.
 
-```sql
-SELECT e.name AS engineer, rl.level, pr.name AS project, cl.name AS client,
-       al.fraction, rc.day_rate
-FROM employment emp
-JOIN engineer e            ON e.id = emp.engineer_id
-LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
-LEFT JOIN rate_card rc     ON rc.level = rl.level    AND rc.valid_at @> $1::date
-LEFT JOIN allocation al    ON al.engineer_id = e.id  AND al.valid_at @> $1::date
-LEFT JOIN project pr       ON pr.id = al.project_id  AND pr.valid_at @> $1::date
-LEFT JOIN contract ct      ON ct.id = pr.contract_id AND ct.valid_at @> $1::date
-LEFT JOIN client cl        ON cl.id = ct.client_id
-WHERE emp.valid_at @> $1::date
-  AND NOT EXISTS (SELECT 1 FROM leave lv
-                  WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date)
-ORDER BY e.name;
--- leave rows are selected separately (or UNIONed) and rendered as "On leave: <kind>".
-```
+1. `board_as_of` — the **engaged** slice: engineers `INNER JOIN`ed all the way through
+   `allocation → project → contract → client` and `engineer_role → rate_card`, so they are
+   employed *and* allocated as of the date. One row per (engineer × project). Engineers
+   with a covering `leave` fact are suppressed here (`NOT EXISTS`). Charge rate is the
+   two-hop `engineer_role × rate_card` join (ADR-009), exposed as a plain `day_rate` value
+   (ADR-013). → `OnProject`.
+
+   ```sql
+   SELECT e.name AS engineer, rl.level, pr.name AS project, cl.name AS client,
+          al.fraction, rc.day_rate,
+          lower(al.valid_at) AS valid_from, upper(al.valid_at) AS valid_to
+   FROM employment emp
+   JOIN engineer e       ON e.id = emp.engineer_id
+   JOIN engineer_role rl ON rl.engineer_id = e.id  AND rl.valid_at @> $1::date
+   JOIN rate_card rc     ON rc.level = rl.level     AND rc.valid_at @> $1::date
+   JOIN allocation al    ON al.engineer_id = e.id   AND al.valid_at @> $1::date
+   JOIN project pr       ON pr.id = al.project_id   AND pr.valid_at @> $1::date
+   JOIN contract ct      ON ct.id = pr.contract_id  AND ct.valid_at @> $1::date
+   JOIN client cl        ON cl.id = ct.client_id
+   WHERE emp.valid_at @> $1::date
+     AND NOT EXISTS (SELECT 1 FROM leave lv
+                     WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date)
+   ORDER BY e.name, pr.name;
+   ```
+
+2. `board_unassigned_as_of` — employed, **not** allocated and **not** on leave as of the
+   date. `INNER JOIN engineer_role` keeps `level` non-null (an employed engineer always has
+   a role in the seed). Returns just `(engineer, level)`. → `Unassigned`.
+
+   ```sql
+   SELECT e.name AS engineer, rl.level
+   FROM employment emp
+   JOIN engineer e       ON e.id = emp.engineer_id
+   JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
+   WHERE emp.valid_at @> $1::date
+     AND NOT EXISTS (SELECT 1 FROM allocation al
+                     WHERE al.engineer_id = e.id AND al.valid_at @> $1::date)
+     AND NOT EXISTS (SELECT 1 FROM leave lv
+                     WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date)
+   ORDER BY e.name;
+   ```
+
+3. `board_leave_as_of` — exactly the engineers a covering `leave` fact hides from
+   `board_as_of`. Leave overrides the engagement: the underlying allocation is deliberately
+   not joined. The level is still resolved (for the charge story). Returns
+   `(engineer, level, kind, valid_from, valid_to)`. → `OnLeave`.
+
+   ```sql
+   SELECT e.name AS engineer, rl.level, lv.kind,
+          lower(lv.valid_at) AS valid_from, upper(lv.valid_at) AS valid_to
+   FROM leave lv
+   JOIN engineer e            ON e.id = lv.engineer_id
+   LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
+   WHERE lv.valid_at @> $1::date
+   ORDER BY e.name;
+   ```
+
+Range columns are decomposed to plain `date`s at the boundary (ADR-011):
+`lower(valid_at)`/`upper(valid_at)` AS `valid_from`/`valid_to`.
 
 **Timesheet form — my allocations as of a day** (only projects I'm on; blank when on leave):
 

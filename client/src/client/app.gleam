@@ -466,17 +466,36 @@ fn view_board(board: Board) -> Element(Message) {
 }
 
 /// One board line: the engineer with their level and a sentence describing their
-/// engagement as of the selected date.
+/// engagement as of the selected date. The row carries a state class
+/// (`on-leave`/`unassigned`/`on-project`) derived from the engagement variant so
+/// the stylesheet can colour leave and idle rows distinctly — purely visual, the
+/// user-facing text is unchanged.
 fn view_row(row: BoardRow) -> Element(Message) {
-  html.li([attribute.attribute("data-engineer", row.engineer)], [
-    html.span([attribute.class("engineer")], [html.text(row.engineer)]),
-    html.span([attribute.class("level")], [
-      html.text(" L" <> int.to_string(row.level)),
-    ]),
-    html.span([attribute.class("engagement")], [
-      html.text(" — " <> describe_engagement(row.engagement)),
-    ]),
-  ])
+  html.li(
+    [
+      attribute.attribute("data-engineer", row.engineer),
+      attribute.class("board-row " <> engagement_class(row.engagement)),
+    ],
+    [
+      html.span([attribute.class("engineer")], [html.text(row.engineer)]),
+      html.span([attribute.class("level")], [
+        html.text("L" <> int.to_string(row.level)),
+      ]),
+      html.span([attribute.class("engagement")], [
+        html.text(describe_engagement(row.engagement)),
+      ]),
+    ],
+  )
+}
+
+/// The CSS state class for a board row, by engagement variant: on-leave and
+/// unassigned rows are styled distinctly from an active project allocation.
+fn engagement_class(engagement: Engagement) -> String {
+  case engagement {
+    OnProject(..) -> "on-project"
+    OnLeave(..) -> "on-leave"
+    Unassigned -> "unassigned"
+  }
 }
 
 /// Render an engagement as the user-facing sentence the board shows for the row.

@@ -198,6 +198,38 @@ isolated build package whose `src/` **symlinks** to the canonical sources (the P
 and broke on CI and any fresh clone (non-portable). Path dependencies need no symlinks and are
 portable everywhere.
 
+## ADR-015 — Board as three all-non-null as-of queries (so `Unassigned` is representable)
+**Status:** Accepted
+
+**Context.** The org board must show **every employed engineer exactly once** as of any date in one
+of three states — allocated to a project, unassigned, or on leave — and the shared contract models
+this as a `BoardRow` whose `engagement` is an `Engagement` sum (`OnProject` / `Unassigned` /
+`OnLeave`). The natural single query (`ARCHITECTURE.md` §5's original form) `LEFT JOIN`s
+`allocation`/`project`/`contract`/`client` onto `employment` so an employed-but-unallocated engineer
+still produces a row with null project/client/fraction/rate.
+**Decision.** Split the board into **three queries**, each using **`INNER JOIN`s only** so every
+selected column is non-null, merged and re-sorted by engineer name in `board.snapshot`, one per
+`Engagement` variant: `board_as_of` (employed + allocated, leave-suppressed → `OnProject`),
+`board_unassigned_as_of` (employed, not allocated, not on leave → `Unassigned`), and
+`board_leave_as_of` (covered by a `leave` fact → `OnLeave`).
+**Rationale.** Squirrel introspects the prepared statement and types a `LEFT JOIN`ed column as
+**non-null** (it cannot know the join may miss), so a single `LEFT JOIN` board query generates a
+`sql.gleam` row that decodes the null project/client/rate as if present — and the handler **500s** on
+exactly the dates an engineer is employed but unallocated (the state the `Unassigned` variant exists
+to show). Three INNER-JOIN queries sidestep the typing mismatch entirely: each row is genuinely
+all-non-null, decodes without `Option` plumbing, and maps cleanly to one closed `Engagement` variant,
+so the unassigned state is first-class rather than a bag of nulls. The split is invisible to the
+client and the Playwright contract (it asserts only what the user sees), and is exercised by the
+migration oracle, which runs the production `board_as_of.sql` text and renders each date
+NULL-tolerantly (`ARCHITECTURE.md` §10).
+**Alternatives.** A single `LEFT JOIN` query decoding the joined columns as `Option` — rejected:
+Squirrel types them non-null on regeneration, so the Option plumbing is not even expressible from the
+generated row without hand-editing `sql.gleam` (erased on every codegen, same failure mode as
+ADR-014's `@target` gating). A hand-written `pog` query outside Squirrel for the board — rejected:
+forfeits the "schema change breaks the query at codegen" thesis (PRD §1) for the demo's central read
+path. `COALESCE(... , sentinel)` to force non-null columns — rejected: a sentinel rate/project is a
+lie in the read model and would corrupt the oracle's board comparison.
+
 ---
 
 ## Documentation format
