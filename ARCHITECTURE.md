@@ -327,15 +327,21 @@ structure. One test per demo beat (PRD §7):
   - my timesheet: scrub to a day → only allocated projects offered; enter hours → reload → persisted;
   - negative: a rolled-off project is not offered.
 
+**Schema-version-agnostic suite.** The Playwright suite is a behavioural contract that must be green
+on **both** `v1-wide` and `v2-split`, *unmodified*. The v1 seed is the single source of truth; the
+v2 state is produced by **running the migration on the v1 seed**, so "same suite, both tags" also
+exercises the migration end-to-end and proves at the UI layer that observable behaviour is
+unchanged. Because the tests assert only what the user sees, this holds by construction — never
+assert on the denormalized rate source or any table shape that differs between versions. Playwright
+is written and maintained continuously through development, not added at the end.
+
 **Determinism.** "Now" is a fixed seed date, not the system clock; the seed uses explicit
 names/dates/rates (no factory sequences in assertions), so every layer is reproducible.
 
 **Provisioning / CI.** Ephemeral PG19 per run (container / CI service). Extend
-`.github/workflows/test.yml`: provision PG19 → `gleam run -m tempo/migrate` + seed → `gleam test`
-(layers 1–4) → build client + start server → `npx playwright test` (layer 5).
-
-**Decision still open.** Run Playwright only against `v2-split` (recommended — the DB oracle already
-proves migration correctness) or against both tags to also assert UI parity across the boundary.
+`.github/workflows/test.yml`: provision PG19 → `gleam test` (layers 1–4) → build client + start
+server → seed `v1-wide` and run `npx playwright test` → apply the migration to that data
+(`v2-split`) and run the **same** suite again. Both Playwright passes must be green.
 
 ## 11. Open spikes (resolve during planning)
 

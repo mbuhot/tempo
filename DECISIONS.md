@@ -156,9 +156,13 @@ sees, never DOM internals).
 **Rationale.** Each guarantee is checked at the cheapest level that can prove it. The migration
 oracle turns the talk's boldest claim into a CI gate; Playwright is the safety net that the live
 beats actually run in a real browser. A fixed seed "now" makes every layer reproducible.
-**Open.** Playwright against `v2-split` only (recommended) vs both tags for UI parity.
+**Resolved.** The **same** Playwright suite must pass *unmodified* against both `v1-wide` and
+`v2-split` (v2 derived by migrating the v1 seed) — the suite is a UI-level behavioural contract
+across the migration, and is maintained continuously through development. This holds by construction
+because the tests assert only user-visible behaviour, which is unchanged by the redesign.
 **Alternatives.** E2E-only (too coarse to localize temporal bugs, slow); DB-only (misses
-integration/UI breakage — unacceptable for a live talk).
+integration/UI breakage — unacceptable for a live talk); Playwright on `v2` only (rejected — leaves
+the v1 app, shown live, untested and forgoes the UI-level parity proof).
 
 ---
 

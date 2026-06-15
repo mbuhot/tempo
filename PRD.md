@@ -137,7 +137,10 @@ Layered, so each guarantee is checked at the cheapest level that can prove it (f
 3. **As-of query tests** — crafted seed + fixed dates → exact expected rows.
 4. **Codec round-trip tests** — encode→decode identity for the shared API types.
 5. **End-to-end (Playwright)** — one behaviour-driven browser test per demo beat (§7): scrub the
-   slider and assert what the user *sees*, never DOM internals.
+   slider and assert what the user *sees*, never DOM internals. The **same suite runs unchanged
+   against both `v1-wide` and `v2-split`** (v2 derived by migrating the v1 seed) and must stay green
+   — the suite is itself the UI-level proof that the migration preserves observable behaviour.
+   Playwright is maintained continuously through development, not bolted on at the end.
 
 "Now" is anchored to a fixed seed date (not the system clock) so the slider and all assertions are
 deterministic.
@@ -145,8 +148,8 @@ deterministic.
 ## 10. Success criteria
 
 - All seven demo beats run reliably from a clean checkout on the talk machine.
-- Every demo beat (§7) is covered by a green Playwright test, and the migration oracle (§9.2) passes
-  in CI.
+- Every demo beat (§7) is covered by a Playwright test, and the **same suite passes unmodified
+  against both `v1-wide` and `v2-split`**; the migration oracle (§9.2) also passes in CI.
 - The `v1-wide → v2-split` migration applies cleanly and the board is byte-identical across the
   boundary for every sampled date.
 - Changing a field in the `shared` types module breaks **both** server and client builds until
