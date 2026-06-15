@@ -1,7 +1,8 @@
 //// Target: Erlang only — as-of org-board handler; runs the temporal join and maps rows to shared types.
 ////
-//// The board snapshot is assembled from two Squirrel queries (ARCHITECTURE.md §5):
-//// `board_as_of` (employed + allocated engineers, leave-suppressed) and
+//// The board snapshot is assembled from three Squirrel queries (ARCHITECTURE.md §5),
+//// one per Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),
+//// `board_unassigned_as_of` (employed, not allocated, not on leave), and
 //// `board_leave_as_of` (the engineers a covering leave fact hides from the first).
 //// Each maps to the shared `BoardRow`/`Engagement` contract; the merged list is
 //// sorted by engineer so the wire order is deterministic for the client and tests.
@@ -17,7 +18,7 @@ import pog
 import shared/codecs
 import shared/types.{
   type AsOf, type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave,
-  OnProject,
+  OnProject, Unassigned,
 }
 import tempo/server/context.{type Context}
 import tempo/server/date
@@ -52,12 +53,14 @@ pub fn snapshot(
 ) -> Result(BoardSnapshot, pog.QueryError) {
   let day = date.as_of_to_calendar(as_of)
   use board <- result.try(sql.board_as_of(context.db, day))
+  use unassigned <- result.try(sql.board_unassigned_as_of(context.db, day))
   use leave <- result.try(sql.board_leave_as_of(context.db, day))
   let rows =
-    list.append(
+    list.flatten([
       list.map(board.rows, board_row_to_shared),
+      list.map(unassigned.rows, unassigned_row_to_shared),
       list.map(leave.rows, leave_row_to_shared),
-    )
+    ])
     |> list.sort(by_engineer)
   Ok(BoardSnapshot(as_of:, rows:))
 }
@@ -78,6 +81,12 @@ fn board_row_to_shared(row: sql.BoardAsOfRow) -> BoardRow {
       valid_to: date.from_calendar(row.valid_to),
     ),
   )
+}
+
+/// Map an unassigned board row (employed, no allocation, not on leave) to the
+/// shared `BoardRow`/`Unassigned` contract.
+fn unassigned_row_to_shared(row: sql.BoardUnassignedAsOfRow) -> BoardRow {
+  BoardRow(engineer: row.engineer, level: row.level, engagement: Unassigned)
 }
 
 /// Map an on-leave board row to the shared `BoardRow`/`OnLeave` contract. The

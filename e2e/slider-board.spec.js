@@ -11,9 +11,10 @@ const { test, expect } = require("@playwright/test");
 // never CSS classes, ids, or DOM structure.
 //
 //   2024-01-01 = day 19723 (slider min)   2026-06-15 = day 20619 (seed "now")
-//   2026-06-01 = day 20605                 2026-07-15 = day 20649
-//   2026-12-31 = day 20818 (slider max)
+//   2024-06-01 = day 19875                 2026-07-15 = day 20649
+//   2026-06-01 = day 20605                 2026-12-31 = day 20818 (slider max)
 const DAY = {
+  "2024-06-01": "19875",
   "2026-06-01": "20605",
   "2026-06-15": "20619",
   "2026-07-15": "20649",
@@ -99,4 +100,17 @@ test("the board changes as the slider moves", async ({ page }) => {
 
   await scrubTo(page, "2026-06-15");
   await expectEngineerLine(page, "Aisha Okafor", "On leave: annual");
+});
+
+test("an employed but unallocated engineer is shown as Unassigned", async ({
+  page,
+}) => {
+  // FR-1 regression: scrubbing into 2024 — when Marcus is employed but not yet on
+  // any project and not on leave — must show him as "Unassigned". This case
+  // previously made GET /api/board return 500 (the board's only NULL-allocation
+  // path). Priya is already on Ledger Migration then.
+  await scrubTo(page, "2024-06-01");
+  await expectEngineerLine(page, "Marcus Chen", "Unassigned");
+  await expectEngineerLine(page, "Priya Sharma", "Ledger Migration for Northwind Trading");
+  await expectNoEngineerLine(page, "Marcus Chen", "Data Platform");
 });

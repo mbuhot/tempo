@@ -28,11 +28,17 @@ pub type BoardAsOfRow {
   )
 }
 
-/// board_as_of.sql — the as-of org board (ARCHITECTURE.md §5, PRD FR-1/FR-4).
+/// board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
+/// $1::date (ARCHITECTURE.md §5, PRD FR-1/FR-4). One row per (engineer × project).
 ///
-/// One row per (engineer × allocated project) that is true as of $1::date. Leave
-/// takes precedence: any engineer with a `leave` fact covering the date is
-/// suppressed here (NOT EXISTS) and surfaced by board_leave_as_of.sql instead.
+/// This is the "engaged" slice of the board; it returns only fully-engaged rows
+/// (INNER JOINs throughout), so every column is non-null. Two companion queries
+/// complete the board so every employed engineer is represented exactly once per
+/// engagement:
+/// * board_unassigned_as_of.sql — employed, not on leave, with no allocation
+/// * board_leave_as_of.sql       — covered by a leave fact (leave overrides)
+/// Engineers with a covering leave fact are suppressed here (NOT EXISTS) and
+/// surfaced by board_leave_as_of.sql instead.
 ///
 /// Charge rate is resolved from engineer_role × rate_card as of the date (the
 /// two-hop temporal join, ADR-009). It is exposed as a plain `day_rate` value on
@@ -41,8 +47,7 @@ pub type BoardAsOfRow {
 ///
 /// Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
 /// engagement window is `lower(al.valid_at)`/`upper(al.valid_at)` AS
-/// valid_from/valid_to. An employed engineer with no allocation as of the date
-/// yields a row with null project/client/fraction/day_rate/valid_from/valid_to.
+/// valid_from/valid_to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -72,11 +77,17 @@ pub fn board_as_of(
     ))
   }
 
-  "-- board_as_of.sql — the as-of org board (ARCHITECTURE.md §5, PRD FR-1/FR-4).
+  "-- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
+-- $1::date (ARCHITECTURE.md §5, PRD FR-1/FR-4). One row per (engineer × project).
 --
--- One row per (engineer × allocated project) that is true as of $1::date. Leave
--- takes precedence: any engineer with a `leave` fact covering the date is
--- suppressed here (NOT EXISTS) and surfaced by board_leave_as_of.sql instead.
+-- This is the \"engaged\" slice of the board; it returns only fully-engaged rows
+-- (INNER JOINs throughout), so every column is non-null. Two companion queries
+-- complete the board so every employed engineer is represented exactly once per
+-- engagement:
+--   * board_unassigned_as_of.sql — employed, not on leave, with no allocation
+--   * board_leave_as_of.sql       — covered by a leave fact (leave overrides)
+-- Engineers with a covering leave fact are suppressed here (NOT EXISTS) and
+-- surfaced by board_leave_as_of.sql instead.
 --
 -- Charge rate is resolved from engineer_role × rate_card as of the date (the
 -- two-hop temporal join, ADR-009). It is exposed as a plain `day_rate` value on
@@ -85,8 +96,7 @@ pub fn board_as_of(
 --
 -- Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
 -- engagement window is `lower(al.valid_at)`/`upper(al.valid_at)` AS
--- valid_from/valid_to. An employed engineer with no allocation as of the date
--- yields a row with null project/client/fraction/day_rate/valid_from/valid_to.
+-- valid_from/valid_to.
 SELECT
   e.name AS engineer,
   rl.level,
@@ -97,13 +107,13 @@ SELECT
   lower(al.valid_at) AS valid_from,
   upper(al.valid_at) AS valid_to
 FROM employment emp
-JOIN engineer e            ON e.id = emp.engineer_id
-LEFT JOIN engineer_role rl ON rl.engineer_id = e.id  AND rl.valid_at @> $1::date
-LEFT JOIN rate_card rc     ON rc.level = rl.level     AND rc.valid_at @> $1::date
-LEFT JOIN allocation al    ON al.engineer_id = e.id   AND al.valid_at @> $1::date
-LEFT JOIN project pr       ON pr.id = al.project_id   AND pr.valid_at @> $1::date
-LEFT JOIN contract ct      ON ct.id = pr.contract_id  AND ct.valid_at @> $1::date
-LEFT JOIN client cl        ON cl.id = ct.client_id
+JOIN engineer e       ON e.id = emp.engineer_id
+JOIN engineer_role rl ON rl.engineer_id = e.id  AND rl.valid_at @> $1::date
+JOIN rate_card rc     ON rc.level = rl.level     AND rc.valid_at @> $1::date
+JOIN allocation al    ON al.engineer_id = e.id   AND al.valid_at @> $1::date
+JOIN project pr       ON pr.id = al.project_id   AND pr.valid_at @> $1::date
+JOIN contract ct      ON ct.id = pr.contract_id  AND ct.valid_at @> $1::date
+JOIN client cl        ON cl.id = ct.client_id
 WHERE emp.valid_at @> $1::date
   AND NOT EXISTS (
     SELECT 1 FROM leave lv
@@ -188,6 +198,69 @@ FROM leave lv
 JOIN engineer e            ON e.id = lv.engineer_id
 LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
 WHERE lv.valid_at @> $1::date
+ORDER BY e.name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `board_unassigned_as_of` query
+/// defined in `./src/tempo/server/sql/board_unassigned_as_of.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type BoardUnassignedAsOfRow {
+  BoardUnassignedAsOfRow(engineer: String, level: Int)
+}
+
+/// board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
+/// on leave as of $1::date (ARCHITECTURE.md §5, PRD FR-1). The third board slice
+/// alongside board_as_of (engaged) and board_leave_as_of (on leave); the client
+/// renders these as "Unassigned".
+///
+/// INNER JOIN engineer_role so `level` is non-null: an employed engineer always
+/// has a role in the seed (engineer_role spans employment). All columns non-null,
+/// so the row decodes without Option plumbing.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn board_unassigned_as_of(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(BoardUnassignedAsOfRow), pog.QueryError) {
+  let decoder = {
+    use engineer <- decode.field(0, decode.string)
+    use level <- decode.field(1, decode.int)
+    decode.success(BoardUnassignedAsOfRow(engineer:, level:))
+  }
+
+  "-- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
+-- on leave as of $1::date (ARCHITECTURE.md §5, PRD FR-1). The third board slice
+-- alongside board_as_of (engaged) and board_leave_as_of (on leave); the client
+-- renders these as \"Unassigned\".
+--
+-- INNER JOIN engineer_role so `level` is non-null: an employed engineer always
+-- has a role in the seed (engineer_role spans employment). All columns non-null,
+-- so the row decodes without Option plumbing.
+SELECT
+  e.name AS engineer,
+  rl.level
+FROM employment emp
+JOIN engineer e       ON e.id = emp.engineer_id
+JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
+WHERE emp.valid_at @> $1::date
+  AND NOT EXISTS (
+    SELECT 1 FROM allocation al
+    WHERE al.engineer_id = e.id AND al.valid_at @> $1::date
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM leave lv
+    WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date
+  )
 ORDER BY e.name;
 "
   |> pog.query
