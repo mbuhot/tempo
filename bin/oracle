@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Run the migration oracle: assert the board is identical for every seed date
+# across v1 -> v2. Rebuilds the public schema; leaves the DB at v2-split.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && gleam run -m tempo/oracle

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Run the Gleam test suite (layers 1-4) and check formatting.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && gleam test && gleam format --check src test

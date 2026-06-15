@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Regenerate typed sql.gleam from the .sql sources by introspecting the live DB.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5434/tempo gleam run -m squirrel

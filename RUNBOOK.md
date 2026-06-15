@@ -18,7 +18,7 @@ user sees), so you do **not** switch tags except where beat 6 says to.
 ## The fixed clock and the cast
 
 Nothing here uses the wall clock. The seed pins **"now" = 2026-06-15**
-(`priv/migrations/003_seed.sql`); the slider, the board, and every test anchor to
+(`server/priv/migrations/003_seed.sql`); the slider, the board, and every test anchor to
 it. The slider spans **2024-01-01 → 2026-12-31** (the seed range; the open upper
 bound 2027-01-01 makes 2026-12-31 the last selectable day).
 
@@ -66,16 +66,18 @@ alias tempodb='psql -h 127.0.0.1 -p 5434 -U tempo -d tempo'
 
 ## One-time setup (talk-machine, clean checkout)
 
-Run from the repo root, on `main` (= the `v2-split` state). **For a clean dry run
-start from an empty database** — the migration runner is forward-only and will not
-re-seed an already-migrated DB:
+Run from the repo root, on `main` (= the `v2-split` state). The Gleam server lives
+in `server/` (path-depends on `../shared`); the client is built from `client/`; the
+Playwright harness lives in `e2e/`. Thin `bin/` wrappers at the repo root `cd` into
+the right package for each step. **For a clean dry run start from an empty database**
+— the migration runner is forward-only and will not re-seed an already-migrated DB:
 
 ```sh
 docker compose down -v && docker compose up -d   # wipe + fresh PG19 (skip the -v on the live machine if already seeded clean)
 
-gleam run -m tempo/migrate                        # schema 001-003 (+ 010 on main) + the v1 seed
-cd client && gleam run -m lustre/dev build client/app && cd ..   # build the SPA bundle → priv/static
-gleam run                                          # serve API + static assets on http://127.0.0.1:8000
+cd server && gleam run -m tempo/migrate           # schema 001-003 (+ 010 on main) + the v1 seed   (bin/migrate)
+cd client && gleam run -m lustre/dev build client/app   # build the SPA bundle → ../server/priv/static   (bin/build)
+cd server && gleam run                            # serve API + static assets on http://127.0.0.1:8000   (bin/serve)
 ```
 
 Open **http://127.0.0.1:8000**. The page boots **"As of 2026-06-15"** with the
@@ -84,9 +86,9 @@ org board and the "My timesheet" panel below it.
 Smoke-check before going live (each must be green — actually observed, never assumed):
 
 ```sh
-gleam test                       # 52 unit tests (DB constraint + as-of + codec layers)
-gleam run -m tempo/oracle        # migration oracle: board identical for every date v1→v2 (leaves DB at v2-split)
-npx playwright test              # 10 e2e specs, one per beat (needs the server running; see README)
+cd server && gleam test          # 52 unit tests (DB constraint + as-of + codec layers)   (bin/test)
+cd server && gleam run -m tempo/oracle   # migration oracle: board identical for every date v1→v2 (leaves DB at v2-split)   (bin/oracle)
+cd e2e && npx playwright test    # 10 e2e specs, one per beat (needs the server running; see README)   (bin/e2e)
 ```
 
 > The oracle **rebuilds the public schema to a fresh v1 seed and ends at
@@ -217,9 +219,9 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
    ```sh
    git checkout v1-wide
    docker compose down -v && docker compose up -d
-   gleam run -m tempo/migrate                                  # 001-003 only → v1-wide schema + seed
-   cd client && gleam run -m lustre/dev build client/app && cd ..
-   gleam run                                                   # serve v1-wide
+   cd server && gleam run -m tempo/migrate                     # 001-003 only → v1-wide schema + seed
+   cd client && gleam run -m lustre/dev build client/app
+   cd server && gleam run                                      # serve v1-wide
    ```
    Show `allocation` carries the denormalized **`day_rate`** cache and history is
    **fragmented** (adjacent rows differ only by the cached rate):
@@ -234,9 +236,9 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
 2. **Apply the migration → the "after".**
    ```sh
    git checkout v2-split
-   gleam run -m tempo/migrate                                  # applies 010_split_allocation forward
-   cd client && gleam run -m lustre/dev build client/app && cd ..
-   gleam run
+   cd server && gleam run -m tempo/migrate                     # applies 010_split_allocation forward
+   cd client && gleam run -m lustre/dev build client/app
+   cd server && gleam run
    ```
    `010_split_allocation.sql` **drops the `day_rate` cache** and **coalesces** the
    fragmented allocations into whole engagements with `range_agg` (rate is now
@@ -258,7 +260,7 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
    board parity for **every day** of the seed span (2024-01-01..2026-12-31) in CI,
    and the **same Playwright suite** passes unmodified on both tags:
    ```sh
-   gleam run -m tempo/oracle      # exits 0; board equal for every date v1→v2 (ends at v2-split)
+   cd server && gleam run -m tempo/oracle   # exits 0; board equal for every date v1→v2 (ends at v2-split)
    ```
 
 > **Return to `main` after the talk:** `git checkout main` (= the `v2-split`
@@ -268,7 +270,7 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
 
 Show the one chain that no ORM can express *and* keep typed end to end:
 
-1. **The Squirrel query** — `src/tempo/server/sql/board_as_of.sql` — the engaged
+1. **The Squirrel query** — `server/src/tempo/server/sql/board_as_of.sql` — the engaged
    as-of board: `INNER JOIN`s through `allocation → project → contract → client`
    and `engineer_role × rate_card`, with `valid_at @> $1::date` as the as-of
    predicate. None of `WITHOUT OVERLAPS`, `PERIOD` FK, `FOR PORTION OF`, or
@@ -291,12 +293,12 @@ rendered pixel; the SQL is cutting-edge and **you own it**.
 
 Observed-green on the talk machine — do not assume:
 
-- [ ] `docker compose up -d` → `tempo-db` healthy on 5434.
-- [ ] `gleam run -m tempo/migrate` → applies cleanly (fresh DB).
-- [ ] `cd client && gleam run -m lustre/dev build client/app` → "Bundle successfully built."
-- [ ] `gleam run` → page loads "As of 2026-06-15" with all three engineers.
+- [ ] `docker compose up -d` (or `bin/db`) → `tempo-db` healthy on 5434.
+- [ ] `cd server && gleam run -m tempo/migrate` (`bin/migrate`) → applies cleanly (fresh DB).
+- [ ] `cd client && gleam run -m lustre/dev build client/app` (`bin/build`) → "Bundle successfully built."
+- [ ] `cd server && gleam run` (`bin/serve`) → page loads "As of 2026-06-15" with all three engineers.
 - [ ] Beats 1–5 read as written above (scrub the dates, eyeball the sentences).
 - [ ] Beat 4 SQL runs and the slider shows $1600 inside / $1400 outside the window; undo restores it.
 - [ ] Beat 6 checkout/migrate/rebuild sequence rehearsed end to end on a fresh DB; boards match.
-- [ ] `gleam test` (52 pass), `gleam run -m tempo/oracle` (PASS), `npx playwright test` (10 pass).
+- [ ] `cd server && gleam test` (`bin/test`, 52 pass), `cd server && gleam run -m tempo/oracle` (`bin/oracle`, PASS), `cd e2e && npx playwright test` (`bin/e2e`, 10 pass).
 - [ ] Back on `main`, DB at v2-split, page re-loaded clean.

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Start the PG19 container (tempo-db) and wait until it reports healthy.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+docker compose up -d
+
+echo "Waiting for tempo-db to become healthy..."
+for _ in $(seq 1 30); do
+  status="$(docker inspect -f '{{.State.Health.Status}}' tempo-db 2>/dev/null || echo "starting")"
+  if [ "$status" = "healthy" ]; then
+    echo "tempo-db is healthy."
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "tempo-db did not become healthy in time." >&2
+exit 1

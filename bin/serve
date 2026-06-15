@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Start the Wisp server (serves the JSON API + the static client bundle on :8000).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && gleam run

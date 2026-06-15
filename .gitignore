@@ -1,26 +1,23 @@
 *.beam
 *.ez
-/build
 erl_crash.dump
 
-#Added automatically by Lustre Dev Tools
-/.lustre
-/dist
-
-# Playwright (e2e harness)
-/node_modules
-/test-results
-/playwright-report
-/blob-report
-/playwright/.cache
-
-# Generated client bundle (built from the client package into the server's priv/static)
-/priv/static/app.js
-
-# Sibling packages (ADR-014): keep each gleam.toml + src; ignore build artifacts.
+# Gleam build artifacts (one per package; manifest.toml is tracked only for the
+# root server package, ignored for the path-dep siblings client/ and shared/).
+/server/build
 /client/build
 /client/.lustre
 /client/dist
-/client/manifest.toml
 /shared/build
+/client/manifest.toml
 /shared/manifest.toml
+
+# Generated client bundle (built from the client package into the server's priv/static)
+/server/priv/static/app.js
+
+# Playwright (e2e harness)
+/e2e/node_modules
+/e2e/test-results
+/e2e/playwright-report
+/e2e/blob-report
+/e2e/playwright/.cache

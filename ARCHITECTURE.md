@@ -36,24 +36,36 @@ A schema change that breaks a query is caught at **codegen/compile time**; a con
 
 ## 3. Project structure
 
-The repo is a **three-package Gleam workspace** (ADR-014): the root `tempo` server package and two
-siblings, `shared/` and `client/`, wired by path dependencies (no symlinks — portable on any clone
-and in CI).
+The repo is a **four-package layout** (ADR-014): three sibling Gleam packages — `server/`, `shared/`,
+and `client/` — wired by path dependencies (no symlinks — portable on any clone and in CI), plus the
+`e2e/` Playwright (Node) harness. The repo root holds only orchestration: `bin/` task wrappers,
+`docker-compose.yml` (the PG19 container), `plan/` (the build plan), and the design docs.
 
 ```
-gleam.toml                    # root package `tempo` (server, Erlang target);
-                              #   depends on shared = { path = "./shared" }
-src/
-  tempo.gleam                 # server entrypoint (gleam run, Erlang target)
-  tempo/
-    server/                   # Erlang target only
-      router.gleam            #   Wisp routes
-      context.gleam           #   pog connection pool
-      board.gleam             #   as-of board handler
-      timesheet.gleam         #   timesheet read + write handlers
-      sql/                    #   Squirrel .sql sources → generated sql.gleam
-      migrate.gleam           #   numbered-migration runner
-    migrate.gleam             # numbered-migration runner entrypoint
+bin/                          # thin task wrappers run from the repo root; each cd's
+                              #   into the right package: db, migrate, serve, test,
+                              #   build, e2e, oracle, squirrel
+docker-compose.yml            # PG19 (tempo-db) on host port 5434
+plan/                         # phased build plan
+PRD.md ARCHITECTURE.md DECISIONS.md README.md RUNBOOK.md   # design + run docs
+
+server/                       # package `tempo` — the Wisp server (Erlang target)
+  gleam.toml                  #   depends on shared = { path = "../shared" }
+  src/
+    tempo.gleam               #   server entrypoint (gleam run, Erlang target)
+    tempo/
+      oracle.gleam            #   migration-oracle entrypoint (gleam run -m tempo/oracle)
+      server/                 #   Erlang target only
+        router.gleam          #     Wisp routes
+        context.gleam         #     pog connection pool
+        board.gleam           #     as-of board handler
+        timesheet.gleam       #     timesheet read + write handlers
+        sql/                  #     Squirrel .sql sources → generated sql.gleam
+        migrate.gleam         #     numbered-migration runner (gleam run -m tempo/migrate)
+  test/                       #   layers 1–4 (constraint, oracle helpers, as-of, codec)
+  priv/
+    migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql
+    static/                   #   compiled client bundle (app.js) + index.html + styles.css
 
 shared/                       # package `shared` — BOTH targets, target-agnostic
   gleam.toml                  #   deps: gleam_stdlib, gleam_json only
@@ -64,31 +76,36 @@ shared/                       # package `shared` — BOTH targets, target-agnost
 client/                       # package `client` — JavaScript target only
   gleam.toml                  #   deps: lustre, rsvp, gleam_json, gleam_time,
                               #     shared = { path = "../shared" }; dev: lustre_dev_tools
-                              #   [tools.lustre.build] outdir = "../priv/static", no_html
+                              #   [tools.lustre.build] outdir = "../server/priv/static", no_html
   src/client/
     app.gleam                 #   Lustre model/update/view; the time slider; both views
 
-priv/
-  migrations/                 # 001_init.sql, 002_seed.sql, … 010_split_allocation.sql
-  static/                     # compiled client bundle (app.js) + index.html
+e2e/                          # Playwright harness (Node) — drives the real app
+  package.json                #   @playwright/test
+  playwright.config.js        #   testDir "." → the *.spec.js below
+  slider-board.spec.js        #   org board / slider beats
+  timesheet.spec.js           #   my-timesheet beats (incl. the negative beat)
 ```
 
-**Why three packages (per-package, per-target compilation).** Gleam 1.17 compiles a *whole package*
-per target, with **no per-module target exclusion** (`@target`, `internal_modules`, etc. do not gate
-the JS compile). A single package therefore cannot build the JS client: `lustre/dev build` runs
-`gleam build --target javascript`, which type-checks **every** module in the package for JS —
+**Why three Gleam packages (per-package, per-target compilation).** Gleam 1.17 compiles a *whole
+package* per target, with **no per-module target exclusion** (`@target`, `internal_modules`, etc. do
+not gate the JS compile). A single package therefore cannot build the JS client: `lustre/dev build`
+runs `gleam build --target javascript`, which type-checks **every** module in the package for JS —
 including the Erlang-only server subtree (`pog`, `wisp`, `mist`, `gleam_otp`, plus the
 Squirrel-generated `sql.gleam` with its bare `@external(erlang, …)` calls) — and fails with
 "Unsupported target" errors. (This disproved the P0/ADR-005 assumption that import discipline alone
-would keep the client JS build clean; see P4-T01 and ADR-014.) Splitting the workspace fixes it:
+would keep the client JS build clean; see P4-T01 and ADR-014.) Splitting the packages fixes it:
 
 - The **`shared`** package depends only on target-agnostic hex packages (gleam_stdlib, gleam_json),
   so it compiles for **both** Erlang and JS and is the single source of the API contract.
 - The **`client`** package (JS) path-depends on `shared` and **never** on the server package, so its
   JS dependency graph contains no Erlang-only code. Built with
-  `cd client && gleam run -m lustre/dev build client/app`; the bundle is emitted to `../priv/static`.
-- The **server** (root `tempo`) builds for Erlang (`gleam run`), path-depends on `shared`, and never
-  depends on `client`. `sql.gleam` stays Squirrel-generated and untouched.
+  `cd client && gleam run -m lustre/dev build client/app`; the bundle is emitted to
+  `../server/priv/static`.
+- The **`server`** package (`tempo`) builds for Erlang (`cd server && gleam run`), path-depends on
+  `shared`, and never depends on `client`. `sql.gleam` stays Squirrel-generated and untouched.
+- The **`e2e`** Playwright harness is target-agnostic Node and drives the running app over HTTP
+  (`cd e2e && npx playwright test`), so it depends on no Gleam package at all.
 
 ## 4. Data model (v2 — the target schema)
 
@@ -196,7 +213,7 @@ All temporal columns are `daterange`; the as-of predicate is `valid_at @> $when:
 
 **Org board, as of a date.** The board is **three** as-of queries, one per `Engagement`
 variant of the shared `BoardRow`, merged and re-sorted by engineer name in
-`board.snapshot` (`src/tempo/server/board.gleam`). Every employed engineer is represented
+`board.snapshot` (`server/src/tempo/server/board.gleam`). Every employed engineer is represented
 **exactly once** as of any date: allocated (one row per project), unassigned, or on leave.
 The split is forced by Squirrel typing — a `LEFT JOIN`ed column comes back as non-null, so
 a single `LEFT JOIN` board query cannot represent the employed-but-unallocated row and
@@ -292,8 +309,8 @@ VALUES ($1, $2, daterange($3::date, ($3::date + 1), '[)'), $4);
 
 ## 6. Squirrel integration
 
-- `.sql` query sources live in `src/tempo/server/sql/`; `gleam run -m squirrel` generates
-  `sql.gleam` with one typed function per file.
+- `.sql` query sources live in `server/src/tempo/server/sql/`; `cd server && gleam run -m squirrel`
+  generates `sql.gleam` with one typed function per file (`bin/squirrel`).
 - **Range boundary.** Squirrel maps the standard scalar types cleanly; to avoid relying on
   `daterange`/`datemultirange` mapping, queries **return** `lower(valid_at) AS valid_from` /
   `upper(valid_at) AS valid_to` (plain `date`) and **accept** ranges constructed in SQL
@@ -340,8 +357,8 @@ are identical before and after. Proven on stage by scrubbing across the migratio
 
 ## 8. Migrations mechanism
 
-- Numbered, hand-written SQL in `priv/migrations/` (`NNN_description.sql`), applied in order.
-- `src/tempo/server/migrate.gleam` runs pending files in a transaction and records them in a
+- Numbered, hand-written SQL in `server/priv/migrations/` (`NNN_description.sql`), applied in order.
+- `server/src/tempo/server/migrate.gleam` runs pending files in a transaction and records them in a
   `schema_migrations(version text primary key, applied_at timestamptz)` table.
 - Git tags mark schema generations: `v1-wide`, `v2-split`. The presenter does
   `git checkout v2-split && gleam run -m tempo/migrate && <rebuild client>`. Squirrel-generated code
@@ -350,17 +367,20 @@ are identical before and after. Proven on stage by scrubbing across the migratio
 ## 9. Build & run
 
 ```sh
-# database (PG19): create + migrate + seed
-gleam run -m tempo/migrate
+# database (PG19): start the tempo-db container (from the repo root)
+docker compose up -d                                # bin/db
+
+# create + migrate + seed (Gleam server lives in server/, path-deps ../shared)
+cd server && gleam run -m tempo/migrate             # bin/migrate
 
 # regenerate typed SQL after schema changes
-gleam run -m squirrel
+cd server && gleam run -m squirrel                  # bin/squirrel
 
-# client bundle → priv/static (from the JS `client` package, ADR-014)
-cd client && gleam run -m lustre/dev build client/app && cd ..
+# client bundle → ../server/priv/static (from the JS `client` package, ADR-014)
+cd client && gleam run -m lustre/dev build client/app   # bin/build
 
-# server (serves JSON API + static assets; from the repo root)
-gleam run
+# server (serves JSON API + static assets; from the server/ package)
+cd server && gleam run                              # bin/serve
 ```
 
 ## 10. Testing
@@ -422,9 +442,10 @@ is written and maintained continuously through development, not added at the end
 **Determinism.** "Now" is a fixed seed date, not the system clock; the seed uses explicit
 names/dates/rates (no factory sequences in assertions), so every layer is reproducible.
 
-**Provisioning / CI.** Ephemeral PG19 per run (container / CI service). Extend
-`.github/workflows/test.yml`: provision PG19 → `gleam test` (layers 1–4) → build client + start
-server → seed `v1-wide` and run `npx playwright test` → apply the migration to that data
+**Provisioning / CI.** Ephemeral PG19 per run (container / CI service). `.github/workflows/test.yml`
+runs each step in its package's working directory: provision PG19 → `gleam test` (layers 1–4) in
+`server/` → build the client in `client/` (bundle → `../server/priv/static`) → run the oracle in
+`server/` → seed `v1-wide` and run `npx playwright test` in `e2e/` → apply the migration to that data
 (`v2-split`) and run the **same** suite again. Both Playwright passes must be green.
 
 ## 11. Open spikes (resolve during planning)

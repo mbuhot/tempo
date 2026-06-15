@@ -29,7 +29,7 @@ simplifile = ">= 2.4.0 and < 3.0.0"
 filepath = ">= 1.1.2 and < 2.0.0"
 gleam_time = ">= 1.8.0 and < 2.0.0"
 gleam_http = ">= 4.3.0 and < 5.0.0"
-shared = { path = "./shared" }
+shared = { path = "../shared" }
 
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

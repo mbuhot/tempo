@@ -25,5 +25,5 @@ lustre_dev_tools = ">= 2.3.6 and < 3.0.0"
 # priv/static/index.html (which loads /static/app.js to match Wisp's static mount)
 # from being overwritten by the generated shell.
 [tools.lustre.build]
-outdir = "../priv/static"
+outdir = "../server/priv/static"
 no_html = true

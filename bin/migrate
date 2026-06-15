@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Apply pending numbered migrations (schema + seed) against the dev DB.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && gleam run -m tempo/migrate

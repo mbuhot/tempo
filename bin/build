@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Build the Lustre client bundle into ../server/priv/static (served under /static).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd client && gleam run -m lustre/dev build client/app

@@ -16,7 +16,7 @@ const { defineConfig, devices } = require("@playwright/test");
 const baseURL = process.env.TEMPO_BASE_URL ?? "http://127.0.0.1:8000";
 
 module.exports = defineConfig({
-  testDir: "./e2e",
+  testDir: ".",
   // Deterministic CI: fail the build if a `test.only` is left in the source.
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

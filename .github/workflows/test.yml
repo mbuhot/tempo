@@ -64,6 +64,7 @@ jobs:
           cache: npm
 
       - run: gleam deps download
+        working-directory: server
 
       # --- Gleam layers 1-4: 52 unit tests against a seeded PG19 -----------
       # The migration runner applies 001 -> 002 -> 003 (v1-wide schema + seed) and
@@ -71,18 +72,24 @@ jobs:
       # is verified against (ARCHITECTURE.md §10.1-§10.4). `gleam test` covers the
       # temporal-constraint, as-of query, and shared-codec layers, plus the migrate
       # runner's idempotency check (which re-runs `migrate.run` and asserts nothing
-      # new is applied).
+      # new is applied). Gleam runs in the server/ package (path-depends on
+      # ../shared, ADR-014).
       - name: Apply migrations (001-010 -> v2-split)
         run: gleam run -m tempo/migrate
+        working-directory: server
       - name: Gleam tests (layers 1-4)
         run: gleam test
+        working-directory: server
       - name: Gleam format check
         run: gleam format --check src test
+        working-directory: server
 
       # --- build the client bundle ----------------------------------------
-      # Build the Lustre client into priv/static from the JS `client` package
-      # (path-depends on `shared`, ADR-014), which Wisp serves under /static. Built
-      # once here and reused by both Playwright passes below.
+      # Build the Lustre client into the server's priv/static from the JS `client`
+      # package (path-depends on `shared`, ADR-014), which Wisp serves under
+      # /static. The bundle is emitted to ../server/priv/static via the client's
+      # [tools.lustre.build] outdir. Built once here and reused by both Playwright
+      # passes below.
       - name: Build the Lustre client bundle
         run: gleam run -m lustre/dev build client/app
         working-directory: client
@@ -95,6 +102,7 @@ jobs:
       # on the first differing date, failing the job. Leaves the DB at v2-split.
       - name: Migration oracle (board identical across v1 -> v2)
         run: gleam run -m tempo/oracle
+        working-directory: server
 
       # --- Playwright browser cache ---------------------------------------
       # Cache the downloaded chromium build, keyed on the @playwright/test version
@@ -104,13 +112,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
       - name: Install the Playwright harness
         run: npm ci
+        working-directory: e2e
       - name: Install Playwright chromium (+ OS deps)
         # On a cache hit the browser binary is already present; --with-deps still
         # installs the OS libraries chromium needs, which are not cached.
         run: npx playwright install --with-deps chromium
+        working-directory: e2e
 
       # --- Playwright pass 1: v1-wide -------------------------------------
       # The behaviour-driven suite (one spec per demo beat, PRD §7) must be green
@@ -121,6 +131,7 @@ jobs:
       # step before pass 2 sees 001-003 as done and applies only 010. psql handles
       # the dollar-quoted blocks in 003_seed.sql natively.
       - name: Seed the v1-wide DB (migrations 001-003 only)
+        working-directory: server
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
@@ -130,6 +141,7 @@ jobs:
             psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO schema_migrations (version) VALUES ('${version}.sql');"
           done
       - name: Start the server (v1-wide)
+        working-directory: server
         run: |
           gleam run > /tmp/tempo-server.log 2>&1 &
           for i in $(seq 1 60); do
@@ -139,13 +151,14 @@ jobs:
           echo "server did not come up"; cat /tmp/tempo-server.log; exit 1
       - name: Playwright suite (v1-wide)
         run: npx playwright test
+        working-directory: e2e
         env:
           TEMPO_BASE_URL: http://127.0.0.1:8000
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-v1-wide
-          path: playwright-report/
+          path: e2e/playwright-report/
           retention-days: 7
 
       # --- Playwright pass 2: v2-split ------------------------------------
@@ -157,13 +170,15 @@ jobs:
       # sees 001-003 already recorded and applies only 010.
       - name: Apply the migration to v2-split
         run: gleam run -m tempo/migrate
+        working-directory: server
       - name: Playwright suite (v2-split)
         run: npx playwright test
+        working-directory: e2e
         env:
           TEMPO_BASE_URL: http://127.0.0.1:8000
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-v2-split
-          path: playwright-report/
+          path: e2e/playwright-report/
           retention-days: 7
