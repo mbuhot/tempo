@@ -335,7 +335,18 @@ seed v1  →  snapshot board for every date in a dense range  →  apply 010_spl
          →  re-snapshot  →  assert equal for every date
 ```
 
-Makes "history is provably intact" a CI gate, not a hope.
+Makes "history is provably intact" a CI gate, not a hope. Implemented as
+`tempo/oracle` and run **in isolation** — `gleam run -m tempo/oracle` — because it
+drops and rebuilds the `public` schema (a fresh v1 seed) and so cannot share the
+`gleam test` DB. It samples every day of the seed span (2024-01-01 .. 2026-12-31)
+and compares the *user-visible* board only (engineer/level/project/client/
+fraction/rate); the engagement window `valid_from`/`valid_to` is deliberately
+excluded because the coalesce is supposed to merge it (§7) and the client never
+shows it. To stay faithful, the snapshot runs the production `board_as_of.sql`
+text (no re-typed query) and renders each date's board NULL-tolerantly, handling
+the employed-but-unallocated row. It exits non-zero (panics) on the first
+differing date and leaves the DB at v2-split (same end state as
+`gleam run -m tempo/migrate`).
 
 **3. As-of query tests.** Crafted seed + fixed dates → exact expected board / timesheet-form rows.
 

@@ -72,7 +72,7 @@ pub fn board_as_of_now_returns_snapshot_test() {
           fraction: 1.0,
           day_rate: 1000.0,
           valid_from: Date(2025, 1, 1),
-          valid_to: Date(2026, 7, 1),
+          valid_to: Date(2027, 1, 1),
         ),
       ),
       BoardRow(
@@ -84,7 +84,7 @@ pub fn board_as_of_now_returns_snapshot_test() {
           fraction: 0.5,
           day_rate: 1200.0,
           valid_from: Date(2025, 6, 1),
-          valid_to: Date(2026, 7, 1),
+          valid_to: Date(2027, 1, 1),
         ),
       ),
       BoardRow(
@@ -96,7 +96,7 @@ pub fn board_as_of_now_returns_snapshot_test() {
           fraction: 0.5,
           day_rate: 1200.0,
           valid_from: Date(2024, 1, 1),
-          valid_to: Date(2026, 7, 1),
+          valid_to: Date(2027, 1, 1),
         ),
       ),
     ])
@@ -141,7 +141,7 @@ pub fn timesheet_read_returns_day_test() {
         fraction: 0.5,
         hours: 4.0,
         valid_from: Date(2025, 6, 1),
-        valid_to: Date(2026, 7, 1),
+        valid_to: Date(2027, 1, 1),
       ),
       TimesheetLine(
         project_id: 100,
@@ -149,7 +149,7 @@ pub fn timesheet_read_returns_day_test() {
         fraction: 0.5,
         hours: 4.0,
         valid_from: Date(2024, 1, 1),
-        valid_to: Date(2026, 7, 1),
+        valid_to: Date(2027, 1, 1),
       ),
     ])
 }

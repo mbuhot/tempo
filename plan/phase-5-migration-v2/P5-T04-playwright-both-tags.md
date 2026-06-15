@@ -2,10 +2,10 @@
 id: P5-T04
 phase: 5
 title: Same Playwright suite green on both tags
-status: todo
+status: done
 depends_on: [P5-T02, P5-T03]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P5-T04 — Same Playwright suite green on both tags

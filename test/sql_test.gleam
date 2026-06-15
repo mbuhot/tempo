@@ -61,7 +61,7 @@ pub fn board_as_of_past_test() {
         fraction: 1.0,
         day_rate: 1000.0,
         valid_from: Date(2025, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
       sql.BoardAsOfRow(
         engineer: "Priya Sharma",
@@ -71,7 +71,7 @@ pub fn board_as_of_past_test() {
         fraction: 0.5,
         day_rate: 1200.0,
         valid_from: Date(2024, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
     ]
 }
@@ -92,7 +92,7 @@ pub fn board_as_of_now_test() {
         fraction: 1.0,
         day_rate: 1000.0,
         valid_from: Date(2025, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
       sql.BoardAsOfRow(
         engineer: "Priya Sharma",
@@ -102,7 +102,7 @@ pub fn board_as_of_now_test() {
         fraction: 0.5,
         day_rate: 1200.0,
         valid_from: Date(2025, June, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
       sql.BoardAsOfRow(
         engineer: "Priya Sharma",
@@ -112,7 +112,7 @@ pub fn board_as_of_now_test() {
         fraction: 0.5,
         day_rate: 1200.0,
         valid_from: Date(2024, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
     ]
 }
@@ -142,7 +142,7 @@ pub fn board_as_of_future_test() {
         client: "Globex Corporation",
         fraction: 1.0,
         day_rate: 1400.0,
-        valid_from: Date(2026, July, 1),
+        valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
       sql.BoardAsOfRow(
@@ -152,7 +152,7 @@ pub fn board_as_of_future_test() {
         client: "Northwind Trading",
         fraction: 0.5,
         day_rate: 1400.0,
-        valid_from: Date(2026, July, 1),
+        valid_from: Date(2025, June, 1),
         valid_to: Date(2027, January, 1),
       ),
       sql.BoardAsOfRow(
@@ -162,7 +162,7 @@ pub fn board_as_of_future_test() {
         client: "Northwind Trading",
         fraction: 0.5,
         day_rate: 1400.0,
-        valid_from: Date(2026, July, 1),
+        valid_from: Date(2024, January, 1),
         valid_to: Date(2027, January, 1),
       ),
     ]
@@ -209,7 +209,7 @@ pub fn timesheet_form_with_logged_hours_test() {
         fraction: 0.5,
         hours: 4.0,
         valid_from: Date(2025, June, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
       sql.TimesheetFormRow(
         project_id: 100,
@@ -217,7 +217,7 @@ pub fn timesheet_form_with_logged_hours_test() {
         fraction: 0.5,
         hours: 4.0,
         valid_from: Date(2024, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
     ]
 }
@@ -234,7 +234,7 @@ pub fn timesheet_form_unlogged_day_test() {
         fraction: 0.5,
         hours: 0.0,
         valid_from: Date(2025, June, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
       sql.TimesheetFormRow(
         project_id: 100,
@@ -242,7 +242,7 @@ pub fn timesheet_form_unlogged_day_test() {
         fraction: 0.5,
         hours: 0.0,
         valid_from: Date(2024, January, 1),
-        valid_to: Date(2026, July, 1),
+        valid_to: Date(2027, January, 1),
       ),
     ]
 }

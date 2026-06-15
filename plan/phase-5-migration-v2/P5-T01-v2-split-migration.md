@@ -2,10 +2,10 @@
 id: P5-T01
 phase: 5
 title: v2-split migration (coalesce)
-status: todo
+status: done
 depends_on: [P4-T04]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P5-T01 — v2-split migration (coalesce)

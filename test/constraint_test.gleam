@@ -154,10 +154,10 @@ pub fn overlapping_allocation_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, valid_at) VALUES "
+            "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) VALUES "
               <> "("
               <> int.to_string(engineer_id)
-              <> ", 8001, 0.50, 1000.00, daterange('2026-01-01','2026-06-01'))",
+              <> ", 8001, 0.50, daterange('2026-01-01','2026-06-01'))",
           )
         Nil
       },
@@ -165,8 +165,8 @@ pub fn overlapping_allocation_is_rejected_test() {
         // Overlaps [2026-01-01,2026-06-01) on 2026-05.
         exec(
           conn,
-          "INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, valid_at) "
-            <> "SELECT engineer_id, project_id, fraction, day_rate, daterange('2026-05-01','2026-08-01') "
+          "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) "
+            <> "SELECT engineer_id, project_id, fraction, daterange('2026-05-01','2026-08-01') "
             <> "FROM allocation WHERE project_id = 8001",
         )
       },
@@ -578,10 +578,10 @@ fn insert_allocation_for(
 ) -> Result(Nil, pog.QueryError) {
   exec(
     conn,
-    "INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, valid_at) "
+    "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) "
       <> "SELECT emp.engineer_id, "
       <> int.to_string(project_id)
-      <> ", 0.50, 1000.00, daterange('"
+      <> ", 0.50, daterange('"
       <> valid_from
       <> "','"
       <> valid_to

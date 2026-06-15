@@ -41,6 +41,28 @@ gleam run                   # start the Wisp server (serves API + static assets)
 gleam test                  # run the test suite
 ```
 
+### Migration oracle (board provably identical across v1 → v2)
+
+The standout automated check (ARCHITECTURE.md §7, §10.2): it seeds a **fresh
+v1-wide** database, snapshots the org board for **every day** of the seed span
+(2024-01-01 .. 2026-12-31, 1096 dates), applies the `010_split_allocation`
+migration, re-snapshots, and asserts the user-visible board
+(engineer / level / project / client / fraction / charge rate) is **identical
+for every date** — failing loudly with the first differing date. It compares the
+user-visible columns only: the engagement window (`valid_from`/`valid_to`) is
+expected to change, because coalescing fragmented allocations into whole
+engagements is the whole point of the migration, and the client never renders it.
+
+It is **not** part of `gleam test`: it drops and rebuilds the `public` schema,
+which would tear down the seed the rest of the suite relies on. Run it on its own
+(it leaves the dev DB migrated to **v2-split**, the same end state as
+`gleam run -m tempo/migrate`):
+
+```sh
+docker compose up -d                                      # PG19
+gleam run -m tempo/oracle                                 # exits 0 on PASS, non-zero on a mismatch
+```
+
 ### Client (Lustre SPA)
 
 The repo is a **three-package workspace** (ADR-014): the root `tempo` server

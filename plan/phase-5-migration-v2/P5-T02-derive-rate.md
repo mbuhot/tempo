@@ -2,10 +2,10 @@
 id: P5-T02
 phase: 5
 title: Derive rate; regenerate queries/types
-status: todo
+status: done
 depends_on: [P5-T01]
 parallelizable_with: [P5-T03]
-agent: unassigned
+agent: workflow
 ---
 
 # P5-T02 — Derive rate; regenerate queries/types
