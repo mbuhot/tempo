@@ -8,7 +8,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/result
 import gleam/string
-import tempo/shared/types.{
+import shared/types.{
   type AsOf, type BoardRow, type BoardSnapshot, type Date, type Engagement,
   type TimesheetDay, type TimesheetLine, AsOf, BoardRow, BoardSnapshot, Date,
   OnLeave, OnProject, TimesheetDay, TimesheetLine, Unassigned,
@@ -223,4 +223,38 @@ pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
   use as_of <- decode.field("as_of", as_of_decoder())
   use lines <- decode.field("lines", decode.list(timesheet_line_decoder()))
   decode.success(TimesheetDay(engineer_id:, as_of:, lines:))
+}
+
+// --- Timesheet write --------------------------------------------------------
+// The POST /api/timesheet request body and the typed error body the handler
+// returns on rejection. Kept here so the client and server share one contract:
+// the client encodes the request with `encode_write_request` and the server's
+// `timesheet.write_request_decoder` reads exactly these keys.
+
+/// Encode a timesheet write request `{engineer_id, project_id, day, hours}` for
+/// POST /api/timesheet, with `day` as an ISO-8601 "YYYY-MM-DD" string.
+pub fn encode_write_request(
+  engineer_id engineer_id: Int,
+  project_id project_id: Int,
+  day day: Date,
+  hours hours: Float,
+) -> Json {
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("project_id", json.int(project_id)),
+    #("day", encode_date(day)),
+    #("hours", json.float(hours)),
+  ])
+}
+
+/// Pull the human-readable `detail` out of the handler's typed error body
+/// (`{error, detail}`), e.g. the PERIOD-FK rejection reason. Returns `Error(Nil)`
+/// if the body is not that shape.
+pub fn decode_error_detail(body: String) -> Result(String, Nil) {
+  let detail_decoder = {
+    use detail <- decode.field("detail", decode.string)
+    decode.success(detail)
+  }
+  json.parse(body, detail_decoder)
+  |> result.replace_error(Nil)
 }

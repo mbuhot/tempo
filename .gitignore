@@ -13,3 +13,14 @@ erl_crash.dump
 /playwright-report
 /blob-report
 /playwright/.cache
+
+# Generated client bundle (built from the client package into the server's priv/static)
+/priv/static/app.js
+
+# Sibling packages (ADR-014): keep each gleam.toml + src; ignore build artifacts.
+/client/build
+/client/.lustre
+/client/dist
+/client/manifest.toml
+/shared/build
+/shared/manifest.toml

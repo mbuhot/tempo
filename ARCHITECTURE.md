@@ -36,13 +36,16 @@ A schema change that breaks a query is caught at **codegen/compile time**; a con
 
 ## 3. Project structure
 
+The repo is a **three-package Gleam workspace** (ADR-014): the root `tempo` server package and two
+siblings, `shared/` and `client/`, wired by path dependencies (no symlinks — portable on any clone
+and in CI).
+
 ```
+gleam.toml                    # root package `tempo` (server, Erlang target);
+                              #   depends on shared = { path = "./shared" }
 src/
   tempo.gleam                 # server entrypoint (gleam run, Erlang target)
   tempo/
-    shared/                   # BOTH targets — must stay target-agnostic
-      types.gleam             #   domain/API types: Engineer, BoardRow, BoardSnapshot, AsOf, …
-      codecs.gleam            #   gleam/json encoders + gleam/dynamic/decode decoders
     server/                   # Erlang target only
       router.gleam            #   Wisp routes
       context.gleam           #   pog connection pool
@@ -50,21 +53,42 @@ src/
       timesheet.gleam         #   timesheet read + write handlers
       sql/                    #   Squirrel .sql sources → generated sql.gleam
       migrate.gleam           #   numbered-migration runner
-    client/                   # JavaScript target only (must NOT import server/*)
-      app.gleam               #   Lustre model/update/view; the time slider; both views
+    migrate.gleam             # numbered-migration runner entrypoint
+
+shared/                       # package `shared` — BOTH targets, target-agnostic
+  gleam.toml                  #   deps: gleam_stdlib, gleam_json only
+  src/shared/
+    types.gleam               #   domain/API types: BoardRow, BoardSnapshot, AsOf, …
+    codecs.gleam              #   gleam/json encoders + gleam/dynamic/decode decoders
+
+client/                       # package `client` — JavaScript target only
+  gleam.toml                  #   deps: lustre, rsvp, gleam_json, gleam_time,
+                              #     shared = { path = "../shared" }; dev: lustre_dev_tools
+                              #   [tools.lustre.build] outdir = "../priv/static", no_html
+  src/client/
+    app.gleam                 #   Lustre model/update/view; the time slider; both views
+
 priv/
   migrations/                 # 001_init.sql, 002_seed.sql, … 010_split_allocation.sql
-  static/                     # compiled client bundle + index.html
+  static/                     # compiled client bundle (app.js) + index.html
 ```
 
-**Target separation.** Gleam picks a target per build, so:
+**Why three packages (per-package, per-target compilation).** Gleam 1.17 compiles a *whole package*
+per target, with **no per-module target exclusion** (`@target`, `internal_modules`, etc. do not gate
+the JS compile). A single package therefore cannot build the JS client: `lustre/dev build` runs
+`gleam build --target javascript`, which type-checks **every** module in the package for JS —
+including the Erlang-only server subtree (`pog`, `wisp`, `mist`, `gleam_otp`, plus the
+Squirrel-generated `sql.gleam` with its bare `@external(erlang, …)` calls) — and fails with
+"Unsupported target" errors. (This disproved the P0/ADR-005 assumption that import discipline alone
+would keep the client JS build clean; see P4-T01 and ADR-014.) Splitting the workspace fixes it:
 
-- The **server** builds for Erlang (`gleam run`) and may compile every module (the Lustre client
-  compiles harmlessly on Erlang).
-- The **client** builds for JavaScript via `gleam run -m lustre/dev build tempo/client/app`, which
-  compiles only the client module's dependency graph — so it must import **only** `shared/*` and
-  JS-safe deps, never `server/*` (which pulls in pog/wisp).
-- The **`shared`** module must avoid target-specific externals so it compiles on both.
+- The **`shared`** package depends only on target-agnostic hex packages (gleam_stdlib, gleam_json),
+  so it compiles for **both** Erlang and JS and is the single source of the API contract.
+- The **`client`** package (JS) path-depends on `shared` and **never** on the server package, so its
+  JS dependency graph contains no Erlang-only code. Built with
+  `cd client && gleam run -m lustre/dev build client/app`; the bundle is emitted to `../priv/static`.
+- The **server** (root `tempo`) builds for Erlang (`gleam run`), path-depends on `shared`, and never
+  depends on `client`. `sql.gleam` stays Squirrel-generated and untouched.
 
 ## 4. Data model (v2 — the target schema)
 
@@ -283,10 +307,10 @@ gleam run -m tempo/migrate
 # regenerate typed SQL after schema changes
 gleam run -m squirrel
 
-# client bundle → priv/static
-gleam run -m lustre/dev build tempo/client/app
+# client bundle → priv/static (from the JS `client` package, ADR-014)
+cd client && gleam run -m lustre/dev build client/app && cd ..
 
-# server (serves JSON API + static assets)
+# server (serves JSON API + static assets; from the repo root)
 gleam run
 ```
 

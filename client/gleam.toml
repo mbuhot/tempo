@@ -1,0 +1,29 @@
+name = "client"
+version = "1.0.0"
+
+# JavaScript-target Lustre SPA package (ADR-014). Built with
+# `gleam run -m lustre/dev build client/app`, which compiles only this package's
+# dependency graph for JS. It path-depends on `shared` (the target-agnostic API
+# contract) and never on the root `tempo` server package, so the Erlang-only
+# server modules (pog/wisp/mist) are never type-checked for JS — the per-package
+# split is what makes the client bundle build at all (Gleam 1.17 compiles a whole
+# package per target with no per-module target exclusion).
+
+[dependencies]
+lustre = ">= 5.7.0 and < 6.0.0"
+rsvp = ">= 2.0.0 and < 3.0.0"
+gleam_json = ">= 3.1.0 and < 4.0.0"
+gleam_stdlib = ">= 1.0.3 and < 2.0.0"
+gleam_time = ">= 1.8.0 and < 2.0.0"
+shared = { path = "../shared" }
+
+[dev_dependencies]
+lustre_dev_tools = ">= 2.3.6 and < 3.0.0"
+
+# Emit the bundle into the root package's priv/static (served by Wisp under
+# /static), instead of Lustre's default `dist`. `no_html` keeps the hand-written
+# priv/static/index.html (which loads /static/app.js to match Wisp's static mount)
+# from being overwritten by the generated shell.
+[tools.lustre.build]
+outdir = "../priv/static"
+no_html = true

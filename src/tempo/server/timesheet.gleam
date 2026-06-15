@@ -15,14 +15,14 @@ import gleam/json
 import gleam/list
 import gleam/result
 import pog
-import tempo/server/context.{type Context}
-import tempo/server/date
-import tempo/server/sql
-import tempo/shared/codecs
-import tempo/shared/types.{
+import shared/codecs
+import shared/types.{
   type AsOf, type Date, type TimesheetDay, type TimesheetLine, AsOf,
   TimesheetDay, TimesheetLine,
 }
+import tempo/server/context.{type Context}
+import tempo/server/date
+import tempo/server/sql
 import wisp
 
 /// A validated timesheet write request: which engineer logs how many hours

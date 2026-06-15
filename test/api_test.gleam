@@ -16,13 +16,13 @@ import gleam/json
 import gleam/list
 import gleam/time/calendar
 import pog
-import tempo/server/context.{type Context, Context}
-import tempo/server/router
-import tempo/shared/codecs
-import tempo/shared/types.{
+import shared/codecs
+import shared/types.{
   type BoardSnapshot, type TimesheetDay, AsOf, BoardRow, BoardSnapshot, Date,
   OnLeave, OnProject, TimesheetDay, TimesheetLine,
 }
+import tempo/server/context.{type Context, Context}
+import tempo/server/router
 import wisp/simulate
 
 // --- context ----------------------------------------------------------------

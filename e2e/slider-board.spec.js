@@ -1,0 +1,102 @@
+const { test, expect } = require("@playwright/test");
+
+// Behaviour-driven coverage of the time slider + org board (PRD §7 beats 1–4,
+// FR-1..FR-4). Drives the real app (Wisp serving the Lustre SPA) against a
+// seeded PG19; the same assertions hold on both v1-wide and v2-split because
+// they reference only what the user sees.
+//
+// Determinism (ARCHITECTURE.md §10): the slider value is a unix-day index, so we
+// drive it to FIXED absolute seed dates rather than the wall clock. Assertions
+// are user-visible content only — the date shown and the sentence per engineer —
+// never CSS classes, ids, or DOM structure.
+//
+//   2024-01-01 = day 19723 (slider min)   2026-06-15 = day 20619 (seed "now")
+//   2026-06-01 = day 20605                 2026-07-15 = day 20649
+//   2026-12-31 = day 20818 (slider max)
+const DAY = {
+  "2026-06-01": "20605",
+  "2026-06-15": "20619",
+  "2026-07-15": "20649",
+};
+
+// Move the slider to a fixed seed day index and wait for the board to re-render
+// as of that date (the "As of YYYY-MM-DD" heading is the visible confirmation).
+async function scrubTo(page, isoDate) {
+  const slider = page.getByLabel("Board date");
+  await slider.fill(DAY[isoDate]);
+  await expect(
+    page.getByRole("heading", { name: `As of ${isoDate}` }),
+  ).toBeVisible();
+}
+
+// Build a regex matching the single visible line the board shows for one
+// engineer: their name, then (anywhere after it on the same line) the expected
+// fragment of their situation — e.g. "On leave: annual" or "Data Platform". This
+// asserts only what the user reads, with no reference to the tag, class, or id of
+// the element that carries it, so the suite survives any DOM restructure and the
+// v1-wide → v2-split migration unchanged.
+function engineerSays(name, fragment) {
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${escape(name)}.*${escape(fragment)}`);
+}
+
+// The board line for one engineer carries the expected fragment (e.g. their
+// project or "On leave: annual").
+function expectEngineerLine(page, name, fragment) {
+  return expect(page.getByText(engineerSays(name, fragment))).toBeVisible();
+}
+
+// No board line shows this engineer with the given fragment (e.g. Aisha is not
+// "On leave" on a date before her leave begins).
+function expectNoEngineerLine(page, name, fragment) {
+  return expect(page.getByText(engineerSays(name, fragment))).toHaveCount(0);
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  // The app boots at the seed "now" and shows the board for it.
+  await expect(
+    page.getByRole("heading", { name: "As of 2026-06-15" }),
+  ).toBeVisible();
+});
+
+test("opens at the seed now with Aisha on leave", async ({ page }) => {
+  // Beat 1 (FR-1, FR-4): the as-of board at 2026-06-15. Aisha's allocation is
+  // suppressed by her covering leave fact and shown distinctly; Marcus is on his
+  // project. Engineers, projects, and clients are all visible for the date.
+  await expectEngineerLine(page, "Aisha Okafor", "On leave: annual");
+  await expectEngineerLine(page, "Marcus Chen", "Data Platform for Globex Corporation");
+  await expectEngineerLine(page, "Priya Sharma", "Ledger Migration for Northwind Trading");
+});
+
+test("scrubbing into the future activates Marcus's promotion", async ({ page }) => {
+  // Beat 2 (FR-3): before 2026-07-01 Marcus is L4 charging $1,000/day; scrub past
+  // his future-dated promotion and his level AND charge rate step up unaided.
+  await scrubTo(page, "2026-06-15");
+  await expectEngineerLine(page, "Marcus Chen", "L4");
+  await expectEngineerLine(page, "Marcus Chen", "$1000/day");
+
+  await scrubTo(page, "2026-07-15");
+  await expectEngineerLine(page, "Marcus Chen", "L5");
+  await expectEngineerLine(page, "Marcus Chen", "$1400/day");
+});
+
+test("scrubbing before her leave shows Aisha allocated, not on leave", async ({
+  page,
+}) => {
+  // Beat 3 (FR-2 history, FR-4 precedence): at 2026-06-01 — before her
+  // 2026-06-08..06-22 leave — Aisha is shown on her project, not "On leave".
+  await scrubTo(page, "2026-06-01");
+  await expectEngineerLine(page, "Aisha Okafor", "Data Platform for Globex Corporation");
+  await expectNoEngineerLine(page, "Aisha Okafor", "On leave");
+});
+
+test("the board changes as the slider moves", async ({ page }) => {
+  // The whole-board re-render: the same engineer reads differently at two dates,
+  // proving the slider drives real as-of data rather than a static page.
+  await scrubTo(page, "2026-06-01");
+  await expectEngineerLine(page, "Aisha Okafor", "Data Platform");
+
+  await scrubTo(page, "2026-06-15");
+  await expectEngineerLine(page, "Aisha Okafor", "On leave: annual");
+});

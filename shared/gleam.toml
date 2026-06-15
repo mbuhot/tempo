@@ -1,0 +1,14 @@
+name = "shared"
+version = "1.0.0"
+
+# Target-agnostic package: the API contract (domain types + JSON codecs) shared by
+# the Erlang server (root `tempo` package) and the JavaScript Lustre client
+# (`client` package). It MUST compile for BOTH targets, so it may only depend on
+# target-agnostic hex packages (gleam_stdlib, gleam_json). Both the server and the
+# client take a path dependency on this package (ADR-005, ADR-014).
+
+[dependencies]
+gleam_json = ">= 3.1.0 and < 4.0.0"
+gleam_stdlib = ">= 1.0.3 and < 2.0.0"
+
+[dev_dependencies]

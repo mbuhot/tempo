@@ -3,7 +3,7 @@
 //// Bridges three date representations the server straddles:
 ////   * `gleam/time/calendar.Date` — what Squirrel rows carry and `pog`
 ////     parameters expect (the range bounds decomposed per ADR-011).
-////   * `tempo/shared/types.{Date, AsOf}` — the target-agnostic API contract
+////   * `shared/types.{Date, AsOf}` — the target-agnostic API contract
 ////     (plain Int components, ADR-005) the codecs serialise.
 ////   * the `?as_of=`/`?day=` query string the slider sends as "YYYY-MM-DD".
 ////
@@ -15,7 +15,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import gleam/time/calendar
-import tempo/shared/types.{type AsOf, type Date, AsOf, Date}
+import shared/types.{type AsOf, type Date, AsOf, Date}
 import wisp
 
 /// A `calendar.Date` (a Squirrel row bound) → the shared API `Date`.

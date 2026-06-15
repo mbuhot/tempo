@@ -14,14 +14,14 @@ import gleam/order
 import gleam/result
 import gleam/string
 import pog
-import tempo/server/context.{type Context}
-import tempo/server/date
-import tempo/server/sql
-import tempo/shared/codecs
-import tempo/shared/types.{
+import shared/codecs
+import shared/types.{
   type AsOf, type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave,
   OnProject,
 }
+import tempo/server/context.{type Context}
+import tempo/server/date
+import tempo/server/sql
 import wisp
 
 /// Handle GET /api/board?as_of=YYYY-MM-DD — compute the org board as of a date.

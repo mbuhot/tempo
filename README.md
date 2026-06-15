@@ -41,28 +41,55 @@ gleam run                   # start the Wisp server (serves API + static assets)
 gleam test                  # run the test suite
 ```
 
-### End-to-end tests (Playwright)
+### Client (Lustre SPA)
 
-Behaviour-driven browser tests live under `e2e/` (one spec per demo beat from
-Phase 4 onward; for now a single placeholder smoke spec). First-time setup:
+The repo is a **three-package workspace** (ADR-014): the root `tempo` server
+package, a `shared/` package (the API contract — types + JSON codecs, compiled
+for both targets), and a `client/` package (the Lustre SPA, JS target). Gleam
+1.17 compiles a whole package per target with no per-module target exclusion, so
+a single package cannot build the JS client: the server's Erlang-only modules
+(pog/wisp/mist) would be type-checked for JS and fail. The split keeps the
+client's dependency graph free of server code; both `client` and `tempo`
+path-depend on `shared`.
+
+The client is built from the `client/` package; its bundle is emitted into
+`priv/static`, which Wisp serves under `/static`:
 
 ```sh
-npm install                 # install @playwright/test + http-server
+cd client && gleam run -m lustre/dev build client/app
+```
+
+Rebuild after changing `client/*` or `shared/*`, then `gleam run` from the repo
+root (or refresh the browser) to serve the new bundle.
+
+### End-to-end tests (Playwright)
+
+Behaviour-driven browser tests live under `e2e/` — one spec per demo beat
+(PRD §7): the slider/org board (`slider-board.spec.js`) and the my-timesheet
+panel including the negative beat (`timesheet.spec.js`). They drive the **real
+app** and assert only what the user sees, so the same suite passes *unmodified*
+against both `v1-wide` and `v2-split` (see `ARCHITECTURE.md` §10.5).
+
+First-time setup:
+
+```sh
+npm install                 # install @playwright/test
 npx playwright install chromium
 ```
 
-Run the suite:
+Run the suite — build the client, start the server on the v1-wide seed, then
+run Playwright (it targets `http://127.0.0.1:8000` by default):
 
 ```sh
-npx playwright test         # runs the e2e suite (chromium)
+docker compose up -d                                      # PG19
+gleam run -m tempo/migrate                                # schema + v1-wide seed
+cd client && gleam run -m lustre/dev build client/app && cd ..
+gleam run &                                               # serve on :8000
+npx playwright test                                       # the e2e suite (chromium)
 ```
 
-By default Playwright serves a static placeholder page and tests against it, so
-the suite is self-contained. Point it at a running app by setting `baseURL`:
+Point it at a different host/port with `TEMPO_BASE_URL`:
 
 ```sh
 TEMPO_BASE_URL=http://127.0.0.1:8000 npx playwright test
 ```
-
-The same suite is intended to pass *unmodified* against both `v1-wide` and
-`v2-split` (see `ARCHITECTURE.md` §10.5) once the app is built.

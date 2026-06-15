@@ -50,3 +50,37 @@ jobs:
       - run: gleam run -m tempo/migrate
       - run: gleam test
       - run: gleam format --check src test
+
+      # End-to-end (TDD layer 5): the behaviour-driven Playwright suite against
+      # the real app on the v1-wide seed loaded above (PRD §7, ARCHITECTURE.md
+      # §10.5). The same suite runs again on v2-split in Phase 5; both passes must
+      # be green.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Build the Lustre client bundle into priv/static from the JS `client`
+      # package (path-depends on `shared`, ADR-014), which Wisp serves under
+      # /static.
+      - run: gleam run -m lustre/dev build client/app
+        working-directory: client
+      # Boot the Wisp server (serves the SPA + JSON API on :8000) and wait for it.
+      - name: Start the server
+        run: |
+          gleam run > /tmp/tempo-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "server did not come up"; cat /tmp/tempo-server.log; exit 1
+      - name: Run the Playwright suite (v1-wide)
+        run: npx playwright test
+        env:
+          TEMPO_BASE_URL: http://127.0.0.1:8000
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

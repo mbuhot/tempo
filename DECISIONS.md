@@ -62,6 +62,11 @@ ends until reconciled.
 **Alternatives.** Lustre server components (hides the query boundary); Wisp SSR + htmx-style
 (weaker live morph). **Constraint introduced:** `shared` must be target-agnostic; `client` must not
 import `server`.
+**Amended (P4, see ADR-014).** This ADR originally assumed `shared`, `server`, and `client` could be
+modules in a **single** package, kept JS-safe by import discipline alone. P4 disproved that: Gleam
+1.17 compiles a whole package per target with no per-module target exclusion, so the client JS build
+type-checks the Erlang-only server modules and fails. The contract is unchanged; only the packaging
+moved — `shared` and `client` are now separate packages wired by path dependencies (ADR-014).
 
 ## ADR-006 — Schema evolution demonstrated via git tags, not a live in-app migration
 **Status:** Accepted
@@ -163,6 +168,35 @@ because the tests assert only user-visible behaviour, which is unchanged by the 
 **Alternatives.** E2E-only (too coarse to localize temporal bugs, slow); DB-only (misses
 integration/UI breakage — unacceptable for a live talk); Playwright on `v2` only (rejected — leaves
 the v1 app, shown live, untested and forgoes the UI-level parity proof).
+
+## ADR-014 — Three-package workspace (server + `shared` + `client`) wired by path dependencies
+**Status:** Accepted (supersedes the single-package assumption in ADR-005)
+
+**Context.** `lustre/dev build` runs `gleam build --target javascript`. Gleam 1.17 compiles a *whole
+package* per target with **no per-module target exclusion** (`@target`, `internal_modules`, etc. do
+not gate the JS compile), so building the client for JS type-checks **every** module in the package —
+including the Erlang-only server subtree (`pog`/`wisp`/`mist`/`gleam_otp` and the Squirrel-generated
+`sql.gleam` with bare `@external(erlang, …)` calls) — and fails with ~30 "Unsupported target" errors
+(P4-T01). Import discipline alone (the ADR-005 assumption) cannot prevent this; the failures are
+purely the server subtree, while `client/app`, `shared/types`, and `shared/codecs` compile clean for
+JS.
+**Decision.** Split into a three-package Gleam workspace: the root `tempo` server package; a `shared`
+package (target-agnostic — depends only on gleam_stdlib + gleam_json, compiles for both Erlang and
+JS); and a `client` package (JS target — lustre/rsvp/gleam_json/gleam_time, `[tools.lustre.build]`
+outdir `../priv/static`). Both `tempo` and `client` take a **path dependency** on `shared`
+(`{ path = "..." }`); neither depends on `client`/server respectively. The client is built with
+`cd client && gleam run -m lustre/dev build client/app`.
+**Rationale.** This is the canonical Lustre + Wisp layout and the only clean way to keep `sql.gleam`
+Squirrel-generated (per-definition `@target(erlang)` gating is lost on every regeneration, ADR-006)
+and the server + its tests untouched. The client's JS dependency graph now physically excludes all
+server code, so the bundle builds; `shared` remains the single source of the API contract that breaks
+both ends on a contract change (ADR-005 intent preserved).
+**Alternatives.** Per-definition `@target(erlang)` gating across `sql.gleam` + the DB test suite —
+rejected: mechanically works but is erased by Squirrel regeneration and is unmaintainable. An
+isolated build package whose `src/` **symlinks** to the canonical sources (the P4 stopgap,
+`client_build/`) — rejected: the symlinks were absolute, so it worked only on the author's machine
+and broke on CI and any fresh clone (non-portable). Path dependencies need no symlinks and are
+portable everywhere.
 
 ---
 

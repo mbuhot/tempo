@@ -2,10 +2,10 @@
 id: P4-T04
 phase: 4
 title: Playwright suite (one test per beat)
-status: todo
+status: done
 depends_on: [P4-T02, P4-T03]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P4-T04 — Playwright suite (one test per beat)

@@ -2,10 +2,10 @@
 id: P4-T02
 phase: 4
 title: Time slider + org board view
-status: todo
+status: done
 depends_on: [P4-T01]
 parallelizable_with: [P4-T03]
-agent: unassigned
+agent: workflow
 ---
 
 # P4-T02 — Time slider + org board view

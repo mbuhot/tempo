@@ -12,8 +12,8 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import tempo/shared/codecs
-import tempo/shared/types.{
+import shared/codecs
+import shared/types.{
   AsOf, BoardRow, BoardSnapshot, Date, OnLeave, OnProject, TimesheetDay,
   TimesheetLine, Unassigned,
 }

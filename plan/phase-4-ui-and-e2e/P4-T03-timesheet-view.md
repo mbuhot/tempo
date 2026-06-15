@@ -2,10 +2,10 @@
 id: P4-T03
 phase: 4
 title: My-timesheet view
-status: todo
+status: done
 depends_on: [P4-T01]
 parallelizable_with: [P4-T02]
-agent: unassigned
+agent: workflow
 ---
 
 # P4-T03 — My-timesheet view
