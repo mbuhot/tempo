@@ -31,7 +31,8 @@ pub type MigrateError {
 pub fn main() -> Nil {
   let assert Ok(ctx) = context.start()
   case run(ctx) {
-    Ok(RunReport(applied: [], ..)) -> io.println("Migrations: nothing to apply.")
+    Ok(RunReport(applied: [], ..)) ->
+      io.println("Migrations: nothing to apply.")
     Ok(RunReport(applied:, ..)) -> {
       io.println("Migrations applied:")
       list.each(applied, fn(version) { io.println("  " <> version) })
@@ -49,7 +50,8 @@ pub fn run(context: Context) -> Result(RunReport, MigrateError) {
   use done <- result.try(applied_versions(db))
   use files <- result.try(migration_files())
 
-  let pending = list.filter(files, fn(file) { !list.contains(done, file.version) })
+  let pending =
+    list.filter(files, fn(file) { !list.contains(done, file.version) })
   use applied <- result.map(apply_all(db, pending))
   RunReport(applied:, already_applied: done)
 }
@@ -137,8 +139,10 @@ fn apply_one(
     })
   case outcome {
     Ok(_) -> Ok(version)
-    Error(pog.TransactionRolledBack(error)) -> Error(ApplyFailed(version, error))
-    Error(pog.TransactionQueryError(error)) -> Error(ApplyFailed(version, error))
+    Error(pog.TransactionRolledBack(error)) ->
+      Error(ApplyFailed(version, error))
+    Error(pog.TransactionQueryError(error)) ->
+      Error(ApplyFailed(version, error))
   }
 }
 
@@ -205,14 +209,11 @@ fn scan(
     // Top level: handle quotes, comments, dollar-quote openers, and the
     // statement-terminating semicolon.
     Normal, ["'", ..rest] -> scan(rest, InSingleQuote, acc <> "'", done)
-    Normal, ["-", "-", ..rest] ->
-      scan(rest, InLineComment, acc <> "--", done)
-    Normal, ["/", "*", ..rest] ->
-      scan(rest, InBlockComment, acc <> "/*", done)
+    Normal, ["-", "-", ..rest] -> scan(rest, InLineComment, acc <> "--", done)
+    Normal, ["/", "*", ..rest] -> scan(rest, InBlockComment, acc <> "/*", done)
     Normal, ["$", ..rest] -> {
       case take_dollar_tag(rest) {
-        Ok(#(tag, after)) ->
-          scan(after, InDollarQuote(tag), acc <> tag, done)
+        Ok(#(tag, after)) -> scan(after, InDollarQuote(tag), acc <> tag, done)
         Error(Nil) -> scan(rest, Normal, acc <> "$", done)
       }
     }
@@ -227,8 +228,7 @@ fn scan(
     InLineComment, ["\n", ..rest] -> scan(rest, Normal, acc <> "\n", done)
 
     // Block comment ends at */.
-    InBlockComment, ["*", "/", ..rest] ->
-      scan(rest, Normal, acc <> "*/", done)
+    InBlockComment, ["*", "/", ..rest] -> scan(rest, Normal, acc <> "*/", done)
 
     // Dollar-quoted block ends at a matching closing tag.
     InDollarQuote(tag), ["$", ..rest] -> {
@@ -247,7 +247,9 @@ fn scan(
 /// Try to read a dollar-quote tag (`$$` or `$name$`) starting just after the
 /// opening `$`. Returns the full tag including both dollars and the remaining
 /// characters, or `Error` if what follows is not a valid tag.
-fn take_dollar_tag(chars: List(String)) -> Result(#(String, List(String)), Nil) {
+fn take_dollar_tag(
+  chars: List(String),
+) -> Result(#(String, List(String)), Nil) {
   case chars {
     ["$", ..rest] -> Ok(#("$$", rest))
     _ -> read_tag_name(chars, "")

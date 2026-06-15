@@ -2,10 +2,10 @@
 id: P2-T03
 phase: 2
 title: Seed dataset (v1, deterministic)
-status: todo
+status: done
 depends_on: [P2-T01]
 parallelizable_with: [P2-T02]
-agent: unassigned
+agent: workflow
 ---
 
 # P2-T03 — Seed dataset (v1, deterministic)

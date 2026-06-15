@@ -2,10 +2,10 @@
 id: P2-T01
 phase: 2
 title: v1-wide schema migrations
-status: todo
+status: done
 depends_on: [P0-T04, P1-T01]
 parallelizable_with: []
-agent: unassigned
+agent: workflow
 ---
 
 # P2-T01 — v1-wide schema migrations

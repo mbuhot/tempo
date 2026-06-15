@@ -20,8 +20,7 @@ pub fn split_two_statements_test() {
   let statements =
     migrate.split_statements("CREATE TABLE a (x int);\nCREATE TABLE b (y int);")
 
-  assert statements
-    == ["CREATE TABLE a (x int);", "CREATE TABLE b (y int);"]
+  assert statements == ["CREATE TABLE a (x int);", "CREATE TABLE b (y int);"]
 }
 
 pub fn split_ignores_semicolon_in_single_quoted_string_test() {
@@ -35,7 +34,8 @@ pub fn split_ignores_semicolon_in_dollar_quoted_block_test() {
   let sql = "DO $$ BEGIN PERFORM 1; PERFORM 2; END $$; SELECT 3;"
   let statements = migrate.split_statements(sql)
 
-  assert statements == ["DO $$ BEGIN PERFORM 1; PERFORM 2; END $$;", "SELECT 3;"]
+  assert statements
+    == ["DO $$ BEGIN PERFORM 1; PERFORM 2; END $$;", "SELECT 3;"]
 }
 
 pub fn split_ignores_semicolon_in_line_comment_test() {

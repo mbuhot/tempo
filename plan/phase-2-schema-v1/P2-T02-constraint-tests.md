@@ -2,10 +2,10 @@
 id: P2-T02
 phase: 2
 title: Temporal-constraint tests (layer 1)
-status: todo
+status: done
 depends_on: [P2-T01]
 parallelizable_with: [P2-T03]
-agent: unassigned
+agent: workflow
 ---
 
 # P2-T02 — Temporal-constraint tests (TDD layer 1)
