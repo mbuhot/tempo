@@ -1,4 +1,4 @@
-//// `gleam run -m tempo/migrate` entrypoint (ARCHITECTURE.md §9).
+//// `gleam run -m tempo/migrate` entrypoint.
 //// The runner lives in `tempo/server/migrate`; this is the short alias the build
 //// docs invoke. It just delegates.
 

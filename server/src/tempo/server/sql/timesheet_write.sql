@@ -1,8 +1,8 @@
--- timesheet_write.sql — step 2 of the temporal upsert (ARCHITECTURE.md §5).
+-- timesheet_write.sql — step 2 of the temporal upsert.
 --
 -- Insert a single-day timesheet row. The `work_day` range is built in SQL as
 -- `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
--- `date` params (ADR-011) — no daterange type crosses the Squirrel boundary.
+-- `date` params — no daterange type crosses the Squirrel boundary.
 --
 -- The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
 -- is rejected. The handler runs timesheet_delete.sql then this INSERT in one

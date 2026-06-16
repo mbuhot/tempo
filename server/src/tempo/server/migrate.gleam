@@ -27,7 +27,7 @@ pub type MigrateError {
 }
 
 /// Apply pending migrations and print a summary. Invoked via the
-/// `tempo/migrate` alias (`gleam run -m tempo/migrate`, ARCHITECTURE.md §9).
+/// `tempo/migrate` alias (`gleam run -m tempo/migrate`).
 pub fn main() -> Nil {
   let assert Ok(ctx) = context.start()
   case run(ctx) {

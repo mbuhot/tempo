@@ -1,8 +1,8 @@
 //// Domain: assemble the as-of org board by running the temporal join and mapping
 //// rows to shared types. No HTTP — this layer never imports `wisp`.
 ////
-//// The board snapshot is assembled from three Squirrel queries (ARCHITECTURE.md §5),
-//// one per Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),
+//// The board snapshot is assembled from three Squirrel queries, one per
+//// Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),
 //// `board_unassigned_as_of` (employed, not allocated, not on leave), and
 //// `board_leave_as_of` (the engineers a covering leave fact hides from the first).
 //// Each maps to the shared `BoardRow`/`Engagement` contract; the merged list is
@@ -41,9 +41,7 @@ pub fn snapshot(
   Ok(BoardSnapshot(as_of:, rows:))
 }
 
-/// Map an on-project board row to the shared `BoardRow`/`OnProject` contract.
-/// `day_rate` is carried as a plain value (ADR-013), agnostic to the v1/v2 rate
-/// source so the same shape holds across the redesign.
+/// Map an on-project query row to the shared `BoardRow` / `OnProject`.
 fn board_row_to_shared(row: sql.BoardAsOfRow) -> BoardRow {
   BoardRow(
     engineer: row.engineer,

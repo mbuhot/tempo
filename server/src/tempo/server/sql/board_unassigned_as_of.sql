@@ -1,5 +1,5 @@
 -- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+-- on leave as of $1::date. The third board slice alongside
 -- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
 -- these as "Unassigned".
 --

@@ -1,6 +1,6 @@
 //// Gleam/json encoders and gleam/dynamic/decode decoders
 //// for the shared API types. Pure Gleam, no target-specific deps, so they compile and
-//// round-trip on both ends of the JSON-over-HTTP boundary (ADR-005). Round-trip
+//// round-trip on both ends of the JSON-over-HTTP boundary. Round-trip
 //// identity (`encode |> decode == value`) is asserted by the layer-4 codec tests.
 
 import gleam/dynamic/decode.{type Decoder}

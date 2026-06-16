@@ -1,5 +1,5 @@
 -- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
--- $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
+-- $1::date. One row per (engineer × project).
 --
 -- This is the "engaged" slice of the board; it returns only fully-engaged rows
 -- (INNER JOINs throughout), so every column is non-null. Two companion queries
@@ -11,12 +11,10 @@
 -- surfaced by board_leave_as_of.sql instead.
 --
 -- Charge rate is resolved from engineer_role × rate_card as of the date (the
--- two-hop temporal join, ADR-009). It is exposed as a plain `day_rate` value on
--- the row — never "where it came from" — so the same shared BoardRow holds
--- across the v1-wide -> v2-split redesign (ADR-013).
+-- two-hop temporal join). It is exposed as a plain `day_rate` value on the row.
 --
--- Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
--- engagement window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
+-- Range columns are decomposed to plain `date`s at the boundary: the engagement
+-- window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
 -- valid_from/valid_to.
 SELECT
   engineer.name AS engineer,

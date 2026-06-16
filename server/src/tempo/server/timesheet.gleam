@@ -1,7 +1,7 @@
 //// Domain: timesheet read (the form as-of a day) and write (the PERIOD-FK-backed
 //// temporal upsert). No HTTP — this layer never imports `wisp`.
 ////
-//// `form` maps `timesheet_form` rows (ARCHITECTURE.md §5) to the shared
+//// `form` maps `timesheet_form` rows to the shared
 //// `TimesheetDay`. `log` is the delete-then-insert temporal upsert: the
 //// `WITHOUT OVERLAPS` PK cannot be an `ON CONFLICT` target, so re-entry deletes
 //// the covering row then inserts, both in one transaction. The `PERIOD` FK to

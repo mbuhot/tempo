@@ -53,7 +53,7 @@ const range_end = calendar.Date(year: 2026, month: calendar.December, day: 31)
 const slider_debounce_ms = 150
 
 /// The engineers offered in the timesheet selector. Hardcoded to the deterministic
-/// v1-wide seed (003_seed.sql) — the same fixed ids/names the board anchors to —
+/// seed (003_seed.sql) — the same fixed ids/names the board anchors to —
 /// because the API has no engineer-directory endpoint and the roster is fixed.
 /// Each pair is #(engineer_id, name).
 pub const engineers = [

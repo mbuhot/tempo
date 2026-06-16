@@ -1,4 +1,4 @@
--- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+-- board_leave_as_of.sql — engineers on leave as of a date.
 -- The companion to board_as_of.sql: that query suppresses anyone with a covering
 -- `leave` fact; this one selects exactly those engineers so the board can render
 -- them as "On leave: <kind>".
@@ -7,8 +7,8 @@
 -- leave overrides the engagement in the read model. The level (and hence the
 -- charge story) is still resolved so the row stays informative.
 --
--- Ranges decomposed to plain `date`s at the boundary (ADR-011): valid_from/
--- valid_to are the leave period's `lower()/upper()`.
+-- Ranges decomposed to plain `date`s at the boundary: valid_from/valid_to are
+-- the leave period's `lower()/upper()`.
 SELECT
   engineer.name AS engineer,
   engineer_role.level,

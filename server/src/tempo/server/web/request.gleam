@@ -2,7 +2,7 @@
 //// wisp request and turn it into a `calendar.Date`.
 ////
 //// Squirrel rows carry `gleam/time/calendar.Date` and `pog` parameters expect it,
-//// and the shared API types (ADR-005) hold `calendar.Date` too — so there is no
+//// and the shared API types hold `calendar.Date` too — so there is no
 //// representation to bridge, only the `?as_of=`/`?day=` query string the slider
 //// sends to parse. Keeping this parsing here keeps the handlers thin and the
 //// domain free of `wisp.Request` (web passes already-parsed values inward).

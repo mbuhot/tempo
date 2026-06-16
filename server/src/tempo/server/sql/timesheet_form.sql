@@ -1,5 +1,5 @@
--- timesheet_form.sql — my allocations as of a day, with any hours already logged
--- (ARCHITECTURE.md §5). Only projects the engineer is actually on as of $2::date
+-- timesheet_form.sql — my allocations as of a day, with any hours already logged.
+-- Only projects the engineer is actually on as of $2::date
 -- are returned; on a day covered by leave the result is empty, so the form offers
 -- nothing (leave takes precedence over an allocation). A project the engineer has
 -- rolled off is simply absent — the negative case the PERIOD FK also backstops on
@@ -7,8 +7,8 @@
 --
 -- $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
 -- project so the form always has a value to render. Ranges are decomposed to
--- plain `date`s at the boundary (ADR-011): valid_from/valid_to are the
--- allocation engagement window.
+-- plain `date`s at the boundary: valid_from/valid_to are the allocation
+-- engagement window.
 SELECT
   project.id AS project_id,
   project.name AS project,

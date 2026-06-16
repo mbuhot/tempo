@@ -1,11 +1,8 @@
 //// Domain/API types shared by server and client. Must stay target-agnostic.
 ////
-//// These are the API contract (ADR-005): the server maps Squirrel rows to them and
-//// the client renders them, with `codecs.gleam` carrying the JSON between. They are
-//// designed to be **stable across the v1-wide -> v2-split redesign** (ADR-013): the
-//// charge rate is a plain value on the row, never "where it came from", so the shape
-//// the user sees does not change when the rate source moves from a cached
-//// `allocation.day_rate` to the derived `engineer_role × rate_card`.
+//// These are the API contract: the server maps Squirrel rows to them and the
+//// client renders them, with `codecs.gleam` carrying the JSON between. The charge
+//// rate is a plain value on the row, never "where it came from".
 //// Date fields are `gleam/time/calendar.Date` — the same type Squirrel rows decode
 //// to and `pog` parameters expect, so dates flow from the DB through these types to
 //// the wire (and back on the client) without a boundary conversion. The codecs
@@ -19,7 +16,7 @@ import gleam/time/calendar.{type Date}
 /// employed engineer with no allocation as of the date is `Unassigned`.
 pub type Engagement {
   /// Allocated to a project. `day_rate` is the resolved charge rate as a plain
-  /// value (ADR-013) — the same field whether v1 cached it or v2 derives it.
+  /// value.
   OnProject(
     project: String,
     client: String,
@@ -49,7 +46,7 @@ pub type BoardSnapshot {
 
 /// One project an engineer may log time against on a given day: the project, the
 /// allocation fraction, and the hours already logged (0.0 if none yet). The
-/// allocation engagement window is carried as plain `date` bounds (ADR-011).
+/// allocation engagement window is carried as plain `date` bounds.
 pub type TimesheetLine {
   TimesheetLine(
     project_id: Int,

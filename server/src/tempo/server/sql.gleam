@@ -29,7 +29,7 @@ pub type BoardAsOfRow {
 }
 
 /// board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
-/// $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
+/// $1::date. One row per (engineer × project).
 ///
 /// This is the "engaged" slice of the board; it returns only fully-engaged rows
 /// (INNER JOINs throughout), so every column is non-null. Two companion queries
@@ -41,12 +41,10 @@ pub type BoardAsOfRow {
 /// surfaced by board_leave_as_of.sql instead.
 ///
 /// Charge rate is resolved from engineer_role × rate_card as of the date (the
-/// two-hop temporal join, ADR-009). It is exposed as a plain `day_rate` value on
-/// the row — never "where it came from" — so the same shared BoardRow holds
-/// across the v1-wide -> v2-split redesign (ADR-013).
+/// two-hop temporal join). It is exposed as a plain `day_rate` value on the row.
 ///
-/// Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
-/// engagement window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
+/// Range columns are decomposed to plain `date`s at the boundary: the engagement
+/// window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
 /// valid_from/valid_to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -78,7 +76,7 @@ pub fn board_as_of(
   }
 
   "-- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
--- $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
+-- $1::date. One row per (engineer × project).
 --
 -- This is the \"engaged\" slice of the board; it returns only fully-engaged rows
 -- (INNER JOINs throughout), so every column is non-null. Two companion queries
@@ -90,12 +88,10 @@ pub fn board_as_of(
 -- surfaced by board_leave_as_of.sql instead.
 --
 -- Charge rate is resolved from engineer_role × rate_card as of the date (the
--- two-hop temporal join, ADR-009). It is exposed as a plain `day_rate` value on
--- the row — never \"where it came from\" — so the same shared BoardRow holds
--- across the v1-wide -> v2-split redesign (ADR-013).
+-- two-hop temporal join). It is exposed as a plain `day_rate` value on the row.
 --
--- Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
--- engagement window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
+-- Range columns are decomposed to plain `date`s at the boundary: the engagement
+-- window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
 -- valid_from/valid_to.
 SELECT
   engineer.name AS engineer,
@@ -143,7 +139,7 @@ pub type BoardLeaveAsOfRow {
   )
 }
 
-/// board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+/// board_leave_as_of.sql — engineers on leave as of a date.
 /// The companion to board_as_of.sql: that query suppresses anyone with a covering
 /// `leave` fact; this one selects exactly those engineers so the board can render
 /// them as "On leave: <kind>".
@@ -152,8 +148,8 @@ pub type BoardLeaveAsOfRow {
 /// leave overrides the engagement in the read model. The level (and hence the
 /// charge story) is still resolved so the row stays informative.
 ///
-/// Ranges decomposed to plain `date`s at the boundary (ADR-011): valid_from/
-/// valid_to are the leave period's `lower()/upper()`.
+/// Ranges decomposed to plain `date`s at the boundary: valid_from/valid_to are
+/// the leave period's `lower()/upper()`.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -177,7 +173,7 @@ pub fn board_leave_as_of(
     ))
   }
 
-  "-- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+  "-- board_leave_as_of.sql — engineers on leave as of a date.
 -- The companion to board_as_of.sql: that query suppresses anyone with a covering
 -- `leave` fact; this one selects exactly those engineers so the board can render
 -- them as \"On leave: <kind>\".
@@ -186,8 +182,8 @@ pub fn board_leave_as_of(
 -- leave overrides the engagement in the read model. The level (and hence the
 -- charge story) is still resolved so the row stays informative.
 --
--- Ranges decomposed to plain `date`s at the boundary (ADR-011): valid_from/
--- valid_to are the leave period's `lower()/upper()`.
+-- Ranges decomposed to plain `date`s at the boundary: valid_from/valid_to are
+-- the leave period's `lower()/upper()`.
 SELECT
   engineer.name AS engineer,
   engineer_role.level,
@@ -217,7 +213,7 @@ pub type BoardUnassignedAsOfRow {
 }
 
 /// board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
-/// on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+/// on leave as of $1::date. The third board slice alongside
 /// board_as_of (engaged) and board_leave_as_of (on leave); the client renders
 /// these as "Unassigned".
 ///
@@ -239,7 +235,7 @@ pub fn board_unassigned_as_of(
   }
 
   "-- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+-- on leave as of $1::date. The third board slice alongside
 -- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
 -- these as \"Unassigned\".
 --
@@ -274,7 +270,7 @@ ORDER BY engineer.name;
 /// Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
 /// the covering rate_card row, changing only the [$1, $2) sub-period and carving
 /// off the unchanged before/after remainder as their own rows. The boundaries are
-/// plain `date` params cast in SQL (ADR-011); $3 is the new rate, $4 the level.
+/// plain `date` params cast in SQL; $3 is the new rate, $4 the level.
 ///
 /// PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 /// from the affected-row count — read the rows back instead.
@@ -296,7 +292,7 @@ pub fn rate_card_for_portion_of(
 -- Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
 -- the covering rate_card row, changing only the [$1, $2) sub-period and carving
 -- off the unchanged before/after remainder as their own rows. The boundaries are
--- plain `date` params cast in SQL (ADR-011); $3 is the new rate, $4 the level.
+-- plain `date` params cast in SQL; $3 is the new rate, $4 the level.
 --
 -- PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 -- from the affected-row count — read the rows back instead.
@@ -376,8 +372,8 @@ pub type TimesheetFormRow {
   )
 }
 
-/// timesheet_form.sql — my allocations as of a day, with any hours already logged
-/// (ARCHITECTURE.md §5). Only projects the engineer is actually on as of $2::date
+/// timesheet_form.sql — my allocations as of a day, with any hours already logged.
+/// Only projects the engineer is actually on as of $2::date
 /// are returned; on a day covered by leave the result is empty, so the form offers
 /// nothing (leave takes precedence over an allocation). A project the engineer has
 /// rolled off is simply absent — the negative case the PERIOD FK also backstops on
@@ -385,8 +381,8 @@ pub type TimesheetFormRow {
 ///
 /// $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
 /// project so the form always has a value to render. Ranges are decomposed to
-/// plain `date`s at the boundary (ADR-011): valid_from/valid_to are the
-/// allocation engagement window.
+/// plain `date`s at the boundary: valid_from/valid_to are the allocation
+/// engagement window.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -413,8 +409,8 @@ pub fn timesheet_form(
     ))
   }
 
-  "-- timesheet_form.sql — my allocations as of a day, with any hours already logged
--- (ARCHITECTURE.md §5). Only projects the engineer is actually on as of $2::date
+  "-- timesheet_form.sql — my allocations as of a day, with any hours already logged.
+-- Only projects the engineer is actually on as of $2::date
 -- are returned; on a day covered by leave the result is empty, so the form offers
 -- nothing (leave takes precedence over an allocation). A project the engineer has
 -- rolled off is simply absent — the negative case the PERIOD FK also backstops on
@@ -422,8 +418,8 @@ pub fn timesheet_form(
 --
 -- $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
 -- project so the form always has a value to render. Ranges are decomposed to
--- plain `date`s at the boundary (ADR-011): valid_from/valid_to are the
--- allocation engagement window.
+-- plain `date`s at the boundary: valid_from/valid_to are the allocation
+-- engagement window.
 SELECT
   project.id AS project_id,
   project.name AS project,
@@ -451,11 +447,11 @@ ORDER BY project.name;
   |> pog.execute(db)
 }
 
-/// timesheet_write.sql — step 2 of the temporal upsert (ARCHITECTURE.md §5).
+/// timesheet_write.sql — step 2 of the temporal upsert.
 ///
 /// Insert a single-day timesheet row. The `work_day` range is built in SQL as
 /// `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
-/// `date` params (ADR-011) — no daterange type crosses the Squirrel boundary.
+/// `date` params — no daterange type crosses the Squirrel boundary.
 ///
 /// The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
 /// is rejected. The handler runs timesheet_delete.sql then this INSERT in one
@@ -474,11 +470,11 @@ pub fn timesheet_write(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- timesheet_write.sql — step 2 of the temporal upsert (ARCHITECTURE.md §5).
+  "-- timesheet_write.sql — step 2 of the temporal upsert.
 --
 -- Insert a single-day timesheet row. The `work_day` range is built in SQL as
 -- `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
--- `date` params (ADR-011) — no daterange type crosses the Squirrel boundary.
+-- `date` params — no daterange type crosses the Squirrel boundary.
 --
 -- The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
 -- is rejected. The handler runs timesheet_delete.sql then this INSERT in one
