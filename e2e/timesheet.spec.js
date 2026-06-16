@@ -129,18 +129,18 @@ test("saving hours reflects the new value and persists across a reload", async (
   await expect(hoursInput(page, "Data Platform")).toHaveValue("0");
 
   try {
-    await hoursInput(page, "Data Platform").fill("6.5");
+    await hoursInput(page, "Data Platform").fill("6");
     await page.getByRole("button", { name: "Save Data Platform" }).click();
 
     // The save is confirmed and the input reflects the saved value.
     await expect(page.getByText("Saved.")).toBeVisible();
-    await expect(hoursInput(page, "Data Platform")).toHaveValue("6.5");
+    await expect(hoursInput(page, "Data Platform")).toHaveValue("6");
 
     // Reload the whole page; the value is re-fetched from the database.
     await page.reload();
     await selectEngineer(page, "Marcus Chen");
     await scrubTo(page, "2026-06-10");
-    await expect(hoursInput(page, "Data Platform")).toHaveValue("6.5");
+    await expect(hoursInput(page, "Data Platform")).toHaveValue("6");
   } finally {
     restoreSeed(2, 300, "2026-06-10");
   }

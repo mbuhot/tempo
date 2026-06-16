@@ -96,6 +96,18 @@ pub fn encode_engagement(engagement: Engagement) -> Json {
   }
 }
 
+/// Decode a JSON number as a `Float`, accepting an integer-valued number too.
+///
+/// JSON has a single number type, and JavaScript serialises a whole `Float`
+/// (e.g. `4.0`) as the integer-looking `4`, whereas Erlang emits `4.0`. A strict
+/// `decode.float` then rejects the JS-encoded whole number — which is exactly how
+/// a Float fails to cross the JS client -> Erlang server boundary (e.g. timesheet
+/// `hours` of `4`). Decoding every Float through this tolerant decoder makes the
+/// contract symmetric regardless of which target encoded the value.
+pub fn lenient_float_decoder() -> Decoder(Float) {
+  decode.one_of(decode.float, or: [decode.int |> decode.map(int.to_float)])
+}
+
 /// Decode an `Engagement` from its tagged JSON object.
 pub fn engagement_decoder() -> Decoder(Engagement) {
   use status <- decode.field("status", decode.string)
@@ -103,8 +115,8 @@ pub fn engagement_decoder() -> Decoder(Engagement) {
     "on_project" -> {
       use project <- decode.field("project", decode.string)
       use client <- decode.field("client", decode.string)
-      use fraction <- decode.field("fraction", decode.float)
-      use day_rate <- decode.field("day_rate", decode.float)
+      use fraction <- decode.field("fraction", lenient_float_decoder())
+      use day_rate <- decode.field("day_rate", lenient_float_decoder())
       use valid_from <- decode.field("valid_from", date_decoder())
       use valid_to <- decode.field("valid_to", date_decoder())
       decode.success(OnProject(
@@ -191,8 +203,8 @@ pub fn encode_timesheet_line(line: TimesheetLine) -> Json {
 pub fn timesheet_line_decoder() -> Decoder(TimesheetLine) {
   use project_id <- decode.field("project_id", decode.int)
   use project <- decode.field("project", decode.string)
-  use fraction <- decode.field("fraction", decode.float)
-  use hours <- decode.field("hours", decode.float)
+  use fraction <- decode.field("fraction", lenient_float_decoder())
+  use hours <- decode.field("hours", lenient_float_decoder())
   use valid_from <- decode.field("valid_from", date_decoder())
   use valid_to <- decode.field("valid_to", date_decoder())
   decode.success(TimesheetLine(

@@ -201,7 +201,7 @@ fn write_request_decoder() -> decode.Decoder(WriteRequest) {
   use engineer_id <- decode.field("engineer_id", decode.int)
   use project_id <- decode.field("project_id", decode.int)
   use day <- decode.field("day", codecs.date_decoder())
-  use hours <- decode.field("hours", decode.float)
+  use hours <- decode.field("hours", codecs.lenient_float_decoder())
   decode.success(WriteRequest(engineer_id:, project_id:, day:, hours:))
 }
 

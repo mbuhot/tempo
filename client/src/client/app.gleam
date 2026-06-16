@@ -181,15 +181,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     SliderMoved(day_index:) -> {
       let as_of = day_index_to_as_of(day_index)
+      // Stale-while-revalidate: keep the current board/timesheet on screen while the
+      // new date's data is in flight, instead of dropping to a loading state on every
+      // scrub (which flickers — blank "Loading…" then a snap back to data). The
+      // staleness guard in the ApiReturned* handlers discards any response overtaken
+      // by a later move, so the view only ever updates to the latest date's data.
       #(
-        Model(
-          ..model,
-          day_index:,
-          as_of:,
-          board: Loading,
-          timesheet: TimesheetLoading,
-          save_state: Unsaved,
-        ),
+        Model(..model, day_index:, as_of:, save_state: Unsaved),
         effect.batch([
           fetch_board(as_of),
           fetch_timesheet(model.engineer_id, as_of),
