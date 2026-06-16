@@ -8,7 +8,7 @@ import gleam/erlang/process
 import gleam/int
 import mist
 import tempo/server/context
-import tempo/server/router
+import tempo/server/web/router
 import wisp
 import wisp/wisp_mist
 

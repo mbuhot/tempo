@@ -230,6 +230,28 @@ forfeits the "schema change breaks the query at codegen" thesis (PRD §1) for th
 path. `COALESCE(... , sentinel)` to force non-null columns — rejected: a sentinel rate/project is a
 lie in the read model and would corrupt the oracle's board comparison.
 
+## ADR-016 — Server layered into web / domain / data access
+**Status:** Accepted
+
+**Context.** The HTTP handlers, business logic, and data access were tangled in one module per
+resource (`board.gleam`/`timesheet.gleam` each parsed requests, chose status codes, ran the queries,
+and imported `sql`). The decoded request type `WriteRequest` lived server-side even though its
+encoder was already in `shared`.
+**Decision.** Split the server into three layers: a **web** layer (`server/web/`: `router`, the
+`board`/`timesheet` handlers, request parsing, and a leaf `response` helper) that owns routing, status
+codes, and parsing into typed values; a **domain** layer (`server/board.gleam`, `timesheet.gleam`)
+whose functions take already-parsed values, apply rules, and call persistence, returning domain
+`Result`s (`WriteError`/`NotAllocated`); and the existing **data access** (`sql`, `context`). The web
+layer never imports `sql`; the domain never imports `wisp`. `WriteRequest` and its decoder moved to
+`shared`, pairing with the existing `encode_write_request`.
+**Rationale.** "Isolated, not ignorant" — the domain is insulated from HTTP, but still openly depends
+on the SQL/data-access layer, because in this project the temporal rules deliberately live in the
+database (ADR-004/007); a fully persistence-ignorant repository port would be indirection over a thin
+domain. The shared `response` helper is a leaf module both the router and handlers import, avoiding
+the router↔handler import cycle.
+**Alternatives.** Strict persistence ignorance via an injected repository port (rejected as ceremony
+over a thin domain); helpers inside `router.gleam` (rejected — creates a handler↔router cycle).
+
 ---
 
 ## Documentation format

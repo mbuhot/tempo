@@ -55,13 +55,18 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
     tempo.gleam               #   server entrypoint (gleam run, Erlang target)
     tempo/
       oracle.gleam            #   migration-oracle entrypoint (gleam run -m tempo/oracle)
-      server/                 #   Erlang target only
-        router.gleam          #     Wisp routes
-        context.gleam         #     pog connection pool
-        board.gleam           #     as-of board handler
-        timesheet.gleam       #     timesheet read + write handlers
-        sql/                  #     Squirrel .sql sources → generated sql.gleam
-        migrate.gleam         #     numbered-migration runner (gleam run -m tempo/migrate)
+      server/
+        web/                  #   web layer (HTTP) — never imports sql
+          router.gleam        #     routing + static serving; dispatches to handlers
+          board.gleam         #     GET /api/board handler
+          timesheet.gleam     #     GET/POST /api/timesheet handlers
+          request.gleam       #     parse query params into a calendar.Date
+          response.gleam      #     json/error response helpers (leaf; shared by router + handlers)
+        board.gleam           #   domain — board.snapshot (no wisp)
+        timesheet.gleam       #   domain — form, log, WriteError (no wisp)
+        context.gleam         #   pog connection pool
+        sql/                  #   Squirrel .sql sources → generated sql.gleam
+        migrate.gleam         #   numbered-migration runner (gleam run -m tempo/migrate)
   test/                       #   layers 1–4 (constraint, oracle helpers, as-of, codec)
   priv/
     migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql

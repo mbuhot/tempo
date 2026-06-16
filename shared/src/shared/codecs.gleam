@@ -11,8 +11,8 @@ import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
   type BoardRow, type BoardSnapshot, type Engagement, type TimesheetDay,
-  type TimesheetLine, BoardRow, BoardSnapshot, OnLeave, OnProject, TimesheetDay,
-  TimesheetLine, Unassigned,
+  type TimesheetLine, type WriteRequest, BoardRow, BoardSnapshot, OnLeave,
+  OnProject, TimesheetDay, TimesheetLine, Unassigned, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -232,7 +232,7 @@ pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
 // The POST /api/timesheet request body and the typed error body the handler
 // returns on rejection. Kept here so the client and server share one contract:
 // the client encodes the request with `encode_write_request` and the server's
-// `timesheet.write_request_decoder` reads exactly these keys.
+// `write_request_decoder` reads exactly these keys.
 
 /// Encode a timesheet write request `{engineer_id, project_id, day, hours}` for
 /// POST /api/timesheet, with `day` as an ISO-8601 "YYYY-MM-DD" string.
@@ -248,6 +248,18 @@ pub fn encode_write_request(
     #("day", encode_date(day)),
     #("hours", json.float(hours)),
   ])
+}
+
+/// Decode a timesheet write request `{engineer_id, project_id, day, hours}` from
+/// the POST /api/timesheet body. Pairs with `encode_write_request`: `day` is an
+/// ISO-8601 "YYYY-MM-DD" string and `hours` is read leniently (a JS client may
+/// serialise a whole `Float` as an integer-looking number).
+pub fn write_request_decoder() -> Decoder(WriteRequest) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use project_id <- decode.field("project_id", decode.int)
+  use day <- decode.field("day", date_decoder())
+  use hours <- decode.field("hours", lenient_float_decoder())
+  decode.success(WriteRequest(engineer_id:, project_id:, day:, hours:))
 }
 
 /// Pull the human-readable `detail` out of the handler's typed error body

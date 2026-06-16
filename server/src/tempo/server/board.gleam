@@ -1,4 +1,5 @@
-//// As-of org-board handler; runs the temporal join and maps rows to shared types.
+//// Domain: assemble the as-of org board by running the temporal join and mapping
+//// rows to shared types. No HTTP — this layer never imports `wisp`.
 ////
 //// The board snapshot is assembled from three Squirrel queries (ARCHITECTURE.md §5),
 //// one per Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),
@@ -7,8 +8,6 @@
 //// Each maps to the shared `BoardRow`/`Engagement` contract; the merged list is
 //// sorted by engineer so the wire order is deterministic for the client and tests.
 
-import gleam/http
-import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
@@ -16,38 +15,15 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
 import shared/types.{
   type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave, OnProject,
   Unassigned,
 }
 import tempo/server/context.{type Context}
-import tempo/server/date
 import tempo/server/sql
-import wisp
 
-/// Handle GET /api/board?as_of=YYYY-MM-DD — compute the org board as of a date.
-///
-/// Thin handler (task spec Notes): parse `as_of`, run the query, encode. A
-/// missing/malformed `as_of` is a 400; a database failure is a 500.
-pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
-  use <- wisp.require_method(request, http.Get)
-  case date.as_of_from_query(request, "as_of") {
-    Error(detail) -> wisp.bad_request(detail)
-    Ok(as_of) ->
-      case snapshot(context, as_of) {
-        Ok(board) ->
-          board
-          |> codecs.encode_board_snapshot
-          |> json.to_string
-          |> wisp.json_response(200)
-        Error(_) -> wisp.internal_server_error()
-      }
-  }
-}
-
-/// Compute the board snapshot as of a date: run both as-of queries, map each row
-/// to a shared `BoardRow`, and merge them sorted by engineer name.
+/// Compute the board snapshot as of a date: run the three as-of queries, map each
+/// row to a shared `BoardRow`, and merge them sorted by engineer name.
 pub fn snapshot(
   context: Context,
   as_of: Date,

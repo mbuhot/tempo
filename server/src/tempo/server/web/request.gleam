@@ -1,12 +1,11 @@
-//// Date parsing at the server boundary.
+//// Request parsing at the web boundary: pull a "YYYY-MM-DD" query parameter off a
+//// wisp request and turn it into a `calendar.Date`.
 ////
 //// Squirrel rows carry `gleam/time/calendar.Date` and `pog` parameters expect it,
-//// and the shared API types (ADR-005) now hold `calendar.Date` too — so there is no
-//// longer a representation to bridge, only the `?as_of=`/`?day=` query string the
-//// slider sends as "YYYY-MM-DD" to parse into a `calendar.Date`.
-////
-//// Keeping this parsing in one place keeps the handlers thin (task spec Notes:
-//// "Keep mapping in one place").
+//// and the shared API types (ADR-005) hold `calendar.Date` too — so there is no
+//// representation to bridge, only the `?as_of=`/`?day=` query string the slider
+//// sends to parse. Keeping this parsing here keeps the handlers thin and the
+//// domain free of `wisp.Request` (web passes already-parsed values inward).
 
 import gleam/int
 import gleam/list

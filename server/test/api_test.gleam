@@ -22,7 +22,7 @@ import shared/types.{
   OnProject, TimesheetDay, TimesheetLine,
 }
 import tempo/server/context.{type Context, Context}
-import tempo/server/router
+import tempo/server/web/router
 import wisp/simulate
 
 // --- context ----------------------------------------------------------------

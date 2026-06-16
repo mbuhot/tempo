@@ -67,3 +67,11 @@ pub type TimesheetLine {
 pub type TimesheetDay {
   TimesheetDay(engineer_id: Int, as_of: Date, lines: List(TimesheetLine))
 }
+
+/// A validated timesheet write request: which engineer logs how many hours
+/// against which project on which day. This decoded payload IS the POST
+/// /api/timesheet contract — the client encodes it, the server decodes it, and
+/// the domain logs it.
+pub type WriteRequest {
+  WriteRequest(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+}

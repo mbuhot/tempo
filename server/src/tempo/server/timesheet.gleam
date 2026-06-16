@@ -1,35 +1,25 @@
-//// Timesheet read (my allocations as-of a day) and write (PERIOD-FK-backed insert) handlers.
+//// Domain: timesheet read (the form as-of a day) and write (the PERIOD-FK-backed
+//// temporal upsert). No HTTP — this layer never imports `wisp`.
 ////
-//// Read maps `timesheet_form` rows (ARCHITECTURE.md §5) to the shared
-//// `TimesheetDay`. Write is the delete-then-insert temporal upsert: the
+//// `form` maps `timesheet_form` rows (ARCHITECTURE.md §5) to the shared
+//// `TimesheetDay`. `log` is the delete-then-insert temporal upsert: the
 //// `WITHOUT OVERLAPS` PK cannot be an `ON CONFLICT` target, so re-entry deletes
 //// the covering row then inserts, both in one transaction. The `PERIOD` FK to
 //// `allocation` is the backstop — logging against a project the engineer is not
 //// allocated to that day is rejected by the database. That rejection
-//// (SQLSTATE 23503) is surfaced as a clean 422 typed error, never a 500.
+//// (SQLSTATE 23503) is classified as `NotAllocated` (a clean 4xx at the web
+//// layer), never an opaque database error.
 
-import gleam/dynamic/decode
-import gleam/http
-import gleam/int
-import gleam/json
 import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
 import shared/types.{
-  type TimesheetDay, type TimesheetLine, TimesheetDay, TimesheetLine,
+  type TimesheetDay, type TimesheetLine, type WriteRequest, TimesheetDay,
+  TimesheetLine, WriteRequest,
 }
 import tempo/server/context.{type Context}
-import tempo/server/date
 import tempo/server/sql
-import wisp
-
-/// A validated timesheet write request: which engineer logs how many hours
-/// against which project on which day. Parsed from the POST JSON body.
-pub type WriteRequest {
-  WriteRequest(engineer_id: Int, project_id: Int, day: Date, hours: Float)
-}
 
 /// Why a timesheet write was refused. `NotAllocated` is the domain rejection the
 /// `PERIOD` FK enforces (the project is not covered by an allocation that day);
@@ -46,35 +36,16 @@ const timesheet_period_fk = "timesheet_engineer_id_project_id_work_day_fkey"
 
 // --- read -------------------------------------------------------------------
 
-/// Handle GET /api/timesheet?engineer=ID&day=YYYY-MM-DD — my allocations as of a
-/// day, with any logged hours. Missing/malformed params are a 400; a DB failure
-/// is a 500.
-pub fn handle_read(request: wisp.Request, context: Context) -> wisp.Response {
-  use <- wisp.require_method(request, http.Get)
-  case read_params(request) {
-    Error(detail) -> wisp.bad_request(detail)
-    Ok(#(engineer_id, as_of)) ->
-      case form(context, engineer_id, as_of) {
-        Ok(day) ->
-          day
-          |> codecs.encode_timesheet_day
-          |> json.to_string
-          |> wisp.json_response(200)
-        Error(_) -> wisp.internal_server_error()
-      }
-  }
-}
-
 /// Compute the timesheet form for an engineer as of a day: run `timesheet_form`
 /// and map each row to the shared `TimesheetLine` (empty on a leave day).
 pub fn form(
   context: Context,
   engineer_id: Int,
-  as_of: Date,
+  day: Date,
 ) -> Result(TimesheetDay, pog.QueryError) {
-  use returned <- result.map(sql.timesheet_form(context.db, engineer_id, as_of))
+  use returned <- result.map(sql.timesheet_form(context.db, engineer_id, day))
   let lines = list.map(returned.rows, form_row_to_shared)
-  TimesheetDay(engineer_id:, as_of:, lines:)
+  TimesheetDay(engineer_id:, as_of: day, lines:)
 }
 
 fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
@@ -88,61 +59,12 @@ fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
   )
 }
 
-fn read_params(request: wisp.Request) -> Result(#(Int, Date), String) {
-  use engineer_id <- result.try(int_param(request, "engineer"))
-  use as_of <- result.map(date.as_of_from_query(request, "day"))
-  #(engineer_id, as_of)
-}
-
-fn int_param(request: wisp.Request, name: String) -> Result(Int, String) {
-  case list.key_find(wisp.get_query(request), name) {
-    Error(Nil) -> Error("missing query parameter '" <> name <> "'")
-    Ok(text) ->
-      int.parse(text)
-      |> result.replace_error(
-        "invalid integer '" <> text <> "' for '" <> name <> "'",
-      )
-  }
-}
-
 // --- write ------------------------------------------------------------------
-
-/// Handle POST /api/timesheet — log hours for a project on a day. The JSON body
-/// is `{engineer_id, project_id, day, hours}`. A malformed body is a 400; a day
-/// with no covering allocation (PERIOD-FK violation) is a clean 422 with a typed
-/// error body; any other DB failure is a 500. On success returns the refreshed
-/// timesheet form for that engineer/day so the client can re-render.
-pub fn handle_write(request: wisp.Request, context: Context) -> wisp.Response {
-  use <- wisp.require_method(request, http.Post)
-  use body <- wisp.require_json(request)
-  case decode.run(body, write_request_decoder()) {
-    Error(_) ->
-      error_response(
-        400,
-        "invalid_body",
-        "expected {engineer_id, project_id, day, hours}",
-      )
-    Ok(write) ->
-      case upsert(context, write) {
-        Ok(Nil) -> read_form_response(context, write.engineer_id, write.day)
-        Error(NotAllocated) ->
-          error_response(
-            422,
-            "not_allocated",
-            "the engineer is not allocated to that project on that day",
-          )
-        Error(DatabaseError(_)) -> wisp.internal_server_error()
-      }
-  }
-}
 
 /// Run the delete-then-insert temporal upsert in one transaction. A PERIOD-FK
 /// rejection rolls back the delete (the prior row survives) and is classified as
 /// `NotAllocated`; any other query error becomes `DatabaseError`.
-pub fn upsert(
-  context: Context,
-  write: WriteRequest,
-) -> Result(Nil, WriteError) {
+pub fn log(context: Context, write: WriteRequest) -> Result(Nil, WriteError) {
   let WriteRequest(engineer_id:, project_id:, day:, hours:) = write
   let outcome =
     pog.transaction(context.db, fn(conn) {
@@ -173,37 +95,4 @@ fn classify(error: pog.QueryError) -> WriteError {
     -> NotAllocated
     _ -> DatabaseError(error)
   }
-}
-
-fn read_form_response(
-  context: Context,
-  engineer_id: Int,
-  work_day: Date,
-) -> wisp.Response {
-  case form(context, engineer_id, work_day) {
-    Ok(form) ->
-      form
-      |> codecs.encode_timesheet_day
-      |> json.to_string
-      |> wisp.json_response(200)
-    Error(_) -> wisp.internal_server_error()
-  }
-}
-
-fn write_request_decoder() -> decode.Decoder(WriteRequest) {
-  use engineer_id <- decode.field("engineer_id", decode.int)
-  use project_id <- decode.field("project_id", decode.int)
-  use day <- decode.field("day", codecs.date_decoder())
-  use hours <- decode.field("hours", codecs.lenient_float_decoder())
-  decode.success(WriteRequest(engineer_id:, project_id:, day:, hours:))
-}
-
-/// A small typed error body: `{error: <code>, detail: <message>}`.
-fn error_response(status: Int, code: String, detail: String) -> wisp.Response {
-  json.object([
-    #("error", json.string(code)),
-    #("detail", json.string(detail)),
-  ])
-  |> json.to_string
-  |> wisp.json_response(status)
 }
