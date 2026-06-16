@@ -7,18 +7,18 @@
 -- has a role in the seed (engineer_role spans employment). All columns non-null,
 -- so the row decodes without Option plumbing.
 SELECT
-  e.name AS engineer,
-  rl.level
-FROM employment emp
-JOIN engineer e       ON e.id = emp.engineer_id
-JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
-WHERE emp.valid_at @> $1::date
+  engineer.name AS engineer,
+  engineer_role.level
+FROM employment
+JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
+WHERE employment.valid_at @> $1::date
   AND NOT EXISTS (
-    SELECT 1 FROM allocation al
-    WHERE al.engineer_id = e.id AND al.valid_at @> $1::date
+    SELECT 1 FROM allocation
+    WHERE allocation.engineer_id = engineer.id AND allocation.valid_at @> $1::date
   )
   AND NOT EXISTS (
-    SELECT 1 FROM leave lv
-    WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date
+    SELECT 1 FROM leave
+    WHERE leave.engineer_id = engineer.id AND leave.valid_at @> $1::date
   )
-ORDER BY e.name;
+ORDER BY engineer.name;

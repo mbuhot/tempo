@@ -46,7 +46,7 @@ pub type BoardAsOfRow {
 /// across the v1-wide -> v2-split redesign (ADR-013).
 ///
 /// Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
-/// engagement window is `lower(al.valid_at)`/`upper(al.valid_at)` AS
+/// engagement window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
 /// valid_from/valid_to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -95,31 +95,31 @@ pub fn board_as_of(
 -- across the v1-wide -> v2-split redesign (ADR-013).
 --
 -- Range columns are decomposed to plain `date`s at the boundary (ADR-011): the
--- engagement window is `lower(al.valid_at)`/`upper(al.valid_at)` AS
+-- engagement window is `lower(allocation.valid_at)`/`upper(allocation.valid_at)` AS
 -- valid_from/valid_to.
 SELECT
-  e.name AS engineer,
-  rl.level,
-  pr.name AS project,
-  cl.name AS client,
-  al.fraction,
-  rc.day_rate,
-  lower(al.valid_at) AS valid_from,
-  upper(al.valid_at) AS valid_to
-FROM employment emp
-JOIN engineer e       ON e.id = emp.engineer_id
-JOIN engineer_role rl ON rl.engineer_id = e.id  AND rl.valid_at @> $1::date
-JOIN rate_card rc     ON rc.level = rl.level     AND rc.valid_at @> $1::date
-JOIN allocation al    ON al.engineer_id = e.id   AND al.valid_at @> $1::date
-JOIN project pr       ON pr.id = al.project_id   AND pr.valid_at @> $1::date
-JOIN contract ct      ON ct.id = pr.contract_id  AND ct.valid_at @> $1::date
-JOIN client cl        ON cl.id = ct.client_id
-WHERE emp.valid_at @> $1::date
+  engineer.name AS engineer,
+  engineer_role.level,
+  project.name AS project,
+  client.name AS client,
+  allocation.fraction,
+  rate_card.day_rate,
+  lower(allocation.valid_at) AS valid_from,
+  upper(allocation.valid_at) AS valid_to
+FROM employment
+JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_role  ON engineer_role.engineer_id = engineer.id  AND engineer_role.valid_at @> $1::date
+JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.valid_at @> $1::date
+JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.valid_at @> $1::date
+JOIN project        ON project.id = allocation.project_id       AND project.valid_at @> $1::date
+JOIN contract       ON contract.id = project.contract_id        AND contract.valid_at @> $1::date
+JOIN client         ON client.id = contract.client_id
+WHERE employment.valid_at @> $1::date
   AND NOT EXISTS (
-    SELECT 1 FROM leave lv
-    WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date
+    SELECT 1 FROM leave
+    WHERE leave.engineer_id = engineer.id AND leave.valid_at @> $1::date
   )
-ORDER BY e.name, pr.name;
+ORDER BY engineer.name, project.name;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -189,16 +189,16 @@ pub fn board_leave_as_of(
 -- Ranges decomposed to plain `date`s at the boundary (ADR-011): valid_from/
 -- valid_to are the leave period's `lower()/upper()`.
 SELECT
-  e.name AS engineer,
-  rl.level,
-  lv.kind,
-  lower(lv.valid_at) AS valid_from,
-  upper(lv.valid_at) AS valid_to
-FROM leave lv
-JOIN engineer e            ON e.id = lv.engineer_id
-LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
-WHERE lv.valid_at @> $1::date
-ORDER BY e.name;
+  engineer.name AS engineer,
+  engineer_role.level,
+  leave.kind,
+  lower(leave.valid_at) AS valid_from,
+  upper(leave.valid_at) AS valid_to
+FROM leave
+JOIN engineer            ON engineer.id = leave.engineer_id
+LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
+WHERE leave.valid_at @> $1::date
+ORDER BY engineer.name;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -247,21 +247,21 @@ pub fn board_unassigned_as_of(
 -- has a role in the seed (engineer_role spans employment). All columns non-null,
 -- so the row decodes without Option plumbing.
 SELECT
-  e.name AS engineer,
-  rl.level
-FROM employment emp
-JOIN engineer e       ON e.id = emp.engineer_id
-JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
-WHERE emp.valid_at @> $1::date
+  engineer.name AS engineer,
+  engineer_role.level
+FROM employment
+JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
+WHERE employment.valid_at @> $1::date
   AND NOT EXISTS (
-    SELECT 1 FROM allocation al
-    WHERE al.engineer_id = e.id AND al.valid_at @> $1::date
+    SELECT 1 FROM allocation
+    WHERE allocation.engineer_id = engineer.id AND allocation.valid_at @> $1::date
   )
   AND NOT EXISTS (
-    SELECT 1 FROM leave lv
-    WHERE lv.engineer_id = e.id AND lv.valid_at @> $1::date
+    SELECT 1 FROM leave
+    WHERE leave.engineer_id = engineer.id AND leave.valid_at @> $1::date
   )
-ORDER BY e.name;
+ORDER BY engineer.name;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -393,7 +393,7 @@ pub type TimesheetFormRow {
 ///
 pub fn timesheet_form(
   db: pog.Connection,
-  al_engineer_id: Int,
+  allocation_engineer_id: Int,
   arg_2: Date,
 ) -> Result(pog.Returned(TimesheetFormRow), pog.QueryError) {
   let decoder = {
@@ -425,27 +425,27 @@ pub fn timesheet_form(
 -- plain `date`s at the boundary (ADR-011): valid_from/valid_to are the
 -- allocation engagement window.
 SELECT
-  pr.id AS project_id,
-  pr.name AS project,
-  al.fraction,
-  COALESCE(ts.hours, 0) AS hours,
-  lower(al.valid_at) AS valid_from,
-  upper(al.valid_at) AS valid_to
-FROM allocation al
-JOIN project pr ON pr.id = al.project_id AND pr.valid_at @> $2::date
-LEFT JOIN timesheet ts
-  ON ts.engineer_id = al.engineer_id
- AND ts.project_id  = al.project_id
- AND ts.work_day @> $2::date
-WHERE al.engineer_id = $1 AND al.valid_at @> $2::date
+  project.id AS project_id,
+  project.name AS project,
+  allocation.fraction,
+  COALESCE(timesheet.hours, 0) AS hours,
+  lower(allocation.valid_at) AS valid_from,
+  upper(allocation.valid_at) AS valid_to
+FROM allocation
+JOIN project ON project.id = allocation.project_id AND project.valid_at @> $2::date
+LEFT JOIN timesheet
+  ON timesheet.engineer_id = allocation.engineer_id
+ AND timesheet.project_id  = allocation.project_id
+ AND timesheet.work_day @> $2::date
+WHERE allocation.engineer_id = $1 AND allocation.valid_at @> $2::date
   AND NOT EXISTS (
-    SELECT 1 FROM leave lv
-    WHERE lv.engineer_id = $1 AND lv.valid_at @> $2::date
+    SELECT 1 FROM leave
+    WHERE leave.engineer_id = $1 AND leave.valid_at @> $2::date
   )
-ORDER BY pr.name;
+ORDER BY project.name;
 "
   |> pog.query
-  |> pog.parameter(pog.int(al_engineer_id))
+  |> pog.parameter(pog.int(allocation_engineer_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)

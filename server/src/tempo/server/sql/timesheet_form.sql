@@ -10,21 +10,21 @@
 -- plain `date`s at the boundary (ADR-011): valid_from/valid_to are the
 -- allocation engagement window.
 SELECT
-  pr.id AS project_id,
-  pr.name AS project,
-  al.fraction,
-  COALESCE(ts.hours, 0) AS hours,
-  lower(al.valid_at) AS valid_from,
-  upper(al.valid_at) AS valid_to
-FROM allocation al
-JOIN project pr ON pr.id = al.project_id AND pr.valid_at @> $2::date
-LEFT JOIN timesheet ts
-  ON ts.engineer_id = al.engineer_id
- AND ts.project_id  = al.project_id
- AND ts.work_day @> $2::date
-WHERE al.engineer_id = $1 AND al.valid_at @> $2::date
+  project.id AS project_id,
+  project.name AS project,
+  allocation.fraction,
+  COALESCE(timesheet.hours, 0) AS hours,
+  lower(allocation.valid_at) AS valid_from,
+  upper(allocation.valid_at) AS valid_to
+FROM allocation
+JOIN project ON project.id = allocation.project_id AND project.valid_at @> $2::date
+LEFT JOIN timesheet
+  ON timesheet.engineer_id = allocation.engineer_id
+ AND timesheet.project_id  = allocation.project_id
+ AND timesheet.work_day @> $2::date
+WHERE allocation.engineer_id = $1 AND allocation.valid_at @> $2::date
   AND NOT EXISTS (
-    SELECT 1 FROM leave lv
-    WHERE lv.engineer_id = $1 AND lv.valid_at @> $2::date
+    SELECT 1 FROM leave
+    WHERE leave.engineer_id = $1 AND leave.valid_at @> $2::date
   )
-ORDER BY pr.name;
+ORDER BY project.name;

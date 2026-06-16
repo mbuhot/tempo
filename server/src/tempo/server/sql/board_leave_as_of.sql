@@ -10,13 +10,13 @@
 -- Ranges decomposed to plain `date`s at the boundary (ADR-011): valid_from/
 -- valid_to are the leave period's `lower()/upper()`.
 SELECT
-  e.name AS engineer,
-  rl.level,
-  lv.kind,
-  lower(lv.valid_at) AS valid_from,
-  upper(lv.valid_at) AS valid_to
-FROM leave lv
-JOIN engineer e            ON e.id = lv.engineer_id
-LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.valid_at @> $1::date
-WHERE lv.valid_at @> $1::date
-ORDER BY e.name;
+  engineer.name AS engineer,
+  engineer_role.level,
+  leave.kind,
+  lower(leave.valid_at) AS valid_from,
+  upper(leave.valid_at) AS valid_to
+FROM leave
+JOIN engineer            ON engineer.id = leave.engineer_id
+LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
+WHERE leave.valid_at @> $1::date
+ORDER BY engineer.name;
