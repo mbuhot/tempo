@@ -1,16 +1,14 @@
 const { test, expect } = require("@playwright/test");
 const { execFileSync } = require("node:child_process");
 
-// Behaviour-driven coverage of the my-timesheet panel (PRD §7 beat 5, FR-7, and
-// the FR-5 negative). Drives the real app (Wisp serving the Lustre SPA) against a
-// seeded PG19; the same assertions hold on both v1-wide and v2-split because they
-// reference only what the user sees.
+// Behaviour-driven coverage of the my-timesheet panel. Drives the real app (Wisp
+// serving the Lustre SPA) against a seeded PG19, asserting only what the user
+// sees: the projects shown, their fractions, the hours in the inputs, the leave
+// message, and the save feedback — never CSS classes, ids, or DOM structure — so
+// the suite is robust to markup changes.
 //
-// Determinism (ARCHITECTURE.md §10): the day comes from the slider, whose value
-// is a unix-day index, so we drive it to FIXED absolute seed dates rather than
-// the wall clock. Assertions are user-visible content only — the projects shown,
-// their fractions, the hours in the inputs, the leave message, and the save
-// feedback — never CSS classes, ids, or DOM structure.
+// Determinism: the day comes from the slider, whose value is a unix-day index, so
+// we drive it to FIXED absolute seed dates rather than the wall clock.
 //
 //   2025-01-15 = day 20103  (Priya is only on Ledger Migration; Inventory Sync
 //                            does not begin until 2025-06-01 — not offered)
@@ -42,10 +40,9 @@ function hoursInput(page, project) {
 }
 
 // Remove any timesheet row a write test created, restoring the shared seed
-// (ARCHITECTURE.md §10 determinism) regardless of test outcome. Connects over TCP
-// with psql using the same env-var defaults as the server (context.gleam), so the
-// same cleanup works for the local Docker container and the CI service alike — no
-// dependency on a container name.
+// regardless of test outcome. Connects over TCP with psql using the same env-var
+// defaults as the server (context.gleam), so the same cleanup works for the local
+// Docker container and the CI service alike — no dependency on a container name.
 function restoreSeed(engineerId, projectId, isoDay) {
   const env = process.env;
   execFileSync(
@@ -75,9 +72,9 @@ test.beforeEach(async ({ page }) => {
 test("shows only the engineer's allocated projects, with fractions and logged hours", async ({
   page,
 }) => {
-  // Beat 5 (FR-7): "I'm Priya", scrub to a Tuesday she worked. Her two half-time
-  // projects appear, each showing its 50% split and the 4h already on record —
-  // and nothing she is not allocated to.
+  // "I'm Priya", scrub to a Tuesday she worked. Her two half-time projects
+  // appear, each showing its 50% split and the 4h already on record — and nothing
+  // she is not allocated to.
   await selectEngineer(page, "Priya Sharma");
   await scrubTo(page, "2026-06-09");
 
@@ -94,11 +91,11 @@ test("shows only the engineer's allocated projects, with fractions and logged ho
 test("a project outside the engineer's allocation that day is not offered for logging", async ({
   page,
 }) => {
-  // Negative beat (FR-7, FR-5): only projects the engineer is actually allocated
-  // to on the selected day may be logged. Scrub Priya back to 2025-01-15 — before
-  // her Inventory Sync allocation begins (2025-06-01) — and only Ledger Migration
-  // is offered. Inventory Sync is not, because she had not rolled onto it yet; the
-  // form refuses to surface a project the day's allocations do not cover.
+  // Only projects the engineer is actually allocated to on the selected day may
+  // be logged. Scrub Priya back to 2025-01-15 — before her Inventory Sync
+  // allocation begins (2025-06-01) — and only Ledger Migration is offered.
+  // Inventory Sync is not, because she had not rolled onto it yet; the form
+  // refuses to surface a project the day's allocations do not cover.
   await selectEngineer(page, "Priya Sharma");
   await scrubTo(page, "2025-01-15");
 
@@ -107,8 +104,8 @@ test("a project outside the engineer's allocation that day is not offered for lo
 });
 
 test("an engineer on leave is told there is nothing to log", async ({ page }) => {
-  // FR-4 precedence in the write path: on the seed "now" Aisha is on annual
-  // leave, so the form offers no projects — just the leave state.
+  // On the seed "now" Aisha is on annual leave, so the form offers no projects —
+  // just the leave state.
   await selectEngineer(page, "Aisha Okafor");
   await scrubTo(page, "2026-06-15");
 
@@ -119,9 +116,9 @@ test("an engineer on leave is told there is nothing to log", async ({ page }) =>
 test("saving hours reflects the new value and persists across a reload", async ({
   page,
 }) => {
-  // The write path end to end (FR-7): log fresh hours for Marcus on a day his
-  // allocation covers, see them reflected, and confirm they survive a reload —
-  // proving the value was committed, not just held in the client.
+  // The write path end to end: log fresh hours for Marcus on a day his allocation
+  // covers, see them reflected, and confirm they survive a reload — proving the
+  // value was committed, not just held in the client.
   await selectEngineer(page, "Marcus Chen");
   await scrubTo(page, "2026-06-10");
 
@@ -149,8 +146,8 @@ test("saving hours reflects the new value and persists across a reload", async (
 test("submitting an empty hours field shows a friendly message, not a crash", async ({
   page,
 }) => {
-  // A rejected write is surfaced as a friendly message (FR-7): clearing the field
-  // and saving prompts the user rather than posting a blank or erroring.
+  // A rejected write is surfaced as a friendly message: clearing the field and
+  // saving prompts the user rather than posting a blank or erroring.
   await selectEngineer(page, "Marcus Chen");
   await scrubTo(page, "2026-06-10");
 

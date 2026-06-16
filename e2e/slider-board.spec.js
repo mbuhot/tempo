@@ -1,14 +1,12 @@
 const { test, expect } = require("@playwright/test");
 
-// Behaviour-driven coverage of the time slider + org board (PRD §7 beats 1–4,
-// FR-1..FR-4). Drives the real app (Wisp serving the Lustre SPA) against a
-// seeded PG19; the same assertions hold on both v1-wide and v2-split because
-// they reference only what the user sees.
+// Behaviour-driven coverage of the time slider + org board. Drives the real app
+// (Wisp serving the Lustre SPA) against a seeded PG19, asserting only what the
+// user sees: the date shown and the sentence per engineer — never CSS classes,
+// ids, or DOM structure — so the suite is robust to markup changes.
 //
-// Determinism (ARCHITECTURE.md §10): the slider value is a unix-day index, so we
-// drive it to FIXED absolute seed dates rather than the wall clock. Assertions
-// are user-visible content only — the date shown and the sentence per engineer —
-// never CSS classes, ids, or DOM structure.
+// Determinism: the slider value is a unix-day index, so we drive it to FIXED
+// absolute seed dates rather than the wall clock.
 //
 //   2024-01-01 = day 19723 (slider min)   2026-06-15 = day 20619 (seed "now")
 //   2024-06-01 = day 19875                 2026-07-15 = day 20649
@@ -21,7 +19,7 @@ const DAY = {
 };
 
 // Move the slider to a fixed seed day index and wait for the board to re-render
-// as of that date (the "As of YYYY-MM-DD" heading is the visible confirmation).
+// for that date (the "As of YYYY-MM-DD" heading is the visible confirmation).
 async function scrubTo(page, isoDate) {
   const slider = page.getByLabel("Board date");
   await slider.fill(DAY[isoDate]);
@@ -34,8 +32,7 @@ async function scrubTo(page, isoDate) {
 // engineer: their name, then (anywhere after it on the same line) the expected
 // fragment of their situation — e.g. "On leave: annual" or "Data Platform". This
 // asserts only what the user reads, with no reference to the tag, class, or id of
-// the element that carries it, so the suite survives any DOM restructure and the
-// v1-wide → v2-split migration unchanged.
+// the element that carries it, so the suite survives any DOM restructure.
 function engineerSays(name, fragment) {
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`${escape(name)}.*${escape(fragment)}`);
@@ -62,17 +59,17 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("opens at the seed now with Aisha on leave", async ({ page }) => {
-  // Beat 1 (FR-1, FR-4): the board for 2026-06-15. Aisha's allocation is
-  // suppressed by her covering leave fact and shown distinctly; Marcus is on his
-  // project. Engineers, projects, and clients are all visible for the date.
+  // The board for 2026-06-15. Aisha's allocation is suppressed by her covering
+  // leave fact and shown distinctly; Marcus is on his project. Engineers,
+  // projects, and clients are all visible for the date.
   await expectEngineerLine(page, "Aisha Okafor", "On leave: annual");
   await expectEngineerLine(page, "Marcus Chen", "Data Platform for Globex Corporation");
   await expectEngineerLine(page, "Priya Sharma", "Ledger Migration for Northwind Trading");
 });
 
 test("scrubbing into the future activates Marcus's promotion", async ({ page }) => {
-  // Beat 2 (FR-3): before 2026-07-01 Marcus is L4 charging $1,000/day; scrub past
-  // his future-dated promotion and his level AND charge rate step up unaided.
+  // Before 2026-07-01 Marcus is L4 charging $1,000/day; scrub past his
+  // future-dated promotion and his level AND charge rate step up unaided.
   await scrubTo(page, "2026-06-15");
   await expectEngineerLine(page, "Marcus Chen", "L4");
   await expectEngineerLine(page, "Marcus Chen", "$1000/day");
@@ -85,8 +82,8 @@ test("scrubbing into the future activates Marcus's promotion", async ({ page }) 
 test("scrubbing before her leave shows Aisha allocated, not on leave", async ({
   page,
 }) => {
-  // Beat 3 (FR-2 history, FR-4 precedence): at 2026-06-01 — before her
-  // 2026-06-08..06-22 leave — Aisha is shown on her project, not "On leave".
+  // At 2026-06-01 — before her 2026-06-08..06-22 leave — Aisha is shown on her
+  // project, not "On leave".
   await scrubTo(page, "2026-06-01");
   await expectEngineerLine(page, "Aisha Okafor", "Data Platform for Globex Corporation");
   await expectNoEngineerLine(page, "Aisha Okafor", "On leave");
@@ -105,8 +102,8 @@ test("the board changes as the slider moves", async ({ page }) => {
 test("an employed but unallocated engineer is shown as Unassigned", async ({
   page,
 }) => {
-  // FR-1 regression: scrubbing into 2024 — when Marcus is employed but not yet on
-  // any project and not on leave — must show him as "Unassigned". This case
+  // Regression: scrubbing into 2024 — when Marcus is employed but not yet on any
+  // project and not on leave — must show him as "Unassigned". This case
   // previously made GET /api/board return 500 (the board's only NULL-allocation
   // path). Priya is already on Ledger Migration then.
   await scrubTo(page, "2024-06-01");

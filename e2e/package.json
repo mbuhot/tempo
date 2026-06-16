@@ -1,7 +1,7 @@
 {
   "name": "tempo-e2e",
   "version": "1.0.0",
-  "description": "Playwright end-to-end harness for the Tempo PG19 temporal-tables demo. See PRD.md and ARCHITECTURE.md.",
+  "description": "Playwright end-to-end harness for the Tempo temporal-tables demo.",
   "private": true,
   "type": "commonjs",
   "scripts": {
