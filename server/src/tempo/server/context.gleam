@@ -1,4 +1,4 @@
-//// Target: Erlang only — the pog connection pool shared across request handlers.
+//// The pog connection pool shared across request handlers.
 
 import envoy
 import gleam/dynamic/decode

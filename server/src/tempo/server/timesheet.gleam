@@ -1,4 +1,4 @@
-//// Target: Erlang only — timesheet read (my allocations as-of a day) and write (PERIOD-FK-backed insert) handlers.
+//// Timesheet read (my allocations as-of a day) and write (PERIOD-FK-backed insert) handlers.
 ////
 //// Read maps `timesheet_form` rows (ARCHITECTURE.md §5) to the shared
 //// `TimesheetDay`. Write is the delete-then-insert temporal upsert (P1-T04): the

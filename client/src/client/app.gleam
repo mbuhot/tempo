@@ -1,4 +1,4 @@
-//// Target: JS only — Lustre SPA: model/update/view, the time slider, the org
+//// Lustre SPA: model/update/view, the time slider, the org
 //// board, and the interactive my-timesheet panel.
 //// Imports shared/* only (never server/*).
 ////

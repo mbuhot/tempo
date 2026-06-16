@@ -1,4 +1,4 @@
-//// Target: Erlang only — numbered-migration runner; applies priv/migrations in order and records them.
+//// Numbered-migration runner; applies priv/migrations in order and records them.
 
 import filepath
 import gleam/dynamic/decode

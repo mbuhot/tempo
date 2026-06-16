@@ -1,4 +1,4 @@
-//// Target: Erlang only — as-of org-board handler; runs the temporal join and maps rows to shared types.
+//// As-of org-board handler; runs the temporal join and maps rows to shared types.
 ////
 //// The board snapshot is assembled from three Squirrel queries (ARCHITECTURE.md §5),
 //// one per Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),

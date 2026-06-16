@@ -1,35 +1,26 @@
-//// Target: Erlang only — the migration oracle (ARCHITECTURE.md §7, §10.2; P5-T03).
+//// A verification that the v1->v2 schema migration preserves the observable
+//// history of the org board: for every date in the seed span, the as-of board is
+//// identical before and after applying `010_split_allocation`.
 ////
-//// Automates the standout on-stage claim: the org board is identical for EVERY
-//// date across the v1-wide -> v2-split migration. The slider is the correctness
-//// oracle; this turns "history is provably intact" into a runnable gate.
+//// The check seeds a fresh v1 database (drops and recreates `public`, then applies
+//// 001+002+003), snapshots the board for every day in the seed span, applies the
+//// `010_split_allocation` coalescing migration, re-snapshots every day, and
+//// compares the two snapshots date by date. Equal boards everywhere confirm the
+//// migration leaves the board's observable output unchanged.
 ////
-////   seed a FRESH v1 DB (drop+recreate public, apply 001+002+003)
-////     -> snapshot board_as_of for every day in the seed span (2024..2027)
-////     -> apply 010_split_allocation (drop the cached day_rate, range_agg-coalesce)
-////     -> re-snapshot every day
-////     -> assert EQUAL for every date; fail loudly with the FIRST differing date.
-////
-//// Run in isolation so it does NOT corrupt the `gleam test` suite (which relies on
-//// the seed it would tear down). It is its own runnable module:
+//// Each snapshot runs the production board SQL
+//// (`src/tempo/server/sql/board_as_of.sql`) wrapped in a CTE that renders one
+//// date's whole board to a single NULL-tolerant text blob, so the comparison is
+//// over the exact query the app serves rather than a re-typed copy of it. The
+//// rendering covers the user-visible columns — engineer, level, project, client,
+//// fraction, charge rate — and excludes the engagement window, which the
+//// coalescing migration is expected to change and the client never renders.
 ////
 ////     gleam run -m tempo/oracle
 ////
-//// It rebuilds the dev DB from scratch and leaves it at v2-split on success (the
-//// same end state `gleam run -m tempo/migrate` produces), which is fine for dev.
-//// Exits non-zero (via `panic`) on any mismatch, so it works as a CI gate.
-////
-//// FAITHFULNESS. The board's charge rate already derives from engineer_role ×
-//// rate_card in BOTH generations (ADR-009); day_rate was a redundant cache
-//// (ARCHITECTURE.md §7). So the SAME board query is run pre and post, isolating
-//// the effect of the data restructure: any difference is a real regression, not a
-//// query change. To stay honest, the snapshot runs the *production* board SQL
-//// (src/tempo/server/sql/board_as_of.sql, the exact text the app serves) wrapped
-//// in a CTE that renders each date's whole board to one NULL-tolerant text blob —
-//// so it compares the real query's output and never drifts from it, while
-//// handling the documented "employed but unallocated as of the date" row whose
-//// project/client/rate columns are NULL (which the scalar Squirrel decoder cannot
-//// represent and which the dense daily span actually hits).
+//// Exits non-zero (via `panic`) on the first date whose board differs, reporting
+//// that date and both renderings. On success it leaves the database at v2-split,
+//// the same end state `gleam run -m tempo/migrate` produces.
 
 import gleam/dynamic/decode
 import gleam/erlang/application

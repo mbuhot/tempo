@@ -1,4 +1,4 @@
-//// Target: Erlang only — date conversions at the server boundary.
+//// Date conversions at the server boundary.
 ////
 //// Bridges three date representations the server straddles:
 ////   * `gleam/time/calendar.Date` — what Squirrel rows carry and `pog`

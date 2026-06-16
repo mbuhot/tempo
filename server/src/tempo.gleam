@@ -1,4 +1,4 @@
-//// Target: Erlang only — server entrypoint (`gleam run`); boots the Wisp server with the pog pool.
+//// Server entrypoint (`gleam run`); boots the Wisp server with the pog pool.
 ////
 //// Starts the pog pool (context.gleam), wires it into the router, and serves the
 //// JSON API + static assets over mist. The process then sleeps forever so the

@@ -1,4 +1,4 @@
-//// Target: Erlang only — Wisp request router dispatching to board/timesheet handlers.
+//// Wisp request router dispatching to board/timesheet handlers.
 ////
 //// Thin dispatch (task spec Notes): each route delegates to a handler that
 //// queries, maps Squirrel rows to shared types, and encodes JSON. Everything

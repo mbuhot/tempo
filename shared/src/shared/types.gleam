@@ -1,4 +1,4 @@
-//// Target: both (Erlang + JS) — domain/API types shared by server and client. Must stay target-agnostic.
+//// Domain/API types shared by server and client. Must stay target-agnostic.
 ////
 //// These are the API contract (ADR-005): the server maps Squirrel rows to them and
 //// the client renders them, with `codecs.gleam` carrying the JSON between. They are
