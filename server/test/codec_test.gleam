@@ -12,9 +12,10 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/time/calendar.{Date, January, July, June}
 import shared/codecs
 import shared/types.{
-  BoardRow, BoardSnapshot, Date, OnLeave, OnProject, TimesheetDay, TimesheetLine,
+  BoardRow, BoardSnapshot, OnLeave, OnProject, TimesheetDay, TimesheetLine,
   Unassigned,
 }
 
@@ -33,7 +34,7 @@ fn round_trip(value: a, encode: fn(a) -> Json, decoder: Decoder(a)) -> a {
 // --- Date -------------------------------------------------------------------
 
 pub fn date_round_trips_test() {
-  let original = Date(2026, 6, 15)
+  let original = Date(2026, June, 15)
 
   assert round_trip(original, codecs.encode_date, codecs.date_decoder())
     == original
@@ -42,7 +43,7 @@ pub fn date_round_trips_test() {
 // --- As-of date -------------------------------------------------------------
 
 pub fn as_of_round_trips_test() {
-  let original = Date(2026, 6, 15)
+  let original = Date(2026, June, 15)
 
   assert round_trip(original, codecs.encode_date, codecs.date_decoder())
     == original
@@ -57,8 +58,8 @@ pub fn engagement_on_project_round_trips_test() {
       client: "Northwind Trading",
       fraction: 0.5,
       day_rate: 1200.0,
-      valid_from: Date(2024, 1, 1),
-      valid_to: Date(2026, 7, 1),
+      valid_from: Date(2024, January, 1),
+      valid_to: Date(2026, July, 1),
     )
 
   assert round_trip(
@@ -75,8 +76,8 @@ pub fn engagement_on_leave_round_trips_test() {
   let original =
     OnLeave(
       kind: "annual",
-      valid_from: Date(2026, 6, 8),
-      valid_to: Date(2026, 6, 22),
+      valid_from: Date(2026, June, 8),
+      valid_to: Date(2026, June, 22),
     )
 
   assert round_trip(
@@ -111,8 +112,8 @@ pub fn board_row_round_trips_test() {
         client: "Northwind Trading",
         fraction: 0.5,
         day_rate: 1200.0,
-        valid_from: Date(2025, 6, 1),
-        valid_to: Date(2026, 7, 1),
+        valid_from: Date(2025, June, 1),
+        valid_to: Date(2026, July, 1),
       ),
     )
 
@@ -133,8 +134,8 @@ pub fn board_row_on_leave_round_trips_test() {
       level: 6,
       engagement: OnLeave(
         kind: "annual",
-        valid_from: Date(2026, 6, 8),
-        valid_to: Date(2026, 6, 22),
+        valid_from: Date(2026, June, 8),
+        valid_to: Date(2026, June, 22),
       ),
     )
 
@@ -152,7 +153,7 @@ pub fn board_row_on_leave_round_trips_test() {
 // proving the list and every nested variant survive the round trip together.
 pub fn board_snapshot_round_trips_test() {
   let original =
-    BoardSnapshot(as_of: Date(2026, 6, 15), rows: [
+    BoardSnapshot(as_of: Date(2026, June, 15), rows: [
       BoardRow(
         engineer: "Marcus Chen",
         level: 4,
@@ -161,8 +162,8 @@ pub fn board_snapshot_round_trips_test() {
           client: "Globex Corporation",
           fraction: 1.0,
           day_rate: 1000.0,
-          valid_from: Date(2025, 1, 1),
-          valid_to: Date(2026, 7, 1),
+          valid_from: Date(2025, January, 1),
+          valid_to: Date(2026, July, 1),
         ),
       ),
       BoardRow(
@@ -170,8 +171,8 @@ pub fn board_snapshot_round_trips_test() {
         level: 6,
         engagement: OnLeave(
           kind: "annual",
-          valid_from: Date(2026, 6, 8),
-          valid_to: Date(2026, 6, 22),
+          valid_from: Date(2026, June, 8),
+          valid_to: Date(2026, June, 22),
         ),
       ),
     ])
@@ -186,7 +187,7 @@ pub fn board_snapshot_round_trips_test() {
 
 // An empty board (no employed engineers as of the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
-  let original = BoardSnapshot(as_of: Date(2026, 6, 15), rows: [])
+  let original = BoardSnapshot(as_of: Date(2026, June, 15), rows: [])
 
   assert round_trip(
       original,
@@ -205,8 +206,8 @@ pub fn timesheet_line_round_trips_test() {
       project: "Inventory Sync",
       fraction: 0.5,
       hours: 4.0,
-      valid_from: Date(2025, 6, 1),
-      valid_to: Date(2026, 7, 1),
+      valid_from: Date(2025, June, 1),
+      valid_to: Date(2026, July, 1),
     )
 
   assert round_trip(
@@ -227,8 +228,8 @@ pub fn timesheet_line_zero_hours_round_trips_test() {
       project: "Ledger Migration",
       fraction: 0.5,
       hours: 0.0,
-      valid_from: Date(2024, 1, 1),
-      valid_to: Date(2026, 7, 1),
+      valid_from: Date(2024, January, 1),
+      valid_to: Date(2026, July, 1),
     )
 
   assert round_trip(
@@ -243,22 +244,22 @@ pub fn timesheet_line_zero_hours_round_trips_test() {
 
 pub fn timesheet_day_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 1, as_of: Date(2026, 6, 9), lines: [
+    TimesheetDay(engineer_id: 1, as_of: Date(2026, June, 9), lines: [
       TimesheetLine(
         project_id: 200,
         project: "Inventory Sync",
         fraction: 0.5,
         hours: 4.0,
-        valid_from: Date(2025, 6, 1),
-        valid_to: Date(2026, 7, 1),
+        valid_from: Date(2025, June, 1),
+        valid_to: Date(2026, July, 1),
       ),
       TimesheetLine(
         project_id: 100,
         project: "Ledger Migration",
         fraction: 0.5,
         hours: 0.0,
-        valid_from: Date(2024, 1, 1),
-        valid_to: Date(2026, 7, 1),
+        valid_from: Date(2024, January, 1),
+        valid_to: Date(2026, July, 1),
       ),
     ])
 
@@ -274,7 +275,7 @@ pub fn timesheet_day_round_trips_test() {
 // PRD FR-4/FR-5) — round-trips to the same empty form.
 pub fn timesheet_day_on_leave_empty_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 3, as_of: Date(2026, 6, 15), lines: [])
+    TimesheetDay(engineer_id: 3, as_of: Date(2026, June, 15), lines: [])
 
   assert round_trip(
       original,

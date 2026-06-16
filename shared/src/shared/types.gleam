@@ -6,15 +6,12 @@
 //// charge rate is a plain value on the row, never "where it came from", so the shape
 //// the user sees does not change when the rate source moves from a cached
 //// `allocation.day_rate` to the derived `engineer_role × rate_card`.
+//// Date fields are `gleam/time/calendar.Date` — the same type Squirrel rows decode
+//// to and `pog` parameters expect, so dates flow from the DB through these types to
+//// the wire (and back on the client) without a boundary conversion. The codecs
+//// still serialise them as ISO-8601 "YYYY-MM-DD" strings, unchanged on the wire.
 
-/// A plain calendar date — the boundary form of a temporal range bound. Postgres
-/// `daterange`s are decomposed to `lower()/upper()` plain `date`s at the Squirrel
-/// boundary (ADR-011); this carries those bounds (and any other date) on the wire.
-/// Target-agnostic Ints (not `gleam/time/calendar.Date`) so it serialises cleanly
-/// to an ISO-8601 string and compiles on both targets.
-pub type Date {
-  Date(year: Int, month: Int, day: Int)
-}
+import gleam/time/calendar.{type Date}
 
 /// An engineer's situation on the org board as of a date. Leave takes precedence
 /// over an allocation in the read model: an engineer covered by a leave fact is

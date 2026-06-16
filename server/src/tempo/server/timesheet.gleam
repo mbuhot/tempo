@@ -14,11 +14,11 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{
-  type Date, type TimesheetDay, type TimesheetLine, Date, TimesheetDay,
-  TimesheetLine,
+  type TimesheetDay, type TimesheetLine, TimesheetDay, TimesheetLine,
 }
 import tempo/server/context.{type Context}
 import tempo/server/date
@@ -72,8 +72,7 @@ pub fn form(
   engineer_id: Int,
   as_of: Date,
 ) -> Result(TimesheetDay, pog.QueryError) {
-  let day = date.as_of_to_calendar(as_of)
-  use returned <- result.map(sql.timesheet_form(context.db, engineer_id, day))
+  use returned <- result.map(sql.timesheet_form(context.db, engineer_id, as_of))
   let lines = list.map(returned.rows, form_row_to_shared)
   TimesheetDay(engineer_id:, as_of:, lines:)
 }
@@ -84,8 +83,8 @@ fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
     project: row.project,
     fraction: row.fraction,
     hours: row.hours,
-    valid_from: date.from_calendar(row.valid_from),
-    valid_to: date.from_calendar(row.valid_to),
+    valid_from: row.valid_from,
+    valid_to: row.valid_to,
   )
 }
 
@@ -145,16 +144,15 @@ pub fn upsert(
   write: WriteRequest,
 ) -> Result(Nil, WriteError) {
   let WriteRequest(engineer_id:, project_id:, day:, hours:) = write
-  let calendar_day = date.to_calendar(day)
   let outcome =
     pog.transaction(context.db, fn(conn) {
       use _ <- result.try(sql.timesheet_delete(
         conn,
         engineer_id,
         project_id,
-        calendar_day,
+        day,
       ))
-      sql.timesheet_write(conn, engineer_id, project_id, calendar_day, hours)
+      sql.timesheet_write(conn, engineer_id, project_id, day, hours)
     })
   case outcome {
     Ok(_) -> Ok(Nil)
@@ -182,7 +180,7 @@ fn read_form_response(
   engineer_id: Int,
   work_day: Date,
 ) -> wisp.Response {
-  case form(context, engineer_id, as_of_from_date(work_day)) {
+  case form(context, engineer_id, work_day) {
     Ok(form) ->
       form
       |> codecs.encode_timesheet_day
@@ -190,11 +188,6 @@ fn read_form_response(
       |> wisp.json_response(200)
     Error(_) -> wisp.internal_server_error()
   }
-}
-
-fn as_of_from_date(work_day: Date) -> Date {
-  let types.Date(year:, month:, day:) = work_day
-  Date(year:, month:, day:)
 }
 
 fn write_request_decoder() -> decode.Decoder(WriteRequest) {

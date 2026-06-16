@@ -8,20 +8,25 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/result
 import gleam/string
+import gleam/time/calendar.{type Date, Date}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Date, type Engagement,
-  type TimesheetDay, type TimesheetLine, BoardRow, BoardSnapshot, Date, OnLeave,
-  OnProject, TimesheetDay, TimesheetLine, Unassigned,
+  type BoardRow, type BoardSnapshot, type Engagement, type TimesheetDay,
+  type TimesheetLine, BoardRow, BoardSnapshot, OnLeave, OnProject, TimesheetDay,
+  TimesheetLine, Unassigned,
 }
 
 // --- Date -------------------------------------------------------------------
 // Carried on the wire as an ISO-8601 "YYYY-MM-DD" string: unambiguous, compact,
-// and exactly round-trippable for the integer-component Date type.
+// and exactly round-trippable. The shared types hold `calendar.Date`, whose `month`
+// is the `Month` enum, so encoding maps it to its 1-12 number and decoding parses
+// the number back to a `Month`.
 
 /// Encode a `Date` as an ISO-8601 "YYYY-MM-DD" string.
 pub fn encode_date(date: Date) -> Json {
   let Date(year:, month:, day:) = date
-  json.string(pad4(year) <> "-" <> pad2(month) <> "-" <> pad2(day))
+  json.string(
+    pad4(year) <> "-" <> pad2(calendar.month_to_int(month)) <> "-" <> pad2(day),
+  )
 }
 
 /// Decode an ISO-8601 "YYYY-MM-DD" string into a `Date`.
@@ -29,7 +34,7 @@ pub fn date_decoder() -> Decoder(Date) {
   use text <- decode.then(decode.string)
   case parse_iso_date(text) {
     Ok(date) -> decode.success(date)
-    Error(Nil) -> decode.failure(Date(0, 1, 1), "Date")
+    Error(Nil) -> decode.failure(Date(0, calendar.January, 1), "Date")
   }
 }
 
@@ -38,6 +43,7 @@ fn parse_iso_date(text: String) -> Result(Date, Nil) {
     [year, month, day] -> {
       use year <- result.try(int.parse(year))
       use month <- result.try(int.parse(month))
+      use month <- result.try(calendar.month_from_int(month))
       use day <- result.try(int.parse(day))
       Ok(Date(year:, month:, day:))
     }

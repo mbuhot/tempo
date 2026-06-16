@@ -14,11 +14,12 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Date, BoardRow, BoardSnapshot, OnLeave,
-  OnProject, Unassigned,
+  type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave, OnProject,
+  Unassigned,
 }
 import tempo/server/context.{type Context}
 import tempo/server/date
@@ -51,10 +52,9 @@ pub fn snapshot(
   context: Context,
   as_of: Date,
 ) -> Result(BoardSnapshot, pog.QueryError) {
-  let day = date.as_of_to_calendar(as_of)
-  use board <- result.try(sql.board_as_of(context.db, day))
-  use unassigned <- result.try(sql.board_unassigned_as_of(context.db, day))
-  use leave <- result.try(sql.board_leave_as_of(context.db, day))
+  use board <- result.try(sql.board_as_of(context.db, as_of))
+  use unassigned <- result.try(sql.board_unassigned_as_of(context.db, as_of))
+  use leave <- result.try(sql.board_leave_as_of(context.db, as_of))
   let rows =
     list.flatten([
       list.map(board.rows, board_row_to_shared),
@@ -77,8 +77,8 @@ fn board_row_to_shared(row: sql.BoardAsOfRow) -> BoardRow {
       client: row.client,
       fraction: row.fraction,
       day_rate: row.day_rate,
-      valid_from: date.from_calendar(row.valid_from),
-      valid_to: date.from_calendar(row.valid_to),
+      valid_from: row.valid_from,
+      valid_to: row.valid_to,
     ),
   )
 }
@@ -98,8 +98,8 @@ fn leave_row_to_shared(row: sql.BoardLeaveAsOfRow) -> BoardRow {
     level: level_or_zero(row.level),
     engagement: OnLeave(
       kind: row.kind,
-      valid_from: date.from_calendar(row.valid_from),
-      valid_to: date.from_calendar(row.valid_to),
+      valid_from: row.valid_from,
+      valid_to: row.valid_to,
     ),
   )
 }

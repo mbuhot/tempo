@@ -46,7 +46,10 @@ pub fn board_unassigned_as_of_query_test() {
 // ignored with `..`.
 pub fn snapshot_includes_unassigned_test() {
   let assert Ok(snapshot) =
-    board.snapshot(context.Context(db: db()), types.Date(2024, 6, 1))
+    board.snapshot(
+      context.Context(db: db()),
+      calendar.Date(2024, calendar.June, 1),
+    )
 
   let assert [marcus, priya] = snapshot.rows
   assert marcus == types.BoardRow("Marcus Chen", 4, types.Unassigned)

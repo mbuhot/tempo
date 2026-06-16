@@ -18,7 +18,7 @@ import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type TimesheetDay, BoardRow, BoardSnapshot, Date, OnLeave,
+  type BoardSnapshot, type TimesheetDay, BoardRow, BoardSnapshot, OnLeave,
   OnProject, TimesheetDay, TimesheetLine,
 }
 import tempo/server/context.{type Context, Context}
@@ -53,14 +53,14 @@ pub fn board_as_of_now_returns_snapshot_test() {
   let snapshot = decode_board(response)
 
   assert snapshot
-    == BoardSnapshot(as_of: Date(2026, 6, 15), rows: [
+    == BoardSnapshot(as_of: calendar.Date(2026, calendar.June, 15), rows: [
       BoardRow(
         engineer: "Aisha Okafor",
         level: 6,
         engagement: OnLeave(
           kind: "annual",
-          valid_from: Date(2026, 6, 8),
-          valid_to: Date(2026, 6, 22),
+          valid_from: calendar.Date(2026, calendar.June, 8),
+          valid_to: calendar.Date(2026, calendar.June, 22),
         ),
       ),
       BoardRow(
@@ -71,8 +71,8 @@ pub fn board_as_of_now_returns_snapshot_test() {
           client: "Globex Corporation",
           fraction: 1.0,
           day_rate: 1000.0,
-          valid_from: Date(2025, 1, 1),
-          valid_to: Date(2027, 1, 1),
+          valid_from: calendar.Date(2025, calendar.January, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
         ),
       ),
       BoardRow(
@@ -83,8 +83,8 @@ pub fn board_as_of_now_returns_snapshot_test() {
           client: "Northwind Trading",
           fraction: 0.5,
           day_rate: 1200.0,
-          valid_from: Date(2025, 6, 1),
-          valid_to: Date(2027, 1, 1),
+          valid_from: calendar.Date(2025, calendar.June, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
         ),
       ),
       BoardRow(
@@ -95,8 +95,8 @@ pub fn board_as_of_now_returns_snapshot_test() {
           client: "Northwind Trading",
           fraction: 0.5,
           day_rate: 1200.0,
-          valid_from: Date(2024, 1, 1),
-          valid_to: Date(2027, 1, 1),
+          valid_from: calendar.Date(2024, calendar.January, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
         ),
       ),
     ])
@@ -134,24 +134,28 @@ pub fn timesheet_read_returns_day_test() {
   let day = decode_timesheet(response)
 
   assert day
-    == TimesheetDay(engineer_id: 1, as_of: Date(2026, 6, 9), lines: [
-      TimesheetLine(
-        project_id: 200,
-        project: "Inventory Sync",
-        fraction: 0.5,
-        hours: 4.0,
-        valid_from: Date(2025, 6, 1),
-        valid_to: Date(2027, 1, 1),
-      ),
-      TimesheetLine(
-        project_id: 100,
-        project: "Ledger Migration",
-        fraction: 0.5,
-        hours: 4.0,
-        valid_from: Date(2024, 1, 1),
-        valid_to: Date(2027, 1, 1),
-      ),
-    ])
+    == TimesheetDay(
+      engineer_id: 1,
+      as_of: calendar.Date(2026, calendar.June, 9),
+      lines: [
+        TimesheetLine(
+          project_id: 200,
+          project: "Inventory Sync",
+          fraction: 0.5,
+          hours: 4.0,
+          valid_from: calendar.Date(2025, calendar.June, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+        TimesheetLine(
+          project_id: 100,
+          project: "Ledger Migration",
+          fraction: 0.5,
+          hours: 4.0,
+          valid_from: calendar.Date(2024, calendar.January, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+      ],
+    )
 }
 
 // Aisha (id 3) is on leave on the seed "now", so the form offers nothing.
