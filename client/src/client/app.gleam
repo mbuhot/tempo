@@ -26,15 +26,19 @@ import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleam/time/calendar
 import gleam/time/timestamp
+import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import modem
 import rsvp
 import shared/codecs
 import shared/types.{
@@ -154,10 +158,14 @@ pub fn main() -> Nil {
 /// and timesheet loading, with both fetches in flight as the initial effect.
 fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
   let engineer_id = first_engineer_id()
+  // Open at the date in the URL (?as_of=YYYY-MM-DD) so a shared link or a reload
+  // lands on that instant; absent or out of range, fall back to the seed "now".
+  // The initial effect writes the resolved date back to the URL so it is explicit.
+  let as_of = initial_as_of()
   let model =
     Model(
-      day_index: as_of_to_day_index(seed_now),
-      as_of: seed_now,
+      day_index: as_of_to_day_index(as_of),
+      as_of:,
       board: Loading,
       engineer_id:,
       timesheet: TimesheetLoading,
@@ -166,7 +174,11 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
     )
   #(
     model,
-    effect.batch([fetch_board(seed_now), fetch_timesheet(engineer_id, seed_now)]),
+    effect.batch([
+      fetch_board(as_of),
+      fetch_timesheet(engineer_id, as_of),
+      sync_url(as_of),
+    ]),
   )
 }
 
@@ -191,6 +203,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         effect.batch([
           fetch_board(as_of),
           fetch_timesheet(model.engineer_id, as_of),
+          sync_url(as_of),
         ]),
       )
     }
@@ -405,6 +418,65 @@ fn describe_save_error(error: rsvp.Error(String)) -> String {
       }
     _ -> "Could not save: " <> describe_board_error(error)
   }
+}
+
+// --- URL <-> date -----------------------------------------------------------
+// The selected date is mirrored in the query string (?as_of=YYYY-MM-DD) so the
+// view is shareable, bookmarkable, and survives a reload. We `replace` rather than
+// `push` so scrubbing does not flood the browser history with intermediate dates.
+
+/// The date to open at: the URL's `?as_of` when present and valid, otherwise the
+/// seed "now". A date outside the slider's bounds is clamped to them.
+fn initial_as_of() -> AsOf {
+  case modem.initial_uri() {
+    Ok(uri) -> as_of_from_uri(uri)
+    Error(Nil) -> seed_now
+  }
+}
+
+fn as_of_from_uri(uri: Uri) -> AsOf {
+  case uri.query {
+    None -> seed_now
+    Some(query) ->
+      case uri.parse_query(query) {
+        Ok(params) ->
+          case list.key_find(params, "as_of") {
+            Ok(value) ->
+              parse_iso_as_of(value)
+              |> result.map(clamp_as_of)
+              |> result.unwrap(seed_now)
+            Error(Nil) -> seed_now
+          }
+        Error(Nil) -> seed_now
+      }
+  }
+}
+
+/// Parse an ISO-8601 "YYYY-MM-DD" string into an `AsOf`.
+fn parse_iso_as_of(text: String) -> Result(AsOf, Nil) {
+  case string.split(text, "-") {
+    [year, month, day] -> {
+      use year <- result.try(int.parse(year))
+      use month <- result.try(int.parse(month))
+      use day <- result.try(int.parse(day))
+      Ok(AsOf(year:, month:, day:))
+    }
+    _ -> Error(Nil)
+  }
+}
+
+/// Clamp an `AsOf` to the slider's inclusive bounds via its day index, so a URL
+/// date outside the seed range still lands on a valid slider position.
+fn clamp_as_of(as_of: AsOf) -> AsOf {
+  let low = as_of_to_day_index(range_start)
+  let high = as_of_to_day_index(range_end)
+  day_index_to_as_of(int.clamp(as_of_to_day_index(as_of), min: low, max: high))
+}
+
+/// Mirror the selected date into the URL query string, replacing the current
+/// entry so a scrub does not add to the browser history.
+fn sync_url(as_of: AsOf) -> Effect(Message) {
+  modem.replace("/", Some("as_of=" <> iso_date(as_of)), None)
 }
 
 // --- View -------------------------------------------------------------------

@@ -114,3 +114,18 @@ test("an employed but unallocated engineer is shown as Unassigned", async ({
   await expectEngineerLine(page, "Priya Sharma", "Ledger Migration for Northwind Trading");
   await expectNoEngineerLine(page, "Marcus Chen", "Data Platform");
 });
+
+test("the selected date is in the URL and is restored on load", async ({
+  page,
+}) => {
+  // The date lives in the query string, so the view is shareable and survives a
+  // reload: scrubbing updates ?as_of, and loading a URL with ?as_of opens there.
+  await scrubTo(page, "2026-07-15");
+  await expect(page).toHaveURL(/[?&]as_of=2026-07-15(\b|$)/);
+
+  await page.goto("/?as_of=2025-03-01");
+  await expect(
+    page.getByRole("heading", { name: "As of 2025-03-01" }),
+  ).toBeVisible();
+  await expectEngineerLine(page, "Marcus Chen", "Data Platform for Globex Corporation");
+});
