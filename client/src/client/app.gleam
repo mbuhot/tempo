@@ -31,23 +31,22 @@ import modem
 import rsvp
 import shared/codecs
 import shared/types.{
-  type AsOf, type BoardRow, type BoardSnapshot, type Engagement,
-  type TimesheetDay, type TimesheetLine, AsOf, Date, OnLeave, OnProject,
-  Unassigned,
+  type BoardRow, type BoardSnapshot, type Date, type Engagement,
+  type TimesheetDay, type TimesheetLine, Date, OnLeave, OnProject, Unassigned,
 }
 
 /// The fixed seed "now" the board first renders as of (003_seed.sql). The slider
 /// starts here so the served page is deterministic and never depends on the wall
 /// clock; scrubbing moves it across the whole seed range.
-pub const seed_now = AsOf(year: 2026, month: 6, day: 15)
+pub const seed_now = Date(year: 2026, month: 6, day: 15)
 
 /// Inclusive slider bounds, as FIXED absolute seed-range endpoints (003_seed.sql:
 /// every fact lives within daterange('2024-01-01','2027-01-01')). The slider's
 /// integer value is a unix-day index between these two days; the open upper bound
 /// 2027-01-01 is exclusive, so the last selectable day is 2026-12-31.
-const range_start = AsOf(year: 2024, month: 1, day: 1)
+const range_start = Date(year: 2024, month: 1, day: 1)
 
-const range_end = AsOf(year: 2026, month: 12, day: 31)
+const range_end = Date(year: 2026, month: 12, day: 31)
 
 /// Debounce window (ms) on slider input: coalesce a fast scrub into one fetch of
 /// the final position rather than one request per intermediate pixel.
@@ -95,7 +94,7 @@ pub type SaveState {
 pub type Model {
   Model(
     day_index: Int,
-    as_of: AsOf,
+    as_of: Date,
     board: Board,
     engineer_id: Int,
     timesheet: Timesheet,
@@ -111,7 +110,7 @@ pub type Message {
   /// A board fetch resolved; `as_of` tags which request it answers so a stale
   /// response from an earlier slider position can be discarded.
   ApiReturnedBoard(
-    as_of: AsOf,
+    as_of: Date,
     result: Result(BoardSnapshot, rsvp.Error(String)),
   )
   /// The timesheet engineer selector changed to a new engineer id.
@@ -120,7 +119,7 @@ pub type Message {
   /// it answers so a response overtaken by a later scrub/selection is discarded.
   ApiReturnedTimesheet(
     engineer_id: Int,
-    as_of: AsOf,
+    as_of: Date,
     result: Result(TimesheetDay, rsvp.Error(String)),
   )
   /// The user edited the hours input for one project.
@@ -131,7 +130,7 @@ pub type Message {
   /// staleness check, and the body is either the refreshed form or the error.
   ApiSavedTimesheet(
     engineer_id: Int,
-    as_of: AsOf,
+    as_of: Date,
     result: Result(TimesheetDay, rsvp.Error(String)),
   )
 }
@@ -325,7 +324,7 @@ fn parse_hours(raw_hours: String) -> Result(Float, Nil) {
 /// Fetch `GET /api/board?as_of=<date>` and decode the snapshot via the shared
 /// codec, tagging the outcome with the requested `as_of` so stale responses can be
 /// dropped.
-fn fetch_board(as_of: AsOf) -> Effect(Message) {
+fn fetch_board(as_of: Date) -> Effect(Message) {
   let url = "/api/board?as_of=" <> iso_date(as_of)
   let handler =
     rsvp.expect_json(codecs.board_snapshot_decoder(), fn(result) {
@@ -337,7 +336,7 @@ fn fetch_board(as_of: AsOf) -> Effect(Message) {
 /// Fetch `GET /api/timesheet?engineer=<id>&day=<date>` and decode the form,
 /// tagging the outcome with the requested engineer/day so a response overtaken by
 /// a later scrub or engineer change can be discarded.
-fn fetch_timesheet(engineer_id: Int, as_of: AsOf) -> Effect(Message) {
+fn fetch_timesheet(engineer_id: Int, as_of: Date) -> Effect(Message) {
   let url =
     "/api/timesheet?engineer="
     <> int.to_string(engineer_id)
@@ -356,7 +355,7 @@ fn fetch_timesheet(engineer_id: Int, as_of: AsOf) -> Effect(Message) {
 /// `HttpError` carrying the typed error body, surfaced as a friendly message.
 fn save_hours(
   engineer_id: Int,
-  as_of: AsOf,
+  as_of: Date,
   project_id: Int,
   hours: Float,
 ) -> Effect(Message) {
@@ -370,11 +369,11 @@ fn save_hours(
 
 fn encode_write(
   engineer_id: Int,
-  as_of: AsOf,
+  as_of: Date,
   project_id: Int,
   hours: Float,
 ) -> Json {
-  let AsOf(year:, month:, day:) = as_of
+  let Date(year:, month:, day:) = as_of
   codecs.encode_write_request(
     engineer_id:,
     project_id:,
@@ -416,14 +415,14 @@ fn describe_save_error(error: rsvp.Error(String)) -> String {
 
 /// The date to open at: the URL's `?as_of` when present and valid, otherwise the
 /// seed "now". A date outside the slider's bounds is clamped to them.
-fn initial_as_of() -> AsOf {
+fn initial_as_of() -> Date {
   case modem.initial_uri() {
     Ok(uri) -> as_of_from_uri(uri)
     Error(Nil) -> seed_now
   }
 }
 
-fn as_of_from_uri(uri: Uri) -> AsOf {
+fn as_of_from_uri(uri: Uri) -> Date {
   case uri.query {
     None -> seed_now
     Some(query) ->
@@ -441,22 +440,22 @@ fn as_of_from_uri(uri: Uri) -> AsOf {
   }
 }
 
-/// Parse an ISO-8601 "YYYY-MM-DD" string into an `AsOf`.
-fn parse_iso_as_of(text: String) -> Result(AsOf, Nil) {
+/// Parse an ISO-8601 "YYYY-MM-DD" string into an as-of `Date`.
+fn parse_iso_as_of(text: String) -> Result(Date, Nil) {
   case string.split(text, "-") {
     [year, month, day] -> {
       use year <- result.try(int.parse(year))
       use month <- result.try(int.parse(month))
       use day <- result.try(int.parse(day))
-      Ok(AsOf(year:, month:, day:))
+      Ok(Date(year:, month:, day:))
     }
     _ -> Error(Nil)
   }
 }
 
-/// Clamp an `AsOf` to the slider's inclusive bounds via its day index, so a URL
+/// Clamp an as-of `Date` to the slider's inclusive bounds via its day index, so a URL
 /// date outside the seed range still lands on a valid slider position.
-fn clamp_as_of(as_of: AsOf) -> AsOf {
+fn clamp_as_of(as_of: Date) -> Date {
   let low = as_of_to_day_index(range_start)
   let high = as_of_to_day_index(range_end)
   day_index_to_as_of(int.clamp(as_of_to_day_index(as_of), min: low, max: high))
@@ -464,7 +463,7 @@ fn clamp_as_of(as_of: AsOf) -> AsOf {
 
 /// Mirror the selected date into the URL query string, replacing the current
 /// entry so a scrub does not add to the browser history.
-fn sync_url(as_of: AsOf) -> Effect(Message) {
+fn sync_url(as_of: Date) -> Effect(Message) {
   modem.replace("/", Some("as_of=" <> iso_date(as_of)), None)
 }
 
@@ -718,17 +717,17 @@ fn first_engineer_id() -> Int {
 /// Days are 86_400 seconds; the index times this is the unix timestamp of midnight.
 const seconds_per_day = 86_400
 
-fn as_of_to_day_index(as_of: AsOf) -> Int {
-  let AsOf(year:, month:, day:) = as_of
+fn as_of_to_day_index(as_of: Date) -> Int {
+  let Date(year:, month:, day:) = as_of
   let date = calendar.Date(year:, month: month_from_int(month), day:)
   let instant = timestamp.from_calendar(date, midnight(), calendar.utc_offset)
   float.round(timestamp.to_unix_seconds(instant)) / seconds_per_day
 }
 
-fn day_index_to_as_of(day_index: Int) -> AsOf {
+fn day_index_to_as_of(day_index: Int) -> Date {
   let instant = timestamp.from_unix_seconds(day_index * seconds_per_day)
   let #(date, _time) = timestamp.to_calendar(instant, calendar.utc_offset)
-  AsOf(year: date.year, month: calendar.month_to_int(date.month), day: date.day)
+  Date(year: date.year, month: calendar.month_to_int(date.month), day: date.day)
 }
 
 fn midnight() -> calendar.TimeOfDay {
@@ -744,8 +743,8 @@ fn month_from_int(month: Int) -> calendar.Month {
 
 // --- Date formatting --------------------------------------------------------
 
-fn iso_date(as_of: AsOf) -> String {
-  let AsOf(year:, month:, day:) = as_of
+fn iso_date(as_of: Date) -> String {
+  let Date(year:, month:, day:) = as_of
   pad4(year) <> "-" <> pad2(month) <> "-" <> pad2(day)
 }
 

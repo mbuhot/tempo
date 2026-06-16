@@ -17,8 +17,8 @@ import gleam/result
 import pog
 import shared/codecs
 import shared/types.{
-  type AsOf, type Date, type TimesheetDay, type TimesheetLine, AsOf,
-  TimesheetDay, TimesheetLine,
+  type Date, type TimesheetDay, type TimesheetLine, Date, TimesheetDay,
+  TimesheetLine,
 }
 import tempo/server/context.{type Context}
 import tempo/server/date
@@ -70,7 +70,7 @@ pub fn handle_read(request: wisp.Request, context: Context) -> wisp.Response {
 pub fn form(
   context: Context,
   engineer_id: Int,
-  as_of: AsOf,
+  as_of: Date,
 ) -> Result(TimesheetDay, pog.QueryError) {
   let day = date.as_of_to_calendar(as_of)
   use returned <- result.map(sql.timesheet_form(context.db, engineer_id, day))
@@ -89,7 +89,7 @@ fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
   )
 }
 
-fn read_params(request: wisp.Request) -> Result(#(Int, AsOf), String) {
+fn read_params(request: wisp.Request) -> Result(#(Int, Date), String) {
   use engineer_id <- result.try(int_param(request, "engineer"))
   use as_of <- result.map(date.as_of_from_query(request, "day"))
   #(engineer_id, as_of)
@@ -192,9 +192,9 @@ fn read_form_response(
   }
 }
 
-fn as_of_from_date(work_day: Date) -> AsOf {
+fn as_of_from_date(work_day: Date) -> Date {
   let types.Date(year:, month:, day:) = work_day
-  AsOf(year:, month:, day:)
+  Date(year:, month:, day:)
 }
 
 fn write_request_decoder() -> decode.Decoder(WriteRequest) {

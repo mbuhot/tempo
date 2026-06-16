@@ -9,9 +9,9 @@ import gleam/json.{type Json}
 import gleam/result
 import gleam/string
 import shared/types.{
-  type AsOf, type BoardRow, type BoardSnapshot, type Date, type Engagement,
-  type TimesheetDay, type TimesheetLine, AsOf, BoardRow, BoardSnapshot, Date,
-  OnLeave, OnProject, TimesheetDay, TimesheetLine, Unassigned,
+  type BoardRow, type BoardSnapshot, type Date, type Engagement,
+  type TimesheetDay, type TimesheetLine, BoardRow, BoardSnapshot, Date, OnLeave,
+  OnProject, TimesheetDay, TimesheetLine, Unassigned,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -51,21 +51,6 @@ fn pad2(value: Int) -> String {
 
 fn pad4(value: Int) -> String {
   int.to_string(value) |> string.pad_start(to: 4, with: "0")
-}
-
-// --- AsOf -------------------------------------------------------------------
-
-/// Encode an `AsOf` instant as an ISO-8601 "YYYY-MM-DD" string.
-pub fn encode_as_of(as_of: AsOf) -> Json {
-  let AsOf(year:, month:, day:) = as_of
-  encode_date(Date(year:, month:, day:))
-}
-
-/// Decode an ISO-8601 "YYYY-MM-DD" string into an `AsOf`.
-pub fn as_of_decoder() -> Decoder(AsOf) {
-  use date <- decode.then(date_decoder())
-  let Date(year:, month:, day:) = date
-  decode.success(AsOf(year:, month:, day:))
 }
 
 // --- Engagement -------------------------------------------------------------
@@ -165,14 +150,14 @@ pub fn board_row_decoder() -> Decoder(BoardRow) {
 pub fn encode_board_snapshot(snapshot: BoardSnapshot) -> Json {
   let BoardSnapshot(as_of:, rows:) = snapshot
   json.object([
-    #("as_of", encode_as_of(as_of)),
+    #("as_of", encode_date(as_of)),
     #("rows", json.array(rows, encode_board_row)),
   ])
 }
 
 /// Decode a board snapshot from a JSON-derived dynamic value.
 pub fn board_snapshot_decoder() -> Decoder(BoardSnapshot) {
-  use as_of <- decode.field("as_of", as_of_decoder())
+  use as_of <- decode.field("as_of", date_decoder())
   use rows <- decode.field("rows", decode.list(board_row_decoder()))
   decode.success(BoardSnapshot(as_of:, rows:))
 }
@@ -224,7 +209,7 @@ pub fn encode_timesheet_day(day: TimesheetDay) -> Json {
   let TimesheetDay(engineer_id:, as_of:, lines:) = day
   json.object([
     #("engineer_id", json.int(engineer_id)),
-    #("as_of", encode_as_of(as_of)),
+    #("as_of", encode_date(as_of)),
     #("lines", json.array(lines, encode_timesheet_line)),
   ])
 }
@@ -232,7 +217,7 @@ pub fn encode_timesheet_day(day: TimesheetDay) -> Json {
 /// Decode a `TimesheetDay` from JSON.
 pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
   use engineer_id <- decode.field("engineer_id", decode.int)
-  use as_of <- decode.field("as_of", as_of_decoder())
+  use as_of <- decode.field("as_of", date_decoder())
   use lines <- decode.field("lines", decode.list(timesheet_line_decoder()))
   decode.success(TimesheetDay(engineer_id:, as_of:, lines:))
 }

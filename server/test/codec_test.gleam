@@ -14,8 +14,8 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import shared/codecs
 import shared/types.{
-  AsOf, BoardRow, BoardSnapshot, Date, OnLeave, OnProject, TimesheetDay,
-  TimesheetLine, Unassigned,
+  BoardRow, BoardSnapshot, Date, OnLeave, OnProject, TimesheetDay, TimesheetLine,
+  Unassigned,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -39,12 +39,12 @@ pub fn date_round_trips_test() {
     == original
 }
 
-// --- AsOf -------------------------------------------------------------------
+// --- As-of date -------------------------------------------------------------
 
 pub fn as_of_round_trips_test() {
-  let original = AsOf(2026, 6, 15)
+  let original = Date(2026, 6, 15)
 
-  assert round_trip(original, codecs.encode_as_of, codecs.as_of_decoder())
+  assert round_trip(original, codecs.encode_date, codecs.date_decoder())
     == original
 }
 
@@ -152,7 +152,7 @@ pub fn board_row_on_leave_round_trips_test() {
 // proving the list and every nested variant survive the round trip together.
 pub fn board_snapshot_round_trips_test() {
   let original =
-    BoardSnapshot(as_of: AsOf(2026, 6, 15), rows: [
+    BoardSnapshot(as_of: Date(2026, 6, 15), rows: [
       BoardRow(
         engineer: "Marcus Chen",
         level: 4,
@@ -186,7 +186,7 @@ pub fn board_snapshot_round_trips_test() {
 
 // An empty board (no employed engineers as of the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
-  let original = BoardSnapshot(as_of: AsOf(2026, 6, 15), rows: [])
+  let original = BoardSnapshot(as_of: Date(2026, 6, 15), rows: [])
 
   assert round_trip(
       original,
@@ -243,7 +243,7 @@ pub fn timesheet_line_zero_hours_round_trips_test() {
 
 pub fn timesheet_day_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 1, as_of: AsOf(2026, 6, 9), lines: [
+    TimesheetDay(engineer_id: 1, as_of: Date(2026, 6, 9), lines: [
       TimesheetLine(
         project_id: 200,
         project: "Inventory Sync",
@@ -274,7 +274,7 @@ pub fn timesheet_day_round_trips_test() {
 // PRD FR-4/FR-5) — round-trips to the same empty form.
 pub fn timesheet_day_on_leave_empty_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 3, as_of: AsOf(2026, 6, 15), lines: [])
+    TimesheetDay(engineer_id: 3, as_of: Date(2026, 6, 15), lines: [])
 
   assert round_trip(
       original,

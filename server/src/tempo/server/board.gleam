@@ -17,7 +17,7 @@ import gleam/string
 import pog
 import shared/codecs
 import shared/types.{
-  type AsOf, type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave,
+  type BoardRow, type BoardSnapshot, type Date, BoardRow, BoardSnapshot, OnLeave,
   OnProject, Unassigned,
 }
 import tempo/server/context.{type Context}
@@ -49,7 +49,7 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
 /// to a shared `BoardRow`, and merge them sorted by engineer name.
 pub fn snapshot(
   context: Context,
-  as_of: AsOf,
+  as_of: Date,
 ) -> Result(BoardSnapshot, pog.QueryError) {
   let day = date.as_of_to_calendar(as_of)
   use board <- result.try(sql.board_as_of(context.db, day))

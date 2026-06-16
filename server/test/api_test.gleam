@@ -18,8 +18,8 @@ import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type TimesheetDay, AsOf, BoardRow, BoardSnapshot, Date,
-  OnLeave, OnProject, TimesheetDay, TimesheetLine,
+  type BoardSnapshot, type TimesheetDay, BoardRow, BoardSnapshot, Date, OnLeave,
+  OnProject, TimesheetDay, TimesheetLine,
 }
 import tempo/server/context.{type Context, Context}
 import tempo/server/router
@@ -53,7 +53,7 @@ pub fn board_as_of_now_returns_snapshot_test() {
   let snapshot = decode_board(response)
 
   assert snapshot
-    == BoardSnapshot(as_of: AsOf(2026, 6, 15), rows: [
+    == BoardSnapshot(as_of: Date(2026, 6, 15), rows: [
       BoardRow(
         engineer: "Aisha Okafor",
         level: 6,
@@ -134,7 +134,7 @@ pub fn timesheet_read_returns_day_test() {
   let day = decode_timesheet(response)
 
   assert day
-    == TimesheetDay(engineer_id: 1, as_of: AsOf(2026, 6, 9), lines: [
+    == TimesheetDay(engineer_id: 1, as_of: Date(2026, 6, 9), lines: [
       TimesheetLine(
         project_id: 200,
         project: "Inventory Sync",

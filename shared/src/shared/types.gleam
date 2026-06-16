@@ -16,11 +16,6 @@ pub type Date {
   Date(year: Int, month: Int, day: Int)
 }
 
-/// A point in time the board/timesheet is rendered "as of" — the slider's instant.
-pub type AsOf {
-  AsOf(year: Int, month: Int, day: Int)
-}
-
 /// An engineer's situation on the org board as of a date. Leave takes precedence
 /// over an allocation in the read model: an engineer covered by a leave fact is
 /// `OnLeave`, otherwise one `OnProject` per project they are allocated to. An
@@ -52,7 +47,7 @@ pub type BoardRow {
 
 /// The whole org board, as of a single instant.
 pub type BoardSnapshot {
-  BoardSnapshot(as_of: AsOf, rows: List(BoardRow))
+  BoardSnapshot(as_of: Date, rows: List(BoardRow))
 }
 
 /// One project an engineer may log time against on a given day: the project, the
@@ -73,5 +68,5 @@ pub type TimesheetLine {
 /// to as of `as_of`, each with any hours already logged. Empty when the engineer
 /// is on leave that day (the form offers nothing).
 pub type TimesheetDay {
-  TimesheetDay(engineer_id: Int, as_of: AsOf, lines: List(TimesheetLine))
+  TimesheetDay(engineer_id: Int, as_of: Date, lines: List(TimesheetLine))
 }
