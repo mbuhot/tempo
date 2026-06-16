@@ -224,9 +224,9 @@ pub fn leave_past_employment_is_rejected_test() {
         exec(
           conn,
           "INSERT INTO leave (engineer_id, kind, valid_at) "
-            <> "SELECT emp.engineer_id, 'annual', daterange('2026-05-01','2026-07-01') "
-            <> "FROM employment emp JOIN engineer e ON e.id = emp.engineer_id "
-            <> "WHERE e.name = 'Katherine Johnson'",
+            <> "SELECT employment.engineer_id, 'annual', daterange('2026-05-01','2026-07-01') "
+            <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+            <> "WHERE engineer.name = 'Katherine Johnson'",
         )
       },
     )
@@ -252,9 +252,9 @@ pub fn role_past_employment_is_rejected_test() {
         exec(
           conn,
           "INSERT INTO engineer_role (engineer_id, level, valid_at) "
-            <> "SELECT emp.engineer_id, 5, daterange('2026-01-01','2026-08-01') "
-            <> "FROM employment emp JOIN engineer e ON e.id = emp.engineer_id "
-            <> "WHERE e.name = 'Margaret Hamilton'",
+            <> "SELECT employment.engineer_id, 5, daterange('2026-01-01','2026-08-01') "
+            <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+            <> "WHERE engineer.name = 'Margaret Hamilton'",
         )
       },
     )
@@ -579,15 +579,15 @@ fn insert_allocation_for(
   exec(
     conn,
     "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) "
-      <> "SELECT emp.engineer_id, "
+      <> "SELECT employment.engineer_id, "
       <> int.to_string(project_id)
       <> ", 0.50, daterange('"
       <> valid_from
       <> "','"
       <> valid_to
       <> "') "
-      <> "FROM employment emp JOIN engineer e ON e.id = emp.engineer_id "
-      <> "WHERE e.name = '"
+      <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+      <> "WHERE engineer.name = '"
       <> engineer_name
       <> "'",
   )

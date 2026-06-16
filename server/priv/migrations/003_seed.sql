@@ -126,16 +126,16 @@ DECLARE
   mismatch_count int;
 BEGIN
   SELECT count(*) INTO mismatch_count
-  FROM allocation al
-  JOIN engineer_role rl
-    ON rl.engineer_id = al.engineer_id
-   AND rl.valid_at && al.valid_at
-  JOIN rate_card rc
-    ON rc.level = rl.level
-   AND rc.valid_at && (al.valid_at * rl.valid_at)
-  WHERE rc.day_rate <> al.day_rate
+  FROM allocation
+  JOIN engineer_role
+    ON engineer_role.engineer_id = allocation.engineer_id
+   AND engineer_role.valid_at && allocation.valid_at
+  JOIN rate_card
+    ON rate_card.level = engineer_role.level
+   AND rate_card.valid_at && (allocation.valid_at * engineer_role.valid_at)
+  WHERE rate_card.day_rate <> allocation.day_rate
     -- only count periods that actually overlap all three facts
-    AND NOT isempty(al.valid_at * rl.valid_at * rc.valid_at);
+    AND NOT isempty(allocation.valid_at * engineer_role.valid_at * rate_card.valid_at);
 
   IF mismatch_count <> 0 THEN
     RAISE EXCEPTION

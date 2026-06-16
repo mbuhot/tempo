@@ -113,7 +113,7 @@ fn level_or_zero(level: Option(Int)) -> Int {
 
 /// Order board rows by engineer name (the deterministic wire order). Ties keep
 /// their relative input order, preserving the per-engineer project ordering the
-/// queries already impose (`ORDER BY e.name, pr.name`).
+/// queries already impose (`ORDER BY engineer.name, project.name`).
 fn by_engineer(left: BoardRow, right: BoardRow) -> order.Order {
   string.compare(left.engineer, right.engineer)
 }
