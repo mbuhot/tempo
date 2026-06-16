@@ -29,7 +29,7 @@ pub type BoardAsOfRow {
 }
 
 /// board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
-/// $1::date (ARCHITECTURE.md §5, PRD FR-1/FR-4). One row per (engineer × project).
+/// $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
 ///
 /// This is the "engaged" slice of the board; it returns only fully-engaged rows
 /// (INNER JOINs throughout), so every column is non-null. Two companion queries
@@ -78,7 +78,7 @@ pub fn board_as_of(
   }
 
   "-- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
--- $1::date (ARCHITECTURE.md §5, PRD FR-1/FR-4). One row per (engineer × project).
+-- $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
 --
 -- This is the \"engaged\" slice of the board; it returns only fully-engaged rows
 -- (INNER JOINs throughout), so every column is non-null. Two companion queries
@@ -143,10 +143,10 @@ pub type BoardLeaveAsOfRow {
   )
 }
 
-/// board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5,
-/// PRD FR-4). The companion to board_as_of.sql: that query suppresses anyone with
-/// a covering `leave` fact; this one selects exactly those engineers so the board
-/// can render them as "On leave: <kind>".
+/// board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+/// The companion to board_as_of.sql: that query suppresses anyone with a covering
+/// `leave` fact; this one selects exactly those engineers so the board can render
+/// them as "On leave: <kind>".
 ///
 /// Their underlying allocation still exists; it is deliberately not joined here —
 /// leave overrides the engagement in the read model. The level (and hence the
@@ -177,10 +177,10 @@ pub fn board_leave_as_of(
     ))
   }
 
-  "-- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5,
--- PRD FR-4). The companion to board_as_of.sql: that query suppresses anyone with
--- a covering `leave` fact; this one selects exactly those engineers so the board
--- can render them as \"On leave: <kind>\".
+  "-- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+-- The companion to board_as_of.sql: that query suppresses anyone with a covering
+-- `leave` fact; this one selects exactly those engineers so the board can render
+-- them as \"On leave: <kind>\".
 --
 -- Their underlying allocation still exists; it is deliberately not joined here —
 -- leave overrides the engagement in the read model. The level (and hence the
@@ -217,9 +217,9 @@ pub type BoardUnassignedAsOfRow {
 }
 
 /// board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
-/// on leave as of $1::date (ARCHITECTURE.md §5, PRD FR-1). The third board slice
-/// alongside board_as_of (engaged) and board_leave_as_of (on leave); the client
-/// renders these as "Unassigned".
+/// on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+/// board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+/// these as "Unassigned".
 ///
 /// INNER JOIN engineer_role so `level` is non-null: an employed engineer always
 /// has a role in the seed (engineer_role spans employment). All columns non-null,
@@ -239,9 +239,9 @@ pub fn board_unassigned_as_of(
   }
 
   "-- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date (ARCHITECTURE.md §5, PRD FR-1). The third board slice
--- alongside board_as_of (engaged) and board_leave_as_of (on leave); the client
--- renders these as \"Unassigned\".
+-- on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+-- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+-- these as \"Unassigned\".
 --
 -- INNER JOIN engineer_role so `level` is non-null: an employed engineer always
 -- has a role in the seed (engineer_role spans employment). All columns non-null,
@@ -269,15 +269,14 @@ ORDER BY e.name;
   |> pog.execute(db)
 }
 
-/// rate_card_for_portion_of.sql — surgical charge-rate edit (PRD FR-6).
+/// rate_card_for_portion_of.sql — surgical charge-rate edit.
 ///
 /// Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
 /// the covering rate_card row, changing only the [$1, $2) sub-period and carving
 /// off the unchanged before/after remainder as their own rows. The boundaries are
 /// plain `date` params cast in SQL (ADR-011); $3 is the new rate, $4 the level.
 ///
-/// P1-T03: this statement is reachable through Squirrel (no pog fallback). PG
-/// reports `UPDATE 1` even when it produces extra rows, so never infer a split
+/// PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 /// from the affected-row count — read the rows back instead.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -292,15 +291,14 @@ pub fn rate_card_for_portion_of(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- rate_card_for_portion_of.sql — surgical charge-rate edit (PRD FR-6).
+  "-- rate_card_for_portion_of.sql — surgical charge-rate edit.
 --
 -- Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
 -- the covering rate_card row, changing only the [$1, $2) sub-period and carving
 -- off the unchanged before/after remainder as their own rows. The boundaries are
 -- plain `date` params cast in SQL (ADR-011); $3 is the new rate, $4 the level.
 --
--- P1-T03: this statement is reachable through Squirrel (no pog fallback). PG
--- reports `UPDATE 1` even when it produces extra rows, so never infer a split
+-- PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 -- from the affected-row count — read the rows back instead.
 UPDATE rate_card
    FOR PORTION OF valid_at FROM $1::date TO $2::date
@@ -316,7 +314,7 @@ UPDATE rate_card
   |> pog.execute(db)
 }
 
-/// timesheet_delete.sql — step 1 of the temporal upsert (P1-T04).
+/// timesheet_delete.sql — step 1 of the temporal upsert.
 ///
 /// `ON CONFLICT` cannot target the WITHOUT OVERLAPS PK (it is a GiST exclusion
 /// constraint, not a plain unique index), so re-entry is delete-then-insert run in
@@ -338,7 +336,7 @@ pub fn timesheet_delete(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- timesheet_delete.sql — step 1 of the temporal upsert (P1-T04).
+  "-- timesheet_delete.sql — step 1 of the temporal upsert.
 --
 -- `ON CONFLICT` cannot target the WITHOUT OVERLAPS PK (it is a GiST exclusion
 -- constraint, not a plain unique index), so re-entry is delete-then-insert run in
@@ -379,10 +377,11 @@ pub type TimesheetFormRow {
 }
 
 /// timesheet_form.sql — my allocations as of a day, with any hours already logged
-/// (ARCHITECTURE.md §5, PRD FR-7). Only projects the engineer is actually on as of
-/// $2::date are returned; on a day covered by leave the result is empty, so the
-/// form offers nothing (PRD FR-4/FR-5). A project the engineer has rolled off is
-/// simply absent — the negative case the PERIOD FK also backstops on write.
+/// (ARCHITECTURE.md §5). Only projects the engineer is actually on as of $2::date
+/// are returned; on a day covered by leave the result is empty, so the form offers
+/// nothing (leave takes precedence over an allocation). A project the engineer has
+/// rolled off is simply absent — the negative case the PERIOD FK also backstops on
+/// write.
 ///
 /// $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
 /// project so the form always has a value to render. Ranges are decomposed to
@@ -415,10 +414,11 @@ pub fn timesheet_form(
   }
 
   "-- timesheet_form.sql — my allocations as of a day, with any hours already logged
--- (ARCHITECTURE.md §5, PRD FR-7). Only projects the engineer is actually on as of
--- $2::date are returned; on a day covered by leave the result is empty, so the
--- form offers nothing (PRD FR-4/FR-5). A project the engineer has rolled off is
--- simply absent — the negative case the PERIOD FK also backstops on write.
+-- (ARCHITECTURE.md §5). Only projects the engineer is actually on as of $2::date
+-- are returned; on a day covered by leave the result is empty, so the form offers
+-- nothing (leave takes precedence over an allocation). A project the engineer has
+-- rolled off is simply absent — the negative case the PERIOD FK also backstops on
+-- write.
 --
 -- $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
 -- project so the form always has a value to render. Ranges are decomposed to
@@ -451,15 +451,15 @@ ORDER BY pr.name;
   |> pog.execute(db)
 }
 
-/// timesheet_write.sql — step 2 of the temporal upsert (P1-T04, ARCHITECTURE.md §5).
+/// timesheet_write.sql — step 2 of the temporal upsert (ARCHITECTURE.md §5).
 ///
 /// Insert a single-day timesheet row. The `work_day` range is built in SQL as
 /// `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
 /// `date` params (ADR-011) — no daterange type crosses the Squirrel boundary.
 ///
 /// The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
-/// is rejected (PRD FR-5). The handler runs timesheet_delete.sql then this INSERT in
-/// one transaction, so a rejected insert rolls back the delete and the prior row
+/// is rejected. The handler runs timesheet_delete.sql then this INSERT in one
+/// transaction, so a rejected insert rolls back the delete and the prior row
 /// survives intact. $1 = engineer_id, $2 = project_id, $3 = the day, $4 = hours.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -474,15 +474,15 @@ pub fn timesheet_write(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- timesheet_write.sql — step 2 of the temporal upsert (P1-T04, ARCHITECTURE.md §5).
+  "-- timesheet_write.sql — step 2 of the temporal upsert (ARCHITECTURE.md §5).
 --
 -- Insert a single-day timesheet row. The `work_day` range is built in SQL as
 -- `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
 -- `date` params (ADR-011) — no daterange type crosses the Squirrel boundary.
 --
 -- The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
--- is rejected (PRD FR-5). The handler runs timesheet_delete.sql then this INSERT in
--- one transaction, so a rejected insert rolls back the delete and the prior row
+-- is rejected. The handler runs timesheet_delete.sql then this INSERT in one
+-- transaction, so a rejected insert rolls back the delete and the prior row
 -- survives intact. $1 = engineer_id, $2 = project_id, $3 = the day, $4 = hours.
 INSERT INTO timesheet (engineer_id, project_id, work_day, hours)
 VALUES ($1, $2, daterange($3::date, $3::date + 1, '[)'), $4);

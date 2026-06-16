@@ -1,7 +1,7 @@
 -- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date (ARCHITECTURE.md §5, PRD FR-1). The third board slice
--- alongside board_as_of (engaged) and board_leave_as_of (on leave); the client
--- renders these as "Unassigned".
+-- on leave as of $1::date (ARCHITECTURE.md §5). The third board slice alongside
+-- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+-- these as "Unassigned".
 --
 -- INNER JOIN engineer_role so `level` is non-null: an employed engineer always
 -- has a role in the seed (engineer_role spans employment). All columns non-null,

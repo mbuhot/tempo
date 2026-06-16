@@ -22,9 +22,9 @@ pub type AsOf {
 }
 
 /// An engineer's situation on the org board as of a date. Leave takes precedence
-/// over an allocation in the read model (PRD FR-4): an engineer covered by a leave
-/// fact is `OnLeave`, otherwise one `OnProject` per project they are allocated to.
-/// An employed engineer with no allocation as of the date is `Unassigned`.
+/// over an allocation in the read model: an engineer covered by a leave fact is
+/// `OnLeave`, otherwise one `OnProject` per project they are allocated to. An
+/// employed engineer with no allocation as of the date is `Unassigned`.
 pub type Engagement {
   /// Allocated to a project. `day_rate` is the resolved charge rate as a plain
   /// value (ADR-013) — the same field whether v1 cached it or v2 derives it.
@@ -69,9 +69,9 @@ pub type TimesheetLine {
   )
 }
 
-/// An engineer's timesheet form for one day (PRD FR-7): only the projects they are
-/// allocated to as of `as_of`, each with any hours already logged. Empty when the
-/// engineer is on leave that day (the form offers nothing).
+/// An engineer's timesheet form for one day: only the projects they are allocated
+/// to as of `as_of`, each with any hours already logged. Empty when the engineer
+/// is on leave that day (the form offers nothing).
 pub type TimesheetDay {
   TimesheetDay(engineer_id: Int, as_of: AsOf, lines: List(TimesheetLine))
 }

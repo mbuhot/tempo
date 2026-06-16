@@ -1,5 +1,5 @@
 -- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
--- $1::date (ARCHITECTURE.md §5, PRD FR-1/FR-4). One row per (engineer × project).
+-- $1::date (ARCHITECTURE.md §5). One row per (engineer × project).
 --
 -- This is the "engaged" slice of the board; it returns only fully-engaged rows
 -- (INNER JOINs throughout), so every column is non-null. Two companion queries

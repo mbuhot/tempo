@@ -1,25 +1,14 @@
-//// Lustre SPA: model/update/view, the time slider, the org
-//// board, and the interactive my-timesheet panel.
-//// Imports shared/* only (never server/*).
+//// Lustre SPA for the org board and timesheet: model / update / view.
 ////
-//// The hero interaction (PRD §7 beats 1–4, FR-1..FR-4): a date slider spanning the
-//// seed's past→future range. Moving it dispatches a debounced
-//// `GET /api/board?as_of=<date>` and re-renders the whole org board as of the
-//// selected instant — past history, the fixed seed "now", and future-dated facts
-//// (e.g. Marcus's 2026-07-01 promotion) all render from real API data through the
-//// shared codecs (ADR-005). Leave takes precedence and is shown distinctly.
+//// A date slider selects an instant; the board and the selected engineer's
+//// timesheet are fetched for it and re-rendered as of that date. The slider's
+//// integer position maps to a fixed absolute calendar date (not the wall clock),
+//// and that date is mirrored in the URL (?as_of=YYYY-MM-DD) so a shared link or a
+//// reload opens on the same instant. Leave takes precedence over an allocation on
+//// the board; the timesheet panel posts hours for a project and surfaces a
+//// rejected write (a day not covered by an allocation) as a message, not a crash.
 ////
-//// The write path (PRD §7 beat 5, FR-7): the same slider doubles as the timesheet
-//// day. Pick an engineer, scrub to a day, and the panel fetches
-//// `GET /api/timesheet?engineer&day` — one hours input per allocated project (with
-//// its fraction), or "On leave — nothing to log" on a leave day. Submitting POSTs
-//// the entered hours; the server reply re-renders the saved hours, and a
-//// PERIOD-FK rejection (logging a project not allocated that day) is surfaced as a
-//// friendly message rather than a crash.
-////
-//// Determinism (ARCHITECTURE.md §10): the slider maps an integer position to a
-//// FIXED absolute calendar date derived from the seed range constants — never the
-//// wall clock — so the served page and the Playwright suite are reproducible.
+//// Imports shared/* only — the JSON contract types and codecs — never server/*.
 
 import gleam/dict.{type Dict}
 import gleam/float
@@ -65,9 +54,9 @@ const range_end = AsOf(year: 2026, month: 12, day: 31)
 const slider_debounce_ms = 150
 
 /// The engineers offered in the timesheet selector. Hardcoded to the deterministic
-/// v1-wide seed (003_seed.sql) — the same fixed ids/names the board and the
-/// Playwright suite anchor to — because the API has no engineer-directory endpoint
-/// and the demo's roster is fixed. Each pair is #(engineer_id, name).
+/// v1-wide seed (003_seed.sql) — the same fixed ids/names the board anchors to —
+/// because the API has no engineer-directory endpoint and the roster is fixed.
+/// Each pair is #(engineer_id, name).
 pub const engineers = [
   #(1, "Priya Sharma"),
   #(2, "Marcus Chen"),
@@ -492,9 +481,9 @@ pub fn view(model: Model) -> Element(Message) {
   ])
 }
 
-/// The date slider (FR-2 time travel): a range input over the seed-range day
-/// indices, debounced so a fast scrub fires one fetch of the final position. The
-/// selected date is shown as a heading so the back of the room can read it.
+/// The date slider: a range input over the seed-range day indices, debounced so a
+/// fast scrub fires one fetch of the final position. The selected date is shown as
+/// a heading.
 fn view_slider(model: Model) -> Element(Message) {
   html.div([attribute.class("slider")], [
     html.h2([], [html.text("As of " <> iso_date(model.as_of))]),
@@ -590,8 +579,8 @@ fn describe_engagement(engagement: Engagement) -> String {
 
 // --- Timesheet panel --------------------------------------------------------
 
-/// The my-timesheet panel (PRD §7 beat 5, FR-7): an engineer selector, the day it
-/// reads (the slider's date), and the form for that engineer/day below.
+/// The my-timesheet panel: an engineer selector, the day it reads (the slider's
+/// date), and the form for that engineer/day below.
 fn view_timesheet(model: Model) -> Element(Message) {
   html.div([attribute.class("timesheet")], [
     html.h2([], [html.text("My timesheet")]),
@@ -694,8 +683,8 @@ fn view_save_feedback(save_state: SaveState) -> Element(Message) {
   }
 }
 
-/// Format an allocation fraction as a percentage (0.5 -> "50%"): legible from the
-/// back of the room and unambiguous about part-time splits.
+/// Format an allocation fraction as a percentage (0.5 -> "50%"): legible and
+/// unambiguous about part-time splits.
 fn format_fraction(fraction: Float) -> String {
   int.to_string(float.round(fraction *. 100.0)) <> "%"
 }

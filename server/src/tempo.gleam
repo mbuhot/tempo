@@ -2,7 +2,7 @@
 ////
 //// Starts the pog pool (context.gleam), wires it into the router, and serves the
 //// JSON API + static assets over mist. The process then sleeps forever so the
-//// supervision tree stays up (PRD §9 build/run).
+//// supervision tree stays up.
 
 import gleam/erlang/process
 import gleam/int

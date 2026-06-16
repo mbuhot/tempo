@@ -1,4 +1,4 @@
--- timesheet_delete.sql — step 1 of the temporal upsert (P1-T04).
+-- timesheet_delete.sql — step 1 of the temporal upsert.
 --
 -- `ON CONFLICT` cannot target the WITHOUT OVERLAPS PK (it is a GiST exclusion
 -- constraint, not a plain unique index), so re-entry is delete-then-insert run in

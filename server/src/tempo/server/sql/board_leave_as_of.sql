@@ -1,7 +1,7 @@
--- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5,
--- PRD FR-4). The companion to board_as_of.sql: that query suppresses anyone with
--- a covering `leave` fact; this one selects exactly those engineers so the board
--- can render them as "On leave: <kind>".
+-- board_leave_as_of.sql — engineers on leave as of a date (ARCHITECTURE.md §5).
+-- The companion to board_as_of.sql: that query suppresses anyone with a covering
+-- `leave` fact; this one selects exactly those engineers so the board can render
+-- them as "On leave: <kind>".
 --
 -- Their underlying allocation still exists; it is deliberately not joined here —
 -- leave overrides the engagement in the read model. The level (and hence the

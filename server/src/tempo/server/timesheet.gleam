@@ -1,11 +1,11 @@
 //// Timesheet read (my allocations as-of a day) and write (PERIOD-FK-backed insert) handlers.
 ////
 //// Read maps `timesheet_form` rows (ARCHITECTURE.md §5) to the shared
-//// `TimesheetDay`. Write is the delete-then-insert temporal upsert (P1-T04): the
+//// `TimesheetDay`. Write is the delete-then-insert temporal upsert: the
 //// `WITHOUT OVERLAPS` PK cannot be an `ON CONFLICT` target, so re-entry deletes
 //// the covering row then inserts, both in one transaction. The `PERIOD` FK to
 //// `allocation` is the backstop — logging against a project the engineer is not
-//// allocated to that day is rejected by the database (PRD FR-5). That rejection
+//// allocated to that day is rejected by the database. That rejection
 //// (SQLSTATE 23503) is surfaced as a clean 422 typed error, never a 500.
 
 import gleam/dynamic/decode
@@ -40,8 +40,8 @@ pub type WriteError {
 }
 
 /// The timesheet PERIOD foreign-key constraint. A violation of *this* constraint
-/// is the domain rejection (the logged day is not covered by an allocation, PRD
-/// FR-5); pog reports it as `ConstraintViolated` carrying this name.
+/// is the domain rejection (the logged day is not covered by an allocation); pog
+/// reports it as `ConstraintViolated` carrying this name.
 const timesheet_period_fk = "timesheet_engineer_id_project_id_work_day_fkey"
 
 // --- read -------------------------------------------------------------------
@@ -137,9 +137,9 @@ pub fn handle_write(request: wisp.Request, context: Context) -> wisp.Response {
   }
 }
 
-/// Run the delete-then-insert temporal upsert in one transaction (P1-T04). A
-/// PERIOD-FK rejection rolls back the delete (the prior row survives) and is
-/// classified as `NotAllocated`; any other query error becomes `DatabaseError`.
+/// Run the delete-then-insert temporal upsert in one transaction. A PERIOD-FK
+/// rejection rolls back the delete (the prior row survives) and is classified as
+/// `NotAllocated`; any other query error becomes `DatabaseError`.
 pub fn upsert(
   context: Context,
   write: WriteRequest,
