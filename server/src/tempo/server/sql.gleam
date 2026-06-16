@@ -9,14 +9,14 @@ import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import pog
 
-/// A row you get from running the `board_as_of` query
-/// defined in `./src/tempo/server/sql/board_as_of.sql`.
+/// A row you get from running the `board_engaged` query
+/// defined in `./src/tempo/server/sql/board_engaged.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type BoardAsOfRow {
-  BoardAsOfRow(
+pub type BoardEngagedRow {
+  BoardEngagedRow(
     engineer: String,
     level: Int,
     project: String,
@@ -28,19 +28,19 @@ pub type BoardAsOfRow {
   )
 }
 
-/// board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
-/// $1::date. One row per (engineer × project).
+/// board_engaged.sql — engineers ALLOCATED to a project on the date ($1::date).
+/// One row per (engineer × project).
 ///
 /// This is the "engaged" slice of the board; it returns only fully-engaged rows
 /// (INNER JOINs throughout), so every column is non-null. Two companion queries
 /// complete the board so every employed engineer is represented exactly once per
 /// engagement:
-/// * board_unassigned_as_of.sql — employed, not on leave, with no allocation
-/// * board_leave_as_of.sql       — covered by a leave fact (leave overrides)
+/// * board_unassigned.sql — employed, not on leave, with no allocation
+/// * board_leave.sql       — covered by a leave fact (leave overrides)
 /// Engineers with a covering leave fact are suppressed here (NOT EXISTS) and
-/// surfaced by board_leave_as_of.sql instead.
+/// surfaced by board_leave.sql instead.
 ///
-/// Charge rate is resolved from engineer_role × rate_card as of the date (the
+/// Charge rate is resolved from engineer_role × rate_card on the date (the
 /// two-hop temporal join). It is exposed as a plain `day_rate` value on the row.
 ///
 /// Range columns are decomposed to plain `date`s at the boundary: the engagement
@@ -50,10 +50,10 @@ pub type BoardAsOfRow {
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn board_as_of(
+pub fn board_engaged(
   db: pog.Connection,
   arg_1: Date,
-) -> Result(pog.Returned(BoardAsOfRow), pog.QueryError) {
+) -> Result(pog.Returned(BoardEngagedRow), pog.QueryError) {
   let decoder = {
     use engineer <- decode.field(0, decode.string)
     use level <- decode.field(1, decode.int)
@@ -63,7 +63,7 @@ pub fn board_as_of(
     use day_rate <- decode.field(5, pog.numeric_decoder())
     use valid_from <- decode.field(6, pog.calendar_date_decoder())
     use valid_to <- decode.field(7, pog.calendar_date_decoder())
-    decode.success(BoardAsOfRow(
+    decode.success(BoardEngagedRow(
       engineer:,
       level:,
       project:,
@@ -75,19 +75,19 @@ pub fn board_as_of(
     ))
   }
 
-  "-- board_as_of.sql — the as-of org board: engineers ALLOCATED to a project as of
--- $1::date. One row per (engineer × project).
+  "-- board_engaged.sql — engineers ALLOCATED to a project on the date ($1::date).
+-- One row per (engineer × project).
 --
 -- This is the \"engaged\" slice of the board; it returns only fully-engaged rows
 -- (INNER JOINs throughout), so every column is non-null. Two companion queries
 -- complete the board so every employed engineer is represented exactly once per
 -- engagement:
---   * board_unassigned_as_of.sql — employed, not on leave, with no allocation
---   * board_leave_as_of.sql       — covered by a leave fact (leave overrides)
+--   * board_unassigned.sql — employed, not on leave, with no allocation
+--   * board_leave.sql       — covered by a leave fact (leave overrides)
 -- Engineers with a covering leave fact are suppressed here (NOT EXISTS) and
--- surfaced by board_leave_as_of.sql instead.
+-- surfaced by board_leave.sql instead.
 --
--- Charge rate is resolved from engineer_role × rate_card as of the date (the
+-- Charge rate is resolved from engineer_role × rate_card on the date (the
 -- two-hop temporal join). It is exposed as a plain `day_rate` value on the row.
 --
 -- Range columns are decomposed to plain `date`s at the boundary: the engagement
@@ -123,14 +123,14 @@ ORDER BY engineer.name, project.name;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `board_leave_as_of` query
-/// defined in `./src/tempo/server/sql/board_leave_as_of.sql`.
+/// A row you get from running the `board_leave` query
+/// defined in `./src/tempo/server/sql/board_leave.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type BoardLeaveAsOfRow {
-  BoardLeaveAsOfRow(
+pub type BoardLeaveRow {
+  BoardLeaveRow(
     engineer: String,
     level: Option(Int),
     kind: String,
@@ -139,8 +139,8 @@ pub type BoardLeaveAsOfRow {
   )
 }
 
-/// board_leave_as_of.sql — engineers on leave as of a date.
-/// The companion to board_as_of.sql: that query suppresses anyone with a covering
+/// board_leave.sql — engineers on leave on the date.
+/// The companion to board_engaged.sql: that query suppresses anyone with a covering
 /// `leave` fact; this one selects exactly those engineers so the board can render
 /// them as "On leave: <kind>".
 ///
@@ -154,17 +154,17 @@ pub type BoardLeaveAsOfRow {
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn board_leave_as_of(
+pub fn board_leave(
   db: pog.Connection,
   arg_1: Date,
-) -> Result(pog.Returned(BoardLeaveAsOfRow), pog.QueryError) {
+) -> Result(pog.Returned(BoardLeaveRow), pog.QueryError) {
   let decoder = {
     use engineer <- decode.field(0, decode.string)
     use level <- decode.field(1, decode.optional(decode.int))
     use kind <- decode.field(2, decode.string)
     use valid_from <- decode.field(3, pog.calendar_date_decoder())
     use valid_to <- decode.field(4, pog.calendar_date_decoder())
-    decode.success(BoardLeaveAsOfRow(
+    decode.success(BoardLeaveRow(
       engineer:,
       level:,
       kind:,
@@ -173,8 +173,8 @@ pub fn board_leave_as_of(
     ))
   }
 
-  "-- board_leave_as_of.sql — engineers on leave as of a date.
--- The companion to board_as_of.sql: that query suppresses anyone with a covering
+  "-- board_leave.sql — engineers on leave on the date.
+-- The companion to board_engaged.sql: that query suppresses anyone with a covering
 -- `leave` fact; this one selects exactly those engineers so the board can render
 -- them as \"On leave: <kind>\".
 --
@@ -202,19 +202,19 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `board_unassigned_as_of` query
-/// defined in `./src/tempo/server/sql/board_unassigned_as_of.sql`.
+/// A row you get from running the `board_unassigned` query
+/// defined in `./src/tempo/server/sql/board_unassigned.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type BoardUnassignedAsOfRow {
-  BoardUnassignedAsOfRow(engineer: String, level: Int)
+pub type BoardUnassignedRow {
+  BoardUnassignedRow(engineer: String, level: Int)
 }
 
-/// board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
-/// on leave as of $1::date. The third board slice alongside
-/// board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+/// board_unassigned.sql — employed engineers who are NOT allocated and NOT
+/// on leave on the date ($1::date). The third board slice alongside
+/// board_engaged (engaged) and board_leave (on leave); the client renders
 /// these as "Unassigned".
 ///
 /// INNER JOIN engineer_role so `level` is non-null: an employed engineer always
@@ -224,19 +224,19 @@ pub type BoardUnassignedAsOfRow {
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn board_unassigned_as_of(
+pub fn board_unassigned(
   db: pog.Connection,
   arg_1: Date,
-) -> Result(pog.Returned(BoardUnassignedAsOfRow), pog.QueryError) {
+) -> Result(pog.Returned(BoardUnassignedRow), pog.QueryError) {
   let decoder = {
     use engineer <- decode.field(0, decode.string)
     use level <- decode.field(1, decode.int)
-    decode.success(BoardUnassignedAsOfRow(engineer:, level:))
+    decode.success(BoardUnassignedRow(engineer:, level:))
   }
 
-  "-- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date. The third board slice alongside
--- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+  "-- board_unassigned.sql — employed engineers who are NOT allocated and NOT
+-- on leave on the date ($1::date). The third board slice alongside
+-- board_engaged (engaged) and board_leave (on leave); the client renders
 -- these as \"Unassigned\".
 --
 -- INNER JOIN engineer_role so `level` is non-null: an employed engineer always

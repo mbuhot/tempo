@@ -24,7 +24,7 @@ import wisp
 
 // --- read -------------------------------------------------------------------
 
-/// Handle GET /api/timesheet?engineer=ID&day=YYYY-MM-DD — my allocations as of a
+/// Handle GET /api/timesheet?engineer=ID&day=YYYY-MM-DD — my allocations on a
 /// day, with any logged hours. Missing/malformed params are a 400; a DB failure
 /// is a 500.
 pub fn handle_read(req: wisp.Request, ctx: Context) -> wisp.Response {
@@ -37,7 +37,7 @@ pub fn handle_read(req: wisp.Request, ctx: Context) -> wisp.Response {
 
 fn read_params(request: wisp.Request) -> Result(#(Int, Date), String) {
   use engineer_id <- result.try(int_param(request, "engineer"))
-  use day <- result.map(request.as_of_from_query(request, "day"))
+  use day <- result.map(request.date_from_query(request, "day"))
   #(engineer_id, day)
 }
 

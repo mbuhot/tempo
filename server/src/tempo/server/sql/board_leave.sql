@@ -1,5 +1,5 @@
--- board_leave_as_of.sql — engineers on leave as of a date.
--- The companion to board_as_of.sql: that query suppresses anyone with a covering
+-- board_leave.sql — engineers on leave on the date.
+-- The companion to board_engaged.sql: that query suppresses anyone with a covering
 -- `leave` fact; this one selects exactly those engineers so the board can render
 -- them as "On leave: <kind>".
 --

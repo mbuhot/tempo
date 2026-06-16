@@ -1,10 +1,10 @@
-//// Domain: assemble the as-of org board by running the temporal join and mapping
-//// rows to shared types. No HTTP — this layer never imports `wisp`.
+//// Domain: assemble the org board for a date by running the temporal join and
+//// mapping rows to shared types. No HTTP — this layer never imports `wisp`.
 ////
 //// The board snapshot is assembled from three Squirrel queries, one per
-//// Engagement variant: `board_as_of` (employed + allocated, leave-suppressed),
-//// `board_unassigned_as_of` (employed, not allocated, not on leave), and
-//// `board_leave_as_of` (the engineers a covering leave fact hides from the first).
+//// Engagement variant: `board_engaged` (employed + allocated, leave-suppressed),
+//// `board_unassigned` (employed, not allocated, not on leave), and
+//// `board_leave` (the engineers a covering leave fact hides from the first).
 //// Each maps to the shared `BoardRow`/`Engagement` contract; the merged list is
 //// sorted by engineer so the wire order is deterministic for the client and tests.
 
@@ -22,15 +22,15 @@ import shared/types.{
 import tempo/server/context.{type Context}
 import tempo/server/sql
 
-/// Compute the board snapshot as of a date: run the three as-of queries, map each
+/// Compute the board snapshot for a date: run the three board queries, map each
 /// row to a shared `BoardRow`, and merge them sorted by engineer name.
 pub fn snapshot(
   context: Context,
-  as_of: Date,
+  date: Date,
 ) -> Result(BoardSnapshot, pog.QueryError) {
-  use board <- result.try(sql.board_as_of(context.db, as_of))
-  use unassigned <- result.try(sql.board_unassigned_as_of(context.db, as_of))
-  use leave <- result.try(sql.board_leave_as_of(context.db, as_of))
+  use board <- result.try(sql.board_engaged(context.db, date))
+  use unassigned <- result.try(sql.board_unassigned(context.db, date))
+  use leave <- result.try(sql.board_leave(context.db, date))
   let rows =
     list.flatten([
       list.map(board.rows, board_row_to_shared),
@@ -38,11 +38,11 @@ pub fn snapshot(
       list.map(leave.rows, leave_row_to_shared),
     ])
     |> list.sort(by_engineer)
-  Ok(BoardSnapshot(as_of:, rows:))
+  Ok(BoardSnapshot(date:, rows:))
 }
 
 /// Map an on-project query row to the shared `BoardRow` / `OnProject`.
-fn board_row_to_shared(row: sql.BoardAsOfRow) -> BoardRow {
+fn board_row_to_shared(row: sql.BoardEngagedRow) -> BoardRow {
   BoardRow(
     engineer: row.engineer,
     level: row.level,
@@ -59,14 +59,14 @@ fn board_row_to_shared(row: sql.BoardAsOfRow) -> BoardRow {
 
 /// Map an unassigned board row (employed, no allocation, not on leave) to the
 /// shared `BoardRow`/`Unassigned` contract.
-fn unassigned_row_to_shared(row: sql.BoardUnassignedAsOfRow) -> BoardRow {
+fn unassigned_row_to_shared(row: sql.BoardUnassignedRow) -> BoardRow {
   BoardRow(engineer: row.engineer, level: row.level, engagement: Unassigned)
 }
 
 /// Map an on-leave board row to the shared `BoardRow`/`OnLeave` contract. The
 /// level falls back to 0 only if the leave row carries none (not expected for a
 /// leave-covered, employed engineer, who always has a role).
-fn leave_row_to_shared(row: sql.BoardLeaveAsOfRow) -> BoardRow {
+fn leave_row_to_shared(row: sql.BoardLeaveRow) -> BoardRow {
   BoardRow(
     engineer: row.engineer,
     level: level_or_zero(row.level),

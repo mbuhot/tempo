@@ -62,7 +62,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("opens at the seed now with Aisha on leave", async ({ page }) => {
-  // Beat 1 (FR-1, FR-4): the as-of board at 2026-06-15. Aisha's allocation is
+  // Beat 1 (FR-1, FR-4): the board for 2026-06-15. Aisha's allocation is
   // suppressed by her covering leave fact and shown distinctly; Marcus is on his
   // project. Engineers, projects, and clients are all visible for the date.
   await expectEngineerLine(page, "Aisha Okafor", "On leave: annual");
@@ -94,7 +94,7 @@ test("scrubbing before her leave shows Aisha allocated, not on leave", async ({
 
 test("the board changes as the slider moves", async ({ page }) => {
   // The whole-board re-render: the same engineer reads differently at two dates,
-  // proving the slider drives real as-of data rather than a static page.
+  // proving the slider drives real board data rather than a static page.
   await scrubTo(page, "2026-06-01");
   await expectEngineerLine(page, "Aisha Okafor", "Data Platform");
 
@@ -119,11 +119,11 @@ test("the selected date is in the URL and is restored on load", async ({
   page,
 }) => {
   // The date lives in the query string, so the view is shareable and survives a
-  // reload: scrubbing updates ?as_of, and loading a URL with ?as_of opens there.
+  // reload: scrubbing updates ?date, and loading a URL with ?date opens there.
   await scrubTo(page, "2026-07-15");
-  await expect(page).toHaveURL(/[?&]as_of=2026-07-15(\b|$)/);
+  await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
 
-  await page.goto("/?as_of=2025-03-01");
+  await page.goto("/?date=2025-03-01");
   await expect(
     page.getByRole("heading", { name: "As of 2025-03-01" }),
   ).toBeVisible();

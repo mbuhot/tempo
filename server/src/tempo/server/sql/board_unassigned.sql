@@ -1,6 +1,6 @@
--- board_unassigned_as_of.sql — employed engineers who are NOT allocated and NOT
--- on leave as of $1::date. The third board slice alongside
--- board_as_of (engaged) and board_leave_as_of (on leave); the client renders
+-- board_unassigned.sql — employed engineers who are NOT allocated and NOT
+-- on leave on the date ($1::date). The third board slice alongside
+-- board_engaged (engaged) and board_leave (on leave); the client renders
 -- these as "Unassigned".
 --
 -- INNER JOIN engineer_role so `level` is non-null: an employed engineer always

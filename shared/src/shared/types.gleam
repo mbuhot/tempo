@@ -10,10 +10,10 @@
 
 import gleam/time/calendar.{type Date}
 
-/// An engineer's situation on the org board as of a date. Leave takes precedence
+/// An engineer's situation on the org board for a date. Leave takes precedence
 /// over an allocation in the read model: an engineer covered by a leave fact is
 /// `OnLeave`, otherwise one `OnProject` per project they are allocated to. An
-/// employed engineer with no allocation as of the date is `Unassigned`.
+/// employed engineer with no allocation on the date is `Unassigned`.
 pub type Engagement {
   /// Allocated to a project. `day_rate` is the resolved charge rate as a plain
   /// value.
@@ -32,16 +32,16 @@ pub type Engagement {
   Unassigned
 }
 
-/// One line on the org board: an engineer, their level as of the date, and their
+/// One line on the org board: an engineer, their level on the date, and their
 /// situation. Engaged engineers contribute one row per project; on-leave engineers
 /// contribute a single `OnLeave` row.
 pub type BoardRow {
   BoardRow(engineer: String, level: Int, engagement: Engagement)
 }
 
-/// The whole org board, as of a single instant.
+/// The whole org board for a single date.
 pub type BoardSnapshot {
-  BoardSnapshot(as_of: Date, rows: List(BoardRow))
+  BoardSnapshot(date: Date, rows: List(BoardRow))
 }
 
 /// One project an engineer may log time against on a given day: the project, the
@@ -59,10 +59,10 @@ pub type TimesheetLine {
 }
 
 /// An engineer's timesheet form for one day: only the projects they are allocated
-/// to as of `as_of`, each with any hours already logged. Empty when the engineer
+/// to on `date`, each with any hours already logged. Empty when the engineer
 /// is on leave that day (the form offers nothing).
 pub type TimesheetDay {
-  TimesheetDay(engineer_id: Int, as_of: Date, lines: List(TimesheetLine))
+  TimesheetDay(engineer_id: Int, date: Date, lines: List(TimesheetLine))
 }
 
 /// A validated timesheet write request: which engineer logs how many hours

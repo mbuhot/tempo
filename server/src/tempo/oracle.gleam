@@ -1,6 +1,6 @@
 //// A verification that the `010_split_allocation` schema migration preserves the
 //// observable history of the org board: for every date in the seed span, the
-//// as-of board is identical before and after applying `010_split_allocation`.
+//// board is identical before and after applying `010_split_allocation`.
 ////
 //// The check seeds a fresh database (drops and recreates `public`, then applies
 //// the pre-migration schema 001+002+003), snapshots the board for every day in
@@ -10,7 +10,7 @@
 //// unchanged.
 ////
 //// Each snapshot runs the production board SQL
-//// (`src/tempo/server/sql/board_as_of.sql`) wrapped in a CTE that renders one
+//// (`src/tempo/server/sql/board_engaged.sql`) wrapped in a CTE that renders one
 //// date's whole board to a single NULL-tolerant text blob, so the comparison is
 //// over the exact query the app serves rather than a re-typed copy of it. The
 //// rendering covers the user-visible columns — engineer, level, project, client,
@@ -36,16 +36,16 @@ import simplifile
 import tempo/server/context
 import tempo/server/migrate
 
-/// The board for one date: the as-of date and a deterministic text rendering of
+/// The board for one date: the date and a deterministic text rendering of
 /// every row the production board query returns for it (NULL-tolerant, one row
 /// per line; see `board_snapshot_sql`).
 pub type DateBoard {
-  DateBoard(as_of: Date, board: String)
+  DateBoard(date: Date, board: String)
 }
 
 /// The first date whose board differs across the migration, with both renderings.
 pub type Mismatch {
-  Mismatch(as_of: Date, before: String, after: String)
+  Mismatch(date: Date, before: String, after: String)
 }
 
 /// `gleam run -m tempo/oracle`. Rebuilds a fresh pre-migration DB, snapshots
@@ -190,7 +190,7 @@ pub fn seed_span_dates(db: pog.Connection) -> List(Date) {
   returned.rows
 }
 
-/// Wrap the *production* board query (src/tempo/server/sql/board_as_of.sql) in a
+/// Wrap the *production* board query (src/tempo/server/sql/board_engaged.sql) in a
 /// CTE and render its whole result for one date to a single text blob: one line
 /// per row, columns `|`-joined, every column COALESCEd so a NULL (e.g. an
 /// employed-but-unallocated engineer) renders as `∅` instead of failing to
@@ -209,7 +209,7 @@ pub fn seed_span_dates(db: pog.Connection) -> List(Date) {
 /// it would assert the migration did nothing, the opposite of the point.
 fn board_snapshot_sql() -> String {
   let assert Ok(board_sql) =
-    read_priv_sql("../src/tempo/server/sql/board_as_of.sql")
+    read_priv_sql("../src/tempo/server/sql/board_engaged.sql")
   let board_cte = strip_trailing_semicolon(string.trim(board_sql))
   "WITH board AS (\n" <> board_cte <> "\n)
 SELECT COALESCE(string_agg(
@@ -237,14 +237,14 @@ fn snapshot(
     use board <- decode.field(0, decode.string)
     decode.success(board)
   }
-  list.map(dates, fn(as_of) {
+  list.map(dates, fn(date) {
     let assert Ok(returned) =
       pog.query(snapshot_sql)
-      |> pog.parameter(pog.calendar_date(as_of))
+      |> pog.parameter(pog.calendar_date(date))
       |> pog.returning(row_decoder)
       |> pog.execute(on: db)
     let assert [board] = returned.rows
-    DateBoard(as_of:, board:)
+    DateBoard(date:, board:)
   })
 }
 
@@ -264,7 +264,7 @@ pub fn first_mismatch(
       True -> Error(Nil)
       False ->
         Ok(Mismatch(
-          as_of: before_board.as_of,
+          date: before_board.date,
           before: before_board.board,
           after: after_board.board,
         ))
@@ -291,7 +291,7 @@ fn describe_span(dates: List(Date)) -> String {
 /// The loud failure message naming the first differing date and both renderings.
 fn render_mismatch(mismatch: Mismatch) -> String {
   "ORACLE FAIL: board differs across the migration at "
-  <> iso(mismatch.as_of)
+  <> iso(mismatch.date)
   <> "\n  before:\n"
   <> mismatch.before
   <> "\n  after:\n"

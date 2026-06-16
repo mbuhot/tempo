@@ -154,18 +154,18 @@ pub fn board_row_decoder() -> Decoder(BoardRow) {
 
 /// Encode a board snapshot to JSON for the HTTP API.
 pub fn encode_board_snapshot(snapshot: BoardSnapshot) -> Json {
-  let BoardSnapshot(as_of:, rows:) = snapshot
+  let BoardSnapshot(date:, rows:) = snapshot
   json.object([
-    #("as_of", encode_date(as_of)),
+    #("date", encode_date(date)),
     #("rows", json.array(rows, encode_board_row)),
   ])
 }
 
 /// Decode a board snapshot from a JSON-derived dynamic value.
 pub fn board_snapshot_decoder() -> Decoder(BoardSnapshot) {
-  use as_of <- decode.field("as_of", date_decoder())
+  use date <- decode.field("date", date_decoder())
   use rows <- decode.field("rows", decode.list(board_row_decoder()))
-  decode.success(BoardSnapshot(as_of:, rows:))
+  decode.success(BoardSnapshot(date:, rows:))
 }
 
 // --- TimesheetLine ----------------------------------------------------------
@@ -212,10 +212,10 @@ pub fn timesheet_line_decoder() -> Decoder(TimesheetLine) {
 
 /// Encode a `TimesheetDay` (the timesheet form for one day) to JSON.
 pub fn encode_timesheet_day(day: TimesheetDay) -> Json {
-  let TimesheetDay(engineer_id:, as_of:, lines:) = day
+  let TimesheetDay(engineer_id:, date:, lines:) = day
   json.object([
     #("engineer_id", json.int(engineer_id)),
-    #("as_of", encode_date(as_of)),
+    #("date", encode_date(date)),
     #("lines", json.array(lines, encode_timesheet_line)),
   ])
 }
@@ -223,9 +223,9 @@ pub fn encode_timesheet_day(day: TimesheetDay) -> Json {
 /// Decode a `TimesheetDay` from JSON.
 pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
   use engineer_id <- decode.field("engineer_id", decode.int)
-  use as_of <- decode.field("as_of", date_decoder())
+  use date <- decode.field("date", date_decoder())
   use lines <- decode.field("lines", decode.list(timesheet_line_decoder()))
-  decode.success(TimesheetDay(engineer_id:, as_of:, lines:))
+  decode.success(TimesheetDay(engineer_id:, date:, lines:))
 }
 
 // --- Timesheet write --------------------------------------------------------

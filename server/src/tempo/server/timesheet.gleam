@@ -1,4 +1,4 @@
-//// Domain: timesheet read (the form as-of a day) and write (the PERIOD-FK-backed
+//// Domain: timesheet read (the form for a day) and write (the PERIOD-FK-backed
 //// temporal upsert). No HTTP — this layer never imports `wisp`.
 ////
 //// `form` maps `timesheet_form` rows to the shared
@@ -36,7 +36,7 @@ const timesheet_period_fk = "timesheet_engineer_id_project_id_work_day_fkey"
 
 // --- read -------------------------------------------------------------------
 
-/// Compute the timesheet form for an engineer as of a day: run `timesheet_form`
+/// Compute the timesheet form for an engineer on a day: run `timesheet_form`
 /// and map each row to the shared `TimesheetLine` (empty on a leave day).
 pub fn form(
   context: Context,
@@ -45,7 +45,7 @@ pub fn form(
 ) -> Result(TimesheetDay, pog.QueryError) {
   use returned <- result.map(sql.timesheet_form(context.db, engineer_id, day))
   let lines = list.map(returned.rows, form_row_to_shared)
-  TimesheetDay(engineer_id:, as_of: day, lines:)
+  TimesheetDay(engineer_id:, date: day, lines:)
 }
 
 fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {

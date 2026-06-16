@@ -1,9 +1,9 @@
 //// Lustre SPA for the org board and timesheet: model / update / view.
 ////
 //// A date slider selects an instant; the board and the selected engineer's
-//// timesheet are fetched for it and re-rendered as of that date. The slider's
+//// timesheet are fetched for it and re-rendered for that date. The slider's
 //// integer position maps to a fixed absolute calendar date (not the wall clock),
-//// and that date is mirrored in the URL (?as_of=YYYY-MM-DD) so a shared link or a
+//// and that date is mirrored in the URL (?date=YYYY-MM-DD) so a shared link or a
 //// reload opens on the same instant. Leave takes precedence over an allocation on
 //// the board; the timesheet panel posts hours for a project and surfaces a
 //// rejected write (a day not covered by an allocation) as a message, not a crash.
@@ -94,7 +94,7 @@ pub type SaveState {
 pub type Model {
   Model(
     day_index: Int,
-    as_of: calendar.Date,
+    date: calendar.Date,
     board: Board,
     engineer_id: Int,
     timesheet: Timesheet,
@@ -107,30 +107,30 @@ pub type Model {
 pub type Message {
   /// The slider moved to a new day index (debounced `on_input`).
   SliderMoved(day_index: Int)
-  /// A board fetch resolved; `as_of` tags which request it answers so a stale
+  /// A board fetch resolved; `date` tags which request it answers so a stale
   /// response from an earlier slider position can be discarded.
   ApiReturnedBoard(
-    as_of: calendar.Date,
+    date: calendar.Date,
     result: Result(BoardSnapshot, rsvp.Error(String)),
   )
   /// The timesheet engineer selector changed to a new engineer id.
   EngineerSelected(engineer_id: Int)
-  /// A timesheet form fetch resolved; `engineer_id` and `as_of` tag which request
+  /// A timesheet form fetch resolved; `engineer_id` and `date` tag which request
   /// it answers so a response overtaken by a later scrub/selection is discarded.
   ApiReturnedTimesheet(
     engineer_id: Int,
-    as_of: calendar.Date,
+    date: calendar.Date,
     result: Result(TimesheetDay, rsvp.Error(String)),
   )
   /// The user edited the hours input for one project.
   HoursEdited(project_id: Int, raw_hours: String)
   /// The user submitted hours for one project (the row's Save button).
   SubmittedHours(project_id: Int)
-  /// A timesheet write resolved; `engineer_id`/`as_of` tag it for the same
+  /// A timesheet write resolved; `engineer_id`/`date` tag it for the same
   /// staleness check, and the body is either the refreshed form or the error.
   ApiSavedTimesheet(
     engineer_id: Int,
-    as_of: calendar.Date,
+    date: calendar.Date,
     result: Result(TimesheetDay, rsvp.Error(String)),
   )
 }
@@ -146,14 +146,14 @@ pub fn main() -> Nil {
 /// and timesheet loading, with both fetches in flight as the initial effect.
 fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
   let engineer_id = first_engineer_id()
-  // Open at the date in the URL (?as_of=YYYY-MM-DD) so a shared link or a reload
+  // Open at the date in the URL (?date=YYYY-MM-DD) so a shared link or a reload
   // lands on that instant; absent or out of range, fall back to the seed "now".
   // The initial effect writes the resolved date back to the URL so it is explicit.
-  let as_of = initial_as_of()
+  let date = initial_date()
   let model =
     Model(
-      day_index: as_of_to_day_index(as_of),
-      as_of:,
+      day_index: date_to_day_index(date),
+      date:,
       board: Loading,
       engineer_id:,
       timesheet: TimesheetLoading,
@@ -163,9 +163,9 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
   #(
     model,
     effect.batch([
-      fetch_board(as_of),
-      fetch_timesheet(engineer_id, as_of),
-      sync_url(as_of),
+      fetch_board(date),
+      fetch_timesheet(engineer_id, date),
+      sync_url(date),
     ]),
   )
 }
@@ -180,24 +180,24 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     SliderMoved(day_index:) -> {
-      let as_of = day_index_to_as_of(day_index)
+      let date = day_index_to_date(day_index)
       // Stale-while-revalidate: keep the current board/timesheet on screen while the
       // new date's data is in flight, instead of dropping to a loading state on every
       // scrub (which flickers — blank "Loading…" then a snap back to data). The
       // staleness guard in the ApiReturned* handlers discards any response overtaken
       // by a later move, so the view only ever updates to the latest date's data.
       #(
-        Model(..model, day_index:, as_of:, save_state: Unsaved),
+        Model(..model, day_index:, date:, save_state: Unsaved),
         effect.batch([
-          fetch_board(as_of),
-          fetch_timesheet(model.engineer_id, as_of),
-          sync_url(as_of),
+          fetch_board(date),
+          fetch_timesheet(model.engineer_id, date),
+          sync_url(date),
         ]),
       )
     }
 
-    ApiReturnedBoard(as_of:, result:) ->
-      case as_of == model.as_of {
+    ApiReturnedBoard(date:, result:) ->
+      case date == model.date {
         False -> #(model, effect.none())
         True ->
           case result {
@@ -219,11 +219,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         timesheet: TimesheetLoading,
         save_state: Unsaved,
       ),
-      fetch_timesheet(engineer_id, model.as_of),
+      fetch_timesheet(engineer_id, model.date),
     )
 
-    ApiReturnedTimesheet(engineer_id:, as_of:, result:) ->
-      case engineer_id == model.engineer_id && as_of == model.as_of {
+    ApiReturnedTimesheet(engineer_id:, date:, result:) ->
+      case engineer_id == model.engineer_id && date == model.date {
         False -> #(model, effect.none())
         True -> #(store_timesheet(model, result), effect.none())
       }
@@ -247,12 +247,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
         Ok(hours) -> #(
           Model(..model, save_state: Saving),
-          save_hours(model.engineer_id, model.as_of, project_id, hours),
+          save_hours(model.engineer_id, model.date, project_id, hours),
         )
       }
 
-    ApiSavedTimesheet(engineer_id:, as_of:, result:) ->
-      case engineer_id == model.engineer_id && as_of == model.as_of {
+    ApiSavedTimesheet(engineer_id:, date:, result:) ->
+      case engineer_id == model.engineer_id && date == model.date {
         False -> #(model, effect.none())
         True ->
           case result {
@@ -321,14 +321,14 @@ fn parse_hours(raw_hours: String) -> Result(Float, Nil) {
 
 // --- effects ----------------------------------------------------------------
 
-/// Fetch `GET /api/board?as_of=<date>` and decode the snapshot via the shared
-/// codec, tagging the outcome with the requested `as_of` so stale responses can be
+/// Fetch `GET /api/board?date=<date>` and decode the snapshot via the shared
+/// codec, tagging the outcome with the requested `date` so stale responses can be
 /// dropped.
-fn fetch_board(as_of: calendar.Date) -> Effect(Message) {
-  let url = "/api/board?as_of=" <> iso_date(as_of)
+fn fetch_board(date: calendar.Date) -> Effect(Message) {
+  let url = "/api/board?date=" <> iso_date(date)
   let handler =
     rsvp.expect_json(codecs.board_snapshot_decoder(), fn(result) {
-      ApiReturnedBoard(as_of:, result:)
+      ApiReturnedBoard(date:, result:)
     })
   rsvp.get(url, handler)
 }
@@ -336,15 +336,15 @@ fn fetch_board(as_of: calendar.Date) -> Effect(Message) {
 /// Fetch `GET /api/timesheet?engineer=<id>&day=<date>` and decode the form,
 /// tagging the outcome with the requested engineer/day so a response overtaken by
 /// a later scrub or engineer change can be discarded.
-fn fetch_timesheet(engineer_id: Int, as_of: calendar.Date) -> Effect(Message) {
+fn fetch_timesheet(engineer_id: Int, date: calendar.Date) -> Effect(Message) {
   let url =
     "/api/timesheet?engineer="
     <> int.to_string(engineer_id)
     <> "&day="
-    <> iso_date(as_of)
+    <> iso_date(date)
   let handler =
     rsvp.expect_json(codecs.timesheet_day_decoder(), fn(result) {
-      ApiReturnedTimesheet(engineer_id:, as_of:, result:)
+      ApiReturnedTimesheet(engineer_id:, date:, result:)
     })
   rsvp.get(url, handler)
 }
@@ -355,25 +355,25 @@ fn fetch_timesheet(engineer_id: Int, as_of: calendar.Date) -> Effect(Message) {
 /// `HttpError` carrying the typed error body, surfaced as a friendly message.
 fn save_hours(
   engineer_id: Int,
-  as_of: calendar.Date,
+  date: calendar.Date,
   project_id: Int,
   hours: Float,
 ) -> Effect(Message) {
-  let body = encode_write(engineer_id, as_of, project_id, hours)
+  let body = encode_write(engineer_id, date, project_id, hours)
   let handler =
     rsvp.expect_json(codecs.timesheet_day_decoder(), fn(result) {
-      ApiSavedTimesheet(engineer_id:, as_of:, result:)
+      ApiSavedTimesheet(engineer_id:, date:, result:)
     })
   rsvp.post("/api/timesheet", body, handler)
 }
 
 fn encode_write(
   engineer_id: Int,
-  as_of: calendar.Date,
+  date: calendar.Date,
   project_id: Int,
   hours: Float,
 ) -> Json {
-  codecs.encode_write_request(engineer_id:, project_id:, day: as_of, hours:)
+  codecs.encode_write_request(engineer_id:, project_id:, day: date, hours:)
 }
 
 fn describe_board_error(error: rsvp.Error(String)) -> String {
@@ -403,29 +403,29 @@ fn describe_save_error(error: rsvp.Error(String)) -> String {
 }
 
 // --- URL <-> date -----------------------------------------------------------
-// The selected date is mirrored in the query string (?as_of=YYYY-MM-DD) so the
+// The selected date is mirrored in the query string (?date=YYYY-MM-DD) so the
 // view is shareable, bookmarkable, and survives a reload. We `replace` rather than
 // `push` so scrubbing does not flood the browser history with intermediate dates.
 
-/// The date to open at: the URL's `?as_of` when present and valid, otherwise the
+/// The date to open at: the URL's `?date` when present and valid, otherwise the
 /// seed "now". A date outside the slider's bounds is clamped to them.
-fn initial_as_of() -> calendar.Date {
+fn initial_date() -> calendar.Date {
   case modem.initial_uri() {
-    Ok(uri) -> as_of_from_uri(uri)
+    Ok(uri) -> date_from_uri(uri)
     Error(Nil) -> seed_now
   }
 }
 
-fn as_of_from_uri(uri: Uri) -> calendar.Date {
+fn date_from_uri(uri: Uri) -> calendar.Date {
   case uri.query {
     None -> seed_now
     Some(query) ->
       case uri.parse_query(query) {
         Ok(params) ->
-          case list.key_find(params, "as_of") {
+          case list.key_find(params, "date") {
             Ok(value) ->
-              parse_iso_as_of(value)
-              |> result.map(clamp_as_of)
+              parse_iso_date(value)
+              |> result.map(clamp_date)
               |> result.unwrap(seed_now)
             Error(Nil) -> seed_now
           }
@@ -434,8 +434,8 @@ fn as_of_from_uri(uri: Uri) -> calendar.Date {
   }
 }
 
-/// Parse an ISO-8601 "YYYY-MM-DD" string into an as-of `Date`.
-fn parse_iso_as_of(text: String) -> Result(calendar.Date, Nil) {
+/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date`.
+fn parse_iso_date(text: String) -> Result(calendar.Date, Nil) {
   case string.split(text, "-") {
     [year, month, day] -> {
       use year <- result.try(int.parse(year))
@@ -448,18 +448,18 @@ fn parse_iso_as_of(text: String) -> Result(calendar.Date, Nil) {
   }
 }
 
-/// Clamp an as-of `Date` to the slider's inclusive bounds via its day index, so a URL
+/// Clamp a `Date` to the slider's inclusive bounds via its day index, so a URL
 /// date outside the seed range still lands on a valid slider position.
-fn clamp_as_of(as_of: calendar.Date) -> calendar.Date {
-  let low = as_of_to_day_index(range_start)
-  let high = as_of_to_day_index(range_end)
-  day_index_to_as_of(int.clamp(as_of_to_day_index(as_of), min: low, max: high))
+fn clamp_date(date: calendar.Date) -> calendar.Date {
+  let low = date_to_day_index(range_start)
+  let high = date_to_day_index(range_end)
+  day_index_to_date(int.clamp(date_to_day_index(date), min: low, max: high))
 }
 
 /// Mirror the selected date into the URL query string, replacing the current
 /// entry so a scrub does not add to the browser history.
-fn sync_url(as_of: calendar.Date) -> Effect(Message) {
-  modem.replace("/", Some("as_of=" <> iso_date(as_of)), None)
+fn sync_url(date: calendar.Date) -> Effect(Message) {
+  modem.replace("/", Some("date=" <> iso_date(date)), None)
 }
 
 // --- View -------------------------------------------------------------------
@@ -480,11 +480,11 @@ pub fn view(model: Model) -> Element(Message) {
 /// a heading.
 fn view_slider(model: Model) -> Element(Message) {
   html.div([attribute.class("slider")], [
-    html.h2([], [html.text("As of " <> iso_date(model.as_of))]),
+    html.h2([], [html.text("As of " <> iso_date(model.date))]),
     html.input([
       attribute.type_("range"),
-      attribute.min(int.to_string(as_of_to_day_index(range_start))),
-      attribute.max(int.to_string(as_of_to_day_index(range_end))),
+      attribute.min(int.to_string(date_to_day_index(range_start))),
+      attribute.max(int.to_string(date_to_day_index(range_end))),
       attribute.value(int.to_string(model.day_index)),
       attribute.attribute("aria-label", "Board date"),
       event.debounce(event.on_input(on_slider_input), slider_debounce_ms),
@@ -501,7 +501,7 @@ fn view_slider(model: Model) -> Element(Message) {
 fn on_slider_input(raw_value: String) -> Message {
   case int.parse(raw_value) {
     Ok(day_index) -> SliderMoved(day_index:)
-    Error(Nil) -> SliderMoved(day_index: as_of_to_day_index(seed_now))
+    Error(Nil) -> SliderMoved(day_index: date_to_day_index(seed_now))
   }
 }
 
@@ -579,7 +579,7 @@ fn view_timesheet(model: Model) -> Element(Message) {
   html.div([attribute.class("timesheet")], [
     html.h2([], [html.text("My timesheet")]),
     view_engineer_selector(model.engineer_id),
-    html.p([], [html.text("Logging for " <> iso_date(model.as_of))]),
+    html.p([], [html.text("Logging for " <> iso_date(model.date))]),
     view_timesheet_body(model),
   ])
 }
@@ -712,12 +712,12 @@ fn first_engineer_id() -> Int {
 /// Days are 86_400 seconds; the index times this is the unix timestamp of midnight.
 const seconds_per_day = 86_400
 
-fn as_of_to_day_index(as_of: calendar.Date) -> Int {
-  let instant = timestamp.from_calendar(as_of, midnight(), calendar.utc_offset)
+fn date_to_day_index(date: calendar.Date) -> Int {
+  let instant = timestamp.from_calendar(date, midnight(), calendar.utc_offset)
   float.round(timestamp.to_unix_seconds(instant)) / seconds_per_day
 }
 
-fn day_index_to_as_of(day_index: Int) -> calendar.Date {
+fn day_index_to_date(day_index: Int) -> calendar.Date {
   let instant = timestamp.from_unix_seconds(day_index * seconds_per_day)
   let #(date, _time) = timestamp.to_calendar(instant, calendar.utc_offset)
   date
@@ -729,8 +729,8 @@ fn midnight() -> calendar.TimeOfDay {
 
 // --- Date formatting --------------------------------------------------------
 
-fn iso_date(as_of: calendar.Date) -> String {
-  let calendar.Date(year:, month:, day:) = as_of
+fn iso_date(date: calendar.Date) -> String {
+  let calendar.Date(year:, month:, day:) = date
   pad4(year) <> "-" <> pad2(calendar.month_to_int(month)) <> "-" <> pad2(day)
 }
 
