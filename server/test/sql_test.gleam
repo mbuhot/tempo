@@ -12,7 +12,7 @@
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/option.{Some}
-import gleam/time/calendar.{April, August, Date, January, July, June, March}
+import gleam/time/calendar.{April, August, Date, January, June, March}
 import pog
 import tempo/server/context
 import tempo/server/sql
