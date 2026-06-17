@@ -1,49 +1,72 @@
 //// Domain: the engagement aggregate — the client engagements (contracts) and the
-//// projects contained by them. Every function takes the in-transaction connection
-//// and does ONLY its temporal writes; `command.dispatch` owns the transaction and
-//// the `event_log` row. No HTTP — never imports `wisp`.
+//// projects contained by them. `handle` matches the engagement commands, does
+//// ONLY their temporal writes on the in-transaction connection, classifies any
+//// database rejection, and returns the journal event(s) it produced;
+//// `command.dispatch` owns the transaction and persists those events. No HTTP —
+//// never imports `wisp`.
 ////
-//// Both operations are Asserts (write pattern 1): `sign_contract` inserts a
+//// Both operations are Asserts (write pattern 1): `SignContract` inserts a
 //// contract term, resolving the client by name and minting the entity id;
-//// `start_project` inserts a project under a contract, contained by it via the
+//// `StartProject` inserts a project under a contract, contained by it via the
 //// `project_within_contract` PERIOD FK — a project whose active period falls
 //// outside the contract's term is rejected by the database.
 
+import gleam/int
 import gleam/result
-import gleam/time/calendar.{type Date}
 import pog
+import shared/codecs
+import shared/types.{type Command, SignContract, StartProject}
+import tempo/server/operation.{type Event, type OperationError, Event}
 import tempo/server/sql
 
-/// Sign a contract for a client over [valid_from, valid_to) (the Assert pattern).
-/// The client is carried by name and resolved to its id in SQL; the contract's
-/// entity id is minted there too. `valid_to` may be open-ended.
-pub fn sign_contract(
+/// Apply an engagement-aggregate command: run its temporal writes on the
+/// in-transaction connection, classify any database rejection, and on success
+/// return the single journal event it produced. Only the engagement commands
+/// reach here (the dispatch `route` guarantees it); any other variant is a no-op.
+pub fn handle(
   conn: pog.Connection,
-  client: String,
-  valid_from: Date,
-  valid_to: Date,
-) -> Result(Nil, pog.QueryError) {
-  use _ <- result.map(sql.contract_create(conn, client, valid_from, valid_to))
-  Nil
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let written = case command {
+    SignContract(client:, valid_from:, valid_to:) ->
+      sql.contract_create(conn, client, valid_from, valid_to)
+      |> result.replace(Nil)
+    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
+      sql.project_create(conn, contract_id, name, valid_from, valid_to)
+      |> result.replace(Nil)
+    _ -> Ok(Nil)
+  }
+  case written {
+    Error(query_error) -> Error(operation.classify(query_error))
+    Ok(Nil) -> Ok(events(command))
+  }
 }
 
-/// Start a project under a contract over [valid_from, valid_to) (the Assert
-/// pattern). The project's entity id is minted in SQL; the
-/// `project_within_contract` PERIOD FK is the backstop — a project active outside
-/// its contract's term is rejected by the database.
-pub fn start_project(
-  conn: pog.Connection,
-  name: String,
-  contract_id: Int,
-  valid_from: Date,
-  valid_to: Date,
-) -> Result(Nil, pog.QueryError) {
-  use _ <- result.map(sql.project_create(
-    conn,
-    contract_id,
-    name,
-    valid_from,
-    valid_to,
-  ))
-  Nil
+/// The journal event(s) an applied engagement command produces.
+fn events(command: Command) -> List(Event) {
+  case command {
+    SignContract(client:, valid_from:, valid_to:) -> [
+      Event(
+        operation: "sign_contract",
+        summary: "Sign contract for "
+          <> client
+          <> " over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+    ]
+    StartProject(name:, contract_id:, valid_from:, valid_to:) -> [
+      Event(
+        operation: "start_project",
+        summary: "Start project "
+          <> name
+          <> " under contract "
+          <> int.to_string(contract_id)
+          <> " over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+    ]
+    _ -> []
+  }
 }

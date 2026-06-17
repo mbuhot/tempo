@@ -1,26 +1,27 @@
 //// Web: POST /api/operations handler. Decodes the shared `OperationRequest`
 //// envelope (`{actor, command}`), dispatches the command through the domain, and
 //// maps the typed result to HTTP. Imports `wisp` (it owns the HTTP shape) but
-//// never `sql` — it reaches the database only through the domain `command` /
-//// `event` modules, which already speak shared types.
+//// never `sql` — it reaches the database only through the domain `command`
+//// module, which already speaks shared types.
 ////
-//// On success the operation appended exactly one `event_log` row inside the
-//// dispatch transaction; the handler returns that newly-created event as JSON
-//// (the newest journal row, fetched back through the domain). A malformed body
-//// is a 400; a rejected operation maps by its `OperationError` (ARCHITECTURE §5a):
-//// `ContainmentViolated`/`OverlappingFact` → 409, `InvalidValue` → 422,
-//// `DatabaseError` → 500.
+//// On success `dispatch` returns the journal events it appended inside its own
+//// transaction (each with its minted id/occurred_at); the handler returns those
+//// created events as a JSON array — the authoritative record of what was written
+//// (the client also refetches /api/events). A malformed body is a 400; a rejected
+//// operation maps by its `OperationError`: `ContainmentViolated`/`OverlappingFact`
+//// → 409, `InvalidValue` → 422, `DatabaseError` → 500.
 
 import gleam/dynamic/decode
 import gleam/http
+import gleam/json
 import shared/codecs
-import shared/types.{type OperationRequest}
-import tempo/server/command.{
+import shared/types.{type Event, type OperationRequest}
+import tempo/server/command
+import tempo/server/context.{type Context}
+import tempo/server/operation.{
   type OperationError, ContainmentViolated, DatabaseError, InvalidValue,
   OverlappingFact,
 }
-import tempo/server/context.{type Context}
-import tempo/server/event
 import tempo/server/web/response
 import wisp
 
@@ -41,20 +42,16 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
 
 fn dispatch(ctx: Context, request: OperationRequest) -> wisp.Response {
   case command.dispatch(ctx, actor: request.actor, command: request.command) {
-    Ok(Nil) -> created_event_response(ctx)
+    Ok(events) -> created_events_response(events)
     Error(error) -> error_response(error)
   }
 }
 
-/// On success, return the event the operation just appended — the newest journal
-/// row (`event.list` is newest-first). If the journal read fails after a
-/// committed write, surface a 500 rather than a misleading success.
-fn created_event_response(ctx: Context) -> wisp.Response {
-  case event.list(ctx) {
-    Ok([newest, ..]) -> response.json_response(codecs.encode_event(newest))
-    Ok([]) -> wisp.internal_server_error()
-    Error(_) -> wisp.internal_server_error()
-  }
+/// On success, return the events the operation just appended as a JSON array —
+/// each carries its minted id/occurred_at, so this is exactly what was written
+/// (no race with a concurrent writer's newest row).
+fn created_events_response(events: List(Event)) -> wisp.Response {
+  response.json_response(json.array(events, codecs.encode_event))
 }
 
 /// Map a typed `OperationError` to its HTTP status and a small JSON error body

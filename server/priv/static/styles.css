@@ -333,3 +333,112 @@ body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Financials: invoices, payroll, and the P&L statement. --- */
+
+.financials {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  margin-top: 1.75rem;
+}
+
+.financials > h2 {
+  font-size: 1.9rem;
+  font-weight: 800;
+  margin: 0 0 0.25rem;
+}
+
+.financials-asof {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 0.5rem;
+}
+
+.financials h3 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin: 1.5rem 0 0.6rem;
+}
+
+.finance-state {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 0.5rem;
+}
+
+/* The Draft and Run-payroll controls: a selector/button row above each table. */
+
+.draft-control,
+.payroll-control {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.draft-control select {
+  font-size: 1.1rem;
+  padding: 0.35rem 0.5rem;
+  margin-left: 0.4rem;
+}
+
+.financials button {
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+/* Tables share a single high-contrast, tabular-numeric style. */
+
+.financials table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+}
+
+.financials th,
+.financials td {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.financials thead th {
+  border-top: none;
+  border-bottom: 2px solid var(--line);
+  font-weight: 800;
+  color: var(--muted);
+}
+
+/* Numeric columns read better right-aligned and tabular: every column except
+   the first (the label/name) in each financial table. */
+.financials td:not(:first-child),
+.pnl-totals td,
+.payroll-table td:not(:first-child),
+.invoices-table td:nth-child(4) {
+  font-variant-numeric: tabular-nums;
+}
+
+.invoice-status {
+  font-weight: 700;
+}
+
+.invoice-paid {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pnl-totals th[scope="row"] {
+  font-weight: 700;
+  color: var(--ink);
+  border-top: 1px solid var(--line);
+}

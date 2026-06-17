@@ -15,14 +15,17 @@
 //// back without a cycle, so the helpers sit in that leaf rather than here.
 
 import gleam/erlang/application
-import gleam/http
 import gleam/option
 import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
 import tempo/server/web/board
 import tempo/server/web/events
+import tempo/server/web/invoices
 import tempo/server/web/operations
+import tempo/server/web/payroll
+import tempo/server/web/pnl
+import tempo/server/web/roster
 import tempo/server/web/timesheet
 import wisp
 
@@ -39,20 +42,16 @@ pub fn handle_request(
 
   case wisp.path_segments(request) {
     ["api", "board"] -> board.handle(request, context)
-    ["api", "timesheet"] -> timesheet_route(request, context)
+    ["api", "timesheet"] -> timesheet.handle_read(request, context)
     ["api", "operations"] -> operations.handle(request, context)
     ["api", "events"] -> events.handle(request, context)
+    ["api", "invoices"] -> invoices.handle_list(request, context)
+    ["api", "invoices", id] -> invoices.handle_detail(request, context, id)
+    ["api", "payroll"] -> payroll.handle(request, context)
+    ["api", "pnl"] -> pnl.handle(request, context)
+    ["api", "roster"] -> roster.handle(request, context)
     [] -> serve_index()
     _ -> wisp.not_found()
-  }
-}
-
-/// `/api/timesheet` is read (GET) or write (POST); the handlers each enforce
-/// their own method, returning 405 for the wrong verb.
-fn timesheet_route(request: wisp.Request, context: Context) -> wisp.Response {
-  case request.method {
-    http.Get -> timesheet.handle_read(request, context)
-    _ -> timesheet.handle_write(request, context)
   }
 }
 

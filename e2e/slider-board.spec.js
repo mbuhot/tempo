@@ -38,16 +38,23 @@ function engineerSays(name, fragment) {
   return new RegExp(`${escape(name)}.*${escape(fragment)}`);
 }
 
+// The org board, scoped by its accessible name so a fragment that also appears
+// elsewhere on the page (e.g. a project name in the Financials draft selector)
+// cannot be mistaken for a board line. Queries below run inside this region.
+function board(page) {
+  return page.getByRole("list", { name: "Org board" });
+}
+
 // The board line for one engineer carries the expected fragment (e.g. their
 // project or "On leave: annual").
 function expectEngineerLine(page, name, fragment) {
-  return expect(page.getByText(engineerSays(name, fragment))).toBeVisible();
+  return expect(board(page).getByText(engineerSays(name, fragment))).toBeVisible();
 }
 
 // No board line shows this engineer with the given fragment (e.g. Aisha is not
 // "On leave" on a date before her leave begins).
 function expectNoEngineerLine(page, name, fragment) {
-  return expect(page.getByText(engineerSays(name, fragment))).toHaveCount(0);
+  return expect(board(page).getByText(engineerSays(name, fragment))).toHaveCount(0);
 }
 
 test.beforeEach(async ({ page }) => {

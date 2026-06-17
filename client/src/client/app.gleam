@@ -14,7 +14,6 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
-import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -33,9 +32,11 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
+  type Invoice, type Payroll, type Pnl, type PnlRow, type Ref, type Roster,
   type TimesheetDay, type TimesheetLine, AdjustRateForPortion, AssignToProject,
-  OnLeave, OnProject, OnboardEngineer, OperationRequest, Promote, ReviseRateCard,
-  RollOff, TakeLeave, TerminateEmployment, Unassigned,
+  DraftInvoice, IssueInvoice, LogTimesheet, OnLeave, OnProject, OnboardEngineer,
+  OperationRequest, PayInvoice, Promote, ReviseRateCard, RollOff, Roster,
+  RunPayroll, TakeLeave, TerminateEmployment, Unassigned,
 }
 
 /// The fixed seed "now" the board first renders as of (003_seed.sql). The slider
@@ -63,6 +64,15 @@ pub const engineers = [
   #(1, "Priya Sharma"),
   #(2, "Marcus Chen"),
   #(3, "Aisha Okafor"),
+]
+
+/// The projects offered in the Draft-invoice selector. Hardcoded to the
+/// deterministic seed (003_seed.sql) — the API has no project-directory endpoint
+/// and the roster is fixed. Each pair is #(project_id, name).
+pub const projects = [
+  #(100, "Ledger Migration"),
+  #(200, "Inventory Sync"),
+  #(300, "Data Platform"),
 ]
 
 /// What the client knows about the board: still loading, the decoded snapshot, or
@@ -146,6 +156,57 @@ pub type EventLog {
   EventLogFailed(String)
 }
 
+/// What the client knows about the invoices table (status as-of the slider date):
+/// still loading, the decoded rows, or a human-readable failure.
+pub type Invoices {
+  InvoicesLoading
+  InvoicesLoaded(List(Invoice))
+  InvoicesFailed(String)
+}
+
+/// What the client knows about the payroll run for the slider's month: still
+/// loading, the decoded run, or a human-readable failure. The persisted run only
+/// exists once a `RunPayroll` has been applied for the month, so an empty
+/// `lines` list is "not run yet", not an error.
+pub type PayrollState {
+  PayrollLoading
+  PayrollLoaded(Payroll)
+  PayrollFailed(String)
+}
+
+/// What the client knows about the P&L statement for the slider's month: still
+/// loading, the decoded statement, or a human-readable failure.
+pub type PnlState {
+  PnlLoading
+  PnlLoaded(Pnl)
+  PnlFailed(String)
+}
+
+/// What the client knows about the operations-console directory (the engineers
+/// employed, projects active, and clients) AS OF the slider date: still loading
+/// or the decoded `Roster`. A failure collapses to `RosterLoading` so the console
+/// shows a disabled/placeholder select rather than a broken control — the roster
+/// is a convenience directory, not page-critical data like the board.
+pub type RosterState {
+  RosterLoading
+  RosterLoaded(Roster)
+}
+
+/// The project the Draft-invoice control will draft for; carried as the raw
+/// select value so the control round-trips through the seed `projects` list.
+pub type FinanceForm {
+  FinanceForm(draft_project_id: Int)
+}
+
+/// The outcome of the most recent financial action (Draft/Issue/Pay/RunPayroll),
+/// shown as feedback in the Financials view. `FinanceIdle` is the resting state.
+pub type FinanceState {
+  FinanceIdle
+  FinanceSubmitting
+  FinanceSucceeded(operation: String, summary: String)
+  FinanceFailed(String)
+}
+
 /// Lustre model: the day index the slider sits at, the instant it denotes, the
 /// board rendered as of it, plus the timesheet panel — which engineer is selected,
 /// their form for that day, the hours currently typed into each project's input
@@ -162,7 +223,13 @@ pub type Model {
     console_kind: ConsoleKind,
     console_form: ConsoleForm,
     operation_state: OperationState,
+    roster: RosterState,
     event_log: EventLog,
+    invoices: Invoices,
+    payroll: PayrollState,
+    pnl: PnlState,
+    finance_form: FinanceForm,
+    finance_state: FinanceState,
   )
 }
 
@@ -189,12 +256,13 @@ pub type Message {
   HoursEdited(project_id: Int, raw_hours: String)
   /// The user submitted hours for one project (the row's Save button).
   SubmittedHours(project_id: Int)
-  /// A timesheet write resolved; `engineer_id`/`date` tag it for the same
-  /// staleness check, and the body is either the refreshed form or the error.
+  /// A timesheet `LogTimesheet` operation resolved; `engineer_id`/`date` tag it
+  /// for the same staleness check, and the body is either the created event(s)
+  /// the operation appended or the typed error.
   ApiSavedTimesheet(
     engineer_id: Int,
     date: calendar.Date,
-    result: Result(TimesheetDay, rsvp.Error(String)),
+    result: Result(List(Event), rsvp.Error(String)),
   )
   /// The operations console switched to composing a different command.
   ConsoleKindSelected(console_kind: ConsoleKind)
@@ -203,11 +271,47 @@ pub type Message {
   ConsoleFieldEdited(field: ConsoleField, value: String)
   /// The console's Apply button was pressed: build the `Command` and POST it.
   ConsoleSubmitted
-  /// A console operation resolved; `Ok` carries the created `Event`, `Error` the
-  /// typed `{error, detail}` body the server returned for the rejection.
-  ApiAppliedOperation(result: Result(Event, rsvp.Error(String)))
+  /// A console operation resolved; `Ok` carries the created `Event`s (the journal
+  /// rows the dispatch appended), `Error` the typed `{error, detail}` body the
+  /// server returned for the rejection.
+  ApiAppliedOperation(result: Result(List(Event), rsvp.Error(String)))
   /// An event-log fetch resolved with the journal (newest-first) or an error.
   ApiReturnedEvents(result: Result(List(Event), rsvp.Error(String)))
+  /// A roster fetch resolved; `as_of` tags which slider date it answers so a
+  /// response overtaken by a later scrub is discarded.
+  ApiReturnedRoster(
+    as_of: calendar.Date,
+    result: Result(Roster, rsvp.Error(String)),
+  )
+  /// An invoices-table fetch resolved; `as_of` tags which slider date it answers
+  /// so a response overtaken by a later scrub is discarded.
+  ApiReturnedInvoices(
+    as_of: calendar.Date,
+    result: Result(List(Invoice), rsvp.Error(String)),
+  )
+  /// A payroll-run fetch resolved for the month containing `as_of`; tagged for
+  /// the same staleness check.
+  ApiReturnedPayroll(
+    as_of: calendar.Date,
+    result: Result(Payroll, rsvp.Error(String)),
+  )
+  /// A P&L fetch resolved for the slider date; tagged for the staleness check.
+  ApiReturnedPnl(as_of: calendar.Date, result: Result(Pnl, rsvp.Error(String)))
+  /// The Draft-invoice project selector changed to a new project id.
+  DraftProjectSelected(project_id: Int)
+  /// The user pressed Draft for the selected project on the slider's month.
+  DraftInvoiceClicked
+  /// The user pressed Issue on an invoice row (transition draft -> issued at the
+  /// slider date).
+  IssueInvoiceClicked(invoice_id: Int)
+  /// The user pressed Pay on an invoice row (transition issued -> paid at the
+  /// slider date).
+  PayInvoiceClicked(invoice_id: Int)
+  /// The user pressed Run payroll for the slider's month.
+  RunPayrollClicked
+  /// A financial action (Draft/Issue/Pay/RunPayroll) resolved; `Ok` carries the
+  /// created `Event`s, `Error` the typed `{error, detail}` rejection body.
+  ApiAppliedFinanceOp(result: Result(List(Event), rsvp.Error(String)))
 }
 
 /// Names the `ConsoleForm` slot a `ConsoleFieldEdited` message targets, so one
@@ -252,7 +356,13 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       console_kind: KindPromote,
       console_form: blank_console_form(date),
       operation_state: OperationIdle,
+      roster: RosterLoading,
       event_log: EventLogLoading,
+      invoices: InvoicesLoading,
+      payroll: PayrollLoading,
+      pnl: PnlLoading,
+      finance_form: FinanceForm(draft_project_id: first_project_id()),
+      finance_state: FinanceIdle,
     )
   #(
     model,
@@ -260,6 +370,8 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       fetch_board(date),
       fetch_timesheet(engineer_id, date),
       fetch_events(),
+      fetch_financials(date),
+      fetch_roster(date),
       sync_url(date),
     ]),
   )
@@ -301,10 +413,18 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       // staleness guard in the ApiReturned* handlers discards any response overtaken
       // by a later move, so the view only ever updates to the latest date's data.
       #(
-        Model(..model, day_index:, date:, save_state: Unsaved),
+        Model(
+          ..model,
+          day_index:,
+          date:,
+          save_state: Unsaved,
+          finance_state: FinanceIdle,
+        ),
         effect.batch([
           fetch_board(date),
           fetch_timesheet(model.engineer_id, date),
+          fetch_financials(date),
+          fetch_roster(date),
           sync_url(date),
         ]),
       )
@@ -370,9 +490,16 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         False -> #(model, effect.none())
         True ->
           case result {
-            Ok(day) -> #(
-              Model(..store_timesheet(model, Ok(day)), save_state: Saved),
-              effect.none(),
+            // The LogTimesheet operation committed: confirm the save, then
+            // refetch the timesheet form (the authoritative logged hours), the
+            // board, and the event log so all three reflect the write.
+            Ok(_events) -> #(
+              Model(..model, save_state: Saved),
+              effect.batch([
+                fetch_timesheet(engineer_id, date),
+                fetch_board(date),
+                fetch_events(),
+              ]),
             )
             Error(error) -> #(
               Model(
@@ -411,9 +538,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ApiAppliedOperation(result:) ->
       case result {
-        // The operation committed: stamp success feedback, then refetch the board
-        // for the current slider date and the event log so both reflect the write.
-        Ok(event) -> #(
+        // The operation committed: stamp success feedback from the created event
+        // (a console command appends exactly one), then refetch the board for the
+        // current slider date and the event log so both reflect the write.
+        Ok([event, ..]) -> #(
           Model(
             ..model,
             operation_state: OperationSucceeded(
@@ -421,6 +549,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               summary: event.summary,
             ),
           ),
+          effect.batch([fetch_board(model.date), fetch_events()]),
+        )
+        // A committed operation that returned no event is still a success; refresh
+        // the board and journal without a specific summary line.
+        Ok([]) -> #(
+          Model(..model, operation_state: OperationIdle),
           effect.batch([fetch_board(model.date), fetch_events()]),
         )
         Error(error) -> #(
@@ -440,6 +574,146 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
         Error(error) -> #(
           Model(..model, event_log: EventLogFailed(describe_board_error(error))),
+          effect.none(),
+        )
+      }
+
+    ApiReturnedRoster(as_of:, result:) ->
+      case as_of == model.date {
+        // Stale: a later scrub already moved the slider; this roster answers an
+        // earlier date, so drop it (the latest date's fetch is still in flight).
+        False -> #(model, effect.none())
+        True ->
+          case result {
+            // Store the directory AND reconcile the console form so its
+            // engineer/project slots name a CURRENT option: a blank initial
+            // value, or a previously-selected id that is no longer employed/
+            // active as-of the new date, snaps to the first option — matching
+            // what the `<select>` shows — so `build_command` always reads a
+            // valid id rather than a stale or empty one.
+            Ok(directory) -> #(
+              Model(
+                ..model,
+                roster: RosterLoaded(directory),
+                console_form: reconcile_form(model.console_form, directory),
+              ),
+              effect.none(),
+            )
+            // A roster failure leaves the console on a disabled/placeholder
+            // select rather than a broken control — it is a convenience
+            // directory, not page-critical data, so it stays "loading".
+            Error(_) -> #(model, effect.none())
+          }
+      }
+
+    ApiReturnedInvoices(as_of:, result:) ->
+      case as_of == model.date {
+        False -> #(model, effect.none())
+        True ->
+          case result {
+            Ok(invoices) -> #(
+              Model(..model, invoices: InvoicesLoaded(invoices)),
+              effect.none(),
+            )
+            Error(error) -> #(
+              Model(
+                ..model,
+                invoices: InvoicesFailed(describe_board_error(error)),
+              ),
+              effect.none(),
+            )
+          }
+      }
+
+    ApiReturnedPayroll(as_of:, result:) ->
+      case as_of == model.date {
+        False -> #(model, effect.none())
+        True ->
+          case result {
+            Ok(payroll) -> #(
+              Model(..model, payroll: PayrollLoaded(payroll)),
+              effect.none(),
+            )
+            Error(error) -> #(
+              Model(
+                ..model,
+                payroll: PayrollFailed(describe_board_error(error)),
+              ),
+              effect.none(),
+            )
+          }
+      }
+
+    ApiReturnedPnl(as_of:, result:) ->
+      case as_of == model.date {
+        False -> #(model, effect.none())
+        True ->
+          case result {
+            Ok(pnl) -> #(Model(..model, pnl: PnlLoaded(pnl)), effect.none())
+            Error(error) -> #(
+              Model(..model, pnl: PnlFailed(describe_board_error(error))),
+              effect.none(),
+            )
+          }
+      }
+
+    DraftProjectSelected(project_id:) -> #(
+      Model(..model, finance_form: FinanceForm(draft_project_id: project_id)),
+      effect.none(),
+    )
+
+    DraftInvoiceClicked -> #(
+      Model(..model, finance_state: FinanceSubmitting),
+      submit_finance_op(DraftInvoice(
+        project_id: model.finance_form.draft_project_id,
+        billing_from: first_of_month(model.date),
+        billing_to: first_of_next_month(model.date),
+      )),
+    )
+
+    IssueInvoiceClicked(invoice_id:) -> #(
+      Model(..model, finance_state: FinanceSubmitting),
+      submit_finance_op(IssueInvoice(invoice_id:, at: model.date)),
+    )
+
+    PayInvoiceClicked(invoice_id:) -> #(
+      Model(..model, finance_state: FinanceSubmitting),
+      submit_finance_op(PayInvoice(invoice_id:, at: model.date)),
+    )
+
+    RunPayrollClicked -> #(
+      Model(..model, finance_state: FinanceSubmitting),
+      submit_finance_op(RunPayroll(
+        period_from: first_of_month(model.date),
+        period_to: first_of_next_month(model.date),
+      )),
+    )
+
+    ApiAppliedFinanceOp(result:) ->
+      case result {
+        // The action committed: stamp success feedback from the created event
+        // (a financial command appends exactly one), then refetch the
+        // financials for the current slider date and the event log so both
+        // reflect the write.
+        Ok([event, ..]) -> #(
+          Model(
+            ..model,
+            finance_state: FinanceSucceeded(
+              operation: event.operation,
+              summary: event.summary,
+            ),
+          ),
+          effect.batch([fetch_financials(model.date), fetch_events()]),
+        )
+        Ok([]) -> #(
+          Model(..model, finance_state: FinanceIdle),
+          effect.batch([fetch_financials(model.date), fetch_events()]),
+        )
+        Error(error) -> #(
+          Model(
+            ..model,
+            finance_state: FinanceFailed(describe_operation_error(error)),
+          ),
           effect.none(),
         )
       }
@@ -464,6 +738,33 @@ fn update_form(
     FieldEffective -> ConsoleForm(..form, effective: value)
     FieldValidFrom -> ConsoleForm(..form, valid_from: value)
     FieldValidTo -> ConsoleForm(..form, valid_to: value)
+  }
+}
+
+/// Reconcile the console form's entity-reference slots against a freshly-loaded
+/// roster: if the engineer/project slot is empty or holds an id absent from the
+/// as-of directory, snap it to the first available option's id. This keeps the
+/// form's value aligned with what the `<select>` displays (the browser shows the
+/// first option when none is `selected`), so `build_command` reads a valid id.
+/// An empty directory leaves the slot unchanged (nothing valid to pick).
+fn reconcile_form(form: ConsoleForm, roster: Roster) -> ConsoleForm {
+  ConsoleForm(
+    ..form,
+    engineer_id: reconcile_ref(form.engineer_id, roster.engineers),
+    project_id: reconcile_ref(form.project_id, roster.projects),
+  )
+}
+
+/// Pick the value the matching `<select>` will show: keep `current` if it names
+/// an id present in `refs`, otherwise fall back to the first option's id (or the
+/// unchanged value if `refs` is empty).
+fn reconcile_ref(current: String, refs: List(Ref)) -> String {
+  let present =
+    list.any(refs, fn(reference) { int.to_string(reference.id) == current })
+  case present, refs {
+    True, _ -> current
+    False, [first, ..] -> int.to_string(first.id)
+    False, [] -> current
   }
 }
 
@@ -650,38 +951,36 @@ fn fetch_timesheet(engineer_id: Int, date: calendar.Date) -> Effect(Message) {
   rsvp.get(url, handler)
 }
 
-/// POST `/api/timesheet` to log `hours` against `project_id` for the engineer on
-/// the day. The server returns the refreshed form on success, so the same
-/// timesheet decoder handles the body; a non-2xx (the PERIOD-FK 422) arrives as an
-/// `HttpError` carrying the typed error body, surfaced as a friendly message.
+/// Log `hours` against `project_id` for the engineer on the day through the
+/// unified operations write path: a `LogTimesheet` command posted to
+/// `/api/operations` (the same seam the console uses). The server returns the
+/// created event(s) as a JSON array on success; a non-2xx (the PERIOD-FK 409
+/// containment violation) arrives as an `HttpError` carrying the typed error
+/// body, surfaced as a friendly message. The staleness check tags the outcome
+/// with the requesting engineer/day.
 fn save_hours(
   engineer_id: Int,
   date: calendar.Date,
   project_id: Int,
   hours: Float,
 ) -> Effect(Message) {
-  let body = encode_write(engineer_id, date, project_id, hours)
+  let body =
+    codecs.encode_operation_request(OperationRequest(
+      actor: console_actor,
+      command: LogTimesheet(engineer_id:, project_id:, day: date, hours:),
+    ))
   let handler =
-    rsvp.expect_json(codecs.timesheet_day_decoder(), fn(result) {
+    rsvp.expect_json(decode.list(codecs.event_decoder()), fn(result) {
       ApiSavedTimesheet(engineer_id:, date:, result:)
     })
-  rsvp.post("/api/timesheet", body, handler)
-}
-
-fn encode_write(
-  engineer_id: Int,
-  date: calendar.Date,
-  project_id: Int,
-  hours: Float,
-) -> Json {
-  codecs.encode_write_request(engineer_id:, project_id:, day: date, hours:)
+  rsvp.post("/api/operations", body, handler)
 }
 
 /// POST `/api/operations` with the `{actor, command}` envelope. The server
-/// returns the created `Event` on success (the journal row the dispatch appended)
-/// and a typed `{error, detail}` body on a 4xx/5xx, which arrives as an
-/// `HttpError` carrying that body — decoded into a friendly message by
-/// `describe_operation_error`.
+/// returns the created `Event`s as a JSON array on success (the journal rows the
+/// dispatch appended) and a typed `{error, detail}` body on a 4xx/5xx, which
+/// arrives as an `HttpError` carrying that body — decoded into a friendly message
+/// by `describe_operation_error`.
 fn submit_operation(command: Command) -> Effect(Message) {
   let body =
     codecs.encode_operation_request(OperationRequest(
@@ -689,7 +988,7 @@ fn submit_operation(command: Command) -> Effect(Message) {
       command:,
     ))
   let handler =
-    rsvp.expect_json(codecs.event_decoder(), fn(result) {
+    rsvp.expect_json(decode.list(codecs.event_decoder()), fn(result) {
       ApiAppliedOperation(result:)
     })
   rsvp.post("/api/operations", body, handler)
@@ -705,6 +1004,93 @@ fn fetch_events() -> Effect(Message) {
   rsvp.get("/api/events", handler)
 }
 
+/// Fetch `GET /api/roster?as_of=<date>` and decode the directory (the engineers
+/// employed and projects active on the date, plus the clients) via the shared
+/// codec, tagging the outcome with the requested date so a response overtaken by
+/// a later scrub is discarded — the same stale-response guard the board uses.
+fn fetch_roster(date: calendar.Date) -> Effect(Message) {
+  let url = "/api/roster?as_of=" <> iso_date(date)
+  let handler =
+    rsvp.expect_json(codecs.roster_decoder(), fn(result) {
+      ApiReturnedRoster(as_of: date, result:)
+    })
+  rsvp.get(url, handler)
+}
+
+/// Fetch all three financial reads for the slider's date in one batch: the
+/// invoices table (status as-of the date), the payroll run for the date's month,
+/// and the P&L statement as-of the date. Each result is tagged with `date` so a
+/// response overtaken by a later scrub is discarded.
+fn fetch_financials(date: calendar.Date) -> Effect(Message) {
+  effect.batch([
+    fetch_invoices(date),
+    fetch_payroll(date),
+    fetch_pnl(date),
+  ])
+}
+
+/// Fetch `GET /api/invoices?as_of=<date>` and decode the rows via the shared
+/// codec, tagging the outcome with the requested date.
+fn fetch_invoices(date: calendar.Date) -> Effect(Message) {
+  let url = "/api/invoices?as_of=" <> iso_date(date)
+  let handler =
+    rsvp.expect_json(decode.list(codecs.invoice_decoder()), fn(result) {
+      ApiReturnedInvoices(as_of: date, result:)
+    })
+  rsvp.get(url, handler)
+}
+
+/// Fetch `GET /api/payroll?from=<first-of-month>&to=<first-of-next-month>` for the
+/// month containing `date` (the half-open `[from, to)` window the run was created
+/// over), tagging the outcome with `date`.
+fn fetch_payroll(date: calendar.Date) -> Effect(Message) {
+  let url =
+    "/api/payroll?from="
+    <> iso_date(first_of_month(date))
+    <> "&to="
+    <> iso_date(first_of_next_month(date))
+  let handler =
+    rsvp.expect_json(codecs.payroll_decoder(), fn(result) {
+      ApiReturnedPayroll(as_of: date, result:)
+    })
+  rsvp.get(url, handler)
+}
+
+/// Fetch `GET /api/pnl?as_of=<date>` and decode the statement, tagging the
+/// outcome with the requested date.
+fn fetch_pnl(date: calendar.Date) -> Effect(Message) {
+  let url = "/api/pnl?as_of=" <> iso_date(date)
+  let handler =
+    rsvp.expect_json(codecs.pnl_decoder(), fn(result) {
+      ApiReturnedPnl(as_of: date, result:)
+    })
+  rsvp.get(url, handler)
+}
+
+/// POST a financial `Command` (Draft/Issue/Pay/RunPayroll) through the same
+/// `/api/operations` write path the console uses. The server returns the created
+/// `Event`s on success and a typed `{error, detail}` body on a 4xx/5xx (e.g. an
+/// out-of-order invoice transition), surfaced via `describe_operation_error`.
+fn submit_finance_op(command: Command) -> Effect(Message) {
+  let body =
+    codecs.encode_operation_request(OperationRequest(
+      actor: console_actor,
+      command:,
+    ))
+  let handler =
+    rsvp.expect_json(decode.list(codecs.event_decoder()), fn(result) {
+      ApiAppliedFinanceOp(result:)
+    })
+  rsvp.post("/api/operations", body, handler)
+}
+
+fn first_project_id() -> Int {
+  case projects {
+    [#(id, _name), ..] -> id
+    [] -> 100
+  }
+}
+
 fn describe_board_error(error: rsvp.Error(String)) -> String {
   case error {
     rsvp.BadBody -> "the response body was malformed"
@@ -716,10 +1102,11 @@ fn describe_board_error(error: rsvp.Error(String)) -> String {
   }
 }
 
-/// Turn a save failure into the friendly sentence shown under the form. A 422
-/// from the PERIOD-FK backstop arrives as `HttpError` carrying the typed
-/// `{error, detail}` body; we pull out the `detail` so the user sees exactly why
-/// the write was refused rather than a raw status.
+/// Turn a save failure into the friendly sentence shown under the form. A 409
+/// from the PERIOD-FK backstop (the day is not covered by an allocation) arrives
+/// as `HttpError` carrying the typed `{error, detail}` body; we pull out the
+/// `detail` so the user sees exactly why the write was refused rather than a raw
+/// status.
 fn describe_save_error(error: rsvp.Error(String)) -> String {
   case error {
     rsvp.HttpError(response) ->
@@ -817,6 +1204,7 @@ pub fn view(model: Model) -> Element(Message) {
     view_slider(model),
     view_board(model.board),
     view_timesheet(model),
+    view_financials(model),
     view_console(model),
     view_event_log(model.event_log),
   ])
@@ -860,7 +1248,14 @@ fn view_board(board: Board) -> Element(Message) {
     Loaded(snapshot) ->
       case snapshot.rows {
         [] -> html.p([], [html.text("No engineers employed as of this date.")])
-        rows -> html.ul([attribute.class("board")], list.map(rows, view_row))
+        rows ->
+          html.ul(
+            [
+              attribute.class("board"),
+              attribute.attribute("aria-label", "Org board"),
+            ],
+            list.map(rows, view_row),
+          )
       }
   }
 }
@@ -1079,7 +1474,7 @@ fn view_console(model: Model) -> Element(Message) {
     view_console_selector(model.console_kind),
     html.div(
       [attribute.class("console-fields")],
-      console_fields(model.console_kind, model.console_form),
+      console_fields(model.console_kind, model.console_form, model.roster),
     ),
     html.button(
       [attribute.class("console-apply"), event.on_click(ConsoleSubmitted)],
@@ -1146,57 +1541,160 @@ fn kind_from_value(raw_value: String) -> ConsoleKind {
 }
 
 /// The input fields the chosen operation needs, in argument order. Each kind
-/// shows only the `Command` parameters it carries (§5a), so the presenter never
-/// faces an irrelevant box.
+/// shows only the `Command` parameters it carries, so the presenter never faces
+/// an irrelevant box. Entity-reference fields render as name `<select>`s sourced
+/// from the as-of `roster` (employed engineers, active projects) — the selected
+/// option's value is the id/level string flowing into the SAME `ConsoleForm`
+/// slot `build_command` already reads, so the command assembly is unchanged.
 fn console_fields(
   console_kind: ConsoleKind,
   form: ConsoleForm,
+  roster: RosterState,
 ) -> List(Element(Message)) {
   case console_kind {
     KindOnboardEngineer -> [
       text_field("Name", FieldName, form.name),
-      number_field("Level", FieldLevel, form.level),
+      level_select(form.level),
       date_field("Effective", FieldEffective, form.effective),
     ]
     KindPromote -> [
-      number_field("Engineer id", FieldEngineerId, form.engineer_id),
-      number_field("Level", FieldLevel, form.level),
+      engineer_select(roster, form.engineer_id),
+      level_select(form.level),
       date_field("Effective", FieldEffective, form.effective),
     ]
     KindAssignToProject -> [
-      number_field("Engineer id", FieldEngineerId, form.engineer_id),
-      number_field("Project id", FieldProjectId, form.project_id),
+      engineer_select(roster, form.engineer_id),
+      project_select(roster, form.project_id),
       number_field("Fraction", FieldFraction, form.fraction),
       date_field("Valid from", FieldValidFrom, form.valid_from),
       date_field("Valid to", FieldValidTo, form.valid_to),
     ]
     KindRollOff -> [
-      number_field("Engineer id", FieldEngineerId, form.engineer_id),
-      number_field("Project id", FieldProjectId, form.project_id),
+      engineer_select(roster, form.engineer_id),
+      project_select(roster, form.project_id),
       date_field("Effective", FieldEffective, form.effective),
     ]
     KindReviseRateCard -> [
-      number_field("Level", FieldLevel, form.level),
+      level_select(form.level),
       number_field("Day rate", FieldDayRate, form.day_rate),
       date_field("Effective", FieldEffective, form.effective),
     ]
     KindAdjustRateForPortion -> [
-      number_field("Level", FieldLevel, form.level),
+      level_select(form.level),
       number_field("Day rate", FieldDayRate, form.day_rate),
       date_field("Valid from", FieldValidFrom, form.valid_from),
       date_field("Valid to", FieldValidTo, form.valid_to),
     ]
     KindTakeLeave -> [
-      number_field("Engineer id", FieldEngineerId, form.engineer_id),
+      engineer_select(roster, form.engineer_id),
       text_field("Leave kind", FieldKind, form.kind),
       date_field("Valid from", FieldValidFrom, form.valid_from),
       date_field("Valid to", FieldValidTo, form.valid_to),
     ]
     KindTerminateEmployment -> [
-      number_field("Engineer id", FieldEngineerId, form.engineer_id),
+      engineer_select(roster, form.engineer_id),
       date_field("Effective", FieldEffective, form.effective),
     ]
   }
+}
+
+/// An engineer `<select>` for the `FieldEngineerId` slot: one option per engineer
+/// EMPLOYED on the slider date (the roster's `engineers`), option value = id,
+/// text = name. The chosen id flows into the same form slot the numeric input
+/// used, so `build_command` reads it unchanged.
+fn engineer_select(roster: RosterState, selected: String) -> Element(Message) {
+  ref_select("Engineer", FieldEngineerId, roster_engineers(roster), selected)
+}
+
+/// A project `<select>` for the `FieldProjectId` slot: one option per project
+/// ACTIVE on the slider date (the roster's `projects`), option value = id.
+fn project_select(roster: RosterState, selected: String) -> Element(Message) {
+  ref_select("Project", FieldProjectId, roster_projects(roster), selected)
+}
+
+/// The engineers offered as-of the slider date, or `[]` while the roster loads.
+fn roster_engineers(roster: RosterState) -> List(Ref) {
+  case roster {
+    RosterLoaded(Roster(engineers:, ..)) -> engineers
+    RosterLoading -> []
+  }
+}
+
+/// The projects active as-of the slider date, or `[]` while the roster loads.
+fn roster_projects(roster: RosterState) -> List(Ref) {
+  case roster {
+    RosterLoaded(Roster(projects:, ..)) -> projects
+    RosterLoading -> []
+  }
+}
+
+/// A labelled `<select>` over a roster directory (engineers or projects): option
+/// value is the id as text, option label the name. While the roster is empty
+/// (still loading) it renders a single disabled placeholder so the control is
+/// inert rather than misleadingly empty. On change it dispatches a
+/// `ConsoleFieldEdited` carrying the chosen value into `field`.
+///
+/// When the previously-selected id is no longer in the directory (e.g. the
+/// slider moved to a date the engineer is not employed on), no option is marked
+/// selected, so the browser falls back to the first option — and the form's
+/// stale id is reconciled to that first option on the next edit; the
+/// `<select>`'s visible value is always a valid current option.
+fn ref_select(
+  label: String,
+  field: ConsoleField,
+  refs: List(Ref),
+  selected: String,
+) -> Element(Message) {
+  let options = case refs {
+    [] -> [
+      html.option([attribute.value(""), attribute.disabled(True)], "Loading…"),
+    ]
+    refs ->
+      list.map(refs, fn(reference) {
+        let id = int.to_string(reference.id)
+        html.option(
+          [attribute.value(id), attribute.selected(id == selected)],
+          reference.name,
+        )
+      })
+  }
+  console_select(label, field, options)
+}
+
+/// A level `<select>` for the `FieldLevel` slot: the seniority bands 1..7, option
+/// value and label both the level number, the current value pre-selected. The
+/// chosen number flows into the same form slot the numeric input used.
+fn level_select(selected: String) -> Element(Message) {
+  let options =
+    list.map([1, 2, 3, 4, 5, 6, 7], fn(level) {
+      let value = int.to_string(level)
+      html.option(
+        [attribute.value(value), attribute.selected(value == selected)],
+        "L" <> value,
+      )
+    })
+  console_select("Level", FieldLevel, options)
+}
+
+/// A labelled console `<select>` bound to a `ConsoleForm` slot: the chosen
+/// option's value is written into `field` via `ConsoleFieldEdited`, exactly as a
+/// text input would, so `build_command` reads the same string slot. The
+/// `aria-label` matches the field's label so e2e selectors resolve it by name.
+fn console_select(
+  label: String,
+  field: ConsoleField,
+  options: List(Element(Message)),
+) -> Element(Message) {
+  html.label([attribute.class("console-field")], [
+    html.span([], [html.text(label)]),
+    html.select(
+      [
+        attribute.attribute("aria-label", label),
+        event.on_change(fn(value) { ConsoleFieldEdited(field:, value:) }),
+      ],
+      options,
+    ),
+  ])
 }
 
 /// A labelled text input bound to a `ConsoleForm` slot; editing it dispatches a
@@ -1299,6 +1797,333 @@ fn view_event(event: Event) -> Element(Message) {
   ])
 }
 
+// --- Financials view --------------------------------------------------------
+// The financials surface (PRD-financials §6), sharing the time slider: an
+// invoices table with Draft/Issue/Pay actions, the payroll run for the slider's
+// month with a Run action, and the P&L statement (month + YTD totals and the
+// per-engineer breakdown). All three reads are as-of the slider date; the actions
+// post the matching Command through the same /api/operations path the console
+// uses, then refetch. Legibility over polish.
+
+/// The Financials panel: invoices, payroll, and P&L, all as of the slider date,
+/// with a shared action-feedback line.
+fn view_financials(model: Model) -> Element(Message) {
+  html.div([attribute.class("financials")], [
+    html.h2([], [html.text("Financials")]),
+    html.p([attribute.class("financials-asof")], [
+      html.text("As of " <> iso_date(model.date)),
+    ]),
+    view_finance_feedback(model.finance_state),
+    view_invoices(model),
+    view_payroll(model),
+    view_pnl(model.pnl),
+  ])
+}
+
+/// The action feedback line, shared by every financial action: silent until a
+/// submission, then "Applying…", a confirmation naming the operation and its
+/// summary, or the rejection reason (e.g. an out-of-order invoice transition).
+fn view_finance_feedback(state: FinanceState) -> Element(Message) {
+  case state {
+    FinanceIdle -> element.none()
+    FinanceSubmitting ->
+      html.p([attribute.class("finance-state")], [html.text("Applying…")])
+    FinanceSucceeded(operation:, summary:) ->
+      html.p([attribute.class("finance-state")], [
+        html.text("Applied " <> operation <> ": " <> summary),
+      ])
+    FinanceFailed(detail) ->
+      html.p([attribute.class("finance-state")], [html.text(detail)])
+  }
+}
+
+// --- Invoices ---------------------------------------------------------------
+
+/// The invoices section: a Draft control (project selector + Draft button for the
+/// slider's month) above the invoices table.
+fn view_invoices(model: Model) -> Element(Message) {
+  html.div([attribute.class("invoices")], [
+    html.h3([], [html.text("Invoices")]),
+    view_draft_control(model.finance_form),
+    view_invoices_body(model.invoices),
+  ])
+}
+
+/// The Draft-invoice control: pick a project, press Draft to draft an invoice for
+/// that project over the slider's month.
+fn view_draft_control(form: FinanceForm) -> Element(Message) {
+  html.div([attribute.class("draft-control")], [
+    html.label([], [
+      html.text("Project "),
+      html.select(
+        [
+          attribute.attribute("aria-label", "Project"),
+          event.on_change(on_draft_project_change),
+        ],
+        list.map(projects, fn(project) {
+          let #(id, name) = project
+          html.option(
+            [
+              attribute.value(int.to_string(id)),
+              attribute.selected(id == form.draft_project_id),
+            ],
+            name,
+          )
+        }),
+      ),
+    ]),
+    html.button([event.on_click(DraftInvoiceClicked)], [
+      html.text("Draft invoice"),
+    ]),
+  ])
+}
+
+fn on_draft_project_change(raw_value: String) -> Message {
+  case int.parse(raw_value) {
+    Ok(project_id) -> DraftProjectSelected(project_id:)
+    Error(Nil) -> DraftProjectSelected(project_id: first_project_id())
+  }
+}
+
+fn view_invoices_body(invoices: Invoices) -> Element(Message) {
+  case invoices {
+    InvoicesLoading -> html.p([], [html.text("Loading invoices…")])
+    InvoicesFailed(detail) ->
+      html.p([], [html.text("Could not load invoices: " <> detail)])
+    InvoicesLoaded([]) ->
+      html.p([], [html.text("No invoices as of this date.")])
+    InvoicesLoaded(rows) ->
+      html.table([attribute.class("invoices-table")], [
+        html.thead([], [
+          html.tr([], [
+            header_cell("Project"),
+            header_cell("Client"),
+            header_cell("Billing period"),
+            header_cell("Total"),
+            header_cell("Status"),
+            header_cell("Actions"),
+          ]),
+        ]),
+        html.tbody([], list.map(rows, view_invoice_row)),
+      ])
+  }
+}
+
+/// One invoices-table row: project, client, billing month, total, status as-of
+/// the slider date, and the action available for that status — Issue while
+/// `draft`, Pay while `issued`, nothing once `paid`.
+fn view_invoice_row(invoice: Invoice) -> Element(Message) {
+  html.tr([attribute.attribute("data-invoice", int.to_string(invoice.id))], [
+    body_cell(invoice.project),
+    body_cell(invoice.client),
+    body_cell(billing_period(invoice)),
+    body_cell(format_money(invoice.total)),
+    html.td([attribute.class("invoice-status")], [html.text(invoice.status)]),
+    html.td([], [view_invoice_action(invoice)]),
+  ])
+}
+
+/// The action button for an invoice given its status as-of the slider date:
+/// Issue advances a `draft`, Pay advances an `issued`, and a `paid` invoice shows
+/// no action.
+fn view_invoice_action(invoice: Invoice) -> Element(Message) {
+  case invoice.status {
+    "draft" ->
+      html.button(
+        [event.on_click(IssueInvoiceClicked(invoice_id: invoice.id))],
+        [
+          html.text("Issue"),
+        ],
+      )
+    "issued" ->
+      html.button([event.on_click(PayInvoiceClicked(invoice_id: invoice.id))], [
+        html.text("Pay"),
+      ])
+    _ -> html.span([attribute.class("invoice-paid")], [html.text("Paid")])
+  }
+}
+
+/// Render an invoice's billing month as "YYYY-MM-DD → YYYY-MM-DD" (the half-open
+/// `[from, to)` window the invoice covers).
+fn billing_period(invoice: Invoice) -> String {
+  iso_date(invoice.billing_from) <> " → " <> iso_date(invoice.billing_to)
+}
+
+// --- Payroll ----------------------------------------------------------------
+
+/// The payroll section: a Run-payroll button for the slider's month above the
+/// per-engineer amounts the run produced.
+fn view_payroll(model: Model) -> Element(Message) {
+  html.div([attribute.class("payroll")], [
+    html.h3([], [html.text("Payroll")]),
+    html.div([attribute.class("payroll-control")], [
+      html.button([event.on_click(RunPayrollClicked)], [
+        html.text("Run payroll for " <> month_label(model.date)),
+      ]),
+    ]),
+    view_payroll_body(model.payroll),
+  ])
+}
+
+fn view_payroll_body(payroll: PayrollState) -> Element(Message) {
+  case payroll {
+    PayrollLoading -> html.p([], [html.text("Loading payroll…")])
+    PayrollFailed(detail) ->
+      html.p([], [html.text("Could not load payroll: " <> detail)])
+    PayrollLoaded(run) ->
+      case run.lines {
+        [] ->
+          html.p([], [
+            html.text("Payroll has not been run for this month yet."),
+          ])
+        lines ->
+          html.table([attribute.class("payroll-table")], [
+            html.thead([], [
+              html.tr([], [
+                header_cell("Engineer"),
+                header_cell("Days"),
+                header_cell("Amount"),
+              ]),
+            ]),
+            html.tbody(
+              [],
+              list.map(lines, fn(line) {
+                html.tr([], [
+                  body_cell(line.engineer),
+                  body_cell(format_days(line.days)),
+                  body_cell(format_money(line.amount)),
+                ])
+              }),
+            ),
+          ])
+      }
+  }
+}
+
+// --- P&L --------------------------------------------------------------------
+
+/// The P&L section: the month and year-to-date totals (revenue/cost/profit/
+/// margin %) above the per-engineer breakdown table.
+fn view_pnl(pnl: PnlState) -> Element(Message) {
+  html.div([attribute.class("pnl")], [
+    html.h3([], [html.text("Profit & loss")]),
+    view_pnl_body(pnl),
+  ])
+}
+
+fn view_pnl_body(pnl: PnlState) -> Element(Message) {
+  case pnl {
+    PnlLoading -> html.p([], [html.text("Loading the P&L…")])
+    PnlFailed(detail) ->
+      html.p([], [html.text("Could not load the P&L: " <> detail)])
+    PnlLoaded(statement) ->
+      html.div([], [
+        view_pnl_totals(statement),
+        view_pnl_rows(statement.rows),
+      ])
+  }
+}
+
+/// The month/YTD totals table: one column each for the month and year-to-date,
+/// rows for revenue, cost, profit, and margin %.
+fn view_pnl_totals(pnl: Pnl) -> Element(Message) {
+  html.table([attribute.class("pnl-totals")], [
+    html.thead([], [
+      html.tr([], [
+        header_cell(""),
+        header_cell("Month"),
+        header_cell("Year to date"),
+      ]),
+    ]),
+    html.tbody([], [
+      pnl_total_row(
+        "Revenue",
+        format_money(pnl.month_revenue),
+        format_money(pnl.ytd_revenue),
+      ),
+      pnl_total_row(
+        "Cost",
+        format_money(pnl.month_cost),
+        format_money(pnl.ytd_cost),
+      ),
+      pnl_total_row(
+        "Profit",
+        format_money(pnl.month_profit),
+        format_money(pnl.ytd_profit),
+      ),
+      pnl_total_row(
+        "Margin",
+        format_pct(margin_pct(pnl.month_profit, pnl.month_revenue)),
+        format_pct(margin_pct(pnl.ytd_profit, pnl.ytd_revenue)),
+      ),
+    ]),
+  ])
+}
+
+fn pnl_total_row(
+  label: String,
+  month: String,
+  ytd: String,
+) -> Element(Message) {
+  html.tr([], [
+    html.th([attribute.attribute("scope", "row")], [html.text(label)]),
+    body_cell(month),
+    body_cell(ytd),
+  ])
+}
+
+/// The per-engineer P&L breakdown table (FR-F8): revenue, cost, profit, margin %,
+/// and utilization % for the month, one row per engineer.
+fn view_pnl_rows(rows: List(PnlRow)) -> Element(Message) {
+  case rows {
+    [] -> html.p([], [html.text("No engineers in the P&L for this month.")])
+    rows ->
+      html.table([attribute.class("pnl-rows")], [
+        html.thead([], [
+          html.tr([], [
+            header_cell("Engineer"),
+            header_cell("Revenue"),
+            header_cell("Cost"),
+            header_cell("Profit"),
+            header_cell("Margin"),
+            header_cell("Utilization"),
+          ]),
+        ]),
+        html.tbody([], list.map(rows, view_pnl_engineer_row)),
+      ])
+  }
+}
+
+fn view_pnl_engineer_row(row: PnlRow) -> Element(Message) {
+  html.tr([attribute.attribute("data-engineer", row.engineer)], [
+    body_cell(row.engineer),
+    body_cell(format_money(row.revenue)),
+    body_cell(format_money(row.cost)),
+    body_cell(format_money(row.profit)),
+    body_cell(format_pct(row.margin_pct)),
+    body_cell(format_pct(row.utilization_pct)),
+  ])
+}
+
+/// Profit / revenue as a percentage; 0 when revenue is 0 (mirrors the server's
+/// per-row guard so the totals' margin reads sensibly at zero revenue).
+fn margin_pct(profit: Float, revenue: Float) -> Float {
+  case revenue {
+    0.0 -> 0.0
+    _ -> profit /. revenue *. 100.0
+  }
+}
+
+// --- Financials table helpers -----------------------------------------------
+
+fn header_cell(label: String) -> Element(Message) {
+  html.th([], [html.text(label)])
+}
+
+fn body_cell(text: String) -> Element(Message) {
+  html.td([], [html.text(text)])
+}
+
 // --- Slider date arithmetic -------------------------------------------------
 // The slider value is a unix-day index; converting to/from a calendar date keeps
 // every position a fixed absolute seed-range date, independent of the wall clock.
@@ -1321,6 +2146,31 @@ fn midnight() -> calendar.TimeOfDay {
   calendar.TimeOfDay(hours: 0, minutes: 0, seconds: 0, nanoseconds: 0)
 }
 
+// --- Month windows ----------------------------------------------------------
+// The financial reads and the Draft/RunPayroll commands all bound a month as the
+// half-open range [first-of-month, first-of-next-month). These mirror the server's
+// `finance_query` month arithmetic so the client asks for (and writes) exactly the
+// window the server computes over.
+
+/// The first day of the calendar month containing `date`.
+fn first_of_month(date: calendar.Date) -> calendar.Date {
+  calendar.Date(year: date.year, month: date.month, day: 1)
+}
+
+/// The first day of the month AFTER the one containing `date` (the exclusive upper
+/// bound of the month window); December rolls over to the next January.
+fn first_of_next_month(date: calendar.Date) -> calendar.Date {
+  case calendar.month_to_int(date.month) {
+    12 -> calendar.Date(year: date.year + 1, month: calendar.January, day: 1)
+    month ->
+      case calendar.month_from_int(month + 1) {
+        Ok(next) -> calendar.Date(year: date.year, month: next, day: 1)
+        Error(Nil) ->
+          calendar.Date(year: date.year, month: calendar.January, day: 1)
+      }
+  }
+}
+
 // --- Date formatting --------------------------------------------------------
 
 fn iso_date(date: calendar.Date) -> String {
@@ -1334,4 +2184,45 @@ fn pad2(value: Int) -> String {
 
 fn pad4(value: Int) -> String {
   int.to_string(value) |> string.pad_start(to: 4, with: "0")
+}
+
+// --- Financials formatting --------------------------------------------------
+
+/// Format a money amount as whole dollars with thousands separators
+/// ("$84,000"), negatives prefixed with a minus ("-$32,000"). Amounts are seeded
+/// as round figures so no cents are shown.
+fn format_money(amount: Float) -> String {
+  let rounded = float.round(amount)
+  let sign = case rounded < 0 {
+    True -> "-"
+    False -> ""
+  }
+  sign <> "$" <> group_thousands(int.absolute_value(rounded))
+}
+
+/// Group a non-negative integer's digits into thousands ("84000" -> "84,000").
+fn group_thousands(value: Int) -> String {
+  int.to_string(value)
+  |> string.to_graphemes
+  |> list.reverse
+  |> list.sized_chunk(into: 3)
+  |> list.map(fn(chunk) { chunk |> list.reverse |> string.concat })
+  |> list.reverse
+  |> string.join(",")
+}
+
+/// Format a percentage as a whole number with a "%" suffix (54.3 -> "54%").
+fn format_pct(value: Float) -> String {
+  int.to_string(float.round(value)) <> "%"
+}
+
+/// Format payroll days for a table cell: a whole number when integral ("30"),
+/// otherwise one decimal place ("15.5").
+fn format_days(days: Float) -> String {
+  format_hours(days)
+}
+
+/// The slider month as "YYYY-MM", for the Run-payroll button label.
+fn month_label(date: calendar.Date) -> String {
+  pad4(date.year) <> "-" <> pad2(calendar.month_to_int(date.month))
 }

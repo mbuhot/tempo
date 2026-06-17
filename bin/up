@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# One-shot: bring the whole stack up and run it. Idempotent — safe to re-run.
+#   1. start PG19 (tempo-db) and wait until it is healthy
+#   2. apply pending migrations (schema + seed); only un-applied ones run
+#   3. build the Lustre client bundle into server/priv/static
+#   4. run the Wisp server on http://localhost:8000   (Ctrl-C to stop)
+#
+# The DB container keeps running after Ctrl-C; stop it with `docker compose down`
+# (add -v to also wipe the data volume for a clean reseed).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+echo "==> [1/4] database (PG19) ........ starting + waiting for healthy"
+bin/db
+
+echo "==> [2/4] migrations ............. applying any pending"
+bin/migrate
+
+echo "==> [3/4] client bundle .......... building"
+bin/build
+
+echo "==> [4/4] server ................. http://localhost:8000  (Ctrl-C to stop)"
+exec bin/serve

@@ -1,81 +1,121 @@
 //// Domain: the allocation aggregate — an engineer's fractional assignment to a
-//// project over time. Every function takes the in-transaction connection and does
-//// ONLY its temporal writes; `command.dispatch` owns the transaction and the
-//// `event_log` row. No HTTP — never imports `wisp`.
+//// project over time. `handle` matches the allocation commands, does ONLY their
+//// temporal writes on the in-transaction connection, classifies any database
+//// rejection, and returns the journal event(s) it produced; `command.dispatch`
+//// owns the transaction and persists those events. No HTTP — never imports `wisp`.
 ////
-//// The operations span three of the four write patterns: `assign_to_project` is
-//// an Assert over [valid_from, valid_to) (the allocation is contained by both
-//// employment and project via PERIOD FKs); `change_allocation_fraction` is a Change
+//// The operations span three of the four write patterns: `AssignToProject` is an
+//// Assert over [valid_from, valid_to) (the allocation is contained by both
+//// employment and project via PERIOD FKs); `ChangeAllocationFraction` is a Change
 //// (FOR PORTION OF … TO NULL, re-fraction from a date onward, scheduled-future
-//// versions untouched); `roll_off` is a Close (DELETE … FOR PORTION OF, capping
-//// one allocation from a date).
+//// versions untouched); `RollOff` is a Close (DELETE … FOR PORTION OF, capping one
+//// allocation from a date).
 
+import gleam/float
+import gleam/int
 import gleam/result
-import gleam/time/calendar.{type Date}
 import pog
+import shared/codecs
+import shared/types.{
+  type Command, AssignToProject, ChangeAllocationFraction, RollOff,
+}
+import tempo/server/operation.{type Event, type OperationError, Event}
 import tempo/server/sql
 
-/// Allocate an engineer to a project at `fraction` over [valid_from, valid_to)
-/// (the Assert pattern). The PERIOD FKs to employment and project are the
-/// backstop — an allocation not contained by both a live employment and an active
-/// project is rejected — and the WITHOUT OVERLAPS PK rejects a second overlapping
-/// allocation for the same engineer+project.
-pub fn assign_to_project(
+/// Apply an allocation-aggregate command: run its temporal writes on the
+/// in-transaction connection, classify any database rejection, and on success
+/// return the single journal event it produced. Only the allocation commands
+/// reach here (the dispatch `route` guarantees it); any other variant is a no-op.
+pub fn handle(
   conn: pog.Connection,
-  engineer_id: Int,
-  project_id: Int,
-  fraction: Float,
-  valid_from: Date,
-  valid_to: Date,
-) -> Result(Nil, pog.QueryError) {
-  use _ <- result.map(sql.allocation_assign(
-    conn,
-    engineer_id,
-    project_id,
-    valid_from,
-    fraction,
-    valid_to,
-  ))
-  Nil
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let written = case command {
+    AssignToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      sql.allocation_assign(
+        conn,
+        engineer_id,
+        project_id,
+        valid_from,
+        fraction,
+        valid_to,
+      )
+      |> result.replace(Nil)
+    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) ->
+      sql.allocation_change_fraction(
+        conn,
+        engineer_id,
+        project_id,
+        effective,
+        fraction,
+      )
+      |> result.replace(Nil)
+    RollOff(engineer_id:, project_id:, effective:) ->
+      sql.allocation_close(conn, engineer_id, project_id, effective)
+      |> result.replace(Nil)
+    _ -> Ok(Nil)
+  }
+  case written {
+    Error(query_error) -> Error(operation.classify(query_error))
+    Ok(Nil) -> Ok(events(command))
+  }
 }
 
-/// Re-fraction an engineer's allocation on a project from `effective` onward (the
-/// Change pattern). `FOR PORTION OF allocated_during FROM effective TO NULL` lands
-/// the new fraction on [effective, row.upper) and re-inserts the
-/// [row.lower, effective) leftover at the old fraction; the `@> effective` guard
-/// confines it to the version in effect, leaving a scheduled-future version untouched.
-pub fn change_allocation_fraction(
-  conn: pog.Connection,
-  engineer_id: Int,
-  project_id: Int,
-  fraction: Float,
-  effective: Date,
-) -> Result(Nil, pog.QueryError) {
-  use _ <- result.map(sql.allocation_change_fraction(
-    conn,
-    engineer_id,
-    project_id,
-    effective,
-    fraction,
-  ))
-  Nil
-}
-
-/// Roll an engineer off a project from `effective` (the Close pattern).
-/// `DELETE … FOR PORTION OF allocated_during FROM effective TO NULL` caps a
-/// spanning allocation to [row.lower, effective) (PG re-inserts the before-leftover)
-/// and drops a fully-future one outright.
-pub fn roll_off(
-  conn: pog.Connection,
-  engineer_id: Int,
-  project_id: Int,
-  effective: Date,
-) -> Result(Nil, pog.QueryError) {
-  use _ <- result.map(sql.allocation_close(
-    conn,
-    engineer_id,
-    project_id,
-    effective,
-  ))
-  Nil
+/// The journal event(s) an applied allocation command produces.
+fn events(command: Command) -> List(Event) {
+  case command {
+    AssignToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      valid_from:,
+      valid_to:,
+    ) -> [
+      Event(
+        operation: "assign_to_project",
+        summary: "Assign engineer "
+          <> int.to_string(engineer_id)
+          <> " to project "
+          <> int.to_string(project_id)
+          <> " at "
+          <> float.to_string(fraction)
+          <> " over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+    ]
+    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) -> [
+      Event(
+        operation: "change_allocation_fraction",
+        summary: "Change engineer "
+          <> int.to_string(engineer_id)
+          <> " allocation on project "
+          <> int.to_string(project_id)
+          <> " to "
+          <> float.to_string(fraction)
+          <> " from "
+          <> operation.iso(effective),
+        payload: codecs.encode_command(command),
+      ),
+    ]
+    RollOff(engineer_id:, project_id:, effective:) -> [
+      Event(
+        operation: "roll_off",
+        summary: "Roll engineer "
+          <> int.to_string(engineer_id)
+          <> " off project "
+          <> int.to_string(project_id)
+          <> " from "
+          <> operation.iso(effective),
+        payload: codecs.encode_command(command),
+      ),
+    ]
+    _ -> []
+  }
 }

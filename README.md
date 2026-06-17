@@ -6,6 +6,19 @@ Gleam, Squirrel, Wisp, and Lustre. See `PRD.md` and `ARCHITECTURE.md`.
 
 ## Run-book
 
+### Quick start
+
+One command brings the whole stack up and runs it — starts PG19 and waits for it,
+applies pending migrations, builds the client bundle, then serves on
+**http://localhost:8000** (Ctrl-C stops the server; the DB container keeps running):
+
+```sh
+bin/up
+```
+
+It is idempotent — safe to re-run. The individual steps below are for when you want
+to run a single piece (e.g. just the server, or just the tests).
+
 ### Database (PostgreSQL 19)
 
 The demo requires **PostgreSQL 19** (for `WITHOUT OVERLAPS`, `PERIOD` foreign

@@ -135,6 +135,9 @@ and makes the PERIOD-FK integrity reachable live without being a gimmick (the UI
 guarantees it).
 **Amended (ADR-019).** The timesheet write is now one of many domain operations behind a single
 `POST /api/operations`; the app gains an operations console and an event-log panel.
+**Amended (ADR-025).** The timesheet is no longer a separate write path at all: `POST /api/timesheet`
+is gone, the route is read-only (GET form), and logging hours is the `LogTimesheet` command on
+`POST /api/operations` like every other write.
 
 ## ADR-011 — Range types decomposed at the Squirrel boundary
 **Status:** Accepted
@@ -315,6 +318,9 @@ to forget.
 path lost); one `operations.gleam` god-module (rejected — fights SLAP, hard to test in isolation);
 event-sourced command log as source of truth (rejected — reframes the architecture; the facts stay the
 source of truth, ADR-021).
+**Amended (ADR-025).** `dispatch` is slimmed to route + persist; each aggregate's `handle` now owns its
+own event emission (tag/summary/payload) and returns the events, which `dispatch` returns to the
+caller.
 
 ## ADR-020 — Writes use native `FOR PORTION OF` (no hand-rolled cap-and-insert)
 **Status:** Accepted
@@ -398,6 +404,78 @@ without reworking the proven migration/oracle. The cache-cost-as-centerpiece var
 forced to fragment history) is a compelling future enhancement, deliberately deferred.
 **Alternatives.** Make the cache's cost the new centerpiece (deferred — richest but most work); drop
 the cache and the migration beat entirely (rejected for now — discards a working, proven demo asset).
+
+## ADR-025 — Command handlers own event emission; `dispatch` only routes and persists
+**Status:** Accepted (amends ADR-010, ADR-019)
+
+**Context.** Under ADR-019, `dispatch` did the routing *and* built the journal `event_log` row —
+deriving the `operation` tag, the human summary, and the re-encoded payload itself — while the
+aggregates did only their temporal writes. That concentrated cross-aggregate knowledge in `command`
+(389 lines) and left the timesheet on its own residual write path (`POST /api/timesheet` →
+`timesheet.log`, ADR-010), inconsistent with every other operation. The web handler also returned only
+an acknowledgement, so the client had to refetch the journal to see what it had just written.
+**Decision.** Each aggregate exposes **`handle(conn, command)`** returning
+`Result(List(Event), OperationError)` and **owns its own event emission** — its tag, summary, and
+`codecs.encode_command` payload. `command.dispatch` is reduced to two responsibilities: **route** the
+command to the right `handle`, and **persist** each emitted event via `event.append`, all in one
+transaction; it **returns the created events**, which `POST /api/operations` echoes as a JSON array (no
+fetch-newest). The timesheet write is folded into this path as the `LogTimesheet` command (reusing the
+existing `log_in` core); `POST /api/timesheet` is removed and the route is read-only (GET form). A leaf
+module **`operation.gleam`** holds the journal `Event` type, `OperationError`, the SQLSTATE/constraint
+`classify` helpers, and the date helpers — imported by both `command` and the aggregates — breaking the
+`command` ↔ aggregate import cycle that returning typed events would otherwise create.
+**Rationale.** SLAP (ADR-016): each `handle` keeps one operation's writes and its journal entry at one
+level, instead of `dispatch` reaching into every aggregate's vocabulary; `command` drops from 389 to
+114 lines. One write path (ADR-019's command bus) for *all* writes, including the timesheet, removes
+the inconsistent special case. Returning the persisted events makes the response self-describing and
+lets the client update without a second read.
+**Alternatives.** Keep `dispatch` building events (rejected — the 389-line god-function and the
+cross-aggregate coupling it codified); put `Event`/`OperationError` in `command` (rejected — aggregates
+returning events would import `command`, which routes to them: a cycle); leave the timesheet on its own
+endpoint (rejected — the very inconsistency this refactor removes).
+
+## ADR-026 — Financials: temporal invoice lifecycle, agreed-rate billing, proration, P&L as a query
+**Status:** Accepted (extends ADR-004, ADR-009, ADR-019/025; see `PRD-financials.md`)
+
+**Context.** Invoicing, payroll, and a P&L turn the staffing model into money, and money is where
+temporal correctness bites hardest. Three questions had to be answered consistently with the existing
+model (`PRD-financials.md` §1): how to identify an invoice and track its lifecycle; *which* charge
+rate an invoice bills; and how to pay for partial periods. The financial tables also reference project
+*entities* that — like `contract` — have no single-row identity table to PERIOD-FK against.
+**Decision.**
+- **Invoice identity + temporal status lifecycle.** An `invoice(id, project_id, billing_period)` is
+  one durable thing with an immutable subject; its **state** is the temporal fact
+  `invoice_status(invoice_id, status, status_during)` (`draft → issued → paid`, `WITHOUT OVERLAPS`).
+  Issue/Pay are status **Changes** (cap-and-assert, ADR-020) with a guard that the current status is
+  the expected predecessor, so an out-of-order transition is rejected (`InvalidValue`), and "what was
+  the status of invoice N on date D" is a plain as-of query (FR-F4). Lines are **snapshotted at
+  draft** (plain rows), so an issued invoice does not retro-change.
+- **Agreed-rate billing pinned to `lower(contract.term)`.** A line's `day_rate` is `rate_card[level]`
+  **as of the contract's signing date**, not as of the billing month (FR-F2). A later `ReviseRateCard`
+  does not change what an already-agreed contract bills; the board's as-of-today rate and the invoice's
+  billed rate visibly diverge. We do **not** model an explicit `agreed_rate_at` separate from the term
+  start — an amendment would be a new contract term version (PRD §8, accepted limitation).
+- **Salary as a cost `rate_card`.** `salary(level, monthly_salary, effective_during)` is the cost
+  analogue of `rate_card` — same `WITHOUT OVERLAPS` per level, same `FOR PORTION OF` revision
+  (`SetSalary`).
+- **Payroll proration over `employment ∩ role`, leave paid in full.** `RunPayroll(month)` prorates by
+  day over the intersection of employment, the role (level) version, the salary version, and the
+  month, split by `engineer_role` so a mid-month promotion is paid partly at each level's salary;
+  hire/termination clip, promotion splits, and **leave does not reduce pay** — the `leave` table is
+  not consulted (FR-F5/F6).
+- **P&L as a read query.** `GET /api/pnl?as_of=` computes month + YTD revenue (issued/paid invoice
+  lines, recognized on issue, read as-of the window's upper bound) vs cost (payroll lines), with a
+  per-engineer breakdown (profit, margin %, capacity-share utilization %). No stored P&L — it is
+  derived on read so it always reflects current facts.
+**Rationale.** Reuses the established patterns wholesale: facts-not-state (ADR-004), the temporal
+Change (ADR-020), the two-hop `engineer_role × rate_card`/`salary` join (ADR-009), and the command
+bus with per-aggregate `handle` (ADR-025). The hard temporal cases get the spotlight (agreed rate
+after a revision; blended-rate promotion; leave at full pay) while the rest is plain as-of reads.
+**Alternatives.** Bill at the month's current rate (rejected — loses the agreed-rate point, FR-F2);
+status as a mutable column on `invoice` (rejected — no history, can't ask the as-of question);
+cross-entity PERIOD FKs from the financial tables (rejected — no identity table for project/contract
+entities to key against; containment lives in the computing queries, PRD §3/§8); a materialized P&L
+(rejected — would diverge from facts and need invalidation; a query is simpler and always current).
 
 ---
 

@@ -37,6 +37,7 @@ import shared/types.{
 }
 import tempo/server/command
 import tempo/server/context
+import tempo/server/operation
 
 // --- connection -------------------------------------------------------------
 
@@ -64,7 +65,7 @@ fn rolling_back(body: fn(pog.Connection) -> a) -> a {
 
 /// Apply `command` through the dispatch seam on `conn`, asserting it succeeds.
 fn apply(conn: pog.Connection, command: Command) -> Nil {
-  let assert Ok(Nil) = command.dispatch_in(conn, "tester", command)
+  let assert Ok(_) = command.dispatch_in(conn, "tester", command)
   Nil
 }
 
@@ -400,7 +401,7 @@ pub fn terminate_employment_rejected_when_timesheet_outlives_end_test() {
     })
 
   assert outcome
-    == Error(command.ContainmentViolated("timesheet_within_allocation"))
+    == Error(operation.ContainmentViolated("timesheet_within_allocation"))
 }
 
 // --- retroactive change covering the whole fact erases the prior value -------
@@ -606,7 +607,7 @@ pub fn log_timesheet_without_allocation_is_containment_violated_test() {
     })
 
   assert outcome
-    == Error(command.ContainmentViolated("timesheet_within_allocation"))
+    == Error(operation.ContainmentViolated("timesheet_within_allocation"))
 }
 
 // --- summary / payload (the journal contract, never occurred_at) ------------
@@ -810,7 +811,7 @@ pub fn start_project_outside_contract_term_is_containment_violated_test() {
     })
 
   assert outcome
-    == Error(command.ContainmentViolated("project_within_contract"))
+    == Error(operation.ContainmentViolated("project_within_contract"))
 }
 
 // --- helpers ----------------------------------------------------------------

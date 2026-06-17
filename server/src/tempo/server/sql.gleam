@@ -742,16 +742,25 @@ VALUES ($1, $2, daterange($3::date, NULL, '[)'));
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type EventLogAppendRow {
-  EventLogAppendRow(id: Int)
+  EventLogAppendRow(
+    id: Int,
+    occurred_at: String,
+    actor: String,
+    operation: String,
+    summary: String,
+    payload: String,
+  )
 }
 
 /// event_log_append.sql — append one provenance row (§5a, §4, ADR-021).
 ///
 /// `dispatch` writes exactly one of these per applied command, in the same
 /// transaction as the temporal fact writes, so facts and journal commit together
-/// or not at all. `occurred_at` defaults to now() (SYSTEM time); `id` is returned
-/// as the order applied. The command is re-encoded via the shared codecs as
-/// `payload`, cast to jsonb at the boundary.
+/// or not at all. `occurred_at` defaults to now() (SYSTEM time). The whole row is
+/// returned (id doubles as the order applied; occurred_at/payload rendered to text
+/// at the boundary) so the caller maps it straight to the shared read Event —
+/// never a guessed "newest row". The command is re-encoded via the shared codecs
+/// as `payload`, cast to jsonb at the boundary.
 /// $1 = actor, $2 = operation tag, $3 = summary, $4 = payload (json text).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -766,20 +775,34 @@ pub fn event_log_append(
 ) -> Result(pog.Returned(EventLogAppendRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
-    decode.success(EventLogAppendRow(id:))
+    use occurred_at <- decode.field(1, decode.string)
+    use actor <- decode.field(2, decode.string)
+    use operation <- decode.field(3, decode.string)
+    use summary <- decode.field(4, decode.string)
+    use payload <- decode.field(5, decode.string)
+    decode.success(EventLogAppendRow(
+      id:,
+      occurred_at:,
+      actor:,
+      operation:,
+      summary:,
+      payload:,
+    ))
   }
 
   "-- event_log_append.sql — append one provenance row (§5a, §4, ADR-021).
 --
 -- `dispatch` writes exactly one of these per applied command, in the same
 -- transaction as the temporal fact writes, so facts and journal commit together
--- or not at all. `occurred_at` defaults to now() (SYSTEM time); `id` is returned
--- as the order applied. The command is re-encoded via the shared codecs as
--- `payload`, cast to jsonb at the boundary.
+-- or not at all. `occurred_at` defaults to now() (SYSTEM time). The whole row is
+-- returned (id doubles as the order applied; occurred_at/payload rendered to text
+-- at the boundary) so the caller maps it straight to the shared read Event —
+-- never a guessed \"newest row\". The command is re-encoded via the shared codecs
+-- as `payload`, cast to jsonb at the boundary.
 -- $1 = actor, $2 = operation tag, $3 = summary, $4 = payload (json text).
 INSERT INTO event_log (actor, operation, summary, payload)
 VALUES ($1, $2, $3, $4::jsonb)
-RETURNING id;
+RETURNING id, occurred_at::text, actor, operation, summary, payload::text;
 "
   |> pog.query
   |> pog.parameter(pog.text(arg_1))
@@ -858,6 +881,677 @@ ORDER BY id DESC;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `invoice_billing_lines` query
+/// defined in `./src/tempo/server/sql/invoice_billing_lines.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceBillingLinesRow {
+  InvoiceBillingLinesRow(
+    engineer_id: Int,
+    engineer: String,
+    level: Int,
+    day_rate: Float,
+    days: Float,
+    amount: Float,
+  )
+}
+
+/// invoice_billing_lines.sql — the contract-agreed billable lines for a project
+/// over a month (FR-F1, FR-F2: the temporal centerpiece). One row per (engineer,
+/// level) who worked the project during the month, at the rate the CONTRACT agreed.
+///
+/// Params: $1 = project_id (entity id), $2 = month start (date), $3 = month end
+/// (date, exclusive). The month range is built in SQL as daterange($2, $3, '[)'),
+/// so only scalar dates cross the Squirrel boundary.
+///
+/// The agreed rate (FR-F2). The day_rate is rate_card[level] AS OF
+/// lower(contract.term) — the contract's signing date — NOT as-of the billing
+/// month. If the rate card has been revised since the contract was signed, the
+/// invoice still bills the older agreed rate. `agreed_date` is computed once from
+/// the contract active over the month (project ⊂ contract, both overlapping the
+/// month) and pinned for every line.
+///
+/// Day counting. A daterange's day count is upper - lower (integer days; PG returns
+/// e.g. 30 for a June [1st, next-1st) range). The billable sub-period for a line is
+/// the THREE-way intersection (the * operator) of the allocation, the engineer_role
+/// (level) version, and the month — so a mid-month promotion splits the work into
+/// one sub-period per level, each billed at that level's agreed rate. Empty
+/// intersections (a role version that does not actually overlap the allocation
+/// within the month) are dropped via NOT isempty.
+///
+/// days   = Σ over sub-periods of  fraction × (upper - lower)
+/// amount = Σ over sub-periods of  fraction × (upper - lower) × day_rate
+///
+/// Aggregated per (engineer, level): a single allocation under one level yields one
+/// row; a promotion mid-month yields two rows (one per level) for that engineer.
+///
+/// Assumptions:
+/// * Exactly one contract is active over the month for the project (project ⊂
+/// contract by construction); LIMIT 1 pins the agreed date if the schema ever
+/// admits more.
+/// * Leave does NOT reduce billing (billing is allocation-fraction-weighted
+/// working days; leave is a payroll concern, paid in full — FR-F6).
+/// * Calendar days, not business days: "working days in the month" is the day
+/// width of the intersection, matching the day-count convention used elsewhere.
+/// * rate_card has a version covering agreed_date for every billed level (true in
+/// the seed: the baseline rate card opens at the earliest contract date).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_billing_lines(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+  arg_3: Date,
+) -> Result(pog.Returned(InvoiceBillingLinesRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use engineer <- decode.field(1, decode.string)
+    use level <- decode.field(2, decode.int)
+    use day_rate <- decode.field(3, pog.numeric_decoder())
+    use days <- decode.field(4, pog.numeric_decoder())
+    use amount <- decode.field(5, pog.numeric_decoder())
+    decode.success(InvoiceBillingLinesRow(
+      engineer_id:,
+      engineer:,
+      level:,
+      day_rate:,
+      days:,
+      amount:,
+    ))
+  }
+
+  "-- invoice_billing_lines.sql — the contract-agreed billable lines for a project
+-- over a month (FR-F1, FR-F2: the temporal centerpiece). One row per (engineer,
+-- level) who worked the project during the month, at the rate the CONTRACT agreed.
+--
+-- Params: $1 = project_id (entity id), $2 = month start (date), $3 = month end
+-- (date, exclusive). The month range is built in SQL as daterange($2, $3, '[)'),
+-- so only scalar dates cross the Squirrel boundary.
+--
+-- The agreed rate (FR-F2). The day_rate is rate_card[level] AS OF
+-- lower(contract.term) — the contract's signing date — NOT as-of the billing
+-- month. If the rate card has been revised since the contract was signed, the
+-- invoice still bills the older agreed rate. `agreed_date` is computed once from
+-- the contract active over the month (project ⊂ contract, both overlapping the
+-- month) and pinned for every line.
+--
+-- Day counting. A daterange's day count is upper - lower (integer days; PG returns
+-- e.g. 30 for a June [1st, next-1st) range). The billable sub-period for a line is
+-- the THREE-way intersection (the * operator) of the allocation, the engineer_role
+-- (level) version, and the month — so a mid-month promotion splits the work into
+-- one sub-period per level, each billed at that level's agreed rate. Empty
+-- intersections (a role version that does not actually overlap the allocation
+-- within the month) are dropped via NOT isempty.
+--
+--   days   = Σ over sub-periods of  fraction × (upper - lower)
+--   amount = Σ over sub-periods of  fraction × (upper - lower) × day_rate
+--
+-- Aggregated per (engineer, level): a single allocation under one level yields one
+-- row; a promotion mid-month yields two rows (one per level) for that engineer.
+--
+-- Assumptions:
+--   * Exactly one contract is active over the month for the project (project ⊂
+--     contract by construction); LIMIT 1 pins the agreed date if the schema ever
+--     admits more.
+--   * Leave does NOT reduce billing (billing is allocation-fraction-weighted
+--     working days; leave is a payroll concern, paid in full — FR-F6).
+--   * Calendar days, not business days: \"working days in the month\" is the day
+--     width of the intersection, matching the day-count convention used elsewhere.
+--   * rate_card has a version covering agreed_date for every billed level (true in
+--     the seed: the baseline rate card opens at the earliest contract date).
+WITH params AS (
+  SELECT
+    $1::int AS project_id,
+    daterange($2::date, $3::date, '[)') AS month
+),
+agreed AS (
+  -- the contract active over the month, and its agreed date = lower(term)
+  SELECT lower(contract.term) AS agreed_date
+  FROM params
+  JOIN project  ON project.id = params.project_id
+               AND project.active_during && params.month
+  JOIN contract ON contract.id = project.contract_id
+               AND contract.term && params.month
+  LIMIT 1
+),
+sub AS (
+  -- each allocation ∩ engineer_role(level) ∩ month sub-period for the project
+  SELECT
+    allocation.engineer_id,
+    engineer_role.level,
+    allocation.fraction,
+    allocation.allocated_during * engineer_role.held_during * params.month
+      AS sub_period
+  FROM params
+  JOIN allocation    ON allocation.project_id = params.project_id
+                    AND allocation.allocated_during && params.month
+  JOIN engineer_role ON engineer_role.engineer_id = allocation.engineer_id
+                    AND engineer_role.held_during && allocation.allocated_during
+                    AND engineer_role.held_during && params.month
+)
+SELECT
+  sub.engineer_id,
+  engineer.name AS engineer,
+  sub.level,
+  rate_card.day_rate::numeric AS day_rate,
+  sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
+    AS days,
+  sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period))
+      * rate_card.day_rate)::numeric AS amount
+FROM sub
+CROSS JOIN agreed
+JOIN engineer  ON engineer.id = sub.engineer_id
+JOIN rate_card ON rate_card.level = sub.level
+              AND rate_card.effective_during @> agreed.agreed_date
+WHERE NOT isempty(sub.sub_period)
+GROUP BY sub.engineer_id, engineer.name, sub.level, rate_card.day_rate
+ORDER BY engineer.name, sub.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_create` query
+/// defined in `./src/tempo/server/sql/invoice_create.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceCreateRow {
+  InvoiceCreateRow(id: Int)
+}
+
+/// invoice_create.sql — open an invoice for a project's billing period.
+///
+/// A plain INSERT (write pattern 1). The id is auto-generated and returned. The
+/// billing_period is a daterange built from the half-open [$2, $3) month bounds;
+/// $1 is the project_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_create(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+  arg_3: Date,
+) -> Result(pog.Returned(InvoiceCreateRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(InvoiceCreateRow(id:))
+  }
+
+  "-- invoice_create.sql — open an invoice for a project's billing period.
+--
+-- A plain INSERT (write pattern 1). The id is auto-generated and returned. The
+-- billing_period is a daterange built from the half-open [$2, $3) month bounds;
+-- $1 is the project_id.
+INSERT INTO invoice (project_id, billing_period)
+VALUES ($1, daterange($2::date, $3::date, '[)'))
+RETURNING id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_header` query
+/// defined in `./src/tempo/server/sql/invoice_header.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceHeaderRow {
+  InvoiceHeaderRow(
+    id: Int,
+    project: String,
+    client: String,
+    billing_from: Date,
+    billing_to: Date,
+    status: String,
+    total: Float,
+  )
+}
+
+/// invoice_header.sql — one invoice's header for the detail read model
+/// (GET /api/invoices/:id). Same projection as invoice_list (project + client
+/// name, billing month, status AS OF $2, line total) for a single invoice.
+///
+/// Params: $1 = invoice_id, $2 = as-of date. The status shown is the row covering
+/// $2 (FR-F4). Unlike the list, the status JOIN is LEFT so the header still
+/// returns for an as-of date with no covering status (status NULL), letting the
+/// detail endpoint distinguish "no such invoice" (no row) from "exists but no
+/// status as of this date" (a row with NULL status). The caller coalesces a NULL
+/// status to "" before mapping to the shared read type.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_header(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(InvoiceHeaderRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use project <- decode.field(1, decode.string)
+    use client <- decode.field(2, decode.string)
+    use billing_from <- decode.field(3, pog.calendar_date_decoder())
+    use billing_to <- decode.field(4, pog.calendar_date_decoder())
+    use status <- decode.field(5, decode.string)
+    use total <- decode.field(6, pog.numeric_decoder())
+    decode.success(InvoiceHeaderRow(
+      id:,
+      project:,
+      client:,
+      billing_from:,
+      billing_to:,
+      status:,
+      total:,
+    ))
+  }
+
+  "-- invoice_header.sql — one invoice's header for the detail read model
+-- (GET /api/invoices/:id). Same projection as invoice_list (project + client
+-- name, billing month, status AS OF $2, line total) for a single invoice.
+--
+-- Params: $1 = invoice_id, $2 = as-of date. The status shown is the row covering
+-- $2 (FR-F4). Unlike the list, the status JOIN is LEFT so the header still
+-- returns for an as-of date with no covering status (status NULL), letting the
+-- detail endpoint distinguish \"no such invoice\" (no row) from \"exists but no
+-- status as of this date\" (a row with NULL status). The caller coalesces a NULL
+-- status to \"\" before mapping to the shared read type.
+SELECT
+  invoice.id,
+  coalesce((
+    SELECT project.name FROM project
+     WHERE project.id = invoice.project_id
+     LIMIT 1
+  ), '') AS project,
+  coalesce((
+    SELECT client.name
+      FROM project
+      JOIN contract ON contract.id = project.contract_id
+      JOIN client   ON client.id = contract.client_id
+     WHERE project.id = invoice.project_id
+     LIMIT 1
+  ), '') AS client,
+  lower(invoice.billing_period) AS billing_from,
+  upper(invoice.billing_period) AS billing_to,
+  coalesce((
+    SELECT invoice_status.status FROM invoice_status
+     WHERE invoice_status.invoice_id = invoice.id
+       AND invoice_status.status_during @> $2::date
+  ), '') AS status,
+  coalesce((
+    SELECT sum(invoice_line.amount)
+      FROM invoice_line
+     WHERE invoice_line.invoice_id = invoice.id
+  ), 0)::numeric AS total
+FROM invoice
+WHERE invoice.id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// invoice_line_insert.sql — append one billed line to an invoice.
+///
+/// A plain INSERT (write pattern 1). The line is pre-computed by the command: the
+/// day_rate is resolved from rate_card for the engineer's level AS OF the
+/// contract term's lower bound (FR-F2), not the invoice month. $1 = invoice_id,
+/// $2 = engineer_id, $3 = level, $4 = day_rate, $5 = days, $6 = amount.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_line_insert(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Int,
+  arg_4: Float,
+  arg_5: Float,
+  arg_6: Float,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- invoice_line_insert.sql — append one billed line to an invoice.
+--
+-- A plain INSERT (write pattern 1). The line is pre-computed by the command: the
+-- day_rate is resolved from rate_card for the engineer's level AS OF the
+-- contract term's lower bound (FR-F2), not the invoice month. $1 = invoice_id,
+-- $2 = engineer_id, $3 = level, $4 = day_rate, $5 = days, $6 = amount.
+INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount)
+VALUES ($1, $2, $3, $4, $5, $6);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.float(arg_4))
+  |> pog.parameter(pog.float(arg_5))
+  |> pog.parameter(pog.float(arg_6))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_lines` query
+/// defined in `./src/tempo/server/sql/invoice_lines.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceLinesRow {
+  InvoiceLinesRow(
+    engineer: String,
+    level: Int,
+    day_rate: Float,
+    days: Float,
+    amount: Float,
+  )
+}
+
+/// invoice_lines.sql — an invoice's snapshot lines for the detail read model
+/// (GET /api/invoices/:id). The plain rows computed when the invoice was drafted
+/// (invoice_line), joined to the engineer name; not a recomputation (PRD §8: an
+/// issued invoice's lines do not change).
+///
+/// Param: $1 = invoice_id. Ordered as the billing query emitted them (engineer,
+/// level) so a promotion's two lines stay adjacent and the wire order is
+/// deterministic for the client and tests.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_lines(
+  db: pog.Connection,
+  invoice_line_invoice_id: Int,
+) -> Result(pog.Returned(InvoiceLinesRow), pog.QueryError) {
+  let decoder = {
+    use engineer <- decode.field(0, decode.string)
+    use level <- decode.field(1, decode.int)
+    use day_rate <- decode.field(2, pog.numeric_decoder())
+    use days <- decode.field(3, pog.numeric_decoder())
+    use amount <- decode.field(4, pog.numeric_decoder())
+    decode.success(InvoiceLinesRow(engineer:, level:, day_rate:, days:, amount:))
+  }
+
+  "-- invoice_lines.sql — an invoice's snapshot lines for the detail read model
+-- (GET /api/invoices/:id). The plain rows computed when the invoice was drafted
+-- (invoice_line), joined to the engineer name; not a recomputation (PRD §8: an
+-- issued invoice's lines do not change).
+--
+-- Param: $1 = invoice_id. Ordered as the billing query emitted them (engineer,
+-- level) so a promotion's two lines stay adjacent and the wire order is
+-- deterministic for the client and tests.
+SELECT
+  engineer.name AS engineer,
+  invoice_line.level,
+  invoice_line.day_rate::numeric AS day_rate,
+  invoice_line.days::numeric AS days,
+  invoice_line.amount::numeric AS amount
+FROM invoice_line
+JOIN engineer ON engineer.id = invoice_line.engineer_id
+WHERE invoice_line.invoice_id = $1
+ORDER BY engineer.name, invoice_line.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(invoice_line_invoice_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_list` query
+/// defined in `./src/tempo/server/sql/invoice_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceListRow {
+  InvoiceListRow(
+    id: Int,
+    project: String,
+    client: String,
+    billing_from: Date,
+    billing_to: Date,
+    status: String,
+    total: Float,
+  )
+}
+
+/// invoice_list.sql — the invoices-table read model (FR-F1/FR-F4). One row per
+/// invoice: the durable subject (project + client name, billing month) plus its
+/// status AS OF $1 and its line total (Σ invoice_line.amount).
+///
+/// Param: $1 = as-of date. The status shown is the row covering $1 via `@>`, so
+/// scrubbing the slider back shows a `draft` before its issue date (FR-F4). An
+/// invoice with no status covering $1 (e.g. as-of before the billing month) is
+/// dropped — the status JOIN is not a LEFT JOIN, so only invoices that "exist as
+/// of $1" are listed.
+///
+/// Name resolution. `project_id` is a project ENTITY id (no identity table; it may
+/// have several period-rows). The project/contract/client names are stable across
+/// an entity's period-rows in the seed, so a correlated LIMIT-1 subquery picks one
+/// name without multiplying the row by every period version. An invoice whose
+/// project entity has no project row at all yields NULL names (coalesced to '').
+///
+/// Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
+/// no billable lines totals 0 rather than vanishing.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(InvoiceListRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use project <- decode.field(1, decode.string)
+    use client <- decode.field(2, decode.string)
+    use billing_from <- decode.field(3, pog.calendar_date_decoder())
+    use billing_to <- decode.field(4, pog.calendar_date_decoder())
+    use status <- decode.field(5, decode.string)
+    use total <- decode.field(6, pog.numeric_decoder())
+    decode.success(InvoiceListRow(
+      id:,
+      project:,
+      client:,
+      billing_from:,
+      billing_to:,
+      status:,
+      total:,
+    ))
+  }
+
+  "-- invoice_list.sql — the invoices-table read model (FR-F1/FR-F4). One row per
+-- invoice: the durable subject (project + client name, billing month) plus its
+-- status AS OF $1 and its line total (Σ invoice_line.amount).
+--
+-- Param: $1 = as-of date. The status shown is the row covering $1 via `@>`, so
+-- scrubbing the slider back shows a `draft` before its issue date (FR-F4). An
+-- invoice with no status covering $1 (e.g. as-of before the billing month) is
+-- dropped — the status JOIN is not a LEFT JOIN, so only invoices that \"exist as
+-- of $1\" are listed.
+--
+-- Name resolution. `project_id` is a project ENTITY id (no identity table; it may
+-- have several period-rows). The project/contract/client names are stable across
+-- an entity's period-rows in the seed, so a correlated LIMIT-1 subquery picks one
+-- name without multiplying the row by every period version. An invoice whose
+-- project entity has no project row at all yields NULL names (coalesced to '').
+--
+-- Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
+-- no billable lines totals 0 rather than vanishing.
+SELECT
+  invoice.id,
+  coalesce((
+    SELECT project.name FROM project
+     WHERE project.id = invoice.project_id
+     LIMIT 1
+  ), '') AS project,
+  coalesce((
+    SELECT client.name
+      FROM project
+      JOIN contract ON contract.id = project.contract_id
+      JOIN client   ON client.id = contract.client_id
+     WHERE project.id = invoice.project_id
+     LIMIT 1
+  ), '') AS client,
+  lower(invoice.billing_period) AS billing_from,
+  upper(invoice.billing_period) AS billing_to,
+  invoice_status.status,
+  coalesce((
+    SELECT sum(invoice_line.amount)
+      FROM invoice_line
+     WHERE invoice_line.invoice_id = invoice.id
+  ), 0)::numeric AS total
+FROM invoice
+JOIN invoice_status ON invoice_status.invoice_id = invoice.id
+                   AND invoice_status.status_during @> $1::date
+ORDER BY lower(invoice.billing_period), invoice.id;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// invoice_status_close.sql — cap an invoice's current status at $2.
+///
+/// Close half of a status transition: `DELETE … FOR PORTION OF status_during
+/// FROM $2 TO NULL` removes the [$2, ∞) tail of the open status, capping the
+/// spanning row to [row.lower, $2) (Postgres re-inserts the before-leftover).
+/// The caller then runs invoice_status_open to start the new status at $2.
+/// Keyed to the invoice — the open span is the only one covering $2.
+///
+/// $1 = invoice_id, $2 = transition day (scalar date, cast in SQL).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_status_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- invoice_status_close.sql — cap an invoice's current status at $2.
+--
+-- Close half of a status transition: `DELETE … FOR PORTION OF status_during
+-- FROM $2 TO NULL` removes the [$2, ∞) tail of the open status, capping the
+-- spanning row to [row.lower, $2) (Postgres re-inserts the before-leftover).
+-- The caller then runs invoice_status_open to start the new status at $2.
+-- Keyed to the invoice — the open span is the only one covering $2.
+--
+-- $1 = invoice_id, $2 = transition day (scalar date, cast in SQL).
+DELETE FROM invoice_status
+   FOR PORTION OF status_during FROM $2::date TO NULL
+ WHERE invoice_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_status_current` query
+/// defined in `./src/tempo/server/sql/invoice_status_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceStatusCurrentRow {
+  InvoiceStatusCurrentRow(status: String)
+}
+
+/// invoice_status_current.sql — the status of an invoice AS OF $2.
+///
+/// The transition guard: reads the single status row covering $2 via `@>` so the
+/// command can validate the from-state before opening a new status. $1 is the
+/// invoice_id, $2 the as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_status_current(
+  db: pog.Connection,
+  invoice_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(InvoiceStatusCurrentRow), pog.QueryError) {
+  let decoder = {
+    use status <- decode.field(0, decode.string)
+    decode.success(InvoiceStatusCurrentRow(status:))
+  }
+
+  "-- invoice_status_current.sql — the status of an invoice AS OF $2.
+--
+-- The transition guard: reads the single status row covering $2 via `@>` so the
+-- command can validate the from-state before opening a new status. $1 is the
+-- invoice_id, $2 the as-of date.
+SELECT status
+  FROM invoice_status
+ WHERE invoice_id = $1
+   AND status_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(invoice_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// invoice_status_open.sql — open a status span for an invoice from $3 onward.
+///
+/// A plain INSERT (write pattern 1) starting an open-ended [$3, ∞) status
+/// period. Used both to seed the initial status and, after invoice_status_close
+/// caps the prior one, to open the new status during a transition. $1 is the
+/// invoice_id, $2 the status, $3 the effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_status_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- invoice_status_open.sql — open a status span for an invoice from $3 onward.
+--
+-- A plain INSERT (write pattern 1) starting an open-ended [$3, ∞) status
+-- period. Used both to seed the initial status and, after invoice_status_close
+-- caps the prior one, to open the new status during a transition. $1 is the
+-- invoice_id, $2 the status, $3 the effective date.
+INSERT INTO invoice_status (invoice_id, status, status_during)
+VALUES ($1, $2, daterange($3::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// leave_close_all.sql — cap all of an engineer's leave from a date (§5a, pattern 4).
 ///
 /// DELETE … FOR PORTION OF over `[end, ∞)` with no `@>` filter: intentionally
@@ -929,6 +1623,516 @@ VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `payroll_amounts` query
+/// defined in `./src/tempo/server/sql/payroll_amounts.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollAmountsRow {
+  PayrollAmountsRow(
+    engineer_id: Int,
+    engineer: String,
+    amount: Float,
+    days: Float,
+  )
+}
+
+/// payroll_amounts.sql — the prorated salary owed per employed engineer for a month
+/// (FR-F5, FR-F6). One row per engineer employed at any point in the month.
+///
+/// Params: $1 = month start (date), $2 = month end (date, exclusive). The month
+/// range is built in SQL as daterange($1, $2, '[)'); only scalar dates cross the
+/// Squirrel boundary.
+///
+/// Proration by day, split by level (FR-F6). The paid period is the intersection
+/// (the * operator) of employment, the engineer_role (level) version, the salary
+/// version, and the month. Splitting on BOTH the role version and the salary
+/// version means a mid-month promotion is paid partly at each level's salary, and a
+/// mid-month salary revision is honoured day-accurate within a level. A daterange's
+/// day count is upper - lower (integer days; e.g. 30 for June). Days in the month
+/// is likewise upper(month) - lower(month) (28..31), so the divisor is the actual
+/// calendar length of the billed month.
+///
+/// amount = Σ over sub-periods of  monthly_salary[level] × days_in_subperiod
+/// / days_in_month
+/// days   = Σ over sub-periods of  days_in_subperiod   (the employed days in month)
+///
+/// Leave is IGNORED — full pay (FR-F6). The leave table is not consulted: a leave
+/// period is paid at full salary, so payroll prorates only over employment, not over
+/// "employment minus leave". A hire or termination mid-month clips the paid period
+/// to the employed days (employment ∩ month); a promotion splits it.
+///
+/// Assumptions:
+/// * salary has a version covering every (level, day) an engineer is employed in
+/// the month (true in the seed: the baseline salary opens at the earliest
+/// employment date). An employed day with no salary version yields no
+/// sub-period and is silently unpaid — a seed/data gap, not a modelled state.
+/// * engineer_role spans employment (every employed engineer has a level), so
+/// every employed day is attributed to exactly one level via the intersection.
+/// * Calendar days, not business days; full-month salary = monthly_salary when the
+/// engineer is employed the whole month at one level.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_amounts(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PayrollAmountsRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use engineer <- decode.field(1, decode.string)
+    use amount <- decode.field(2, pog.numeric_decoder())
+    use days <- decode.field(3, pog.numeric_decoder())
+    decode.success(PayrollAmountsRow(engineer_id:, engineer:, amount:, days:))
+  }
+
+  "-- payroll_amounts.sql — the prorated salary owed per employed engineer for a month
+-- (FR-F5, FR-F6). One row per engineer employed at any point in the month.
+--
+-- Params: $1 = month start (date), $2 = month end (date, exclusive). The month
+-- range is built in SQL as daterange($1, $2, '[)'); only scalar dates cross the
+-- Squirrel boundary.
+--
+-- Proration by day, split by level (FR-F6). The paid period is the intersection
+-- (the * operator) of employment, the engineer_role (level) version, the salary
+-- version, and the month. Splitting on BOTH the role version and the salary
+-- version means a mid-month promotion is paid partly at each level's salary, and a
+-- mid-month salary revision is honoured day-accurate within a level. A daterange's
+-- day count is upper - lower (integer days; e.g. 30 for June). Days in the month
+-- is likewise upper(month) - lower(month) (28..31), so the divisor is the actual
+-- calendar length of the billed month.
+--
+--   amount = Σ over sub-periods of  monthly_salary[level] × days_in_subperiod
+--                                                          / days_in_month
+--   days   = Σ over sub-periods of  days_in_subperiod   (the employed days in month)
+--
+-- Leave is IGNORED — full pay (FR-F6). The leave table is not consulted: a leave
+-- period is paid at full salary, so payroll prorates only over employment, not over
+-- \"employment minus leave\". A hire or termination mid-month clips the paid period
+-- to the employed days (employment ∩ month); a promotion splits it.
+--
+-- Assumptions:
+--   * salary has a version covering every (level, day) an engineer is employed in
+--     the month (true in the seed: the baseline salary opens at the earliest
+--     employment date). An employed day with no salary version yields no
+--     sub-period and is silently unpaid — a seed/data gap, not a modelled state.
+--   * engineer_role spans employment (every employed engineer has a level), so
+--     every employed day is attributed to exactly one level via the intersection.
+--   * Calendar days, not business days; full-month salary = monthly_salary when the
+--     engineer is employed the whole month at one level.
+WITH params AS (
+  SELECT daterange($1::date, $2::date, '[)') AS month
+),
+sub AS (
+  -- each employment ∩ engineer_role(level) ∩ salary-version ∩ month sub-period
+  SELECT
+    employment.engineer_id,
+    salary.monthly_salary,
+    employment.employed_during
+      * engineer_role.held_during
+      * salary.effective_during
+      * params.month AS sub_period
+  FROM params
+  JOIN employment    ON employment.employed_during && params.month
+  JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
+                    AND engineer_role.held_during && employment.employed_during
+                    AND engineer_role.held_during && params.month
+  JOIN salary        ON salary.level = engineer_role.level
+                    AND salary.effective_during && engineer_role.held_during
+                    AND salary.effective_during && params.month
+)
+SELECT
+  sub.engineer_id,
+  engineer.name AS engineer,
+  sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
+      / (upper(params.month) - lower(params.month)))::numeric AS amount,
+  sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
+FROM sub
+CROSS JOIN params
+JOIN engineer ON engineer.id = sub.engineer_id
+WHERE NOT isempty(sub.sub_period)
+GROUP BY sub.engineer_id, engineer.name
+ORDER BY engineer.name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// payroll_line_insert.sql — append one engineer's line to a payroll run.
+///
+/// A plain INSERT (write pattern 1). The amount and days are pre-computed by the
+/// command from salary and the engineer's worked/employed days in the run period.
+/// $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_line_insert(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Float,
+  arg_4: Float,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- payroll_line_insert.sql — append one engineer's line to a payroll run.
+--
+-- A plain INSERT (write pattern 1). The amount and days are pre-computed by the
+-- command from salary and the engineer's worked/employed days in the run period.
+-- $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
+INSERT INTO payroll_line (run_id, engineer_id, amount, days)
+VALUES ($1, $2, $3, $4);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.float(arg_3))
+  |> pog.parameter(pog.float(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `payroll_lines` query
+/// defined in `./src/tempo/server/sql/payroll_lines.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollLinesRow {
+  PayrollLinesRow(engineer: String, amount: Float, days: Float)
+}
+
+/// payroll_lines.sql — the persisted payroll lines for a period (GET /api/payroll).
+/// Reads the SNAPSHOT lines a RunPayroll produced (payroll_line), joined to the
+/// engineer name — not a recomputation (the read returns what was paid, the
+/// write-time analogue of payroll_amounts).
+///
+/// Params: $1 = period start (date), $2 = period end (date, exclusive). The period
+/// range is built in SQL as daterange($1, $2, '[)'); only scalar dates cross the
+/// Squirrel boundary. Lines for every run whose period OVERLAPS the window are
+/// returned (the caller queries month-aligned windows, so in practice exactly the
+/// one run for that month). Ordered by engineer name for a deterministic wire
+/// order; an engineer with lines in two overlapping runs would appear twice (not
+/// expected for month-aligned windows).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_lines(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PayrollLinesRow), pog.QueryError) {
+  let decoder = {
+    use engineer <- decode.field(0, decode.string)
+    use amount <- decode.field(1, pog.numeric_decoder())
+    use days <- decode.field(2, pog.numeric_decoder())
+    decode.success(PayrollLinesRow(engineer:, amount:, days:))
+  }
+
+  "-- payroll_lines.sql — the persisted payroll lines for a period (GET /api/payroll).
+-- Reads the SNAPSHOT lines a RunPayroll produced (payroll_line), joined to the
+-- engineer name — not a recomputation (the read returns what was paid, the
+-- write-time analogue of payroll_amounts).
+--
+-- Params: $1 = period start (date), $2 = period end (date, exclusive). The period
+-- range is built in SQL as daterange($1, $2, '[)'); only scalar dates cross the
+-- Squirrel boundary. Lines for every run whose period OVERLAPS the window are
+-- returned (the caller queries month-aligned windows, so in practice exactly the
+-- one run for that month). Ordered by engineer name for a deterministic wire
+-- order; an engineer with lines in two overlapping runs would appear twice (not
+-- expected for month-aligned windows).
+WITH params AS (
+  SELECT daterange($1::date, $2::date, '[)') AS period
+)
+SELECT
+  engineer.name AS engineer,
+  payroll_line.amount::numeric AS amount,
+  payroll_line.days::numeric AS days
+FROM params
+JOIN payroll_run  ON payroll_run.period && params.period
+JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+JOIN engineer     ON engineer.id = payroll_line.engineer_id
+ORDER BY engineer.name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `payroll_run_create` query
+/// defined in `./src/tempo/server/sql/payroll_run_create.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollRunCreateRow {
+  PayrollRunCreateRow(id: Int)
+}
+
+/// payroll_run_create.sql — open a payroll run for a period.
+///
+/// A plain INSERT (write pattern 1). The id is auto-generated and returned. The
+/// period is a daterange built from the half-open [$1, $2) month bounds.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_run_create(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PayrollRunCreateRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(PayrollRunCreateRow(id:))
+  }
+
+  "-- payroll_run_create.sql — open a payroll run for a period.
+--
+-- A plain INSERT (write pattern 1). The id is auto-generated and returned. The
+-- period is a daterange built from the half-open [$1, $2) month bounds.
+INSERT INTO payroll_run (period)
+VALUES (daterange($1::date, $2::date, '[)'))
+RETURNING id;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `pnl_rows` query
+/// defined in `./src/tempo/server/sql/pnl_rows.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PnlRowsRow {
+  PnlRowsRow(
+    engineer_id: Int,
+    engineer: String,
+    revenue: Float,
+    cost: Float,
+    utilization_days: Float,
+    employed_days: Float,
+  )
+}
+
+/// pnl_rows.sql — the per-engineer P&L over a period (FR-F7, FR-F8). One row per
+/// engineer employed at any point in the period, carrying the raw components the
+/// caller turns into profit / margin % / utilization %.
+///
+/// Params: $1 = period start (date), $2 = period end (date, exclusive). The same
+/// two dates serve as the period range (daterange($1, $2, '[)')) AND $2 is the
+/// as-of instant for invoice status (the period's exclusive upper bound — "the
+/// state at the close of the period"). Only scalar dates cross the boundary.
+///
+/// Returned components (caller computes the rest):
+/// revenue          — Σ invoice_line.amount over invoices whose billing_period
+/// OVERLAPS the period AND whose status AS OF $2 is issued or
+/// paid. Revenue is recognized on issue (PRD §8), and the
+/// as-of predicate (status_during @> $2) means scrubbing the
+/// period end back before an issue date drops that revenue
+/// (FR-F4 carried into the P&L).
+/// cost             — Σ payroll_line.amount over payroll_runs whose period
+/// OVERLAPS the period.
+/// utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
+/// period). Capacity-share numerator (PRD §8: capacity-based,
+/// not hours-based — the timesheet is not consulted; leave does
+/// not reduce it).
+/// employed_days    — days in (employment ∩ period); the utilization denominator.
+/// Caller computes utilization_pct = utilization_days /
+/// employed_days, profit = revenue - cost, margin_pct =
+/// profit / revenue.
+///
+/// A daterange's day count is upper - lower (integer days). The employed/util day
+/// counts use the intersection (the * operator) of the relevant facts with the
+/// period; empty intersections are dropped via NOT isempty.
+///
+/// The driving set is engineers EMPLOYED in the period (employed_days > 0): an
+/// engineer with revenue or cost but no employment overlap is out of scope for the
+/// period and would have a zero denominator. Revenue/cost/util attach via LEFT JOIN
+/// and coalesce to 0, so an employed engineer with no invoices, no payroll, or no
+/// allocation still appears (zeros), and the per-engineer rows sum to the statement
+/// totals.
+///
+/// Assumptions:
+/// * "Overlaps the period" (&&) for invoices/payroll, NOT containment: a billing
+/// month or run period that straddles the P&L window contributes in full
+/// (consistent with month-grained invoicing/payroll; the caller chooses
+/// month/YTD windows aligned to month boundaries so straddling does not occur
+/// in practice).
+/// * An invoice has at most one status covering $2 (WITHOUT OVERLAPS guarantees
+/// it); EXISTS over {issued, paid} is the recognition gate.
+/// * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
+/// so they reflect what was billed/paid, not a recomputation (PRD §8).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn pnl_rows(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PnlRowsRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use engineer <- decode.field(1, decode.string)
+    use revenue <- decode.field(2, pog.numeric_decoder())
+    use cost <- decode.field(3, pog.numeric_decoder())
+    use utilization_days <- decode.field(4, pog.numeric_decoder())
+    use employed_days <- decode.field(5, pog.numeric_decoder())
+    decode.success(PnlRowsRow(
+      engineer_id:,
+      engineer:,
+      revenue:,
+      cost:,
+      utilization_days:,
+      employed_days:,
+    ))
+  }
+
+  "-- pnl_rows.sql — the per-engineer P&L over a period (FR-F7, FR-F8). One row per
+-- engineer employed at any point in the period, carrying the raw components the
+-- caller turns into profit / margin % / utilization %.
+--
+-- Params: $1 = period start (date), $2 = period end (date, exclusive). The same
+-- two dates serve as the period range (daterange($1, $2, '[)')) AND $2 is the
+-- as-of instant for invoice status (the period's exclusive upper bound — \"the
+-- state at the close of the period\"). Only scalar dates cross the boundary.
+--
+-- Returned components (caller computes the rest):
+--   revenue          — Σ invoice_line.amount over invoices whose billing_period
+--                      OVERLAPS the period AND whose status AS OF $2 is issued or
+--                      paid. Revenue is recognized on issue (PRD §8), and the
+--                      as-of predicate (status_during @> $2) means scrubbing the
+--                      period end back before an issue date drops that revenue
+--                      (FR-F4 carried into the P&L).
+--   cost             — Σ payroll_line.amount over payroll_runs whose period
+--                      OVERLAPS the period.
+--   utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
+--                      period). Capacity-share numerator (PRD §8: capacity-based,
+--                      not hours-based — the timesheet is not consulted; leave does
+--                      not reduce it).
+--   employed_days    — days in (employment ∩ period); the utilization denominator.
+--                      Caller computes utilization_pct = utilization_days /
+--                      employed_days, profit = revenue - cost, margin_pct =
+--                      profit / revenue.
+--
+-- A daterange's day count is upper - lower (integer days). The employed/util day
+-- counts use the intersection (the * operator) of the relevant facts with the
+-- period; empty intersections are dropped via NOT isempty.
+--
+-- The driving set is engineers EMPLOYED in the period (employed_days > 0): an
+-- engineer with revenue or cost but no employment overlap is out of scope for the
+-- period and would have a zero denominator. Revenue/cost/util attach via LEFT JOIN
+-- and coalesce to 0, so an employed engineer with no invoices, no payroll, or no
+-- allocation still appears (zeros), and the per-engineer rows sum to the statement
+-- totals.
+--
+-- Assumptions:
+--   * \"Overlaps the period\" (&&) for invoices/payroll, NOT containment: a billing
+--     month or run period that straddles the P&L window contributes in full
+--     (consistent with month-grained invoicing/payroll; the caller chooses
+--     month/YTD windows aligned to month boundaries so straddling does not occur
+--     in practice).
+--   * An invoice has at most one status covering $2 (WITHOUT OVERLAPS guarantees
+--     it); EXISTS over {issued, paid} is the recognition gate.
+--   * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
+--     so they reflect what was billed/paid, not a recomputation (PRD §8).
+WITH params AS (
+  SELECT
+    daterange($1::date, $2::date, '[)') AS period,
+    $2::date AS as_of
+),
+emp AS (
+  -- employed days in the period per engineer (employment ∩ period)
+  SELECT
+    employment.engineer_id,
+    sum(upper(employment.employed_during * params.period)
+        - lower(employment.employed_during * params.period))::numeric
+      AS employed_days
+  FROM params
+  JOIN employment ON employment.employed_during && params.period
+  GROUP BY employment.engineer_id
+),
+util AS (
+  -- Σ fraction × days in allocation ∩ employment ∩ period (capacity share)
+  SELECT
+    allocation.engineer_id,
+    sum(allocation.fraction
+        * (upper(allocation.allocated_during * employment.employed_during
+                 * params.period)
+           - lower(allocation.allocated_during * employment.employed_during
+                   * params.period)))::numeric AS utilization_days
+  FROM params
+  JOIN allocation ON allocation.allocated_during && params.period
+  JOIN employment ON employment.engineer_id = allocation.engineer_id
+                 AND employment.employed_during && allocation.allocated_during
+                 AND employment.employed_during && params.period
+  WHERE NOT isempty(allocation.allocated_during * employment.employed_during
+                    * params.period)
+  GROUP BY allocation.engineer_id
+),
+rev AS (
+  -- revenue: invoice_line.amount for invoices overlapping the period whose status
+  -- AS OF $2 (period end) is issued or paid
+  SELECT
+    invoice_line.engineer_id,
+    sum(invoice_line.amount)::numeric AS revenue
+  FROM params
+  JOIN invoice      ON invoice.billing_period && params.period
+  JOIN invoice_line ON invoice_line.invoice_id = invoice.id
+  WHERE EXISTS (
+    SELECT 1 FROM invoice_status
+    WHERE invoice_status.invoice_id = invoice.id
+      AND invoice_status.status_during @> params.as_of
+      AND invoice_status.status IN ('issued', 'paid')
+  )
+  GROUP BY invoice_line.engineer_id
+),
+cost AS (
+  -- cost: payroll_line.amount for payroll runs overlapping the period
+  SELECT
+    payroll_line.engineer_id,
+    sum(payroll_line.amount)::numeric AS cost
+  FROM params
+  JOIN payroll_run  ON payroll_run.period && params.period
+  JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+  GROUP BY payroll_line.engineer_id
+)
+SELECT
+  emp.engineer_id,
+  engineer.name AS engineer,
+  coalesce(rev.revenue, 0)::numeric AS revenue,
+  coalesce(cost.cost, 0)::numeric AS cost,
+  coalesce(util.utilization_days, 0)::numeric AS utilization_days,
+  emp.employed_days
+FROM emp
+JOIN engineer  ON engineer.id = emp.engineer_id
+LEFT JOIN util ON util.engineer_id = emp.engineer_id
+LEFT JOIN rev  ON rev.engineer_id = emp.engineer_id
+LEFT JOIN cost ON cost.engineer_id = emp.engineer_id
+ORDER BY engineer.name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1079,6 +2283,197 @@ UPDATE rate_card
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.parameter(pog.float(day_rate))
+  |> pog.parameter(pog.int(level))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `roster_clients` query
+/// defined in `./src/tempo/server/sql/roster_clients.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type RosterClientsRow {
+  RosterClientsRow(id: Int, name: String)
+}
+
+/// roster_clients.sql — every client, by name.
+///
+/// The client-directory slice the operations console offers as a name <select>
+/// (SignContract carries the client by NAME). A client is a durable identity —
+/// it has no validity window — so this is NOT date-filtered: every client is
+/// always selectable, id + name, ordered by name for a stable dropdown.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn roster_clients(
+  db: pog.Connection,
+) -> Result(pog.Returned(RosterClientsRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    decode.success(RosterClientsRow(id:, name:))
+  }
+
+  "-- roster_clients.sql — every client, by name.
+--
+-- The client-directory slice the operations console offers as a name <select>
+-- (SignContract carries the client by NAME). A client is a durable identity —
+-- it has no validity window — so this is NOT date-filtered: every client is
+-- always selectable, id + name, ordered by name for a stable dropdown.
+SELECT id, name
+FROM client
+ORDER BY name;
+"
+  |> pog.query
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `roster_engineers` query
+/// defined in `./src/tempo/server/sql/roster_engineers.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type RosterEngineersRow {
+  RosterEngineersRow(id: Int, name: String)
+}
+
+/// roster_engineers.sql — engineers EMPLOYED as-of the date ($1::date).
+///
+/// The engineer-directory slice the operations console offers as a name <select>:
+/// only engineers whose employment window covers the slider's as-of date, so the
+/// console can never name an engineer who is not on the books on that date. One
+/// row per engineer (employment has at most one row covering a date), id + name,
+/// ordered by name for a stable, alphabetised dropdown.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn roster_engineers(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(RosterEngineersRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    decode.success(RosterEngineersRow(id:, name:))
+  }
+
+  "-- roster_engineers.sql — engineers EMPLOYED as-of the date ($1::date).
+--
+-- The engineer-directory slice the operations console offers as a name <select>:
+-- only engineers whose employment window covers the slider's as-of date, so the
+-- console can never name an engineer who is not on the books on that date. One
+-- row per engineer (employment has at most one row covering a date), id + name,
+-- ordered by name for a stable, alphabetised dropdown.
+SELECT e.id, e.name
+FROM engineer e
+JOIN employment emp
+  ON emp.engineer_id = e.id AND emp.employed_during @> $1::date
+ORDER BY e.name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `roster_projects` query
+/// defined in `./src/tempo/server/sql/roster_projects.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type RosterProjectsRow {
+  RosterProjectsRow(id: Int, name: String)
+}
+
+/// roster_projects.sql — projects ACTIVE as-of the date ($1::date).
+///
+/// The project-directory slice the operations console offers as a name <select>:
+/// only projects whose active window covers the slider's as-of date. The
+/// `active_during` WITHOUT OVERLAPS constraint guarantees at most one row per
+/// project id per date, so this returns one row per active project, id + name,
+/// ordered by name for a stable, alphabetised dropdown.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn roster_projects(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(RosterProjectsRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    decode.success(RosterProjectsRow(id:, name:))
+  }
+
+  "-- roster_projects.sql — projects ACTIVE as-of the date ($1::date).
+--
+-- The project-directory slice the operations console offers as a name <select>:
+-- only projects whose active window covers the slider's as-of date. The
+-- `active_during` WITHOUT OVERLAPS constraint guarantees at most one row per
+-- project id per date, so this returns one row per active project, id + name,
+-- ordered by name for a stable, alphabetised dropdown.
+SELECT id, name
+FROM project
+WHERE active_during @> $1::date
+ORDER BY name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// salary_revise.sql — change a level's monthly_salary from $1 onward.
+///
+/// CHANGE write: re-rate the version of a level in effect on $1 for the open
+/// span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
+/// single salary row covering $1, so a separately-scheduled future version of
+/// the same level stays untouched; PG carves off the unchanged [start, $1)
+/// remainder as its own row. $1 is the effective date, $2 the new monthly
+/// salary, $3 the level.
+///
+/// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
+/// infer a split from the affected-row count — read the rows back instead.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn salary_revise(
+  db: pog.Connection,
+  arg_1: Date,
+  monthly_salary: Float,
+  level: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- salary_revise.sql — change a level's monthly_salary from $1 onward.
+--
+-- CHANGE write: re-rate the version of a level in effect on $1 for the open
+-- span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
+-- single salary row covering $1, so a separately-scheduled future version of
+-- the same level stays untouched; PG carves off the unchanged [start, $1)
+-- remainder as its own row. $1 is the effective date, $2 the new monthly
+-- salary, $3 the level.
+--
+-- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
+-- infer a split from the affected-row count — read the rows back instead.
+UPDATE salary
+   FOR PORTION OF effective_during FROM $1::date TO NULL
+   SET monthly_salary = $2
+ WHERE level = $3
+   AND effective_during @> $1::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.float(monthly_salary))
   |> pog.parameter(pog.int(level))
   |> pog.returning(decoder)
   |> pog.execute(db)

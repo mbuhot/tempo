@@ -116,7 +116,7 @@ pub fn replay_in(conn: pog.Connection, actor: String) -> Result(Int, String) {
       command.dispatch_in(conn, actor, command)
       |> result.map_error(fn(error) {
         "dispatching "
-        <> command.operation_tag(command)
+        <> string.inspect(command)
         <> ": "
         <> string.inspect(error)
       })

@@ -11,12 +11,15 @@ import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
   type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
-  type OperationRequest, type TimesheetDay, type TimesheetLine,
-  type WriteRequest, AdjustRateForPortion, AssignToProject, BoardRow,
-  BoardSnapshot, ChangeAllocationFraction, Event, LogTimesheet, OnLeave,
-  OnProject, OnboardEngineer, OperationRequest, Promote, ReviseRateCard, RollOff,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetDay,
-  TimesheetLine, Unassigned, WriteRequest,
+  type Invoice, type InvoiceDetail, type InvoiceLine, type OperationRequest,
+  type Payroll, type PayrollLine, type Pnl, type PnlRow, type Ref, type Roster,
+  type TimesheetDay, type TimesheetLine, type WriteRequest, AdjustRateForPortion,
+  AssignToProject, BoardRow, BoardSnapshot, ChangeAllocationFraction,
+  DraftInvoice, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  LogTimesheet, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
+  RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetDay, TimesheetLine, Unassigned, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -232,6 +235,44 @@ pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
   decode.success(TimesheetDay(engineer_id:, date:, lines:))
 }
 
+// --- Ref ---------------------------------------------------------------------
+// A directory entry the console renders as a `<select>` option: id + name.
+
+/// Encode a `Ref` (one directory entry) as a JSON object.
+pub fn encode_ref(reference: Ref) -> Json {
+  let Ref(id:, name:) = reference
+  json.object([#("id", json.int(id)), #("name", json.string(name))])
+}
+
+/// Decode a `Ref` from a JSON object.
+pub fn ref_decoder() -> Decoder(Ref) {
+  use id <- decode.field("id", decode.int)
+  use name <- decode.field("name", decode.string)
+  decode.success(Ref(id:, name:))
+}
+
+// --- Roster ------------------------------------------------------------------
+// The operations-console directory as-of a date: the employed engineers, the
+// active projects, and every client, each a list of `Ref`.
+
+/// Encode a `Roster` (the console directory) as a JSON object.
+pub fn encode_roster(roster: Roster) -> Json {
+  let Roster(engineers:, projects:, clients:) = roster
+  json.object([
+    #("engineers", json.array(engineers, encode_ref)),
+    #("projects", json.array(projects, encode_ref)),
+    #("clients", json.array(clients, encode_ref)),
+  ])
+}
+
+/// Decode a `Roster` from a JSON object.
+pub fn roster_decoder() -> Decoder(Roster) {
+  use engineers <- decode.field("engineers", decode.list(ref_decoder()))
+  use projects <- decode.field("projects", decode.list(ref_decoder()))
+  use clients <- decode.field("clients", decode.list(ref_decoder()))
+  decode.success(Roster(engineers:, projects:, clients:))
+}
+
 // --- Timesheet write --------------------------------------------------------
 // The POST /api/timesheet request body and the typed error body the handler
 // returns on rejection. Kept here so the client and server share one contract:
@@ -383,6 +424,38 @@ pub fn encode_command(command: Command) -> Json {
         #("engineer_id", json.int(engineer_id)),
         #("effective", encode_date(effective)),
       ])
+    SetSalary(level:, monthly_salary:, effective:) ->
+      json.object([
+        #("op", json.string("set_salary")),
+        #("level", json.int(level)),
+        #("monthly_salary", json.float(monthly_salary)),
+        #("effective", encode_date(effective)),
+      ])
+    DraftInvoice(project_id:, billing_from:, billing_to:) ->
+      json.object([
+        #("op", json.string("draft_invoice")),
+        #("project_id", json.int(project_id)),
+        #("billing_from", encode_date(billing_from)),
+        #("billing_to", encode_date(billing_to)),
+      ])
+    IssueInvoice(invoice_id:, at:) ->
+      json.object([
+        #("op", json.string("issue_invoice")),
+        #("invoice_id", json.int(invoice_id)),
+        #("at", encode_date(at)),
+      ])
+    PayInvoice(invoice_id:, at:) ->
+      json.object([
+        #("op", json.string("pay_invoice")),
+        #("invoice_id", json.int(invoice_id)),
+        #("at", encode_date(at)),
+      ])
+    RunPayroll(period_from:, period_to:) ->
+      json.object([
+        #("op", json.string("run_payroll")),
+        #("period_from", encode_date(period_from)),
+        #("period_to", encode_date(period_to)),
+      ])
   }
 }
 
@@ -487,6 +560,36 @@ pub fn command_decoder() -> Decoder(Command) {
       use effective <- decode.field("effective", date_decoder())
       decode.success(TerminateEmployment(engineer_id:, effective:))
     }
+    "set_salary" -> {
+      use level <- decode.field("level", decode.int)
+      use monthly_salary <- decode.field(
+        "monthly_salary",
+        lenient_float_decoder(),
+      )
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(SetSalary(level:, monthly_salary:, effective:))
+    }
+    "draft_invoice" -> {
+      use project_id <- decode.field("project_id", decode.int)
+      use billing_from <- decode.field("billing_from", date_decoder())
+      use billing_to <- decode.field("billing_to", date_decoder())
+      decode.success(DraftInvoice(project_id:, billing_from:, billing_to:))
+    }
+    "issue_invoice" -> {
+      use invoice_id <- decode.field("invoice_id", decode.int)
+      use at <- decode.field("at", date_decoder())
+      decode.success(IssueInvoice(invoice_id:, at:))
+    }
+    "pay_invoice" -> {
+      use invoice_id <- decode.field("invoice_id", decode.int)
+      use at <- decode.field("at", date_decoder())
+      decode.success(PayInvoice(invoice_id:, at:))
+    }
+    "run_payroll" -> {
+      use period_from <- decode.field("period_from", date_decoder())
+      use period_to <- decode.field("period_to", date_decoder())
+      decode.success(RunPayroll(period_from:, period_to:))
+    }
     _ ->
       decode.failure(
         TerminateEmployment(engineer_id: 0, effective: zero_date()),
@@ -555,5 +658,215 @@ pub fn event_decoder() -> Decoder(Event) {
     operation:,
     summary:,
     payload:,
+  ))
+}
+
+// --- Invoice -----------------------------------------------------------------
+// One row of the invoices-table read model: the durable subject plus its status
+// as-of the selected date and its line total. Dates are ISO strings, money a
+// lenient Float (a whole amount may arrive integer-looking from the JS client).
+
+/// Encode an `Invoice` (one invoices-table row) as a JSON object.
+pub fn encode_invoice(invoice: Invoice) -> Json {
+  let Invoice(
+    id:,
+    project:,
+    client:,
+    billing_from:,
+    billing_to:,
+    status:,
+    total:,
+  ) = invoice
+  json.object([
+    #("id", json.int(id)),
+    #("project", json.string(project)),
+    #("client", json.string(client)),
+    #("billing_from", encode_date(billing_from)),
+    #("billing_to", encode_date(billing_to)),
+    #("status", json.string(status)),
+    #("total", json.float(total)),
+  ])
+}
+
+/// Decode an `Invoice` from a JSON object.
+pub fn invoice_decoder() -> Decoder(Invoice) {
+  use id <- decode.field("id", decode.int)
+  use project <- decode.field("project", decode.string)
+  use client <- decode.field("client", decode.string)
+  use billing_from <- decode.field("billing_from", date_decoder())
+  use billing_to <- decode.field("billing_to", date_decoder())
+  use status <- decode.field("status", decode.string)
+  use total <- decode.field("total", lenient_float_decoder())
+  decode.success(Invoice(
+    id:,
+    project:,
+    client:,
+    billing_from:,
+    billing_to:,
+    status:,
+    total:,
+  ))
+}
+
+// --- InvoiceLine -------------------------------------------------------------
+
+/// Encode an `InvoiceLine` (one snapshot line) as a JSON object.
+pub fn encode_invoice_line(line: InvoiceLine) -> Json {
+  let InvoiceLine(engineer:, level:, day_rate:, days:, amount:) = line
+  json.object([
+    #("engineer", json.string(engineer)),
+    #("level", json.int(level)),
+    #("day_rate", json.float(day_rate)),
+    #("days", json.float(days)),
+    #("amount", json.float(amount)),
+  ])
+}
+
+/// Decode an `InvoiceLine` from a JSON object.
+pub fn invoice_line_decoder() -> Decoder(InvoiceLine) {
+  use engineer <- decode.field("engineer", decode.string)
+  use level <- decode.field("level", decode.int)
+  use day_rate <- decode.field("day_rate", lenient_float_decoder())
+  use days <- decode.field("days", lenient_float_decoder())
+  use amount <- decode.field("amount", lenient_float_decoder())
+  decode.success(InvoiceLine(engineer:, level:, day_rate:, days:, amount:))
+}
+
+// --- InvoiceDetail -----------------------------------------------------------
+
+/// Encode an `InvoiceDetail` (the header plus its computed lines) to JSON.
+pub fn encode_invoice_detail(detail: InvoiceDetail) -> Json {
+  let InvoiceDetail(invoice:, lines:) = detail
+  json.object([
+    #("invoice", encode_invoice(invoice)),
+    #("lines", json.array(lines, encode_invoice_line)),
+  ])
+}
+
+/// Decode an `InvoiceDetail` from JSON.
+pub fn invoice_detail_decoder() -> Decoder(InvoiceDetail) {
+  use invoice <- decode.field("invoice", invoice_decoder())
+  use lines <- decode.field("lines", decode.list(invoice_line_decoder()))
+  decode.success(InvoiceDetail(invoice:, lines:))
+}
+
+// --- PayrollLine -------------------------------------------------------------
+
+/// Encode a `PayrollLine` (one engineer's prorated payment) as a JSON object.
+pub fn encode_payroll_line(line: PayrollLine) -> Json {
+  let PayrollLine(engineer:, amount:, days:) = line
+  json.object([
+    #("engineer", json.string(engineer)),
+    #("amount", json.float(amount)),
+    #("days", json.float(days)),
+  ])
+}
+
+/// Decode a `PayrollLine` from a JSON object.
+pub fn payroll_line_decoder() -> Decoder(PayrollLine) {
+  use engineer <- decode.field("engineer", decode.string)
+  use amount <- decode.field("amount", lenient_float_decoder())
+  use days <- decode.field("days", lenient_float_decoder())
+  decode.success(PayrollLine(engineer:, amount:, days:))
+}
+
+// --- Payroll -----------------------------------------------------------------
+
+/// Encode a `Payroll` run (the month plus its lines) to JSON.
+pub fn encode_payroll(payroll: Payroll) -> Json {
+  let Payroll(period_from:, period_to:, lines:) = payroll
+  json.object([
+    #("period_from", encode_date(period_from)),
+    #("period_to", encode_date(period_to)),
+    #("lines", json.array(lines, encode_payroll_line)),
+  ])
+}
+
+/// Decode a `Payroll` run from JSON.
+pub fn payroll_decoder() -> Decoder(Payroll) {
+  use period_from <- decode.field("period_from", date_decoder())
+  use period_to <- decode.field("period_to", date_decoder())
+  use lines <- decode.field("lines", decode.list(payroll_line_decoder()))
+  decode.success(Payroll(period_from:, period_to:, lines:))
+}
+
+// --- PnlRow ------------------------------------------------------------------
+
+/// Encode a `PnlRow` (one per-employee P&L breakdown) as a JSON object.
+pub fn encode_pnl_row(row: PnlRow) -> Json {
+  let PnlRow(engineer:, revenue:, cost:, profit:, margin_pct:, utilization_pct:) =
+    row
+  json.object([
+    #("engineer", json.string(engineer)),
+    #("revenue", json.float(revenue)),
+    #("cost", json.float(cost)),
+    #("profit", json.float(profit)),
+    #("margin_pct", json.float(margin_pct)),
+    #("utilization_pct", json.float(utilization_pct)),
+  ])
+}
+
+/// Decode a `PnlRow` from a JSON object.
+pub fn pnl_row_decoder() -> Decoder(PnlRow) {
+  use engineer <- decode.field("engineer", decode.string)
+  use revenue <- decode.field("revenue", lenient_float_decoder())
+  use cost <- decode.field("cost", lenient_float_decoder())
+  use profit <- decode.field("profit", lenient_float_decoder())
+  use margin_pct <- decode.field("margin_pct", lenient_float_decoder())
+  use utilization_pct <- decode.field(
+    "utilization_pct",
+    lenient_float_decoder(),
+  )
+  decode.success(PnlRow(
+    engineer:,
+    revenue:,
+    cost:,
+    profit:,
+    margin_pct:,
+    utilization_pct:,
+  ))
+}
+
+// --- Pnl ---------------------------------------------------------------------
+
+/// Encode a `Pnl` statement (month/YTD totals plus per-employee rows) to JSON.
+pub fn encode_pnl(pnl: Pnl) -> Json {
+  let Pnl(
+    month_revenue:,
+    month_cost:,
+    month_profit:,
+    ytd_revenue:,
+    ytd_cost:,
+    ytd_profit:,
+    rows:,
+  ) = pnl
+  json.object([
+    #("month_revenue", json.float(month_revenue)),
+    #("month_cost", json.float(month_cost)),
+    #("month_profit", json.float(month_profit)),
+    #("ytd_revenue", json.float(ytd_revenue)),
+    #("ytd_cost", json.float(ytd_cost)),
+    #("ytd_profit", json.float(ytd_profit)),
+    #("rows", json.array(rows, encode_pnl_row)),
+  ])
+}
+
+/// Decode a `Pnl` statement from JSON.
+pub fn pnl_decoder() -> Decoder(Pnl) {
+  use month_revenue <- decode.field("month_revenue", lenient_float_decoder())
+  use month_cost <- decode.field("month_cost", lenient_float_decoder())
+  use month_profit <- decode.field("month_profit", lenient_float_decoder())
+  use ytd_revenue <- decode.field("ytd_revenue", lenient_float_decoder())
+  use ytd_cost <- decode.field("ytd_cost", lenient_float_decoder())
+  use ytd_profit <- decode.field("ytd_profit", lenient_float_decoder())
+  use rows <- decode.field("rows", decode.list(pnl_row_decoder()))
+  decode.success(Pnl(
+    month_revenue:,
+    month_cost:,
+    month_profit:,
+    ytd_revenue:,
+    ytd_cost:,
+    ytd_profit:,
+    rows:,
   ))
 }

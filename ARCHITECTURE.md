@@ -365,12 +365,20 @@ Every business change is a typed **`Command`** (defined in `shared`, so the clie
 server decodes the same value), applied through one seam. Reading (§5) is a trivial as-of predicate;
 the modeling lives here.
 
-**`command.dispatch(context, actor, command)`** opens one `pog.transaction`, routes the command to its
-aggregate function (`engineer`, `allocation`, `rate_card`, `engagement`, `leave`, `timesheet`), then
-appends exactly one `event_log` row (`operation` tag, `summarize(command)`, and the command
-re-encoded as `payload`) — facts and journal commit together or not at all. The aggregate functions
-take the in-transaction connection and do *only* their temporal writes; event-writing lives solely in
-`dispatch`.
+**`command.dispatch(context, actor, command)`** opens one `pog.transaction` and does *only* two
+things: **route** the command to its aggregate's `handle` (`engineer`, `allocation`, `rate_card`,
+`engagement`, `leave`, `timesheet` — variants grouped per aggregate by alternative patterns), and
+**persist** each emitted event via `event.append`. Each `handle(conn, command)` takes the
+in-transaction connection, does its temporal writes, and **returns
+`Result(List(Event), OperationError)`** — owning its own `operation` tag, human `summary`, and the
+command re-encoded as `payload` (the flat journal `Event` = operation/summary/payload). Facts and
+journal commit together or not at all. `dispatch` **returns the created events** (the persisted
+`List(Event)`), so the web layer echoes exactly what was written — no fetch-newest round-trip.
+
+To break the `command` ↔ aggregate import cycle, the journal `Event` type, the `OperationError` type,
+the SQLSTATE/constraint `classify` helpers, and the ISO/period date helpers live in a leaf module
+**`operation.gleam`** (it imports only `pog`/`json`/`shared`, so it sits below the aggregates).
+`command` is now route + persist only.
 
 The temporal writes fall into four patterns. PG19's `FOR PORTION OF` produces the before/after
 "temporal leftovers" and drops a fully-covered row itself, so there is **no** hand-rolled
@@ -427,9 +435,10 @@ fully-future ones). The `PERIOD` FKs both force the child-first order and verify
 leftovers, so Postgres deletes the prior assertion — a correction *is* a retroactive change
 (ADR-021).
 
-**Error handling — constraints, not code.** The domain issues the writes and lets the database reject
-violations, then *classifies* the rejection by SQLSTATE + the explicit constraint name (§4) into a
-typed `OperationError`, generalizing the existing `timesheet`/`NotAllocated` path (ADR-022):
+**Error handling — constraints, not code.** Each `handle` issues the writes and lets the database
+reject violations, then *classifies* the rejection by SQLSTATE + the explicit constraint name (§4)
+into a typed `OperationError` (via `operation.classify`), generalizing the existing
+`timesheet`/`NotAllocated` path (ADR-022):
 
 | violation | SQLSTATE | `OperationError` | HTTP |
 |---|---|---|---|
@@ -439,9 +448,14 @@ typed `OperationError`, generalizing the existing `timesheet`/`NotAllocated` pat
 | body won't decode | — | (web layer) | 400 |
 | anything else | — | `DatabaseError` | 500 |
 
-**HTTP surface.** `POST /api/operations` decodes an `{actor, command}` envelope and calls `dispatch`;
-`GET /api/events` lists the journal. The client builds a `Command` in the operations console, posts
-it, and on success refetches `GET /api/board` (+ `/api/events`) — reads being trivial.
+**HTTP surface — write = command, read = query.** *Every* write goes through one endpoint:
+`POST /api/operations` decodes an `{actor, command}` envelope, calls `dispatch`, and returns the
+created events as a JSON array (`json.array(events, codecs.encode_event)`). There is no separate
+timesheet write path — logging hours is the `LogTimesheet` command on this same endpoint. Reads are
+plain queries: `GET /api/board` (the as-of board) and `GET /api/timesheet` (the timesheet *form*);
+`GET /api/events` lists the journal. The client builds a `Command` (operations console or timesheet),
+posts it, decodes the returned events, and on success refetches the relevant reads (board / timesheet
+form / events) — reads being trivial.
 
 ## 6. Squirrel integration
 
@@ -514,6 +528,13 @@ are identical before and after. Proven on stage by scrubbing across the migratio
   the wide schema that `010` coalesces), per ADR-024.
 
 ## 9. Build & run
+
+```sh
+# one-shot: db (up + healthy) → migrate → build client → serve on :8000
+bin/up
+```
+
+The individual steps `bin/up` chains, for running a single piece:
 
 ```sh
 # database (PG19): start the tempo-db container (from the repo root)
@@ -626,3 +647,150 @@ runs each step in its package's working directory: provision PG19 → `gleam tes
    fall back to a hand-written `pog` query for that one statement if not.
 4. **Temporal upsert** — confirm the delete-then-insert (or supplemental unique index) approach for
    timesheet re-entry.
+
+## 12. Financials (invoicing, payroll, P&L)
+
+Money layered on the temporal staffing model (`PRD-financials.md`): same stack, same discipline —
+writes through the command bus (§5a), reads as as-of queries (§5). Migration **`012_financials.sql`
+is additive** over the v2-split schema; the migration oracle (§10.6) applies only `001`–`003` + `010`
+and **does not run `012`**, so its v1→v2 board replay is untouched by the financial tables.
+
+### 12.1 Schema (the new tables)
+
+Same naming discipline as §4: periods named for the predicate they assert (ADR-018), `WITHOUT
+OVERLAPS` and `CHECK` constraints carry explicit names so a violation classifies to a typed
+`OperationError` (ADR-022). One **cost fact** (`salary`), one **identity + temporal-status** trio
+(`invoice` / `invoice_status` / `invoice_line`), and one **run** pair (`payroll_run` /
+`payroll_line`).
+
+```sql
+-- Cost rate (the analogue of rate_card: what we PAY a level, vs what we CHARGE) --
+CREATE TABLE salary (                            -- "we pay level L this monthly salary"
+  level          int NOT NULL CHECK (level BETWEEN 1 AND 7),
+  monthly_salary numeric(10,2) NOT NULL,
+  effective_during daterange NOT NULL,
+  CONSTRAINT salary_no_overlap
+    PRIMARY KEY (level, effective_during WITHOUT OVERLAPS)  -- FOR PORTION OF target, like rate_card
+);
+
+-- Invoice: identity + immutable subject (which project, which month) -----------
+CREATE TABLE invoice (
+  id             int GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  project_id     int NOT NULL,                   -- project ENTITY id (no identity table; see below)
+  billing_period daterange NOT NULL              -- the daterange covering the billed month
+);
+
+CREATE TABLE invoice_status (                    -- "invoice N is in status S" — the temporal lifecycle
+  invoice_id int NOT NULL REFERENCES invoice(id),
+  status     text NOT NULL CHECK (status IN ('draft', 'issued', 'paid')),
+  status_during daterange NOT NULL,
+  CONSTRAINT invoice_status_no_overlap
+    PRIMARY KEY (invoice_id, status_during WITHOUT OVERLAPS)
+);
+
+CREATE TABLE invoice_line (                       -- the lines snapshotted at draft (plain rows)
+  invoice_id  int NOT NULL REFERENCES invoice(id),
+  engineer_id int NOT NULL,
+  level       int NOT NULL,
+  day_rate    numeric(10,2) NOT NULL,             -- the contract-AGREED rate (§12.2)
+  days        numeric(8,2) NOT NULL,
+  amount      numeric(12,2) NOT NULL
+);
+
+-- Payroll: a run per month, a prorated payment instruction per engineer --------
+CREATE TABLE payroll_run  (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, period daterange NOT NULL);
+CREATE TABLE payroll_line (
+  run_id      int NOT NULL REFERENCES payroll_run(id),
+  engineer_id int NOT NULL,
+  amount      numeric(12,2) NOT NULL,
+  days        numeric(8,2) NOT NULL
+);
+```
+
+**No cross-entity PERIOD FKs** (PRD-financials §3, §8). An invoice references a project *entity* id
+which — like `contract` — has no single-row identity table to key against, so containment between the
+financial rows and the staffing facts lives in the **computing queries** (§12.2–12.4), not the
+schema. What *can* be enforced is: the `invoice_status` and `salary` `WITHOUT OVERLAPS` exclusions,
+the status `CHECK`, and the plain `REFERENCES invoice(id)` on the status/line children. `salary` is
+revised exactly like `rate_card` — `salary_revise.sql` is a `FOR PORTION OF effective_during FROM
+$effective TO NULL` Change (§5a pattern 2), and `SetSalary` is its command.
+
+### 12.2 Agreed-rate billing (`invoice_billing_lines.sql`, FR-F1/F2 — the centerpiece)
+
+`DraftInvoice(project_id, month)` mints the invoice identity, opens its `draft` status, and computes
+its lines once (snapshotted). The temporal point is **which `rate_card` version to read**: the
+`day_rate` is `rate_card[level] @> lower(contract.term)` — the rate as of the **contract's signing
+date** — **not** `rate_card @> month`. If the rate card was revised after the contract was signed, the
+invoice still bills the older *agreed* rate, so the board's as-of-today charge rate and an invoice's
+billed rate visibly diverge once a `ReviseRateCard` has landed.
+
+The query pins `agreed_date = lower(contract.term)` for the one contract active over the month
+(`project ⊂ contract`, both `&&` the month), then per line:
+
+- the billable sub-period is the **three-way intersection** (`*`) of `allocation`, the
+  `engineer_role` (level) version, and the month — so a **mid-month promotion splits** the work into
+  one sub-period per level, each billed at *that level's* agreed rate;
+- `days = Σ fraction × (upper − lower)` and `amount = Σ fraction × (upper − lower) × day_rate`, day
+  counted as the integer width of the range, aggregated per `(engineer, level)`;
+- the rate is joined `rate_card.effective_during @> agreed_date` (not the month). **Leave does not
+  reduce billing** — billing is allocation-fraction-weighted working days; leave is a payroll concern
+  (§12.3), paid in full.
+
+`IssueInvoice` / `PayInvoice` are temporal **status Changes** (§5a, the Change pattern) with a guard:
+read the status covering `at`, assert it equals the expected predecessor (`draft` for issue, `issued`
+for pay) — an out-of-order transition is rejected as `InvalidValue`, not silently applied — then
+`invoice_status_close` caps it (`DELETE … FOR PORTION OF status_during FROM $at TO NULL`) and
+`invoice_status_open` asserts the next from `at`; the `invoice_status_no_overlap` exclusion is the
+database backstop. The initial `draft` opens at `lower(billing_period)`, so scrubbing the slider back
+to before an invoice's issue date shows it as `draft` again (FR-F4).
+
+### 12.3 Payroll proration (`payroll_amounts.sql`, FR-F5/F6)
+
+`RunPayroll(month)` mints a `payroll_run` and one `payroll_line` per engineer employed in the month.
+The paid period is the intersection (`*`) of **`employment ∩ engineer_role(level) ∩ salary-version ∩
+month`**; splitting on both the role and the salary version means a **mid-month promotion** is paid
+partly at each level's salary and a mid-month salary revision is honoured day-accurate:
+
+```
+amount = Σ over sub-periods of  monthly_salary[level] × days_in_subperiod / days_in_month
+days   = Σ over sub-periods of  days_in_subperiod                      (employed days in month)
+```
+
+`days_in_month` is the actual calendar width (`upper(month) − lower(month)`, 28..31). A hire or
+termination mid-month **clips** the paid period to the employed days; a promotion **splits** it;
+**leave is paid in full** — the `leave` table is deliberately **not consulted**, so payroll prorates
+over `employment`, not `employment − leave` (FR-F6).
+
+### 12.4 P&L (`pnl_rows.sql` + `finance_query.pnl`, FR-F7/F8 — a read query)
+
+`GET /api/pnl?as_of=` is a pure read. `pnl_rows.sql` returns, per engineer employed in the window, the
+raw components; `finance_query.pnl` runs it over **two windows** — the month containing `as_of`, and
+year-to-date (Jan 1 of that year to the end of that month) — and derives the rest in Gleam:
+
+- **revenue** = Σ `invoice_line.amount` over invoices whose `billing_period` overlaps the window
+  **and** whose status **as of the window's exclusive upper bound** is `issued`/`paid`. Revenue is
+  recognized **on issue** (PRD §8); the as-of predicate carries FR-F4 into the P&L — scrub the period
+  end back before an issue date and that revenue drops out.
+- **cost** = Σ `payroll_line.amount` over runs whose period overlaps the window.
+- **profit** = revenue − cost; **margin %** = profit / revenue (0 at zero revenue).
+- **utilization %** = `Σ fraction × days in (allocation ∩ employment ∩ window)` / `employed_days` —
+  capacity-share, **not** hours-based (the timesheet is not consulted; leave does not reduce it; PRD §8).
+
+The driving set is engineers **employed** in the window (so the utilization denominator is non-zero);
+revenue/cost/utilization attach by `LEFT JOIN` and coalesce to 0, so an employed engineer with no
+invoices/payroll/allocation still appears with zeros and the per-engineer rows **reconcile to the
+statement totals** (the totals are the sum of the breakdown). Revenue and cost are summed from the
+**snapshot** lines (`invoice_line`, `payroll_line`), not a recomputation — an issued invoice does not
+retro-change when underlying facts move (PRD §8).
+
+### 12.5 Layering & tests
+
+Commands route through the same bus as everything else: `invoice.handle` and `payroll.handle` (and
+`salary` via `SetSalary`) each do their writes and emit one `Event` (§5a, ADR-025). The web layer adds
+read-only `GET /api/invoices` (+`/:id`), `GET /api/payroll?from=&to=`, and `GET /api/pnl?as_of=`,
+each delegating to `finance_query` (which speaks shared types and never imports `wisp` or `sql`
+directly — it is the domain seam, §10). Tests: `financials_test.gleam` (operation layer — the agreed
+rate after a later `ReviseRateCard`, the mid-month hire/termination/promotion proration, leave at full
+pay, and the rejected out-of-order transition), `pnl_test.gleam` (the read layer — exact
+month/YTD/per-engineer figures), codec round-trips for the new `Command`/read types, and the
+behaviour-driven `e2e/financials.spec.js` (draft → issue → revenue appears; scrub back → `draft`).

@@ -65,6 +65,24 @@ pub type TimesheetDay {
   TimesheetDay(engineer_id: Int, date: Date, lines: List(TimesheetLine))
 }
 
+/// A directory entry: a durable subject's id paired with its display name. The
+/// operations console renders these as `<select>` options — the `id` is the
+/// option value (what `build_command` parses), the `name` the visible text —
+/// so the presenter picks a name and the form still carries the id/name string
+/// the command needs.
+pub type Ref {
+  Ref(id: Int, name: String)
+}
+
+/// The operations-console directory as-of a date (`GET /api/roster?as_of=`): the
+/// engineers EMPLOYED on the date and the projects ACTIVE on the date (both
+/// date-filtered so the console can only name a subject valid then), plus every
+/// client (a durable identity with no validity window, so not date-filtered).
+/// Each list is a `Ref` (id + name) the console turns into `<select>` options.
+pub type Roster {
+  Roster(engineers: List(Ref), projects: List(Ref), clients: List(Ref))
+}
+
 /// A validated timesheet write request: which engineer logs how many hours
 /// against which project on which day. This decoded payload IS the POST
 /// /api/timesheet contract — the client encodes it, the server decodes it, and
@@ -80,9 +98,12 @@ pub type WriteRequest {
 ///
 /// The variants group into the four write patterns:
 ///   * Assert — `OnboardEngineer`, `SignContract`, `StartProject`,
-///     `AssignToProject`, `TakeLeave`, `LogTimesheet`: plain inserts.
-///   * Change — `Promote`, `ChangeAllocationFraction`, `ReviseRateCard`:
-///     "publish a new version effective from a date" (`FOR PORTION OF … TO NULL`).
+///     `AssignToProject`, `TakeLeave`, `LogTimesheet`, `DraftInvoice`,
+///     `RunPayroll`: plain inserts (the financial pair also compute their lines).
+///   * Change — `Promote`, `ChangeAllocationFraction`, `ReviseRateCard`,
+///     `SetSalary`, `IssueInvoice`, `PayInvoice`: "publish a new version effective
+///     from a date" (`FOR PORTION OF … TO NULL`); the invoice transitions cap the
+///     current status row and assert the next.
 ///   * Surgical — `AdjustRateForPortion`: bump a level's rate for a bounded
 ///     window (`FOR PORTION OF … FROM a TO b`).
 ///   * Close / cascade — `RollOff`, `TerminateEmployment`:
@@ -90,7 +111,7 @@ pub type WriteRequest {
 ///
 /// Date fields carry domain meaning: `effective` is the open-ended "from here on"
 /// pivot of a change/close; `valid_from`/`valid_to` bound an asserted or surgical
-/// period. Levels and ids are `Int`, fraction/hours/rate are `Float`, and
+/// period. Levels and ids are `Int`, fraction/hours/rate/salary are `Float`, and
 /// name/kind/client are `String`.
 pub type Command {
   /// Hire an engineer: create their identity, open-ended employment, and initial
@@ -135,6 +156,19 @@ pub type Command {
   RollOff(engineer_id: Int, project_id: Int, effective: Date)
   /// Terminate an engineer's employment from a date, capping every contained fact.
   TerminateEmployment(engineer_id: Int, effective: Date)
+  /// Publish a new monthly salary for a level effective from a date (the cost
+  /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
+  SetSalary(level: Int, monthly_salary: Float, effective: Date)
+  /// Draft an invoice for a project's billing month, computing its lines at the
+  /// contract-agreed rate (`rate_card` as of the contract's signing date).
+  DraftInvoice(project_id: Int, billing_from: Date, billing_to: Date)
+  /// Transition an invoice `draft -> issued` at a date (a temporal status change).
+  IssueInvoice(invoice_id: Int, at: Date)
+  /// Transition an invoice `issued -> paid` at a date (a temporal status change).
+  PayInvoice(invoice_id: Int, at: Date)
+  /// Run payroll for a month, computing one prorated `payroll_line` per employed
+  /// engineer (split by role so a mid-month promotion blends salaries).
+  RunPayroll(period_from: Date, period_to: Date)
 }
 
 /// The POST /api/operations request body: an `actor` (who is applying the
@@ -158,5 +192,81 @@ pub type Event {
     operation: String,
     summary: String,
     payload: String,
+  )
+}
+
+/// One invoice on the invoices-table read model (FR-F1/FR-F4): the durable subject
+/// (`id`, `project`, `client`, the `billing_from`..`billing_to` month) plus its
+/// `status` *as of* the selected date and its `total` (Σ line amounts). `status`
+/// is the lifecycle word ("draft" | "issued" | "paid") covering the as-of date.
+pub type Invoice {
+  Invoice(
+    id: Int,
+    project: String,
+    client: String,
+    billing_from: Date,
+    billing_to: Date,
+    status: String,
+    total: Float,
+  )
+}
+
+/// One snapshot line of an invoice (FR-F1): the engineer who worked the project in
+/// the period, their `level` during the work, the contract-agreed `day_rate`, the
+/// allocation-weighted `days`, and `amount = days × day_rate`.
+pub type InvoiceLine {
+  InvoiceLine(
+    engineer: String,
+    level: Int,
+    day_rate: Float,
+    days: Float,
+    amount: Float,
+  )
+}
+
+/// The invoice-detail read model (`GET /api/invoices/:id`): the `invoice` header
+/// and its computed `lines`.
+pub type InvoiceDetail {
+  InvoiceDetail(invoice: Invoice, lines: List(InvoiceLine))
+}
+
+/// One line of a payroll run (FR-F5/FR-F6): the engineer, the prorated `amount`
+/// owed for the period, and the employed `days` it covers.
+pub type PayrollLine {
+  PayrollLine(engineer: String, amount: Float, days: Float)
+}
+
+/// A payroll run read model (`GET /api/payroll?period=`): the `period_from`..
+/// `period_to` month and one `PayrollLine` per employed engineer.
+pub type Payroll {
+  Payroll(period_from: Date, period_to: Date, lines: List(PayrollLine))
+}
+
+/// One per-employee row of the P&L statement (FR-F8): the engineer's `revenue`
+/// (their invoice lines), `cost` (their payroll line), `profit` (revenue − cost),
+/// `margin_pct` (profit / revenue), and `utilization_pct` (billable share of
+/// employed days).
+pub type PnlRow {
+  PnlRow(
+    engineer: String,
+    revenue: Float,
+    cost: Float,
+    profit: Float,
+    margin_pct: Float,
+    utilization_pct: Float,
+  )
+}
+
+/// The P&L statement read model (`GET /api/pnl?as_of=`, FR-F7/FR-F8): month and
+/// year-to-date totals for revenue/cost/profit, plus the per-employee `rows`.
+pub type Pnl {
+  Pnl(
+    month_revenue: Float,
+    month_cost: Float,
+    month_profit: Float,
+    ytd_revenue: Float,
+    ytd_cost: Float,
+    ytd_profit: Float,
+    rows: List(PnlRow),
   )
 }

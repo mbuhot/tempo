@@ -178,75 +178,61 @@ pub fn timesheet_read_without_engineer_is_bad_request_test() {
   assert response.status == 400
 }
 
-// --- POST /api/timesheet ----------------------------------------------------
+// --- LogTimesheet via POST /api/operations ----------------------------------
 
-// Logging hours against a project the engineer is NOT allocated to that day is
-// rejected by the timesheet PERIOD FK and surfaced as a clean 422 with a typed
-// error body — never a 500. Marcus (id 2) is on project 300, not 100.
-pub fn timesheet_write_without_allocation_is_unprocessable_test() {
-  let response =
-    simulate.request(http.Post, "/api/timesheet")
-    |> simulate.json_body(
-      json.object([
-        #("engineer_id", json.int(2)),
-        #("project_id", json.int(100)),
-        #("day", json.string("2026-06-10")),
-        #("hours", json.float(8.0)),
-      ]),
-    )
-    |> router.handle_request(ctx())
-
-  assert response.status == 422
-  assert decode_error_code(response) == "not_allocated"
-}
-
-// A malformed JSON body is a 400, not a 500.
-pub fn timesheet_write_bad_body_is_bad_request_test() {
-  let response =
-    simulate.request(http.Post, "/api/timesheet")
-    |> simulate.json_body(json.object([#("engineer_id", json.int(2))]))
-    |> router.handle_request(ctx())
-
-  assert response.status == 400
-}
-
-// A valid write (Marcus id 2 on project 300, a day covered by his allocation)
-// succeeds and the refreshed form reflects the logged hours. The row is deleted
+// Logging hours now goes through the unified operations write path: a
+// LogTimesheet command posted to /api/operations. A valid write (Marcus id 2 on
+// project 300, a day covered by his allocation) commits and returns the created
+// log_timesheet event; re-reading the form for that engineer/day reflects the
+// logged hours. The timesheet row and the appended journal row are removed
 // afterwards so the shared seed is left untouched.
-pub fn timesheet_write_logs_hours_test() {
+pub fn log_timesheet_operation_logs_hours_test() {
   let context = ctx()
+
   let response =
-    simulate.request(http.Post, "/api/timesheet")
+    simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
-      json.object([
-        #("engineer_id", json.int(2)),
-        #("project_id", json.int(300)),
-        #("day", json.string("2026-06-10")),
-        #("hours", json.float(7.5)),
-      ]),
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: types.LogTimesheet(
+          engineer_id: 2,
+          project_id: 300,
+          day: calendar.Date(2026, calendar.June, 10),
+          hours: 7.5,
+        ),
+      )),
     )
     |> router.handle_request(context)
 
-  assert response.status == 200
+  let status = response.status
+  let assert [event] = decode_events(response)
 
+  // Re-read the form for that engineer/day; the logged hours are on record.
+  let form =
+    simulate.request(http.Get, "/api/timesheet?engineer=2&day=2026-06-10")
+    |> router.handle_request(context)
   let logged =
-    decode_timesheet(response).lines
+    decode_timesheet(form).lines
     |> list.filter(fn(line) { line.project_id == 300 })
     |> list.map(fn(line) { line.hours })
 
-  // Restore the seed regardless of the assertion outcome.
+  // Restore the seed regardless of the assertion outcome: drop the timesheet row
+  // and the journal row the operation committed.
   delete_timesheet(context, 2, 300, calendar.Date(2026, calendar.June, 10))
+  delete_event(context, event.id)
 
+  assert status == 200
+  assert event.operation == "log_timesheet"
   assert logged == [7.5]
 }
 
 // --- POST /api/operations ---------------------------------------------------
 
-// A successful operation returns 200 with the newly-created event as JSON (the
-// operation tag, summary, and re-encoded payload), and the journal really grew
-// by that row. Promote Marcus (id 2) to L6 effective 2026-09-01: the FOR PORTION
-// OF change commits, so the role split and the appended event_log row are both
-// undone afterwards to leave the shared seed pristine.
+// A successful operation returns 200 with the newly-created event(s) as a JSON
+// array (the operation tag, summary, and re-encoded payload), and the journal
+// really grew by that row. Promote Marcus (id 2) to L6 effective 2026-09-01: the
+// FOR PORTION OF change commits, so the role split and the appended event_log row
+// are both undone afterwards to leave the shared seed pristine.
 pub fn operation_promote_returns_created_event_test() {
   let context = ctx()
   let before = event_count(context)
@@ -266,7 +252,8 @@ pub fn operation_promote_returns_created_event_test() {
     |> router.handle_request(context)
 
   let status = response.status
-  let event = decode_event(response)
+  // The handler returns the created events as an array; a Promote produces one.
+  let assert [event] = decode_events(response)
   let after = event_count(context)
 
   // Restore the seed regardless of the assertion outcome: undo the role split
@@ -346,7 +333,7 @@ pub fn events_returns_journal_test() {
       )),
     )
     |> router.handle_request(context)
-  let created = decode_event(post)
+  let assert [created] = decode_events(post)
 
   let response =
     simulate.request(http.Get, "/api/events")
@@ -402,13 +389,6 @@ fn decode_error_code(response) -> String {
     simulate.read_body(response)
     |> json.parse(decoder)
   code
-}
-
-fn decode_event(response) -> Event {
-  let assert Ok(event) =
-    simulate.read_body(response)
-    |> json.parse(codecs.event_decoder())
-  event
 }
 
 fn decode_events(response) -> List(Event) {

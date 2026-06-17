@@ -16,10 +16,12 @@ import gleam/time/calendar.{Date, January, July, June}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, Event, LogTimesheet, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, Promote, ReviseRateCard, RollOff,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetDay,
-  TimesheetLine, Unassigned,
+  ChangeAllocationFraction, DraftInvoice, Event, Invoice, InvoiceDetail,
+  InvoiceLine, IssueInvoice, LogTimesheet, OnLeave, OnProject, OnboardEngineer,
+  OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref,
+  ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetDay, TimesheetLine,
+  Unassigned,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -279,6 +281,53 @@ pub fn timesheet_day_on_leave_empty_round_trips_test() {
     == original
 }
 
+// --- Ref ---------------------------------------------------------------------
+// A directory entry the operations console renders as a `<select>` option:
+// id (the option value) paired with name (the visible text).
+
+pub fn ref_round_trips_test() {
+  let original = Ref(id: 1, name: "Priya Sharma")
+
+  assert round_trip(original, codecs.encode_ref, codecs.ref_decoder())
+    == original
+}
+
+// --- Roster ------------------------------------------------------------------
+// The operations-console directory as-of a date: the employed engineers, the
+// active projects, and every client, anchored to the seed frame (003_seed.sql:
+// at 2026-06-15 all three engineers are employed and all three projects active).
+pub fn roster_round_trips_test() {
+  let original =
+    Roster(
+      engineers: [
+        Ref(id: 3, name: "Aisha Okafor"),
+        Ref(id: 2, name: "Marcus Chen"),
+        Ref(id: 1, name: "Priya Sharma"),
+      ],
+      projects: [
+        Ref(id: 300, name: "Data Platform"),
+        Ref(id: 200, name: "Inventory Sync"),
+        Ref(id: 100, name: "Ledger Migration"),
+      ],
+      clients: [
+        Ref(id: 2, name: "Globex Corporation"),
+        Ref(id: 1, name: "Northwind Trading"),
+      ],
+    )
+
+  assert round_trip(original, codecs.encode_roster, codecs.roster_decoder())
+    == original
+}
+
+// An empty roster (a date before anyone is employed and no project active)
+// round-trips to the same empty directory.
+pub fn roster_empty_round_trips_test() {
+  let original = Roster(engineers: [], projects: [], clients: [])
+
+  assert round_trip(original, codecs.encode_roster, codecs.roster_decoder())
+    == original
+}
+
 // --- Command ----------------------------------------------------------------
 // One round-trip per operation in the write vocabulary. The same `encode_command`
 // serves both the POST /api/operations body and the event_log payload, so the
@@ -416,6 +465,56 @@ pub fn command_terminate_employment_round_trips_test() {
     == original
 }
 
+// --- Financial commands ------------------------------------------------------
+// The five new write operations (PRD-financials §5), anchored to the seed frame:
+// salary by level, the invoice draft/issue/pay lifecycle, and a payroll run.
+
+pub fn command_set_salary_round_trips_test() {
+  let original =
+    SetSalary(
+      level: 5,
+      monthly_salary: 10_000.0,
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_draft_invoice_round_trips_test() {
+  let original =
+    DraftInvoice(
+      project_id: 200,
+      billing_from: Date(2026, June, 1),
+      billing_to: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_issue_invoice_round_trips_test() {
+  let original = IssueInvoice(invoice_id: 7, at: Date(2026, June, 30))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_pay_invoice_round_trips_test() {
+  let original = PayInvoice(invoice_id: 7, at: Date(2026, July, 15))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_run_payroll_round_trips_test() {
+  let original =
+    RunPayroll(period_from: Date(2026, June, 1), period_to: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
 // --- OperationRequest --------------------------------------------------------
 
 // The POST /api/operations envelope: the actor plus the nested `Command`. The
@@ -452,5 +551,248 @@ pub fn event_round_trips_test() {
     )
 
   assert round_trip(original, codecs.encode_event, codecs.event_decoder())
+    == original
+}
+
+// --- Invoice -----------------------------------------------------------------
+// The invoices-table read model (PRD-financials FR-F1/FR-F4): the durable subject,
+// its status as-of the selected date, and its line total.
+
+pub fn invoice_round_trips_test() {
+  let original =
+    Invoice(
+      id: 7,
+      project: "Inventory Sync",
+      client: "Northwind Trading",
+      billing_from: Date(2026, June, 1),
+      billing_to: Date(2026, July, 1),
+      status: "issued",
+      total: 26_400.0,
+    )
+
+  assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
+    == original
+}
+
+// A still-draft invoice with no lines yet computed sums to a zero total — the
+// 0.0 must survive the JSON float round trip.
+pub fn invoice_draft_zero_total_round_trips_test() {
+  let original =
+    Invoice(
+      id: 8,
+      project: "Ledger Migration",
+      client: "Globex Corporation",
+      billing_from: Date(2026, June, 1),
+      billing_to: Date(2026, July, 1),
+      status: "draft",
+      total: 0.0,
+    )
+
+  assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
+    == original
+}
+
+// --- InvoiceLine -------------------------------------------------------------
+
+pub fn invoice_line_round_trips_test() {
+  let original =
+    InvoiceLine(
+      engineer: "Priya Sharma",
+      level: 5,
+      day_rate: 1200.0,
+      days: 11.0,
+      amount: 13_200.0,
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_invoice_line,
+      codecs.invoice_line_decoder(),
+    )
+    == original
+}
+
+// --- InvoiceDetail -----------------------------------------------------------
+
+// The invoice-detail read model: the header plus its computed lines, proving the
+// nested invoice and the line list round-trip inside their container.
+pub fn invoice_detail_round_trips_test() {
+  let original =
+    InvoiceDetail(
+      invoice: Invoice(
+        id: 7,
+        project: "Inventory Sync",
+        client: "Northwind Trading",
+        billing_from: Date(2026, June, 1),
+        billing_to: Date(2026, July, 1),
+        status: "issued",
+        total: 26_400.0,
+      ),
+      lines: [
+        InvoiceLine(
+          engineer: "Priya Sharma",
+          level: 5,
+          day_rate: 1200.0,
+          days: 11.0,
+          amount: 13_200.0,
+        ),
+        InvoiceLine(
+          engineer: "Marcus Chen",
+          level: 4,
+          day_rate: 1000.0,
+          days: 13.2,
+          amount: 13_200.0,
+        ),
+      ],
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_invoice_detail,
+      codecs.invoice_detail_decoder(),
+    )
+    == original
+}
+
+// An invoice with no lines (no engineer worked the project that month) still
+// round-trips to the same empty detail.
+pub fn invoice_detail_empty_round_trips_test() {
+  let original =
+    InvoiceDetail(
+      invoice: Invoice(
+        id: 8,
+        project: "Ledger Migration",
+        client: "Globex Corporation",
+        billing_from: Date(2026, June, 1),
+        billing_to: Date(2026, July, 1),
+        status: "draft",
+        total: 0.0,
+      ),
+      lines: [],
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_invoice_detail,
+      codecs.invoice_detail_decoder(),
+    )
+    == original
+}
+
+// --- PayrollLine -------------------------------------------------------------
+
+pub fn payroll_line_round_trips_test() {
+  let original =
+    PayrollLine(engineer: "Marcus Chen", amount: 8000.0, days: 30.0)
+
+  assert round_trip(
+      original,
+      codecs.encode_payroll_line,
+      codecs.payroll_line_decoder(),
+    )
+    == original
+}
+
+// --- Payroll -----------------------------------------------------------------
+
+// A payroll run for the seed month: a full-month line and a mid-month-hire line
+// (prorated days), proving the month bounds and the line list round-trip together.
+pub fn payroll_round_trips_test() {
+  let original =
+    Payroll(
+      period_from: Date(2026, June, 1),
+      period_to: Date(2026, July, 1),
+      lines: [
+        PayrollLine(engineer: "Marcus Chen", amount: 8000.0, days: 30.0),
+        PayrollLine(engineer: "Priya Sharma", amount: 5000.0, days: 15.0),
+      ],
+    )
+
+  assert round_trip(original, codecs.encode_payroll, codecs.payroll_decoder())
+    == original
+}
+
+// An empty payroll run (no employed engineers in the period) round-trips.
+pub fn payroll_empty_round_trips_test() {
+  let original =
+    Payroll(
+      period_from: Date(2026, June, 1),
+      period_to: Date(2026, July, 1),
+      lines: [],
+    )
+
+  assert round_trip(original, codecs.encode_payroll, codecs.payroll_decoder())
+    == original
+}
+
+// --- PnlRow ------------------------------------------------------------------
+
+pub fn pnl_row_round_trips_test() {
+  let original =
+    PnlRow(
+      engineer: "Priya Sharma",
+      revenue: 13_200.0,
+      cost: 10_000.0,
+      profit: 3200.0,
+      margin_pct: 24.24,
+      utilization_pct: 50.0,
+    )
+
+  assert round_trip(original, codecs.encode_pnl_row, codecs.pnl_row_decoder())
+    == original
+}
+
+// --- Pnl ---------------------------------------------------------------------
+
+// The P&L statement: month and YTD totals plus per-employee rows (FR-F7/FR-F8),
+// proving the totals and the nested row list round-trip together.
+pub fn pnl_round_trips_test() {
+  let original =
+    Pnl(
+      month_revenue: 26_400.0,
+      month_cost: 18_000.0,
+      month_profit: 8400.0,
+      ytd_revenue: 158_400.0,
+      ytd_cost: 108_000.0,
+      ytd_profit: 50_400.0,
+      rows: [
+        PnlRow(
+          engineer: "Priya Sharma",
+          revenue: 13_200.0,
+          cost: 10_000.0,
+          profit: 3200.0,
+          margin_pct: 24.24,
+          utilization_pct: 50.0,
+        ),
+        PnlRow(
+          engineer: "Marcus Chen",
+          revenue: 13_200.0,
+          cost: 8000.0,
+          profit: 5200.0,
+          margin_pct: 39.39,
+          utilization_pct: 100.0,
+        ),
+      ],
+    )
+
+  assert round_trip(original, codecs.encode_pnl, codecs.pnl_decoder())
+    == original
+}
+
+// A P&L with no per-employee rows (the period has no facts yet) round-trips with
+// zero totals.
+pub fn pnl_empty_round_trips_test() {
+  let original =
+    Pnl(
+      month_revenue: 0.0,
+      month_cost: 0.0,
+      month_profit: 0.0,
+      ytd_revenue: 0.0,
+      ytd_cost: 0.0,
+      ytd_profit: 0.0,
+      rows: [],
+    )
+
+  assert round_trip(original, codecs.encode_pnl, codecs.pnl_decoder())
     == original
 }

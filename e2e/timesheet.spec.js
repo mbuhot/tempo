@@ -43,10 +43,12 @@ function hoursInput(page, project) {
   return page.getByLabel(`Hours for ${project}`);
 }
 
-// Remove any timesheet row a write test created, restoring the shared seed
-// regardless of test outcome. Connects over TCP with psql using the same env-var
-// defaults as the server (context.gleam), so the same cleanup works for the local
-// Docker container and the CI service alike — no dependency on a container name.
+// Remove any timesheet row a write test created — AND the log_timesheet journal
+// row the unified operations write path now appends for it — restoring the shared
+// seed (the canonical empty journal included) regardless of test outcome.
+// Connects over TCP with psql using the same env-var defaults as the server
+// (context.gleam), so the same cleanup works for the local Docker container and
+// the CI service alike — no dependency on a container name.
 function restoreSeed(engineerId, projectId, isoDay) {
   const env = process.env;
   execFileSync(
@@ -61,7 +63,11 @@ function restoreSeed(engineerId, projectId, isoDay) {
       "-d",
       env.TEMPO_DB_NAME ?? "tempo",
       "-c",
-      `DELETE FROM timesheet WHERE engineer_id=${engineerId} AND project_id=${projectId} AND work_day @> '${isoDay}'::date;`,
+      `DELETE FROM timesheet WHERE engineer_id=${engineerId} AND project_id=${projectId} AND work_day @> '${isoDay}'::date; ` +
+        `DELETE FROM event_log WHERE operation='log_timesheet' ` +
+        `AND (payload->>'engineer_id')::int=${engineerId} ` +
+        `AND (payload->>'project_id')::int=${projectId} ` +
+        `AND payload->>'day'='${isoDay}';`,
     ],
     { env: { ...env, PGPASSWORD: env.TEMPO_DB_PASSWORD ?? "tempo" } },
   );
