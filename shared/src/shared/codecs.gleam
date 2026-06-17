@@ -10,9 +10,13 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Engagement, type TimesheetDay,
-  type TimesheetLine, type WriteRequest, BoardRow, BoardSnapshot, OnLeave,
-  OnProject, TimesheetDay, TimesheetLine, Unassigned, WriteRequest,
+  type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
+  type OperationRequest, type TimesheetDay, type TimesheetLine,
+  type WriteRequest, AdjustRateForPortion, AssignToProject, BoardRow,
+  BoardSnapshot, ChangeAllocationFraction, Event, LogTimesheet, OnLeave,
+  OnProject, OnboardEngineer, OperationRequest, Promote, ReviseRateCard, RollOff,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetDay,
+  TimesheetLine, Unassigned, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -272,4 +276,284 @@ pub fn decode_error_detail(body: String) -> Result(String, Nil) {
   }
   json.parse(body, detail_decoder)
   |> result.replace_error(Nil)
+}
+
+// --- Command ----------------------------------------------------------------
+// A tagged object: `op` discriminates the operation; the remaining fields belong
+// to the active variant. The same encoding serves both the POST /api/operations
+// request body and the `event_log` payload (§5a), so it is total and
+// self-describing — every variant carries its `op` tag and all its parameters.
+
+/// Encode a `Command` as a tagged JSON object keyed by `op`.
+pub fn encode_command(command: Command) -> Json {
+  case command {
+    OnboardEngineer(name:, level:, effective:) ->
+      json.object([
+        #("op", json.string("onboard_engineer")),
+        #("name", json.string(name)),
+        #("level", json.int(level)),
+        #("effective", encode_date(effective)),
+      ])
+    SignContract(client:, valid_from:, valid_to:) ->
+      json.object([
+        #("op", json.string("sign_contract")),
+        #("client", json.string(client)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
+      json.object([
+        #("op", json.string("start_project")),
+        #("name", json.string(name)),
+        #("contract_id", json.int(contract_id)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    AssignToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      json.object([
+        #("op", json.string("assign_to_project")),
+        #("engineer_id", json.int(engineer_id)),
+        #("project_id", json.int(project_id)),
+        #("fraction", json.float(fraction)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
+      json.object([
+        #("op", json.string("take_leave")),
+        #("engineer_id", json.int(engineer_id)),
+        #("kind", json.string(kind)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
+      json.object([
+        #("op", json.string("log_timesheet")),
+        #("engineer_id", json.int(engineer_id)),
+        #("project_id", json.int(project_id)),
+        #("day", encode_date(day)),
+        #("hours", json.float(hours)),
+      ])
+    Promote(engineer_id:, level:, effective:) ->
+      json.object([
+        #("op", json.string("promote")),
+        #("engineer_id", json.int(engineer_id)),
+        #("level", json.int(level)),
+        #("effective", encode_date(effective)),
+      ])
+    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) ->
+      json.object([
+        #("op", json.string("change_allocation_fraction")),
+        #("engineer_id", json.int(engineer_id)),
+        #("project_id", json.int(project_id)),
+        #("fraction", json.float(fraction)),
+        #("effective", encode_date(effective)),
+      ])
+    ReviseRateCard(level:, day_rate:, effective:) ->
+      json.object([
+        #("op", json.string("revise_rate_card")),
+        #("level", json.int(level)),
+        #("day_rate", json.float(day_rate)),
+        #("effective", encode_date(effective)),
+      ])
+    AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
+      json.object([
+        #("op", json.string("adjust_rate_for_portion")),
+        #("level", json.int(level)),
+        #("day_rate", json.float(day_rate)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    RollOff(engineer_id:, project_id:, effective:) ->
+      json.object([
+        #("op", json.string("roll_off")),
+        #("engineer_id", json.int(engineer_id)),
+        #("project_id", json.int(project_id)),
+        #("effective", encode_date(effective)),
+      ])
+    TerminateEmployment(engineer_id:, effective:) ->
+      json.object([
+        #("op", json.string("terminate_employment")),
+        #("engineer_id", json.int(engineer_id)),
+        #("effective", encode_date(effective)),
+      ])
+  }
+}
+
+/// Decode a `Command` from its tagged JSON object. Pairs with `encode_command`:
+/// the `op` field selects the variant, and the remaining fields are read with the
+/// matching types (`Float`s leniently, since a JS client may serialise a whole
+/// `Float` as an integer-looking number).
+pub fn command_decoder() -> Decoder(Command) {
+  use op <- decode.field("op", decode.string)
+  case op {
+    "onboard_engineer" -> {
+      use name <- decode.field("name", decode.string)
+      use level <- decode.field("level", decode.int)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(OnboardEngineer(name:, level:, effective:))
+    }
+    "sign_contract" -> {
+      use client <- decode.field("client", decode.string)
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(SignContract(client:, valid_from:, valid_to:))
+    }
+    "start_project" -> {
+      use name <- decode.field("name", decode.string)
+      use contract_id <- decode.field("contract_id", decode.int)
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(StartProject(name:, contract_id:, valid_from:, valid_to:))
+    }
+    "assign_to_project" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use project_id <- decode.field("project_id", decode.int)
+      use fraction <- decode.field("fraction", lenient_float_decoder())
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(AssignToProject(
+        engineer_id:,
+        project_id:,
+        fraction:,
+        valid_from:,
+        valid_to:,
+      ))
+    }
+    "take_leave" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use kind <- decode.field("kind", decode.string)
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:))
+    }
+    "log_timesheet" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use project_id <- decode.field("project_id", decode.int)
+      use day <- decode.field("day", date_decoder())
+      use hours <- decode.field("hours", lenient_float_decoder())
+      decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
+    }
+    "promote" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use level <- decode.field("level", decode.int)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(Promote(engineer_id:, level:, effective:))
+    }
+    "change_allocation_fraction" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use project_id <- decode.field("project_id", decode.int)
+      use fraction <- decode.field("fraction", lenient_float_decoder())
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(ChangeAllocationFraction(
+        engineer_id:,
+        project_id:,
+        fraction:,
+        effective:,
+      ))
+    }
+    "revise_rate_card" -> {
+      use level <- decode.field("level", decode.int)
+      use day_rate <- decode.field("day_rate", lenient_float_decoder())
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(ReviseRateCard(level:, day_rate:, effective:))
+    }
+    "adjust_rate_for_portion" -> {
+      use level <- decode.field("level", decode.int)
+      use day_rate <- decode.field("day_rate", lenient_float_decoder())
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(AdjustRateForPortion(
+        level:,
+        day_rate:,
+        valid_from:,
+        valid_to:,
+      ))
+    }
+    "roll_off" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use project_id <- decode.field("project_id", decode.int)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(RollOff(engineer_id:, project_id:, effective:))
+    }
+    "terminate_employment" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(TerminateEmployment(engineer_id:, effective:))
+    }
+    _ ->
+      decode.failure(
+        TerminateEmployment(engineer_id: 0, effective: zero_date()),
+        "Command",
+      )
+  }
+}
+
+fn zero_date() -> Date {
+  Date(0, calendar.January, 1)
+}
+
+// --- OperationRequest --------------------------------------------------------
+// The POST /api/operations envelope: `{actor, command}`. The client encodes it
+// and the server decodes it before dispatching. The nested `command` reuses the
+// same tagged `Command` encoding (`op` + parameters) used for the event_log
+// payload, so one codec serves the wire body and the journal.
+
+/// Encode an `OperationRequest` as `{actor, command}` for POST /api/operations.
+pub fn encode_operation_request(request: OperationRequest) -> Json {
+  let OperationRequest(actor:, command:) = request
+  json.object([
+    #("actor", json.string(actor)),
+    #("command", encode_command(command)),
+  ])
+}
+
+/// Decode an `OperationRequest` from the POST /api/operations body. Pairs with
+/// `encode_operation_request`: `command` is read through `command_decoder`.
+pub fn operation_request_decoder() -> Decoder(OperationRequest) {
+  use actor <- decode.field("actor", decode.string)
+  use command <- decode.field("command", command_decoder())
+  decode.success(OperationRequest(actor:, command:))
+}
+
+// --- Event ------------------------------------------------------------------
+// One row of the provenance journal. `payload` is a raw JSON string, carried
+// verbatim through `json.string` / `decode.string` so the journal view shows the
+// original command encoding without re-decoding its variant.
+
+/// Encode an `Event` (one journal row) as a JSON object.
+pub fn encode_event(event: Event) -> Json {
+  let Event(id:, occurred_at:, actor:, operation:, summary:, payload:) = event
+  json.object([
+    #("id", json.int(id)),
+    #("occurred_at", json.string(occurred_at)),
+    #("actor", json.string(actor)),
+    #("operation", json.string(operation)),
+    #("summary", json.string(summary)),
+    #("payload", json.string(payload)),
+  ])
+}
+
+/// Decode an `Event` from a JSON object.
+pub fn event_decoder() -> Decoder(Event) {
+  use id <- decode.field("id", decode.int)
+  use occurred_at <- decode.field("occurred_at", decode.string)
+  use actor <- decode.field("actor", decode.string)
+  use operation <- decode.field("operation", decode.string)
+  use summary <- decode.field("summary", decode.string)
+  use payload <- decode.field("payload", decode.string)
+  decode.success(Event(
+    id:,
+    occurred_at:,
+    actor:,
+    operation:,
+    summary:,
+    payload:,
+  ))
 }

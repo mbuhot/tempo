@@ -72,3 +72,91 @@ pub type TimesheetDay {
 pub type WriteRequest {
   WriteRequest(engineer_id: Int, project_id: Int, day: Date, hours: Float)
 }
+
+/// The typed command vocabulary (the write model). One variant per business
+/// operation: the client encodes a `Command`, the server decodes the same value
+/// and dispatches it to the matching temporal write, then re-encodes it as the
+/// `event_log` payload. Defined in `shared` so both ends agree on the contract.
+///
+/// The variants group into the four write patterns:
+///   * Assert — `OnboardEngineer`, `SignContract`, `StartProject`,
+///     `AssignToProject`, `TakeLeave`, `LogTimesheet`: plain inserts.
+///   * Change — `Promote`, `ChangeAllocationFraction`, `ReviseRateCard`:
+///     "publish a new version effective from a date" (`FOR PORTION OF … TO NULL`).
+///   * Surgical — `AdjustRateForPortion`: bump a level's rate for a bounded
+///     window (`FOR PORTION OF … FROM a TO b`).
+///   * Close / cascade — `RollOff`, `TerminateEmployment`:
+///     `DELETE … FOR PORTION OF`.
+///
+/// Date fields carry domain meaning: `effective` is the open-ended "from here on"
+/// pivot of a change/close; `valid_from`/`valid_to` bound an asserted or surgical
+/// period. Levels and ids are `Int`, fraction/hours/rate are `Float`, and
+/// name/kind/client are `String`.
+pub type Command {
+  /// Hire an engineer: create their identity, open-ended employment, and initial
+  /// role, all from `effective`.
+  OnboardEngineer(name: String, level: Int, effective: Date)
+  /// Open a contract term for a client.
+  SignContract(client: String, valid_from: Date, valid_to: Date)
+  /// Start a project under a contract for a bounded active period.
+  StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
+  /// Allocate an engineer to a project at a fraction for a period.
+  AssignToProject(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+  /// Put an engineer on leave of a kind for a period.
+  TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
+  /// Log hours an engineer worked on a project on a day.
+  LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+  /// Promote an engineer to a new level effective from a date.
+  Promote(engineer_id: Int, level: Int, effective: Date)
+  /// Change an engineer's allocation fraction on a project effective from a date.
+  ChangeAllocationFraction(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    effective: Date,
+  )
+  /// Publish a new day rate for a level effective from a date.
+  ReviseRateCard(level: Int, day_rate: Float, effective: Date)
+  /// Bump a level's day rate for a bounded window, splitting the rate-card row
+  /// into before/during/after.
+  AdjustRateForPortion(
+    level: Int,
+    day_rate: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+  /// Cap an engineer's allocation on a project from a date (roll off the project).
+  RollOff(engineer_id: Int, project_id: Int, effective: Date)
+  /// Terminate an engineer's employment from a date, capping every contained fact.
+  TerminateEmployment(engineer_id: Int, effective: Date)
+}
+
+/// The POST /api/operations request body: an `actor` (who is applying the
+/// operation — nominal, no auth) and the `Command` to apply. The client encodes
+/// this envelope and the server decodes it, then dispatches the command on the
+/// actor's behalf. Defined in `shared` so both ends agree on the contract.
+pub type OperationRequest {
+  OperationRequest(actor: String, command: Command)
+}
+
+/// One row of the provenance journal read model. The server appends an `Event`
+/// per dispatched `Command` (the `operation` tag, a human `summary`, and the
+/// command re-encoded as `payload`); the client renders the journal. `payload`
+/// is carried as a raw JSON string so the journal view can show it verbatim
+/// without re-decoding the original `Command` variant.
+pub type Event {
+  Event(
+    id: Int,
+    occurred_at: String,
+    actor: String,
+    operation: String,
+    summary: String,
+    payload: String,
+  )
+}
