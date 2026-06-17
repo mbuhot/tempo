@@ -45,7 +45,7 @@ SELECT setval(pg_get_serial_sequence('engineer', 'id'), 3, true);
 -- Rate card ------------------------------------------------------------------
 -- One row per level per period. L5 steps up mid-2026 (the rate-card change
 -- beat); it is also the FOR PORTION OF demo home for H2-2026 (PRD FR-6).
-INSERT INTO rate_card (level, day_rate, valid_at) VALUES
+INSERT INTO rate_card (level, day_rate, effective_during) VALUES
   (3,  800.00, daterange('2024-01-01', '2027-01-01')),
   (4, 1000.00, daterange('2024-01-01', '2027-01-01')),
   (5, 1200.00, daterange('2024-01-01', '2026-07-01')),  -- L5 before the bump
@@ -53,11 +53,11 @@ INSERT INTO rate_card (level, day_rate, valid_at) VALUES
   (6, 1800.00, daterange('2024-01-01', '2027-01-01'));
 
 -- Contracts & projects -------------------------------------------------------
-INSERT INTO contract (id, client_id, valid_at) VALUES
+INSERT INTO contract (id, client_id, term) VALUES
   (10, 1, daterange('2024-01-01', '2027-01-01')),  -- Northwind
   (20, 2, daterange('2025-01-01', '2027-01-01'));   -- Globex
 
-INSERT INTO project (id, contract_id, name, valid_at) VALUES
+INSERT INTO project (id, contract_id, name, active_during) VALUES
   (100, 10, 'Ledger Migration', daterange('2024-01-01', '2027-01-01')),
   (200, 10, 'Inventory Sync',   daterange('2025-06-01', '2027-01-01')),
   (300, 20, 'Data Platform',    daterange('2025-01-01', '2027-01-01'));
@@ -65,7 +65,7 @@ INSERT INTO project (id, contract_id, name, valid_at) VALUES
 -- Employment -----------------------------------------------------------------
 -- Root of the PERIOD-FK containment chain; every role/allocation/leave below
 -- stays within these spans.
-INSERT INTO employment (engineer_id, valid_at) VALUES
+INSERT INTO employment (engineer_id, employed_during) VALUES
   (1, daterange('2024-01-01', '2027-01-01')),  -- Priya
   (2, daterange('2024-06-01', '2027-01-01')),  -- Marcus
   (3, daterange('2025-01-01', '2027-01-01'));   -- Aisha
@@ -74,7 +74,7 @@ INSERT INTO employment (engineer_id, valid_at) VALUES
 -- Marcus's L4 -> L5 row at 2026-07-01 is the future-dated promotion (after the
 -- 2026-06-15 seed "now"); his level AND charge rate step up unaided when the
 -- slider crosses it (PRD FR-3).
-INSERT INTO engineer_role (engineer_id, level, valid_at) VALUES
+INSERT INTO engineer_role (engineer_id, level, held_during) VALUES
   (1, 5, daterange('2024-01-01', '2027-01-01')),  -- Priya: L5 throughout
   (2, 4, daterange('2024-06-01', '2026-07-01')),  -- Marcus: L4 before promotion
   (2, 5, daterange('2026-07-01', '2027-01-01')),  -- Marcus: L5 after promotion
@@ -88,7 +88,7 @@ INSERT INTO engineer_role (engineer_id, level, valid_at) VALUES
 --
 -- Priya — the fractional split: 0.5 on project 100 and 0.5 on project 200.
 -- L5 rate bumps at 2026-07-01, so each engagement fragments there (1200 -> 1400).
-INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, valid_at) VALUES
+INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, allocated_during) VALUES
   (1, 100, 0.50, 1200.00, daterange('2024-01-01', '2026-07-01')),
   (1, 100, 0.50, 1400.00, daterange('2026-07-01', '2027-01-01')),
   (1, 200, 0.50, 1200.00, daterange('2025-06-01', '2026-07-01')),
@@ -105,7 +105,7 @@ INSERT INTO allocation (engineer_id, project_id, fraction, day_rate, valid_at) V
 -- Aisha is on annual leave across the seed "now" (2026-06-15). It overlaps her
 -- live project-300 allocation, which the board suppresses in favour of
 -- "On leave" (PRD FR-4).
-INSERT INTO leave (engineer_id, kind, valid_at) VALUES
+INSERT INTO leave (engineer_id, kind, on_leave_during) VALUES
   (3, 'annual', daterange('2026-06-08', '2026-06-22'));
 
 -- Timesheet ------------------------------------------------------------------
@@ -129,13 +129,13 @@ BEGIN
   FROM allocation
   JOIN engineer_role
     ON engineer_role.engineer_id = allocation.engineer_id
-   AND engineer_role.valid_at && allocation.valid_at
+   AND engineer_role.held_during && allocation.allocated_during
   JOIN rate_card
     ON rate_card.level = engineer_role.level
-   AND rate_card.valid_at && (allocation.valid_at * engineer_role.valid_at)
+   AND rate_card.effective_during && (allocation.allocated_during * engineer_role.held_during)
   WHERE rate_card.day_rate <> allocation.day_rate
     -- only count periods that actually overlap all three facts
-    AND NOT isempty(allocation.valid_at * engineer_role.valid_at * rate_card.valid_at);
+    AND NOT isempty(allocation.allocated_during * engineer_role.held_during * rate_card.effective_during);
 
   IF mismatch_count <> 0 THEN
     RAISE EXCEPTION
