@@ -41,19 +41,34 @@ function boardLine(name, fragment) {
   return new RegExp(`${escape(name)}.*${escape(fragment)}`);
 }
 
-// Pick an operation in the console by its visible label (the option text).
-async function selectOperation(page, label) {
-  await page.getByLabel("Operation").selectOption({ label });
+// The operations console region — every console interaction is scoped here so its
+// fields (notably the "Engineer" roster select) never collide with the same-named
+// timesheet selector elsewhere on the page.
+function consolePanel(page) {
+  return page.getByRole("region", { name: "Operations console" });
 }
 
-// Fill one console input, found by its visible field label.
+// Pick an operation in the console by its visible label (the option text).
+async function selectOperation(page, label) {
+  await consolePanel(page).getByLabel("Operation").selectOption({ label });
+}
+
+// Choose an option by visible name in one of the console's name selects (engineer,
+// project, level): the user selects entities by name, not by typing an id.
+async function selectField(page, label, optionLabel) {
+  await consolePanel(page)
+    .getByLabel(label)
+    .selectOption({ label: optionLabel });
+}
+
+// Fill one console text input, found by its visible field label.
 async function fillField(page, label, value) {
-  await page.getByLabel(label).fill(value);
+  await consolePanel(page).getByLabel(label).fill(value);
 }
 
 // Apply the composed operation.
 async function applyOperation(page) {
-  await page.getByRole("button", { name: "Apply operation" }).click();
+  await consolePanel(page).getByRole("button", { name: "Apply operation" }).click();
 }
 
 // Restore engineer 1's (Priya's) role to the pristine seed regardless of test
@@ -112,8 +127,8 @@ test("promoting an engineer re-renders the board with the new level and charge r
     // Compose the promotion in the console: Priya (engineer 1) to L6 from
     // 2026-06-01 — before the visible board date, so it is in effect now.
     await selectOperation(page, "Promote");
-    await fillField(page, "Engineer id", "1");
-    await fillField(page, "Level", "6");
+    await selectField(page, "Engineer", "Priya Sharma");
+    await selectField(page, "Level", "L6");
     await fillField(page, "Effective", "2026-06-01");
     await applyOperation(page);
 
@@ -162,8 +177,8 @@ test("an operation the database refuses shows the user why it was rejected and l
   ).toBeVisible();
 
   await selectOperation(page, "Assign to project");
-  await fillField(page, "Engineer id", "3");
-  await fillField(page, "Project id", "100");
+  await selectField(page, "Engineer", "Aisha Okafor");
+  await selectField(page, "Project", "Ledger Migration");
   await fillField(page, "Fraction", "0.5");
   await fillField(page, "Valid from", "2024-01-01");
   await fillField(page, "Valid to", "2024-06-01");

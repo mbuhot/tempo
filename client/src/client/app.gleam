@@ -1318,12 +1318,19 @@ fn describe_engagement(engagement: Engagement) -> String {
 /// The my-timesheet panel: an engineer selector, the day it reads (the slider's
 /// date), and the form for that engineer/day below.
 fn view_timesheet(model: Model) -> Element(Message) {
-  html.div([attribute.class("timesheet")], [
-    html.h2([], [html.text("My timesheet")]),
-    view_engineer_selector(model.engineer_id),
-    html.p([], [html.text("Logging for " <> iso_date(model.date))]),
-    view_timesheet_body(model),
-  ])
+  html.div(
+    [
+      attribute.attribute("role", "region"),
+      attribute.attribute("aria-label", "My timesheet"),
+      attribute.class("timesheet"),
+    ],
+    [
+      html.h2([], [html.text("My timesheet")]),
+      view_engineer_selector(model.engineer_id),
+      html.p([], [html.text("Logging for " <> iso_date(model.date))]),
+      view_timesheet_body(model),
+    ],
+  )
 }
 
 /// The engineer dropdown: one option per seed engineer, the current one selected.
@@ -1469,19 +1476,26 @@ const console_kinds = [
 /// The operations console: an operation selector, the fields the chosen
 /// operation needs, an Apply button, and the outcome of the last submission.
 fn view_console(model: Model) -> Element(Message) {
-  html.div([attribute.class("console")], [
-    html.h2([], [html.text("Operations console")]),
-    view_console_selector(model.console_kind),
-    html.div(
-      [attribute.class("console-fields")],
-      console_fields(model.console_kind, model.console_form, model.roster),
-    ),
-    html.button(
-      [attribute.class("console-apply"), event.on_click(ConsoleSubmitted)],
-      [html.text("Apply operation")],
-    ),
-    view_operation_feedback(model.operation_state),
-  ])
+  html.div(
+    [
+      attribute.attribute("role", "region"),
+      attribute.attribute("aria-label", "Operations console"),
+      attribute.class("console"),
+    ],
+    [
+      html.h2([], [html.text("Operations console")]),
+      view_console_selector(model.console_kind),
+      html.div(
+        [attribute.class("console-fields")],
+        console_fields(model.console_kind, model.console_form, model.roster),
+      ),
+      html.button(
+        [attribute.class("console-apply"), event.on_click(ConsoleSubmitted)],
+        [html.text("Apply operation")],
+      ),
+      view_operation_feedback(model.operation_state),
+    ],
+  )
 }
 
 /// The operation dropdown: one option per console kind, the current one selected.

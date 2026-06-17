@@ -29,12 +29,13 @@ async function scrubTo(page, isoDate) {
   await expect(page.getByText(`Logging for ${isoDate}`)).toBeVisible();
 }
 
-// Pick an engineer in the timesheet selector by their visible name. The label is
-// matched exactly so it resolves to the timesheet's "Engineer" selector and not
-// the operations console's "Engineer id" field (a substring match would hit both).
+// Pick an engineer in the timesheet selector by their visible name. Scoped to the
+// "My timesheet" region so it resolves to the timesheet's "Engineer" selector and
+// not the operations console's (also-"Engineer") roster select on the same page.
 async function selectEngineer(page, name) {
   await page
-    .getByLabel("Engineer", { exact: true })
+    .getByRole("region", { name: "My timesheet" })
+    .getByLabel("Engineer")
     .selectOption({ label: name });
 }
 
