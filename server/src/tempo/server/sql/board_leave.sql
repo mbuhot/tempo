@@ -13,10 +13,10 @@ SELECT
   engineer.name AS engineer,
   engineer_role.level,
   leave.kind,
-  lower(leave.valid_at) AS valid_from,
-  upper(leave.valid_at) AS valid_to
+  lower(leave.on_leave_during) AS valid_from,
+  upper(leave.on_leave_during) AS valid_to
 FROM leave
 JOIN engineer            ON engineer.id = leave.engineer_id
-LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
-WHERE leave.valid_at @> $1::date
+LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
+WHERE leave.on_leave_during @> $1::date
 ORDER BY engineer.name;

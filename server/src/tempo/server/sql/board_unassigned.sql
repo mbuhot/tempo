@@ -11,14 +11,14 @@ SELECT
   engineer_role.level
 FROM employment
 JOIN engineer       ON engineer.id = employment.engineer_id
-JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.valid_at @> $1::date
-WHERE employment.valid_at @> $1::date
+JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
+WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (
     SELECT 1 FROM allocation
-    WHERE allocation.engineer_id = engineer.id AND allocation.valid_at @> $1::date
+    WHERE allocation.engineer_id = engineer.id AND allocation.allocated_during @> $1::date
   )
   AND NOT EXISTS (
     SELECT 1 FROM leave
-    WHERE leave.engineer_id = engineer.id AND leave.valid_at @> $1::date
+    WHERE leave.engineer_id = engineer.id AND leave.on_leave_during @> $1::date
   )
 ORDER BY engineer.name;

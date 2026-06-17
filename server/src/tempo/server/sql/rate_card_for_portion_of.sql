@@ -8,6 +8,6 @@
 -- PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 -- from the affected-row count — read the rows back instead.
 UPDATE rate_card
-   FOR PORTION OF valid_at FROM $1::date TO $2::date
+   FOR PORTION OF effective_during FROM $1::date TO $2::date
    SET day_rate = $3
  WHERE level = $4;

@@ -14,17 +14,17 @@ SELECT
   project.name AS project,
   allocation.fraction,
   COALESCE(timesheet.hours, 0) AS hours,
-  lower(allocation.valid_at) AS valid_from,
-  upper(allocation.valid_at) AS valid_to
+  lower(allocation.allocated_during) AS valid_from,
+  upper(allocation.allocated_during) AS valid_to
 FROM allocation
-JOIN project ON project.id = allocation.project_id AND project.valid_at @> $2::date
+JOIN project ON project.id = allocation.project_id AND project.active_during @> $2::date
 LEFT JOIN timesheet
   ON timesheet.engineer_id = allocation.engineer_id
  AND timesheet.project_id  = allocation.project_id
  AND timesheet.work_day @> $2::date
-WHERE allocation.engineer_id = $1 AND allocation.valid_at @> $2::date
+WHERE allocation.engineer_id = $1 AND allocation.allocated_during @> $2::date
   AND NOT EXISTS (
     SELECT 1 FROM leave
-    WHERE leave.engineer_id = $1 AND leave.valid_at @> $2::date
+    WHERE leave.engineer_id = $1 AND leave.on_leave_during @> $2::date
   )
 ORDER BY project.name;
