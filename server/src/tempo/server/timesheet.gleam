@@ -1,9 +1,9 @@
 //// Domain: the timesheet aggregate — read (the form for a day) and write (the
-//// PERIOD-FK-backed temporal upsert). `handle` matches the `LogTimesheet`
-//// command, runs the upsert through the shared `log_in` core, maps its
-//// `WriteError` into the unified `OperationError`, and returns the journal event;
-//// `command.dispatch` owns the transaction and persists it. No HTTP — this layer
-//// never imports `wisp`.
+//// PERIOD-FK-backed temporal upsert). `handle` routes the `LogTimesheet` command to
+//// the named `log_timesheet` operation, which runs the upsert through the shared
+//// `log_in` core and maps its `WriteError` into the unified `OperationError`;
+//// `command.dispatch` owns the transaction and persists the journal event `handle`
+//// returns. No HTTP — this layer never imports `wisp`.
 ////
 //// `form` maps `timesheet_form` rows to the shared `TimesheetDay`. `log_in` is the
 //// delete-then-insert temporal upsert: the `WITHOUT OVERLAPS` PK cannot be an
@@ -11,7 +11,7 @@
 //// in one transaction. The `PERIOD` FK to `allocation` is the backstop — logging
 //// against a project the engineer is not allocated to that day is rejected by the
 //// database. That rejection (SQLSTATE 23503) is classified as `NotAllocated`,
-//// which `handle` re-classifies as the unified `ContainmentViolated`.
+//// which `log_timesheet` re-classifies as the unified `ContainmentViolated`.
 
 import gleam/float
 import gleam/int
@@ -43,28 +43,39 @@ const timesheet_period_fk = "timesheet_within_allocation"
 
 // --- dispatch ---------------------------------------------------------------
 
-/// Apply the `LogTimesheet` command: run the delete-then-insert temporal upsert
-/// through the shared `log_in` core on the in-transaction connection, and on
-/// success return the single journal event it produced. The domain's
-/// `NotAllocated` (the timesheet PERIOD FK firing) re-classifies as the unified
-/// `ContainmentViolated("timesheet_within_allocation")` — the same classification
-/// every other containment FK gets — and any other query error maps through
-/// `operation.classify`. Only `LogTimesheet` reaches here (the dispatch `route`
-/// guarantees it); any other variant is a no-op.
+/// Apply a timesheet-aggregate command: route it to its named operation, then on
+/// success return the journal event(s) it produced. The dispatch `route` only ever
+/// sends timesheet commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
 ) -> Result(List(Event), OperationError) {
-  case command {
+  let written = case command {
     LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
-      case log_in(conn, WriteRequest(engineer_id:, project_id:, day:, hours:)) {
-        Ok(Nil) -> Ok(events(command))
-        Error(NotAllocated) ->
-          Error(operation.ContainmentViolated(timesheet_period_fk))
-        Error(DatabaseError(query_error)) ->
-          Error(operation.classify(query_error))
-      }
-    _ -> Ok([])
+      log_timesheet(conn, engineer_id, project_id, day, hours)
+    _ ->
+      panic as "timesheet.handle: command not owned by this aggregate (dispatch bug)"
+  }
+  result.map(written, fn(_) { events(command) })
+}
+
+/// Log hours against a project for a day via the `log_in` temporal upsert. A
+/// `NotAllocated` rejection (the timesheet PERIOD FK firing) re-classifies as the
+/// unified `ContainmentViolated("timesheet_within_allocation")` — the same
+/// classification every other containment FK gets — and any other query error maps
+/// through `operation.classify`.
+fn log_timesheet(
+  conn: pog.Connection,
+  engineer_id: Int,
+  project_id: Int,
+  day: Date,
+  hours: Float,
+) -> Result(Nil, OperationError) {
+  case log_in(conn, WriteRequest(engineer_id:, project_id:, day:, hours:)) {
+    Ok(Nil) -> Ok(Nil)
+    Error(NotAllocated) ->
+      Error(operation.ContainmentViolated(timesheet_period_fk))
+    Error(DatabaseError(query_error)) -> Error(operation.classify(query_error))
   }
 }
 
@@ -85,7 +96,8 @@ fn events(command: Command) -> List(Event) {
         payload: codecs.encode_command(command),
       ),
     ]
-    _ -> []
+    _ ->
+      panic as "timesheet.events: command not owned by this aggregate (dispatch bug)"
   }
 }
 
@@ -117,7 +129,7 @@ fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
 // --- write ------------------------------------------------------------------
 
 /// The delete-then-insert temporal upsert on an already-open connection: the
-/// reusable core driven by `handle`. The caller owns the transaction, so the
+/// reusable core driven by `log_timesheet`. The caller owns the transaction, so the
 /// command `dispatch` seam runs this and appends its `event_log` row in the SAME
 /// transaction (facts + journal commit together). On a PERIOD-FK rejection the
 /// caller's transaction rolls back the delete, leaving the prior row intact.

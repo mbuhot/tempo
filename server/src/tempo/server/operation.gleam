@@ -111,6 +111,16 @@ pub fn try(
   |> result.try(apply)
 }
 
+/// Run a single terminal database write (or a `list.try_map` of writes):
+/// discard the empty returned value and classify any rejection into an
+/// `OperationError`. Use this where there is nothing to thread into a next step;
+/// `try` is for chaining.
+pub fn run(result: Result(a, pog.QueryError)) -> Result(Nil, OperationError) {
+  result
+  |> result.replace(Nil)
+  |> result.map_error(classify)
+}
+
 // --- date rendering ---------------------------------------------------------
 // Shared by the aggregate handlers when they build the journal `summary`.
 
