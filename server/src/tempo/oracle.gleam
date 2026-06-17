@@ -203,11 +203,14 @@ pub fn seed_span_dates(db: pog.Connection) -> List(Date) {
 /// therefore compares exactly what the user sees — engineer, level, project,
 /// client, fraction, charge rate — and deliberately EXCLUDES the engagement
 /// window (valid_from/valid_to). That window is the allocation's own
-/// `lower/upper(valid_at)`, which the coalescing migration is SUPPOSED to change
+/// `lower/upper(allocated_during)`, which the coalescing migration is SUPPOSED to change
 /// (it merges rate-fragmented rows into whole engagements), and which the client
 /// never renders (client/app `describe_engagement` drops it via `..`). Including
 /// it would assert the migration did nothing, the opposite of the point.
-fn board_snapshot_sql() -> String {
+///
+/// Public so the seed-equivalence test (ADR-023) renders the board with the exact
+/// same machinery the oracle uses, rather than a re-typed copy.
+pub fn board_snapshot_sql() -> String {
   let assert Ok(board_sql) =
     read_priv_sql("../src/tempo/server/sql/board_engaged.sql")
   let board_cte = strip_trailing_semicolon(string.trim(board_sql))
@@ -227,8 +230,8 @@ FROM board"
 }
 
 /// Run the board-snapshot query for each date and pair the rendering with its
-/// date.
-fn snapshot(
+/// date. Public so the seed-equivalence test (ADR-023) reuses it.
+pub fn snapshot(
   db: pog.Connection,
   snapshot_sql: String,
   dates: List(Date),

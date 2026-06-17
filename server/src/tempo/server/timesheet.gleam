@@ -32,7 +32,7 @@ pub type WriteError {
 /// The timesheet PERIOD foreign-key constraint. A violation of *this* constraint
 /// is the domain rejection (the logged day is not covered by an allocation); pog
 /// reports it as `ConstraintViolated` carrying this name.
-const timesheet_period_fk = "timesheet_engineer_id_project_id_work_day_fkey"
+const timesheet_period_fk = "timesheet_within_allocation"
 
 // --- read -------------------------------------------------------------------
 
@@ -65,23 +65,32 @@ fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
 /// rejection rolls back the delete (the prior row survives) and is classified as
 /// `NotAllocated`; any other query error becomes `DatabaseError`.
 pub fn log(context: Context, write: WriteRequest) -> Result(Nil, WriteError) {
-  let WriteRequest(engineer_id:, project_id:, day:, hours:) = write
-  let outcome =
-    pog.transaction(context.db, fn(conn) {
-      use _ <- result.try(sql.timesheet_delete(
-        conn,
-        engineer_id,
-        project_id,
-        day,
-      ))
-      sql.timesheet_write(conn, engineer_id, project_id, day, hours)
-    })
+  let outcome = pog.transaction(context.db, fn(conn) { log_in(conn, write) })
   case outcome {
-    Ok(_) -> Ok(Nil)
+    Ok(Nil) -> Ok(Nil)
     Error(pog.TransactionQueryError(query_error)) ->
       Error(classify(query_error))
-    Error(pog.TransactionRolledBack(query_error)) ->
-      Error(classify(query_error))
+    Error(pog.TransactionRolledBack(write_error)) -> Error(write_error)
+  }
+}
+
+/// The delete-then-insert temporal upsert on an already-open connection: the
+/// reusable core of `log`. The caller owns the transaction, so the command
+/// `dispatch` seam can run this and append its `event_log` row in the SAME
+/// transaction (facts + journal commit together). On a PERIOD-FK rejection the
+/// caller's transaction rolls back the delete, leaving the prior row intact.
+pub fn log_in(
+  conn: pog.Connection,
+  write: WriteRequest,
+) -> Result(Nil, WriteError) {
+  let WriteRequest(engineer_id:, project_id:, day:, hours:) = write
+  let outcome = {
+    use _ <- result.try(sql.timesheet_delete(conn, engineer_id, project_id, day))
+    sql.timesheet_write(conn, engineer_id, project_id, day, hours)
+  }
+  case outcome {
+    Ok(_) -> Ok(Nil)
+    Error(query_error) -> Error(classify(query_error))
   }
 }
 
