@@ -12,14 +12,15 @@
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/http
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type TimesheetDay, BoardRow, BoardSnapshot, OnLeave,
-  OnProject, TimesheetDay, TimesheetLine,
+  type BoardSnapshot, type Event, type TimesheetDay, BoardRow, BoardSnapshot,
+  OnLeave, OnProject, Promote, TimesheetDay, TimesheetLine,
 }
 import tempo/server/context.{type Context, Context}
 import tempo/server/web/router
@@ -40,12 +41,12 @@ fn ctx() -> Context {
 
 // --- GET /api/board ---------------------------------------------------------
 
-// As of the seed "now" the board has Marcus on Data Platform, Priya on her two
+// On the seed "now" the board has Marcus on Data Platform, Priya on her two
 // half-time projects, and Aisha suppressed to "On leave" — exactly the shared
 // BoardSnapshot the client renders, decoded back from the JSON the handler sent.
-pub fn board_as_of_now_returns_snapshot_test() {
+pub fn board_now_returns_snapshot_test() {
   let response =
-    simulate.request(http.Get, "/api/board?as_of=2026-06-15")
+    simulate.request(http.Get, "/api/board?date=2026-06-15")
     |> router.handle_request(ctx())
 
   assert response.status == 200
@@ -53,7 +54,7 @@ pub fn board_as_of_now_returns_snapshot_test() {
   let snapshot = decode_board(response)
 
   assert snapshot
-    == BoardSnapshot(as_of: calendar.Date(2026, calendar.June, 15), rows: [
+    == BoardSnapshot(date: calendar.Date(2026, calendar.June, 15), rows: [
       BoardRow(
         engineer: "Aisha Okafor",
         level: 6,
@@ -102,8 +103,8 @@ pub fn board_as_of_now_returns_snapshot_test() {
     ])
 }
 
-// A missing as_of is a 400, not a crash or a 500.
-pub fn board_without_as_of_is_bad_request_test() {
+// A missing date is a 400, not a crash or a 500.
+pub fn board_without_date_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/board")
     |> router.handle_request(ctx())
@@ -111,10 +112,10 @@ pub fn board_without_as_of_is_bad_request_test() {
   assert response.status == 400
 }
 
-// A malformed as_of is a 400.
-pub fn board_with_bad_as_of_is_bad_request_test() {
+// A malformed date is a 400.
+pub fn board_with_bad_date_is_bad_request_test() {
   let response =
-    simulate.request(http.Get, "/api/board?as_of=not-a-date")
+    simulate.request(http.Get, "/api/board?date=not-a-date")
     |> router.handle_request(ctx())
 
   assert response.status == 400
@@ -136,7 +137,7 @@ pub fn timesheet_read_returns_day_test() {
   assert day
     == TimesheetDay(
       engineer_id: 1,
-      as_of: calendar.Date(2026, calendar.June, 9),
+      date: calendar.Date(2026, calendar.June, 9),
       lines: [
         TimesheetLine(
           project_id: 200,
@@ -239,6 +240,132 @@ pub fn timesheet_write_logs_hours_test() {
   assert logged == [7.5]
 }
 
+// --- POST /api/operations ---------------------------------------------------
+
+// A successful operation returns 200 with the newly-created event as JSON (the
+// operation tag, summary, and re-encoded payload), and the journal really grew
+// by that row. Promote Marcus (id 2) to L6 effective 2026-09-01: the FOR PORTION
+// OF change commits, so the role split and the appended event_log row are both
+// undone afterwards to leave the shared seed pristine.
+pub fn operation_promote_returns_created_event_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        ),
+      )),
+    )
+    |> router.handle_request(context)
+
+  let status = response.status
+  let event = decode_event(response)
+  let after = event_count(context)
+
+  // Restore the seed regardless of the assertion outcome: undo the role split
+  // and drop the appended journal row.
+  restore_engineer_2_roles(context)
+  delete_event(context, event.id)
+
+  assert status == 200
+  assert event.operation == "promote"
+  assert event.actor == "mike@alembic.com.au"
+  assert event.summary == "Promote engineer 2 to L6 from 2026-09-01"
+  assert event.payload
+    == "{\"op\": \"promote\", \"level\": 6, \"effective\": \"2026-09-01\", \"engineer_id\": 2}"
+  assert after == before + 1
+}
+
+// A rejected operation maps by its typed OperationError. Logging hours for
+// Marcus (id 2) against project 100 — which he is NOT allocated to — fires the
+// timesheet PERIOD FK (a containment violation), so the dispatch transaction
+// rolls back and the handler returns a 409 with the containment error code. The
+// rollback means the seed is untouched.
+pub fn operation_containment_violation_is_conflict_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: types.LogTimesheet(
+          engineer_id: 2,
+          project_id: 100,
+          day: calendar.Date(2026, calendar.June, 10),
+          hours: 8.0,
+        ),
+      )),
+    )
+    |> router.handle_request(context)
+
+  assert response.status == 409
+  assert decode_error_code(response) == "containment_violated"
+  // The whole dispatch transaction rolled back: no journal row was appended.
+  assert event_count(context) == before
+}
+
+// A malformed body is a 400, not a 500.
+pub fn operation_bad_body_is_bad_request_test() {
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(json.object([#("actor", json.string("nobody"))]))
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
+// --- GET /api/events --------------------------------------------------------
+
+// GET /api/events returns the journal newest-first as a JSON array of Events.
+// The hand-written seed leaves the journal empty, so this test first applies an
+// operation (a Promote) to put one known row in the feed, then asserts the feed
+// returns it; the role split and the journal row are undone afterwards so the
+// shared seed is left pristine.
+pub fn events_returns_journal_test() {
+  let context = ctx()
+
+  let post =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        ),
+      )),
+    )
+    |> router.handle_request(context)
+  let created = decode_event(post)
+
+  let response =
+    simulate.request(http.Get, "/api/events")
+    |> router.handle_request(context)
+  let status = response.status
+  let events = decode_events(response)
+
+  // Restore the seed regardless of the assertion outcome.
+  restore_engineer_2_roles(context)
+  delete_event(context, created.id)
+
+  assert status == 200
+  // The feed comes back newest-first (id DESC) and carries the event just
+  // appended at its head.
+  assert ids_descending(events)
+  let assert [newest, ..] = events
+  assert newest == created
+}
+
 // --- static / fallthrough ---------------------------------------------------
 
 // An unknown path is a 404 (the static fallthrough finds no file).
@@ -275,6 +402,67 @@ fn decode_error_code(response) -> String {
     simulate.read_body(response)
     |> json.parse(decoder)
   code
+}
+
+fn decode_event(response) -> Event {
+  let assert Ok(event) =
+    simulate.read_body(response)
+    |> json.parse(codecs.event_decoder())
+  event
+}
+
+fn decode_events(response) -> List(Event) {
+  let assert Ok(events) =
+    simulate.read_body(response)
+    |> json.parse(decode.list(codecs.event_decoder()))
+  events
+}
+
+/// True when the events are in strictly descending id order (newest-first).
+fn ids_descending(events: List(Event)) -> Bool {
+  let ids = list.map(events, fn(event) { event.id })
+  ids == list.sort(ids, by: fn(a, b) { int.compare(b, a) })
+}
+
+/// Count the journal rows directly, so a test can assert the feed grew (or did
+/// not) by exactly one across an operation.
+fn event_count(context: Context) -> Int {
+  let row_decoder = {
+    use count <- decode.field(0, decode.int)
+    decode.success(count)
+  }
+  let assert Ok(returned) =
+    pog.query("SELECT count(*)::int FROM event_log")
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: context.db)
+  let assert [count, ..] = returned.rows
+  count
+}
+
+/// Delete a single journal row by id, undoing the event a write test appended.
+fn delete_event(context: Context, id: Int) -> Nil {
+  let assert Ok(_) =
+    pog.query("DELETE FROM event_log WHERE id = $1")
+    |> pog.parameter(pog.int(id))
+    |> pog.execute(on: context.db)
+  Nil
+}
+
+/// Restore engineer 2's (Marcus) role timeline to the seed state after a Promote
+/// test split it: delete every role row for him and re-insert the two seed rows
+/// (L4 before the promotion, L5 after), so the shared seed is left untouched.
+fn restore_engineer_2_roles(context: Context) -> Nil {
+  let assert Ok(_) =
+    pog.query("DELETE FROM engineer_role WHERE engineer_id = 2")
+    |> pog.execute(on: context.db)
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES "
+      <> "(2, 4, daterange('2024-06-01', '2026-07-01')), "
+      <> "(2, 5, daterange('2026-07-01', '2027-01-01'))",
+    )
+    |> pog.execute(on: context.db)
+  Nil
 }
 
 /// Remove a single timesheet row created by a write test, restoring the seed.

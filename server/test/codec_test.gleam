@@ -15,8 +15,11 @@ import gleam/json.{type Json}
 import gleam/time/calendar.{Date, January, July, June}
 import shared/codecs
 import shared/types.{
-  BoardRow, BoardSnapshot, OnLeave, OnProject, TimesheetDay, TimesheetLine,
-  Unassigned,
+  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
+  ChangeAllocationFraction, Event, LogTimesheet, OnLeave, OnProject,
+  OnboardEngineer, OperationRequest, Promote, ReviseRateCard, RollOff,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetDay,
+  TimesheetLine, Unassigned,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -34,15 +37,6 @@ fn round_trip(value: a, encode: fn(a) -> Json, decoder: Decoder(a)) -> a {
 // --- Date -------------------------------------------------------------------
 
 pub fn date_round_trips_test() {
-  let original = Date(2026, June, 15)
-
-  assert round_trip(original, codecs.encode_date, codecs.date_decoder())
-    == original
-}
-
-// --- As-of date -------------------------------------------------------------
-
-pub fn as_of_round_trips_test() {
   let original = Date(2026, June, 15)
 
   assert round_trip(original, codecs.encode_date, codecs.date_decoder())
@@ -149,11 +143,11 @@ pub fn board_row_on_leave_round_trips_test() {
 
 // --- BoardSnapshot ----------------------------------------------------------
 
-// The whole board as of the seed "now": a mix of on-project and on-leave rows,
+// The whole board for the seed "now": a mix of on-project and on-leave rows,
 // proving the list and every nested variant survive the round trip together.
 pub fn board_snapshot_round_trips_test() {
   let original =
-    BoardSnapshot(as_of: Date(2026, June, 15), rows: [
+    BoardSnapshot(date: Date(2026, June, 15), rows: [
       BoardRow(
         engineer: "Marcus Chen",
         level: 4,
@@ -185,9 +179,9 @@ pub fn board_snapshot_round_trips_test() {
     == original
 }
 
-// An empty board (no employed engineers as of the date) still round-trips.
+// An empty board (no employed engineers on the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
-  let original = BoardSnapshot(as_of: Date(2026, June, 15), rows: [])
+  let original = BoardSnapshot(date: Date(2026, June, 15), rows: [])
 
   assert round_trip(
       original,
@@ -244,7 +238,7 @@ pub fn timesheet_line_zero_hours_round_trips_test() {
 
 pub fn timesheet_day_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 1, as_of: Date(2026, June, 9), lines: [
+    TimesheetDay(engineer_id: 1, date: Date(2026, June, 9), lines: [
       TimesheetLine(
         project_id: 200,
         project: "Inventory Sync",
@@ -275,12 +269,188 @@ pub fn timesheet_day_round_trips_test() {
 // PRD FR-4/FR-5) — round-trips to the same empty form.
 pub fn timesheet_day_on_leave_empty_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 3, as_of: Date(2026, June, 15), lines: [])
+    TimesheetDay(engineer_id: 3, date: Date(2026, June, 15), lines: [])
 
   assert round_trip(
       original,
       codecs.encode_timesheet_day,
       codecs.timesheet_day_decoder(),
     )
+    == original
+}
+
+// --- Command ----------------------------------------------------------------
+// One round-trip per operation in the write vocabulary. The same `encode_command`
+// serves both the POST /api/operations body and the event_log payload, so the
+// `op` tag must reconstruct the exact variant. Values are explicit and anchored
+// to the seed frame (engineer/project ids, levels, rates from 003_seed.sql).
+
+pub fn command_onboard_engineer_round_trips_test() {
+  let original =
+    OnboardEngineer(name: "Dev Patel", level: 3, effective: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_sign_contract_round_trips_test() {
+  let original =
+    SignContract(
+      client: "Northwind Trading",
+      valid_from: Date(2026, July, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_start_project_round_trips_test() {
+  let original =
+    StartProject(
+      name: "Billing Revamp",
+      contract_id: 10,
+      valid_from: Date(2026, July, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_assign_to_project_round_trips_test() {
+  let original =
+    AssignToProject(
+      engineer_id: 1,
+      project_id: 200,
+      fraction: 0.5,
+      valid_from: Date(2026, July, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_take_leave_round_trips_test() {
+  let original =
+    TakeLeave(
+      engineer_id: 3,
+      kind: "annual",
+      valid_from: Date(2026, June, 8),
+      valid_to: Date(2026, June, 22),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_log_timesheet_round_trips_test() {
+  let original =
+    LogTimesheet(
+      engineer_id: 1,
+      project_id: 100,
+      day: Date(2026, June, 9),
+      hours: 4.0,
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_promote_round_trips_test() {
+  let original =
+    Promote(engineer_id: 2, level: 5, effective: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_change_allocation_fraction_round_trips_test() {
+  let original =
+    ChangeAllocationFraction(
+      engineer_id: 1,
+      project_id: 100,
+      fraction: 1.0,
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_revise_rate_card_round_trips_test() {
+  let original =
+    ReviseRateCard(level: 5, day_rate: 1400.0, effective: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_adjust_rate_for_portion_round_trips_test() {
+  let original =
+    AdjustRateForPortion(
+      level: 5,
+      day_rate: 1500.0,
+      valid_from: Date(2026, July, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_roll_off_round_trips_test() {
+  let original =
+    RollOff(engineer_id: 1, project_id: 200, effective: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_terminate_employment_round_trips_test() {
+  let original =
+    TerminateEmployment(engineer_id: 2, effective: Date(2026, July, 1))
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+// --- OperationRequest --------------------------------------------------------
+
+// The POST /api/operations envelope: the actor plus the nested `Command`. The
+// `command` field must round-trip through the same tagged encoding, so the
+// envelope reconstructs the exact variant it carried.
+pub fn operation_request_round_trips_test() {
+  let original =
+    OperationRequest(
+      actor: "mike@alembic.com.au",
+      command: Promote(engineer_id: 2, level: 5, effective: Date(2026, July, 1)),
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_operation_request,
+      codecs.operation_request_decoder(),
+    )
+    == original
+}
+
+// --- Event ------------------------------------------------------------------
+
+// One provenance-journal row: `payload` is the command re-encoded as a raw JSON
+// string, carried verbatim through the round trip (no re-decode of the variant).
+pub fn event_round_trips_test() {
+  let original =
+    Event(
+      id: 42,
+      occurred_at: "2026-06-15T09:30:00Z",
+      actor: "mike@alembic.com.au",
+      operation: "promote",
+      summary: "Promoted engineer 2 to L5 effective 2026-07-01",
+      payload: "{\"op\":\"promote\",\"engineer_id\":2,\"level\":5,\"effective\":\"2026-07-01\"}",
+    )
+
+  assert round_trip(original, codecs.encode_event, codecs.event_decoder())
     == original
 }

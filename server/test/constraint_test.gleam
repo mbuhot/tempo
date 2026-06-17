@@ -122,7 +122,7 @@ fn context_db() -> pog.Connection {
 // --- WITHOUT OVERLAPS -------------------------------------------------------
 
 // A second allocation overlapping an existing one for the same
-// (engineer, project) is rejected by the gist exclusion PK `allocation_pkey`.
+// (engineer, project) is rejected by the gist exclusion PK `allocation_no_overlap`.
 pub fn overlapping_allocation_is_rejected_test() {
   let error =
     reject(
@@ -132,7 +132,7 @@ pub fn overlapping_allocation_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO contract (id, client_id, valid_at) VALUES "
+            "INSERT INTO contract (id, client_id, term) VALUES "
               <> "(9001, "
               <> int.to_string(client_id)
               <> ", daterange('2026-01-01','2027-01-01'))",
@@ -140,13 +140,13 @@ pub fn overlapping_allocation_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO project (id, contract_id, name, valid_at) VALUES "
+            "INSERT INTO project (id, contract_id, name, active_during) VALUES "
               <> "(8001, 9001, 'Analytical Engine', daterange('2026-01-01','2027-01-01'))",
           )
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO employment (engineer_id, valid_at) VALUES "
+            "INSERT INTO employment (engineer_id, employed_during) VALUES "
               <> "("
               <> int.to_string(engineer_id)
               <> ", daterange('2026-01-01','2027-01-01'))",
@@ -154,7 +154,7 @@ pub fn overlapping_allocation_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) VALUES "
+            "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) VALUES "
               <> "("
               <> int.to_string(engineer_id)
               <> ", 8001, 0.50, daterange('2026-01-01','2026-06-01'))",
@@ -165,20 +165,20 @@ pub fn overlapping_allocation_is_rejected_test() {
         // Overlaps [2026-01-01,2026-06-01) on 2026-05.
         exec(
           conn,
-          "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) "
+          "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) "
             <> "SELECT engineer_id, project_id, fraction, daterange('2026-05-01','2026-08-01') "
             <> "FROM allocation WHERE project_id = 8001",
         )
       },
     )
 
-  assert constraint_name(error) == "allocation_pkey"
+  assert constraint_name(error) == "allocation_no_overlap"
 }
 
 // --- PERIOD foreign keys: the containment chain (PRD FR-5) ------------------
 
 // An allocation whose period runs past the engineer's employment is rejected by
-// the PERIOD FK `allocation_engineer_id_valid_at_fkey`: employment ends, so the
+// the PERIOD FK `allocation_within_employment`: employment ends, so the
 // association cannot dangle beyond it.
 pub fn allocation_past_employment_is_rejected_test() {
   let error =
@@ -204,7 +204,7 @@ pub fn allocation_past_employment_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error) == "allocation_engineer_id_valid_at_fkey"
+  assert constraint_name(error) == "allocation_within_employment"
 }
 
 // Leave that extends past employment is rejected by the PERIOD FK on `leave`.
@@ -219,11 +219,11 @@ pub fn leave_past_employment_is_rejected_test() {
       fn(conn) {
         // Leave 2026-05..2026-07 outlives employment (ends 2026-06-01). Scoped
         // by the fixture engineer's name so seeded employment rows (003_seed.sql,
-        // applied before `gleam test` in CI) cannot trigger a leave_pkey
+        // applied before `gleam test` in CI) cannot trigger a leave_no_overlap
         // conflict before the intended PERIOD-FK violation.
         exec(
           conn,
-          "INSERT INTO leave (engineer_id, kind, valid_at) "
+          "INSERT INTO leave (engineer_id, kind, on_leave_during) "
             <> "SELECT employment.engineer_id, 'annual', daterange('2026-05-01','2026-07-01') "
             <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
             <> "WHERE engineer.name = 'Katherine Johnson'",
@@ -231,7 +231,7 @@ pub fn leave_past_employment_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error) == "leave_engineer_id_valid_at_fkey"
+  assert constraint_name(error) == "leave_within_employment"
 }
 
 // A role (level) period extending past employment is rejected by the PERIOD FK
@@ -247,11 +247,11 @@ pub fn role_past_employment_is_rejected_test() {
       fn(conn) {
         // Role 2026-01..2026-08 outlives employment (ends 2026-06-01). Scoped by
         // the fixture engineer's name so seeded employment rows (003_seed.sql,
-        // applied before `gleam test` in CI) cannot trigger an engineer_role_pkey
+        // applied before `gleam test` in CI) cannot trigger an engineer_role_no_overlap
         // conflict before the intended PERIOD-FK violation.
         exec(
           conn,
-          "INSERT INTO engineer_role (engineer_id, level, valid_at) "
+          "INSERT INTO engineer_role (engineer_id, level, held_during) "
             <> "SELECT employment.engineer_id, 5, daterange('2026-01-01','2026-08-01') "
             <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
             <> "WHERE engineer.name = 'Margaret Hamilton'",
@@ -259,11 +259,11 @@ pub fn role_past_employment_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error) == "engineer_role_engineer_id_valid_at_fkey"
+  assert constraint_name(error) == "engineer_role_within_employment"
 }
 
 // An allocation whose period runs past the project's run is rejected by the
-// PERIOD FK `allocation_project_id_valid_at_fkey` (allocation ⊂ project).
+// PERIOD FK `allocation_within_project` (allocation ⊂ project).
 pub fn allocation_outside_project_is_rejected_test() {
   let error =
     reject(
@@ -289,11 +289,11 @@ pub fn allocation_outside_project_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error) == "allocation_project_id_valid_at_fkey"
+  assert constraint_name(error) == "allocation_within_project"
 }
 
 // A project whose period runs past its contract's term is rejected by the
-// PERIOD FK `project_contract_id_valid_at_fkey` (project ⊂ contract).
+// PERIOD FK `project_within_contract` (project ⊂ contract).
 pub fn project_outside_contract_is_rejected_test() {
   let error =
     reject(
@@ -309,12 +309,12 @@ pub fn project_outside_contract_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error) == "project_contract_id_valid_at_fkey"
+  assert constraint_name(error) == "project_within_contract"
 }
 
 // A timesheet day not covered by an allocation is rejected by the PERIOD FK
-// `timesheet_engineer_id_project_id_work_day_fkey` (PRD FR-5: cannot log against
-// a project you are not allocated to that day).
+// `timesheet_within_allocation` (PRD FR-5: cannot log against a project you are
+// not allocated to that day).
 pub fn timesheet_without_allocation_is_rejected_test() {
   let error =
     reject(
@@ -353,8 +353,7 @@ pub fn timesheet_without_allocation_is_rejected_test() {
       },
     )
 
-  assert constraint_name(error)
-    == "timesheet_engineer_id_project_id_work_day_fkey"
+  assert constraint_name(error) == "timesheet_within_allocation"
 }
 
 // --- FOR PORTION OF: surgical rate edits (PRD FR-6) -------------------------
@@ -379,20 +378,20 @@ pub fn for_portion_of_splits_rate_card_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO rate_card (level, day_rate, valid_at) VALUES "
+            "INSERT INTO rate_card (level, day_rate, effective_during) VALUES "
               <> "(7, 1200.00, daterange('2026-01-01','2027-01-01'))",
           )
         let assert Ok(_) =
           exec(
             conn,
-            "UPDATE rate_card FOR PORTION OF valid_at "
+            "UPDATE rate_card FOR PORTION OF effective_during "
               <> "FROM '2026-04-01' TO '2026-08-01' "
               <> "SET day_rate = 1500.00 WHERE level = 7",
           )
         Nil
       },
-      "SELECT day_rate::text, lower(valid_at)::text, upper(valid_at)::text "
-        <> "FROM rate_card WHERE level = 7 ORDER BY lower(valid_at)",
+      "SELECT day_rate::text, lower(effective_during)::text, upper(effective_during)::text "
+        <> "FROM rate_card WHERE level = 7 ORDER BY lower(effective_during)",
       rate_period_decoder(),
     )
 
@@ -422,7 +421,7 @@ type Segment {
 // preserving a genuine gap. Here [Jan,Feb)+[Feb,Mar) are adjacent and
 // [Feb-15,Apr) overlaps them, so all three collapse to [Jan,Apr); the separate
 // [May,Jun) stays its own segment because Apr–May is a real gap. This is exactly
-// the coalescing the v2-split migration relies on (unnest(range_agg(valid_at))).
+// the coalescing the v2-split migration relies on (unnest(range_agg(allocated_during))).
 pub fn range_agg_coalesces_and_preserves_gap_test() {
   let rows =
     read_rolling_back(
@@ -484,7 +483,7 @@ fn insert_contract(
   let assert Ok(_) =
     exec(
       conn,
-      "INSERT INTO contract (id, client_id, valid_at) VALUES ("
+      "INSERT INTO contract (id, client_id, term) VALUES ("
         <> int.to_string(contract_id)
         <> ", "
         <> int.to_string(client_id)
@@ -529,7 +528,7 @@ fn try_insert_project(
 ) -> Result(Nil, pog.QueryError) {
   exec(
     conn,
-    "INSERT INTO project (id, contract_id, name, valid_at) VALUES ("
+    "INSERT INTO project (id, contract_id, name, active_during) VALUES ("
       <> int.to_string(project_id)
       <> ", "
       <> int.to_string(contract_id)
@@ -553,7 +552,7 @@ fn insert_employment(
   let assert Ok(_) =
     exec(
       conn,
-      "INSERT INTO employment (engineer_id, valid_at) VALUES ("
+      "INSERT INTO employment (engineer_id, employed_during) VALUES ("
         <> int.to_string(engineer_id)
         <> ", daterange('"
         <> valid_from
@@ -578,7 +577,7 @@ fn insert_allocation_for(
 ) -> Result(Nil, pog.QueryError) {
   exec(
     conn,
-    "INSERT INTO allocation (engineer_id, project_id, fraction, valid_at) "
+    "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) "
       <> "SELECT employment.engineer_id, "
       <> int.to_string(project_id)
       <> ", 0.50, daterange('"

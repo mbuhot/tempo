@@ -1,7 +1,7 @@
 //// Regression test for the "Unassigned" board slice (PRD FR-1): an engineer who
-//// is employed but has no allocation and is not on leave as of the date must
+//// is employed but has no allocation and is not on leave on the date must
 //// appear as `Unassigned`. Before the board was split into three queries
-//// (board_as_of engaged / board_unassigned_as_of / board_leave_as_of), such a
+//// (board_engaged / board_unassigned / board_leave), such a
 //// date produced a row with NULL project/client/rate that the non-null decoder
 //// could not represent, so GET /api/board returned 500 (e.g. Marcus Chen across
 //// mid-2024). This pins both the query and the fully-assembled snapshot.
@@ -25,14 +25,14 @@ fn db() -> pog.Connection {
   started.data
 }
 
-// The board_unassigned_as_of query: at 2024-06-01 exactly Marcus is employed,
+// The board_unassigned query: at 2024-06-01 exactly Marcus is employed,
 // not allocated, and not on leave — returned with his level (L4). Priya is
-// allocated (Ledger) and so is absent here; she belongs to board_as_of.
-pub fn board_unassigned_as_of_query_test() {
+// allocated (Ledger) and so is absent here; she belongs to board_engaged.
+pub fn board_unassigned_query_test() {
   let assert Ok(returned) =
-    sql.board_unassigned_as_of(db(), calendar.Date(2024, calendar.June, 1))
+    sql.board_unassigned(db(), calendar.Date(2024, calendar.June, 1))
 
-  assert returned.rows == [sql.BoardUnassignedAsOfRow("Marcus Chen", 4)]
+  assert returned.rows == [sql.BoardUnassignedRow("Marcus Chen", 4)]
 }
 
 // The assembled snapshot at 2024-06-01 succeeds (no 500) and renders Marcus as

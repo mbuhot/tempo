@@ -29,9 +29,13 @@ async function scrubTo(page, isoDate) {
   await expect(page.getByText(`Logging for ${isoDate}`)).toBeVisible();
 }
 
-// Pick an engineer in the timesheet selector by their visible name.
+// Pick an engineer in the timesheet selector by their visible name. The label is
+// matched exactly so it resolves to the timesheet's "Engineer" selector and not
+// the operations console's "Engineer id" field (a substring match would hit both).
 async function selectEngineer(page, name) {
-  await page.getByLabel("Engineer").selectOption({ label: name });
+  await page
+    .getByLabel("Engineer", { exact: true })
+    .selectOption({ label: name });
 }
 
 // The hours input the user types into for a given project.

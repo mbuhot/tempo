@@ -1,4 +1,4 @@
-//// Layer-3 as-of query tests (ARCHITECTURE.md §10.3) against the generated
+//// Layer-3 query tests (ARCHITECTURE.md §10.3) against the generated
 //// Squirrel functions in `tempo/server/sql`. They run the deterministic v1-wide
 //// seed (003_seed.sql, "now" = 2026-06-15) at fixed dates and assert the exact
 //// rows, proving the temporal joins and the range-decomposition boundary
@@ -31,19 +31,19 @@ fn db() -> pog.Connection {
   started.data
 }
 
-// --- board_as_of (PRD FR-1, FR-2, FR-3, FR-4) -------------------------------
+// --- board_engaged (PRD FR-1, FR-2, FR-3, FR-4) -----------------------------
 
 // Scrub into the past (2025-03-01, PRD FR-2): history with no audit tables.
 // Inventory Sync (project 200) does not start until 2025-06-01, so Priya is on
 // only Ledger Migration at L5 (rate 1200, pre-bump); Marcus is full-time on Data
 // Platform at L4 (rate 1000, pre-promotion); Aisha is present at L6 (her leave is
 // over a year away). A meaningfully different board from the seed "now".
-pub fn board_as_of_past_test() {
-  let assert Ok(returned) = sql.board_as_of(db(), Date(2025, March, 1))
+pub fn board_engaged_past_test() {
+  let assert Ok(returned) = sql.board_engaged(db(), Date(2025, March, 1))
 
   assert returned.rows
     == [
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Aisha Okafor",
         level: 6,
         project: "Data Platform",
@@ -53,7 +53,7 @@ pub fn board_as_of_past_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 4,
         project: "Data Platform",
@@ -63,7 +63,7 @@ pub fn board_as_of_past_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -76,15 +76,15 @@ pub fn board_as_of_past_test() {
     ]
 }
 
-// As of the seed "now" (2026-06-15): Priya is on both half-time projects at L5
+// On the seed "now" (2026-06-15): Priya is on both half-time projects at L5
 // (rate 1200, pre-bump); Marcus is full-time on Data Platform at L4 (rate 1000,
 // pre-promotion); Aisha is suppressed because she is on leave across this date.
-pub fn board_as_of_now_test() {
-  let assert Ok(returned) = sql.board_as_of(db(), Date(2026, June, 15))
+pub fn board_engaged_now_test() {
+  let assert Ok(returned) = sql.board_engaged(db(), Date(2026, June, 15))
 
   assert returned.rows
     == [
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 4,
         project: "Data Platform",
@@ -94,7 +94,7 @@ pub fn board_as_of_now_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Inventory Sync",
@@ -104,7 +104,7 @@ pub fn board_as_of_now_test() {
         valid_from: Date(2025, June, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -120,12 +120,12 @@ pub fn board_as_of_now_test() {
 // Scrub into the future past 2026-07-01: Marcus's seeded promotion (L4 -> L5)
 // and the L5 rate-card bump (1200 -> 1400) both activate unaided (PRD FR-3), and
 // Aisha's leave has ended so she reappears on the board, full-time at L6.
-pub fn board_as_of_future_test() {
-  let assert Ok(returned) = sql.board_as_of(db(), Date(2026, August, 1))
+pub fn board_engaged_future_test() {
+  let assert Ok(returned) = sql.board_engaged(db(), Date(2026, August, 1))
 
   assert returned.rows
     == [
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Aisha Okafor",
         level: 6,
         project: "Data Platform",
@@ -135,7 +135,7 @@ pub fn board_as_of_future_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 5,
         project: "Data Platform",
@@ -145,7 +145,7 @@ pub fn board_as_of_future_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Inventory Sync",
@@ -155,7 +155,7 @@ pub fn board_as_of_future_test() {
         valid_from: Date(2025, June, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardAsOfRow(
+      sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -168,16 +168,16 @@ pub fn board_as_of_future_test() {
     ]
 }
 
-// --- board_leave_as_of (PRD FR-4) -------------------------------------------
+// --- board_leave (PRD FR-4) -------------------------------------------------
 
-// As of the seed "now", exactly Aisha is on leave: the row the board renders as
+// On the seed "now", exactly Aisha is on leave: the row the board renders as
 // "On leave: annual", carrying her level and the leave period's bounds.
-pub fn board_leave_as_of_now_test() {
-  let assert Ok(returned) = sql.board_leave_as_of(db(), Date(2026, June, 15))
+pub fn board_leave_now_test() {
+  let assert Ok(returned) = sql.board_leave(db(), Date(2026, June, 15))
 
   assert returned.rows
     == [
-      sql.BoardLeaveAsOfRow(
+      sql.BoardLeaveRow(
         engineer: "Aisha Okafor",
         level: Some(6),
         kind: "annual",
@@ -188,8 +188,8 @@ pub fn board_leave_as_of_now_test() {
 }
 
 // Once the leave window has passed, nobody is on leave.
-pub fn board_leave_as_of_after_leave_is_empty_test() {
-  let assert Ok(returned) = sql.board_leave_as_of(db(), Date(2026, August, 1))
+pub fn board_leave_after_leave_is_empty_test() {
+  let assert Ok(returned) = sql.board_leave(db(), Date(2026, August, 1))
 
   assert returned.rows == []
 }
@@ -344,8 +344,8 @@ fn rate_rows_rolling_back(
       mutate(conn)
       let assert Ok(returned) =
         pog.query(
-          "SELECT day_rate::text, lower(valid_at)::text, upper(valid_at)::text "
-          <> "FROM rate_card WHERE level = 4 ORDER BY lower(valid_at)",
+          "SELECT day_rate::text, lower(effective_during)::text, upper(effective_during)::text "
+          <> "FROM rate_card WHERE level = 4 ORDER BY lower(effective_during)",
         )
         |> pog.returning(decoder)
         |> pog.execute(on: conn)
