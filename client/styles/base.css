@@ -1,0 +1,50 @@
+/* Tempo — legibility-only styling (legibility over polish).
+ *
+ * Goals: large, high-contrast type readable from the back of a room; a clear
+ * column layout for the org board; a prominent slider with a big "As of <date>"
+ * heading; and visually distinct on-leave and unassigned rows. No decorative
+ * polish — every rule serves readability on a projector.
+ *
+ * This file styles by class only and never alters the page's visible text, so
+ * the behaviour-driven Playwright suite (which asserts text and ARIA labels,
+ * never CSS) is unaffected. */
+
+:root {
+  --ink: #10151c;
+  --muted: #475569;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --line: #cbd5e1;
+  --accent: #1d4ed8;
+  --leave: #b45309;
+  --leave-bg: #fff7ed;
+  --leave-line: #f59e0b;
+  --unassigned: #6b7280;
+  --unassigned-bg: #f1f5f9;
+}
+
+html {
+  font-size: 20px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  line-height: 1.4;
+}
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 4rem;
+}
+
+.page > h1 {
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+}

@@ -1,0 +1,13 @@
+/* Tempo stylesheet manifest. The CSS source lives here in client/styles/ and is
+ * copied to server/priv/static/styles/ as a build step (see bin/build); the
+ * browser resolves these relative @import paths from the served main.css.
+ *
+ * Order follows the page top-to-bottom: shared base first, then each UI area. */
+
+@import "./base.css";
+@import "./slider.css";
+@import "./board.css";
+@import "./timesheet.css";
+@import "./console.css";
+@import "./event-log.css";
+@import "./financials.css";

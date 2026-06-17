@@ -4,3 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cd client && gleam run -m lustre/dev build client/app
+
+# Copy the CSS source (client/styles/) to the served location; the browser
+# resolves main.css's relative @imports from there. Rebuilt every time.
+rm -rf ../server/priv/static/styles && cp -R styles ../server/priv/static/styles
