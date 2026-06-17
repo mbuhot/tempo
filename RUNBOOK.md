@@ -1,16 +1,20 @@
 # Tempo — Demo Run-book
 
-The on-stage script for the PostgreSQL 19 temporal-tables talk. Maps each of the
-seven PRD §7 beats to **concrete actions** with the **exact seeded dates and
-engineers**, so a fresh clone can reproduce the whole demo by following this file.
+The on-stage script for the PostgreSQL 19 temporal-tables talk. Maps the demo
+beats below to **concrete actions** with the **exact seeded dates and engineers**,
+so a fresh clone can reproduce the whole demo by following this file. Each beat
+names the PRD §7 functional requirements (FR-n) it exercises; the writes now also
+run live through the **operations console** and the **event-log panel** in the UI
+(FR-9, FR-11), not only as raw SQL.
 
 The live demo runs on **`v2-split`** (the final schema). `v1-wide` is shown only
 briefly — the "before" picture and the migration reveal in **beat 6**. Everything
 else is identical on both tags by construction (the board asserts only what the
 user sees), so you do **not** switch tags except where beat 6 says to.
 
-> Background: `PRD.md` (§7 beats, §9 success criteria), `ARCHITECTURE.md` (§5
-> queries, §7 migration, §10 testing), `DECISIONS.md` (ADR-006/007/013).
+> Background: `PRD.md` (§7 functional requirements, §9 testing, §10 success
+> criteria), `ARCHITECTURE.md` (§5 queries, §7 migration, §10 testing),
+> `DECISIONS.md` (ADR-006/007/013).
 > Operational detail (env vars, oracle, Playwright) lives in `README.md`.
 
 ---
@@ -86,15 +90,18 @@ org board and the "My timesheet" panel below it.
 Smoke-check before going live (each must be green — actually observed, never assumed):
 
 ```sh
-cd server && gleam test          # 52 unit tests (DB constraint + as-of + codec layers)   (bin/test)
+cd server && gleam test          # 83 unit tests (DB constraint + operations + as-of + codec layers)   (bin/test)
 cd server && gleam run -m tempo/oracle   # migration oracle: board identical for every date v1→v2 (leaves DB at v2-split)   (bin/oracle)
-cd e2e && npx playwright test    # 10 e2e specs, one per beat (needs the server running; see README)   (bin/e2e)
+cd e2e && npx playwright test    # 13 e2e specs (slider/board + timesheet + operations console; needs the server running; see README)   (bin/e2e)
 ```
 
-> The oracle **rebuilds the public schema to a fresh v1 seed and ends at
-> v2-split**. If you run it during prep, you are back at the demo state
-> afterwards. If you run it and then want a pristine board, re-do the
-> one-time-setup `migrate` is unnecessary (it already ends seeded at v2).
+> The oracle **rebuilds the public schema to a fresh v1 seed and ends at the
+> v2-split schema** — but it applies only `001`–`003` + `010`, so it stops short
+> of `011_event_log` and leaves the DB **without** the event-log table the
+> operations console writes to. If you run it during prep, re-run
+> `cd server && gleam run -m tempo/migrate` (`bin/migrate`) afterward to apply the
+> pending `011` and get back to the full demo state (board pristine, event log
+> present and empty).
 
 ---
 
@@ -152,7 +159,7 @@ before / during / after (more dramatic than aligning to the existing boundary):
 
 ```sh
 tempodb -c "UPDATE rate_card
-              FOR PORTION OF valid_at FROM '2026-09-01'::date TO '2026-11-01'::date
+              FOR PORTION OF effective_during FROM '2026-09-01'::date TO '2026-11-01'::date
               SET day_rate = 1600
             WHERE level = 5;"
 ```
@@ -160,8 +167,8 @@ tempodb -c "UPDATE rate_card
 Show the split:
 
 ```sh
-tempodb -c "SELECT level, day_rate, lower(valid_at) AS from, upper(valid_at) AS to
-            FROM rate_card WHERE level = 5 ORDER BY valid_at;"
+tempodb -c "SELECT level, day_rate, lower(effective_during) AS from, upper(effective_during) AS to
+            FROM rate_card WHERE level = 5 ORDER BY effective_during;"
 -- L5 was [2026-07-01,2027-01-01)=1400; now: …07-01..09-01=1400, 09-01..11-01=1600, 11-01..2027=1400
 ```
 
@@ -175,7 +182,7 @@ is pristine for a re-run:
 
 ```sh
 tempodb -c "UPDATE rate_card
-              FOR PORTION OF valid_at FROM '2026-09-01'::date TO '2026-11-01'::date
+              FOR PORTION OF effective_during FROM '2026-09-01'::date TO '2026-11-01'::date
               SET day_rate = 1400
             WHERE level = 5;"
 -- (the adjacent 1400 rows re-merge on the next FOR PORTION OF / coalesce; or just
@@ -227,8 +234,8 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
    **fragmented** (adjacent rows differ only by the cached rate):
    ```sh
    tempodb -c "SELECT engineer_id, project_id, fraction, day_rate,
-                      lower(valid_at) AS from, upper(valid_at) AS to
-               FROM allocation ORDER BY engineer_id, project_id, valid_at;"
+                      lower(allocated_during) AS from, upper(allocated_during) AS to
+               FROM allocation ORDER BY engineer_id, project_id, allocated_during;"
    ```
    Note the board still reads identically to beat 1 (rate is the same number,
    just sourced from the cache).
@@ -247,8 +254,8 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
    coalesce would roll the whole file back. Show the slimmer, coalesced table:
    ```sh
    tempodb -c "SELECT engineer_id, project_id, fraction,
-                      lower(valid_at) AS from, upper(valid_at) AS to
-               FROM allocation ORDER BY engineer_id, project_id, valid_at;"
+                      lower(allocated_during) AS from, upper(allocated_during) AS to
+               FROM allocation ORDER BY engineer_id, project_id, allocated_during;"
    -- no day_rate column; Marcus's two fragments merged into one 2025-01-01..2027-01-01 row
    ```
 
@@ -258,9 +265,11 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
 
 4. **The proof, not the hope.** Note that the **migration oracle** asserts this
    board parity for **every day** of the seed span (2024-01-01..2026-12-31) in CI,
-   and the **same Playwright suite** passes unmodified on both tags:
+   and the **read-model Playwright specs** (slider/board + timesheet) pass
+   unmodified on both tags (the operations-console spec targets v2 only):
    ```sh
-   cd server && gleam run -m tempo/oracle   # exits 0; board equal for every date v1→v2 (ends at v2-split)
+   cd server && gleam run -m tempo/oracle   # exits 0; board equal for every date v1→v2 (ends at the v2-split schema, before 011_event_log)
+   cd server && gleam run -m tempo/migrate  # re-apply 011_event_log to return to the full demo state
    ```
 
 > **Return to `main` after the talk:** `git checkout main` (= the `v2-split`
@@ -270,11 +279,15 @@ This is the climax. The live app is already on **`v2-split`**; you reveal the
 
 Show the one chain that no ORM can express *and* keep typed end to end:
 
-1. **The Squirrel query** — `server/src/tempo/server/sql/board_as_of.sql` — the engaged
+1. **The Squirrel query** — `server/src/tempo/server/sql/board_engaged.sql` — the engaged
    as-of board: `INNER JOIN`s through `allocation → project → contract → client`
-   and `engineer_role × rate_card`, with `valid_at @> $1::date` as the as-of
-   predicate. None of `WITHOUT OVERLAPS`, `PERIOD` FK, `FOR PORTION OF`, or
-   `range_agg` (beats 1–6) is reachable from any ORM/query builder.
+   and `engineer_role × rate_card`, with each fact's own period filtered by
+   `<period> @> $1::date` as the as-of predicate (e.g. `allocation.allocated_during
+   @> $1::date`, `rate_card.effective_during @> $1::date` — periods are named for
+   the predicate they assert, FR-12). Its companions `board_unassigned.sql` and
+   `board_leave.sql` complete the board. None of `WITHOUT OVERLAPS`, `PERIOD` FK,
+   `FOR PORTION OF`, or `range_agg` (the earlier beats) is reachable from any
+   ORM/query builder.
 2. **The shared type it feeds** — `shared/src/shared/types.gleam`: `BoardRow` and
    the `Engagement` sum (`OnProject` / `Unassigned` / `OnLeave`), with the JSON
    codecs in `shared/src/shared/codecs.gleam`. This module compiles to **both**
@@ -299,6 +312,9 @@ Observed-green on the talk machine — do not assume:
 - [ ] `cd server && gleam run` (`bin/serve`) → page loads "As of 2026-06-15" with all three engineers.
 - [ ] Beats 1–5 read as written above (scrub the dates, eyeball the sentences).
 - [ ] Beat 4 SQL runs and the slider shows $1600 inside / $1400 outside the window; undo restores it.
+- [ ] Operations console + event log work in the UI (FR-9, FR-11): apply a `promote` and watch the
+      board re-render to the new level/rate and the event-log panel gain the entry; a containment-
+      violating operation shows a clear "Rejected: …" reason and leaves the board unchanged.
 - [ ] Beat 6 checkout/migrate/rebuild sequence rehearsed end to end on a fresh DB; boards match.
-- [ ] `cd server && gleam test` (`bin/test`, 52 pass), `cd server && gleam run -m tempo/oracle` (`bin/oracle`, PASS), `cd e2e && npx playwright test` (`bin/e2e`, 10 pass).
+- [ ] `cd server && gleam test` (`bin/test`, 83 pass), `cd server && gleam run -m tempo/oracle` (`bin/oracle`, PASS), `cd e2e && npx playwright test` (`bin/e2e`, 13 pass).
 - [ ] Back on `main`, DB at v2-split, page re-loaded clean.

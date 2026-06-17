@@ -62,14 +62,18 @@ expected to change, because coalescing fragmented allocations into whole
 engagements is the whole point of the migration, and the client never renders it.
 
 It is **not** part of `gleam test`: it drops and rebuilds the `public` schema,
-which would tear down the seed the rest of the suite relies on. Run it on its own
-(it leaves the dev DB migrated to **v2-split**, the same end state as
-`gleam run -m tempo/migrate`):
+which would tear down the seed the rest of the suite relies on. Run it on its own.
+It rebuilds a fresh pre-migration schema and applies only `001`–`003` + `010`, so
+it leaves the dev DB at the **v2-split** schema but **without** the later
+`011_event_log` table (it stops at the migration reveal). To get back to the full
+demo state — including the event log the operations console writes to — re-run
+`gleam run -m tempo/migrate` afterward, which applies the pending `011`:
 
 ```sh
 docker compose up -d                                      # PG19
 cd server && gleam run -m tempo/oracle                    # exits 0 on PASS, non-zero on a mismatch
-# or: bin/oracle
+cd server && gleam run -m tempo/migrate                   # re-apply 011_event_log → full demo state
+# or: bin/oracle then bin/migrate
 ```
 
 ### Client (Lustre SPA)
@@ -99,11 +103,18 @@ Rebuild after changing `client/*` or `shared/*`, then `cd server && gleam run`
 ### End-to-end tests (Playwright)
 
 The Playwright harness is its own package under `e2e/` (`package.json`,
-`playwright.config.js`, and one spec per demo beat, PRD §7): the slider/org board
-(`slider-board.spec.js`) and the my-timesheet panel including the negative beat
-(`timesheet.spec.js`). They drive the **real app** and assert only what the user
-sees, so the same suite passes *unmodified* against both `v1-wide` and `v2-split`
-(see `ARCHITECTURE.md` §10.5).
+`playwright.config.js`, and one spec per UI surface, exercising the PRD §7
+functional requirements): the slider/org board (`slider-board.spec.js`, FR-1–FR-4),
+the my-timesheet panel including the negative beat (`timesheet.spec.js`, FR-5,
+FR-7), and the operations console + event-log panel (`operations.spec.js`, FR-9,
+FR-11) — applying a `promote` and asserting the board re-renders to the new
+level/rate and the event log gains the entry, plus a containment-violating
+operation that surfaces a typed rejection to the user. They drive the **real app**
+and assert only what the user sees. The read-model specs (slider/board and
+timesheet) assert nothing tag-specific, so they pass *unmodified* against both
+`v1-wide` and `v2-split` (see `ARCHITECTURE.md` §10.5); the operations spec
+exercises the v2 write model (operations console + `event_log`) and so targets
+`v2-split`.
 
 First-time setup (from `e2e/`):
 
@@ -112,12 +123,14 @@ cd e2e && npm install       # install @playwright/test
 cd e2e && npx playwright install chromium
 ```
 
-Run the suite — build the client, start the server on the v1-wide seed, then
-run Playwright (it targets `http://127.0.0.1:8000` by default):
+Run the suite — build the client, start the server on the migrated (v2-split)
+seed, then run Playwright (it targets `http://127.0.0.1:8000` by default). The
+operations spec applies a write and restores the seed afterward via `psql` (same
+`TEMPO_DB_*` env-var defaults as the server), so `psql` must be on `PATH`:
 
 ```sh
 docker compose up -d                                      # PG19 (repo root)
-cd server && gleam run -m tempo/migrate                   # schema + v1-wide seed
+cd server && gleam run -m tempo/migrate                   # schema + seed, ending at v2-split
 cd client && gleam run -m lustre/dev build client/app     # bundle → ../server/priv/static
 cd server && gleam run &                                  # serve on :8000
 cd e2e && npx playwright test                             # the e2e suite (chromium)

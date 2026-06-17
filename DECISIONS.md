@@ -16,6 +16,7 @@ Status legend: **Accepted** · Superseded · Proposed
 **Rationale.** Drives every other choice toward visual legibility, a scrub-the-clock spine, and a
 provable on-stage climax — rather than breadth or production hardening.
 **Alternatives.** Blog-companion repo; reference template; personal exploration.
+**Amended (ADR-017).** Re-baselined to lead with model fidelity; the talk-first PRD is superseded.
 
 ## ADR-002 — Hero capabilities: all four, time-travel as the spine
 **Status:** Accepted
@@ -49,6 +50,8 @@ mostly additive (a new attribute is a new table), and they correspond to 6NF / a
 Datomic. Contrast with Event Sourcing made explicit: same "record facts" spirit, but temporal tables
 are directly queryable across time with no projections.
 **Consequence.** ~10 small tables rather than a few wide ones — accepted as a feature, not a cost.
+**Amended (ADR-018).** The uniform `valid_at` is renamed per fact to a predicate-named period; the
+facts-not-state frame is deepened (decomposition by rate-of-change; correction = retroactive change).
 
 ## ADR-005 — Architecture: Lustre SPA + Wisp JSON API + shared types
 **Status:** Accepted
@@ -92,6 +95,8 @@ identical for every date (the migration's correctness oracle).
 **Alternatives.** Merge (temporal join/intersection); static-column → temporal-fact extraction
 (rejected as mechanically trivial and without a coalescing demo); round-trip split+merge (too much
 to rehearse).
+**Amended (ADR-024).** Retained as a historical artifact; the operations layer targets the clean
+(v2) schema, so this migration is no longer the sole centerpiece.
 
 ## ADR-008 — Fractional allocations + timesheet PERIOD FK
 **Status:** Accepted
@@ -128,6 +133,8 @@ day, and enters hours per project; `POST /api/timesheet` writes it. The app ther
 **Rationale.** Ties a temporal *read* directly to a temporal *write*, both behind the shared types,
 and makes the PERIOD-FK integrity reachable live without being a gimmick (the UI shows truth; the DB
 guarantees it).
+**Amended (ADR-019).** The timesheet write is now one of many domain operations behind a single
+`POST /api/operations`; the app gains an operations console and an event-log panel.
 
 ## ADR-011 — Range types decomposed at the Squirrel boundary
 **Status:** Accepted
@@ -147,6 +154,8 @@ the system cannot say what it *believed* at a past instant, and a structural red
 modeling history (mitigation: archive old tables; full fix is `pg_bitemporal`).
 **Rationale.** Honesty about the edge strengthens the talk; Event Sourcing is the more rigorous
 choice where never-losing-original-facts matters, at the cost of projection machinery.
+**Amended (ADR-021).** Still valid-time-only, but an append-only `event_log` now records system-time
+*provenance* beside the facts (who/when/what), and back-dating-erases-belief is explicitly accepted.
 
 ## ADR-013 — Layered testing; Playwright for end-to-end
 **Status:** Accepted
@@ -252,6 +261,144 @@ the router↔handler import cycle.
 **Alternatives.** Strict persistence ignorance via an injected repository port (rejected as ceremony
 over a thin domain); helpers inside `router.gleam` (rejected — creates a handler↔router cycle).
 
+## ADR-017 — Re-baseline: model fidelity leads, the demo follows
+**Status:** Accepted (amends ADR-001, ADR-002)
+
+**Context.** The repo nailed the temporal *mechanism* (ranges, `WITHOUT OVERLAPS`, `PERIOD` FKs) but
+built little domain *vocabulary* on top: a uniform `valid_at`, and the only write path was the seed's
+hand-written SQL plus `timesheet.log`. ADR-001 optimized everything for a talk's frozen beats.
+**Decision.** Re-prioritize: **model fidelity leads, the demo follows.** Where a modeling decision
+conflicts with talk-legibility, modeling wins and the demo shifts to match. The original talk-first
+PRD is superseded (archived at `docs/archive/PRD-v1-conference-talk.md`); a new `PRD.md` replaces it.
+**Rationale.** The interesting, ORM-impossible substance is the *write* cycle — how facts accumulate
+and change over time — not the as-of read. Centering it is a stronger study and a better talk.
+**Alternatives.** Refine in place behind the frozen beats (rejected — too constrained to surface the
+write model); a parallel exploration branch leaving `main` as the talk (rejected — `main` is being
+re-baselined).
+
+## ADR-018 — Semantically-named validity periods, renamed in place
+**Status:** Accepted (amends ADR-004, ADR-011)
+
+**Context.** Every fact carried a generic `valid_at daterange`, which says *that* a period exists but
+not *what it means*. A project is not "valid" over a period — it is *active*; an engineer *holds* a
+level; a rate is *in effect*.
+**Decision.** Name each period for the predicate it asserts — `employed_during`, `held_during`,
+`effective_during`, `term`, `active_during`, `allocated_during`, `on_leave_during` (`timesheet.work_day`
+already did this). Apply the rename **in place** in the existing migration files (`002`, `010`), not
+as a new migration layered on top.
+**Rationale.** The name is documentation the compiler and the SQL carry. PG19 lets a `PERIOD` FK name
+child and parent periods differently, so containment reads as a sentence (`engineer_role … PERIOD
+held_during REFERENCES employment … PERIOD employed_during`). In-place rather than a layered `011`
+because the migration oracle replays migrations and runs the production board SQL — a rename-on-top
+would run pre-rename generations against post-rename query text. The `v1-wide`/`v2-split` git tags are
+historical commits and stay untouched.
+**Consequence.** Touches the migration files, the `.sql` query sources, and regenerated `sql.gleam`;
+the `lower()/upper() AS valid_from/valid_to` aliases are unchanged, so the `shared` types are untouched.
+
+## ADR-019 — Domain operations layer: typed Command API + HTTP/UI
+**Status:** Accepted (amends ADR-010)
+
+**Context.** The write side was implicit (the seed) or single-purpose (`timesheet.log`). The system
+should model the *business processes* by which data accumulates — onboarding, promotion, allocation,
+roll-off, rate revision, leave, offboarding — as first-class operations.
+**Decision.** A typed **`Command`** union lives in `shared` (client encodes, server decodes the same
+value). Per-aggregate domain modules (`engineer`, `allocation`, `rate_card`, `engagement`, `leave`,
+plus the existing `timesheet`) expose operations; a `command.dispatch(context, actor, command)` seam
+opens one transaction, routes to the aggregate, and appends one `event_log` row. Exposed as a single
+`POST /api/operations`; the Lustre client gains an **operations console** and an **event-log panel**.
+The seed is replayed `Command`s (ADR-023).
+**Rationale.** "Reading is trivial compared to the sophistication of the insert/update cycle." One
+command vocabulary end-to-end matches the `shared`-contract thesis (ADR-005); per-aggregate modules
+keep units small and testable (ADR-016); `dispatch` owning the event write makes provenance impossible
+to forget.
+**Alternatives.** RESTful per-operation endpoints (rejected — many handlers, the uniform command/event
+path lost); one `operations.gleam` god-module (rejected — fights SLAP, hard to test in isolation);
+event-sourced command log as source of truth (rejected — reframes the architecture; the facts stay the
+source of truth, ADR-021).
+
+## ADR-020 — Writes use native `FOR PORTION OF` (no hand-rolled cap-and-insert)
+**Status:** Accepted
+
+**Context.** A "change" (cap the current fact, assert a new one) and a "close" (cap a fact) could be
+hand-coded as read-then-delete-then-reinsert in Gleam, with an explicit empty-period rule.
+**Decision.** Use PG19 `FOR PORTION OF` directly. **Change** = `UPDATE … FOR PORTION OF p FROM
+$effective TO NULL SET … WHERE … @> $effective` (the `WHERE` confines it to the version in effect; the
+engine re-inserts the before-leftover; a scheduled future version is untouched). **Surgical** = the
+same with a concrete `TO`. **Close/cascade** = `DELETE … FOR PORTION OF FROM $end TO NULL`.
+**Correction** = a range covering the whole fact → zero leftovers → the prior assertion is dropped.
+**Rationale.** Confirmed against the PG19 docs: the engine produces the before/after temporal leftovers
+and deletes a fully-covered row itself, and `TO NULL` expresses an unbounded end. Hand-rolling it would
+reimplement in application code exactly what the database does natively — contradicting the "SQL the
+ORM can't express" thesis (PRD §1).
+**Consequence.** The Squirrel ↔ `FOR PORTION OF` spike is **load-bearing** (almost all writes route
+through it); fallback is hand-written `pog` for the write functions. The data layer shrinks to
+per-aggregate `insert` / `update_for_portion` / `delete_for_portion`.
+
+## ADR-021 — Application-time only, with an `event_log` for system-time provenance
+**Status:** Accepted (amends ADR-012)
+
+**Context.** ADR-012 accepted valid-time-only and named the absence of system-time as a talking point.
+But there is still value in recording *that* a change was made — by whom, when.
+**Decision.** Stay application-time only. **Back-dating a fact erases the previously-held belief, and
+that is accepted** — a correction ≡ a retroactive change (ADR-020); the tables cannot distinguish "the
+world changed" from "we recorded it wrong," and do not try. Add a single append-only
+`event_log(occurred_at, actor, operation, summary, payload)` recording system-time provenance *beside*
+the facts (no FKs in or out), written one row per operation in the same transaction as the writes.
+**Rationale.** The cheap, honest sliver of the system-time axis: it answers "what did we do, and
+when?" but **not** "what did we believe was true on date X?" (that needs versioning every fact by
+system time — full bitemporality, declined). It never constrains or contaminates the facts. Two clocks
+become explicit: `occurred_at` is the real wall clock; valid-time "now" is the fixed seed date.
+**Alternatives.** Lossy `correct_*` operations distinct from `change_*` (rejected — in valid-time-only
+they are the same write; a separate primitive earns nothing); full bitemporality / `pg_bitemporal`
+(rejected — doubles period bookkeeping on every table and query for a story the demo does not need).
+
+## ADR-022 — Named constraints + typed `OperationError` classification
+**Status:** Accepted
+
+**Context.** Temporal integrity lives in the database (ADR-004/008). The existing code classifies
+exactly one violation (`timesheet`'s PERIOD FK → `NotAllocated`) by matching PG's autogenerated
+constraint name.
+**Decision.** Give every `PERIOD` FK and `WITHOUT OVERLAPS` exclusion constraint an **explicit, stable
+name** in the schema (e.g. `allocation_within_employment`). Generalize the classifier: SQLSTATE +
+constraint name → a typed `OperationError` (`ContainmentViolated` / `OverlappingFact` / `InvalidValue`
+/ `DatabaseError`) → HTTP status (409/422/500); a body that won't decode is a 400 at the web layer.
+**Rationale.** "Constraints, not code" (PRD FR-5) — the domain issues writes and lets the DB reject,
+then translates the rejection into a domain-meaningful, testable error rather than an opaque 500.
+Stable names make the classifier readable and tests robust against regeneration.
+**Alternatives.** Pre-flight validation queries in the domain (rejected — duplicates the DB's checks
+and races them); matching autogenerated names (rejected — brittle).
+
+## ADR-023 — The seed is a replayed sequence of operations
+**Status:** Accepted
+
+**Context.** The clean-schema app needs founding data, and the operations layer (ADR-019) should be
+exercised by the most realistic possible path.
+**Decision.** Express the running app's seed as an ordered `List(Command)` (`seed.gleam`) replayed
+through `dispatch`, producing the founding facts *and* the founding `event_log` history. A
+**seed-equivalence test** asserts the resulting board matches a reference snapshot across a dense date
+range.
+**Rationale.** The seed becomes a narrative of business operations rather than opaque `INSERT`s, and
+replaying it is a free end-to-end exercise of every operation. The hand-written `003_seed.sql` is
+retained separately as the **v1 fixture for the migration oracle** (ADR-024).
+**Alternatives.** Keep a hand-written SQL seed for the app too (rejected — bypasses the operations
+layer and the event log, and the data would not prove the operations work).
+
+## ADR-024 — Operations target the clean schema; `v1→v2` kept as a historical artifact
+**Status:** Accepted (amends ADR-007)
+
+**Context.** v1-wide caches `day_rate` on `allocation`; the `v1→v2` `range_agg` coalescing (ADR-007),
+validated by the oracle (ADR-013), was the talk's centerpiece. An operations layer interacts with that
+cache directly (a v1 rate revision would have to cascade-restamp allocations).
+**Decision.** Build the operations layer on the **clean (v2) normalized schema**, where charge rate is
+derived from `engineer_role × rate_card`. Leave the `day_rate` cache, the `010` split migration, and
+the oracle **as is**, as a retained historical artifact — no longer the sole centerpiece; the
+operations layer + temporal integrity share the stage.
+**Rationale.** Lowest-risk path that still delivers both the semantic rename and the operations layer
+without reworking the proven migration/oracle. The cache-cost-as-centerpiece variant (v1 operations
+forced to fragment history) is a compelling future enhancement, deliberately deferred.
+**Alternatives.** Make the cache's cost the new centerpiece (deferred — richest but most work); drop
+the cache and the migration beat entirely (rejected for now — discards a working, proven demo asset).
+
 ---
 
 ## Documentation format
@@ -259,3 +406,5 @@ over a thin domain); helpers inside `router.gleam` (rejected — creates a handl
 
 Design captured as `PRD.md` (product/requirements), `ARCHITECTURE.md` (technical design), and
 `DECISIONS.md` (this log) at the repo root — per user request, in place of a single combined spec.
+Superseded generations are archived under `docs/archive/` (e.g. the original talk-first
+`PRD-v1-conference-talk.md`, superseded by ADR-017) rather than deleted.
