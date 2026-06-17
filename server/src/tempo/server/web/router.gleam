@@ -1,7 +1,8 @@
-//// Web: Wisp request router. Routes HTTP requests to the board/timesheet handlers
-//// and serves static assets; it also exposes the shared JSON-response helpers the
-//// handlers reuse. This module (the whole `web/` layer) owns HTTP and never
-//// imports `sql` — the handlers reach the database only through the domain.
+//// Web: Wisp request router. Routes HTTP requests to the board/timesheet/
+//// operations/events handlers and serves static assets; it also exposes the
+//// shared JSON-response helpers the handlers reuse. This module (the whole
+//// `web/` layer) owns HTTP and never imports `sql` — the handlers reach the
+//// database only through the domain.
 ////
 //// Thin dispatch (task spec Notes): each route delegates to a handler that calls
 //// the domain, maps the result to shared types, and encodes JSON. Everything else
@@ -20,6 +21,8 @@ import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
 import tempo/server/web/board
+import tempo/server/web/events
+import tempo/server/web/operations
 import tempo/server/web/timesheet
 import wisp
 
@@ -37,6 +40,8 @@ pub fn handle_request(
   case wisp.path_segments(request) {
     ["api", "board"] -> board.handle(request, context)
     ["api", "timesheet"] -> timesheet_route(request, context)
+    ["api", "operations"] -> operations.handle(request, context)
+    ["api", "events"] -> events.handle(request, context)
     [] -> serve_index()
     _ -> wisp.not_found()
   }
