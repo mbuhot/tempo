@@ -21,6 +21,7 @@ const { execFileSync } = require("node:child_process");
 //     allocation that starts before then dangles outside her employment.
 const DAY = {
   "2026-06-15": "20619",
+  "2026-12-31": "20818", // the slider's far end, past today's wall clock
 };
 
 // Move the slider to a fixed seed day index and wait for the board to re-render
@@ -149,10 +150,13 @@ test("promoting an engineer re-renders the board with the new level and charge r
       ),
     ).toHaveCount(0);
 
-    // The event-log panel now shows the operation's human summary as a journal
-    // entry (newest-first). Matched exactly so it resolves to the journal row and
-    // not the console's longer "Applied promote: …" confirmation line, which
-    // embeds the same summary as a substring.
+    // The journal records SYSTEM time — when the operation was applied (now) — so
+    // it surfaces only once the slider reaches that point. Scrub to the far end of
+    // the range (past today) and the event-log panel shows the operation's human
+    // summary as a journal entry (newest-first). Matched exactly so it resolves to
+    // the journal row and not the console's longer "Applied promote: …"
+    // confirmation line, which embeds the same summary as a substring.
+    await scrubTo(page, "2026-12-31");
     await expect(
       page.getByText("Promote engineer 1 to L6 from 2026-06-01", {
         exact: true,

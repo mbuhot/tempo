@@ -55,9 +55,10 @@ fn append_row_to_event(row: sql.EventLogAppendRow) -> Event {
   )
 }
 
-/// List the provenance journal newest-first for the operations console, as of
-/// `as_of`: only operations whose effective date is on or before `as_of` are
-/// returned, so the feed scrubs with the slider. Maps each generated row to the
+/// List the provenance journal newest-first for the operations console, up to
+/// `as_of`: only operations recorded (`occurred_at`) on or before `as_of` are
+/// returned, so the feed scrubs with the slider (the seed records each operation at
+/// its natural entry date — see `set_occurred_at`). Maps each generated row to the
 /// shared `Event`; `payload` is carried as a raw JSON string so the journal view
 /// shows it verbatim.
 pub fn list(
@@ -66,6 +67,21 @@ pub fn list(
 ) -> Result(List(Event), pog.QueryError) {
   use returned <- result.map(sql.event_log_list(context.db, as_of))
   list.map(returned.rows, list_row_to_event)
+}
+
+/// Backdate one journal row's `occurred_at` to `occurred_on` (midnight that day).
+/// The demo seed (`tempo/seed_financials`) uses this to record each operation at
+/// the date it would naturally have been entered — timesheets at the end of their
+/// week, invoices and payroll at month end — so the journal reads as a realistic
+/// timeline that scrubs with the slider. Not used at runtime: production stamps
+/// `occurred_at` with the wall clock as the operation is applied.
+pub fn set_occurred_at(
+  context: Context,
+  id: Int,
+  occurred_on: Date,
+) -> Result(Nil, pog.QueryError) {
+  use _ <- result.map(sql.event_log_set_occurred_at(context.db, id, occurred_on))
+  Nil
 }
 
 fn list_row_to_event(row: sql.EventLogListRow) -> Event {

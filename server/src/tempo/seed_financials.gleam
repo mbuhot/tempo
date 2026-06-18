@@ -44,6 +44,7 @@ import shared/types.{
 }
 import tempo/server/command
 import tempo/server/context.{type Context}
+import tempo/server/event
 import tempo/server/finance_query
 
 /// The actor recorded against every demo `event_log` row.
@@ -142,8 +143,16 @@ fn log_timesheets(ctx: Context) -> Nil {
     list.each(mondays_in(period_start, period_end), fn(monday) {
       case week_entries(worker, monday, period_start, period_end) {
         [] -> Nil
-        entries ->
-          apply(ctx, LogWeek(engineer_id: worker.engineer_id, entries:))
+        entries -> {
+          // Submitted at the end of the working week (its Friday), clamped to the
+          // period for the final partial week — that is when the entry is recorded.
+          let submitted_on = day_index_to_date(int.min(monday + 4, period_end))
+          apply(
+            ctx,
+            LogWeek(engineer_id: worker.engineer_id, entries:),
+            submitted_on,
+          )
+        }
       }
     })
   })
@@ -236,27 +245,32 @@ fn month_plans() -> List(MonthPlan) {
 }
 
 /// Bill every project for the month (draft → issue → pay per the plan) and run the
-/// month's payroll.
+/// month's payroll. Each event is recorded at the date it would naturally happen:
+/// invoices are prepared and payroll run at month end; an invoice is issued/paid on
+/// its issue/pay date.
 fn bill_month(ctx: Context, plan: MonthPlan) -> Nil {
+  let month_end = day_index_to_date(date_to_day_index(plan.to) - 1)
   list.each(billable_projects, fn(project) {
     let #(project_id, project_name) = project
     apply(
       ctx,
       DraftInvoice(project_id:, billing_from: plan.from, billing_to: plan.to),
+      month_end,
     )
     case plan.issue {
       None -> Nil
       Some(issue_at) -> {
         let invoice_id = drafted_invoice_id(ctx, project_name, plan.from)
-        apply(ctx, IssueInvoice(invoice_id:, at: issue_at))
+        apply(ctx, IssueInvoice(invoice_id:, at: issue_at), issue_at)
         case plan.pay {
           None -> Nil
-          Some(pay_at) -> apply(ctx, PayInvoice(invoice_id:, at: pay_at))
+          Some(pay_at) ->
+            apply(ctx, PayInvoice(invoice_id:, at: pay_at), pay_at)
         }
       }
     }
   })
-  apply(ctx, RunPayroll(period_from: plan.from, period_to: plan.to))
+  apply(ctx, RunPayroll(period_from: plan.from, period_to: plan.to), month_end)
 }
 
 /// The minted id of the invoice for `project_name` whose billing month starts at
@@ -285,11 +299,13 @@ fn drafted_invoice_id(
 
 // --- helpers -----------------------------------------------------------------
 
-/// Dispatch one demo command through `command.dispatch` (actor "seed"), asserting
-/// it succeeds. A failure `panic`s with the operation error so the seed gates loudly.
-fn apply(ctx: Context, command: Command) -> Nil {
+/// Dispatch one demo command through `command.dispatch` (actor "seed"), then
+/// backdate the journal event(s) it appended to `occurred_on` — the date the
+/// operation would naturally have been entered — so the demo journal reads as a
+/// realistic timeline rather than all at the instant the seed ran. A failure
+/// `panic`s with the operation error so the seed gates loudly.
+fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
   case command.dispatch(ctx, actor: seed_actor, command: command) {
-    Ok(_) -> Nil
     Error(error) ->
       panic as {
         "seed-financials: dispatching "
@@ -297,6 +313,19 @@ fn apply(ctx: Context, command: Command) -> Nil {
         <> " failed: "
         <> string.inspect(error)
       }
+    Ok(events) ->
+      list.each(events, fn(created) {
+        case event.set_occurred_at(ctx, created.id, occurred_on) {
+          Ok(Nil) -> Nil
+          Error(error) ->
+            panic as {
+              "seed-financials: backdating event "
+              <> string.inspect(created.id)
+              <> " failed: "
+              <> string.inspect(error)
+            }
+        }
+      })
   }
 }
 

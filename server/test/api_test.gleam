@@ -23,6 +23,7 @@ import shared/types.{
   OnLeave, OnProject, Promote, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context, Context}
+import tempo/server/event
 import tempo/server/web/router
 import wisp/simulate
 
@@ -396,11 +397,12 @@ pub fn operation_bad_body_is_bad_request_test() {
 // --- GET /api/events --------------------------------------------------------
 
 // GET /api/events?date= returns the journal newest-first, filtered to operations
-// effective on or before the as-of date — so the feed scrubs with the slider. The
-// hand-written seed leaves the journal empty, so this applies a Promote (effective
-// 2026-09-01) and asserts it shows as of that date but is HIDDEN the day before (it
-// has not taken effect yet). The role split and journal row are undone afterwards
-// so the shared seed is left pristine.
+// recorded (occurred_at) on or before the as-of date — so the feed scrubs with the
+// slider. The hand-written seed leaves the journal empty, so this applies a Promote
+// and backdates its journal row to a fixed date (as the demo seed records each
+// operation at its natural entry time), then asserts it shows as of that date but is
+// hidden the day before. The role split and journal row are undone afterwards so the
+// shared seed is left pristine.
 pub fn events_journal_scrubs_with_the_as_of_date_test() {
   let context = ctx()
 
@@ -418,13 +420,21 @@ pub fn events_journal_scrubs_with_the_as_of_date_test() {
     )
     |> router.handle_request(context)
   let assert [created] = decode_events(post)
+  // Record it as entered on 2026-02-10 (the same backdating the demo seed does), so
+  // the assertion is independent of the wall clock that stamped occurred_at on the
+  // write.
+  let assert Ok(Nil) =
+    event.set_occurred_at(
+      context,
+      created.id,
+      calendar.Date(2026, calendar.February, 10),
+    )
 
-  // As of the effective date the event is in the feed; the day before, it is not.
   let visible =
-    simulate.request(http.Get, "/api/events?date=2026-09-01")
+    simulate.request(http.Get, "/api/events?date=2026-02-10")
     |> router.handle_request(context)
   let hidden =
-    simulate.request(http.Get, "/api/events?date=2026-08-31")
+    simulate.request(http.Get, "/api/events?date=2026-02-09")
     |> router.handle_request(context)
 
   // Restore the seed regardless of the assertion outcome.
@@ -432,13 +442,13 @@ pub fn events_journal_scrubs_with_the_as_of_date_test() {
   delete_event(context, created.id)
 
   assert visible.status == 200
-  // The feed comes back newest-first (id DESC) and carries the event just appended.
+  // The feed comes back newest-first (id DESC) and carries the recorded event.
   let events = decode_events(visible)
   assert ids_descending(events)
   let assert [newest, ..] = events
-  assert newest == created
+  assert newest.id == created.id
 
-  // Before its effective date the operation has not taken effect, so it is hidden.
+  // Recorded after the as-of date, it is hidden.
   assert hidden.status == 200
   assert list.all(decode_events(hidden), fn(journal_event) {
     journal_event.id != created.id

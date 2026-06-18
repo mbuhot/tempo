@@ -830,20 +830,16 @@ pub type EventLogListRow {
   )
 }
 
-/// event_log_list.sql — the provenance journal as of an application date, newest
-/// first (§5a; GET /api/events; the operations console feed).
+/// event_log_list.sql — the provenance journal up to an as-of date, newest first
+/// (§5a; GET /api/events; the operations console feed).
 ///
-/// Param: $1 = the as-of application date (the slider). The journal records SYSTEM
-/// time (occurred_at = when the operation was applied), but the console scrubs in
-/// APPLICATION time with the rest of the UI, so an event is shown only once the
-/// slider reaches the date the operation TAKES EFFECT — not when it was recorded.
-/// That effective date is derived from the command payload: every command carries
-/// exactly one leading date — effective / valid_from / at / billing_from /
-/// period_from / day — except log_week, whose effective date is the earliest day it
-/// logs. Events whose effective date is after $1 are hidden, so scrubbing the slider
-/// back rewinds the journal in step with the board. (The event_log table stays pure
-/// system-time provenance; the application effective date is derived here, for the
-/// view, from the same payload the shared codecs wrote.)
+/// Param: $1 = the as-of date (the slider). `occurred_at` is SYSTEM time — when the
+/// operation was recorded. The demo seed stamps each operation with the date it
+/// would naturally have been entered (timesheets at the end of their week, invoices
+/// and payroll at month end; see tempo/seed_financials), so the journal reads as a
+/// realistic timeline and scrubbing the slider shows only what had been recorded by
+/// that date — anything recorded after $1 is hidden, rewinding the feed with the
+/// rest of the UI.
 ///
 /// `occurred_at` and `payload` are rendered to `text` at the boundary (timestamptz /
 /// jsonb don't need a Squirrel type mapping); the client parses `payload` back
@@ -874,20 +870,16 @@ pub fn event_log_list(
     ))
   }
 
-  "-- event_log_list.sql — the provenance journal as of an application date, newest
--- first (§5a; GET /api/events; the operations console feed).
+  "-- event_log_list.sql — the provenance journal up to an as-of date, newest first
+-- (§5a; GET /api/events; the operations console feed).
 --
--- Param: $1 = the as-of application date (the slider). The journal records SYSTEM
--- time (occurred_at = when the operation was applied), but the console scrubs in
--- APPLICATION time with the rest of the UI, so an event is shown only once the
--- slider reaches the date the operation TAKES EFFECT — not when it was recorded.
--- That effective date is derived from the command payload: every command carries
--- exactly one leading date — effective / valid_from / at / billing_from /
--- period_from / day — except log_week, whose effective date is the earliest day it
--- logs. Events whose effective date is after $1 are hidden, so scrubbing the slider
--- back rewinds the journal in step with the board. (The event_log table stays pure
--- system-time provenance; the application effective date is derived here, for the
--- view, from the same payload the shared codecs wrote.)
+-- Param: $1 = the as-of date (the slider). `occurred_at` is SYSTEM time — when the
+-- operation was recorded. The demo seed stamps each operation with the date it
+-- would naturally have been entered (timesheets at the end of their week, invoices
+-- and payroll at month end; see tempo/seed_financials), so the journal reads as a
+-- realistic timeline and scrubbing the slider shows only what had been recorded by
+-- that date — anything recorded after $1 is hidden, rewinding the feed with the
+-- rest of the UI.
 --
 -- `occurred_at` and `payload` are rendered to `text` at the boundary (timestamptz /
 -- jsonb don't need a Squirrel type mapping); the client parses `payload` back
@@ -901,22 +893,47 @@ SELECT
   summary,
   payload::text
 FROM event_log
-WHERE coalesce(
-  (payload->>'effective')::date,
-  (payload->>'valid_from')::date,
-  (payload->>'at')::date,
-  (payload->>'billing_from')::date,
-  (payload->>'period_from')::date,
-  (payload->>'day')::date,
-  (
-    SELECT min((entry->>'day')::date)
-    FROM jsonb_array_elements(payload->'entries') AS entry
-  )
-) <= $1::date
+WHERE occurred_at::date <= $1::date
 ORDER BY id DESC;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// event_log_set_occurred_at.sql — backdate one journal row's occurred_at to a
+/// simulated entry date. Used ONLY by the demo seed (tempo/seed_financials) to give
+/// the journal a realistic timeline: each operation recorded when it would naturally
+/// have been entered (timesheets at the end of their week, invoices and payroll at
+/// month end) rather than all at the instant the seed ran. Production records
+/// occurred_at as the real wall clock (event_log_append.sql) and never calls this.
+///
+/// $1 = event id, $2 = the date to record it as (set to midnight of that day).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn event_log_set_occurred_at(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- event_log_set_occurred_at.sql — backdate one journal row's occurred_at to a
+-- simulated entry date. Used ONLY by the demo seed (tempo/seed_financials) to give
+-- the journal a realistic timeline: each operation recorded when it would naturally
+-- have been entered (timesheets at the end of their week, invoices and payroll at
+-- month end) rather than all at the instant the seed ran. Production records
+-- occurred_at as the real wall clock (event_log_append.sql) and never calls this.
+--
+-- $1 = event id, $2 = the date to record it as (set to midnight of that day).
+UPDATE event_log SET occurred_at = $2::date WHERE id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
