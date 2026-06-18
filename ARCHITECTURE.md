@@ -44,7 +44,8 @@ and `client/` — wired by path dependencies (no symlinks — portable on any cl
 ```
 bin/                          # thin task wrappers run from the repo root; each cd's
                               #   into the right package: db, migrate, serve, test,
-                              #   build, e2e, oracle, squirrel
+                              #   build, e2e, oracle, squirrel, up (one-shot stack),
+                              #   seed-invoices (on-demand demo financials seed)
 docker-compose.yml            # PG19 (tempo-db) on host port 5434
 plan/                         # phased build plan
 PRD.md ARCHITECTURE.md DECISIONS.md README.md RUNBOOK.md   # design + run docs
@@ -59,17 +60,27 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
         web/                  #   web layer (HTTP) — never imports sql
           router.gleam        #     routing + static serving; dispatches to handlers
           board.gleam         #     GET /api/board handler
-          timesheet.gleam     #     GET/POST /api/timesheet handlers
+          timesheet.gleam     #     GET /api/timesheet form handler
           operations.gleam    #     POST /api/operations handler (decode Command → dispatch)
           events.gleam        #     GET /api/events handler (the provenance journal)
+          invoices.gleam      #     GET /api/invoices (+/:id) handler
+          payroll.gleam       #     GET /api/payroll?from=&to= handler
+          pnl.gleam           #     GET /api/pnl?as_of= handler
+          roster.gleam        #     GET /api/roster?as_of= handler (console directory)
           request.gleam       #     parse query params into a calendar.Date
           response.gleam      #     json/error response helpers (leaf; shared by router + handlers)
-        command.gleam         #   domain — Command dispatch seam: txn + route + event_log row
-        engineer.gleam        #   domain — onboard / promote / terminate_employment (cascade)
-        allocation.gleam      #   domain — assign / change_fraction / roll_off
-        rate_card.gleam       #   domain — revise / adjust_for_portion (FOR PORTION OF)
+        command.gleam         #   domain — Command dispatch seam: txn + route + persist
+        operation.gleam       #   domain leaf — Event/OperationError, classify, try/run, date render
+        engineer.gleam        #   domain — onboard_engineer / promote / terminate_employment (cascade)
+        allocation.gleam      #   domain — assign_to_project / change_allocation_fraction / roll_off
+        rate_card.gleam       #   domain — revise_rate_card / adjust_rate_for_portion (FOR PORTION OF)
         engagement.gleam      #   domain — sign_contract / start_project
         leave.gleam           #   domain — take_leave
+        salary.gleam          #   domain — set_salary (FOR PORTION OF, like rate_card)
+        invoice.gleam         #   domain — draft_invoice / issue_invoice / pay_invoice
+        payroll.gleam         #   domain — run_payroll (prorated lines)
+        finance_query.gleam   #   domain — invoices / payroll / pnl reads (shared types, no wisp)
+        roster.gleam          #   domain — console directory (employed engineers, active projects, clients)
         event.gleam           #   domain — append (used by dispatch) + list (journal read)
         board.gleam           #   domain — board.snapshot (no wisp)
         timesheet.gleam       #   domain — form, log, WriteError (no wisp)
@@ -77,10 +88,12 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
         sql/                  #   Squirrel .sql sources → generated sql.gleam
         migrate.gleam         #   numbered-migration runner (gleam run -m tempo/migrate)
         seed.gleam            #   the seed as an ordered List(Command) replayed through dispatch
-  test/                       #   layers 1–6 (constraint, operation, seed-equivalence, as-of, codec, oracle helpers)
+      seed_financials.gleam   #   on-demand demo financials seed (gleam run -m tempo/seed_financials)
+  test/                       #   constraint, operation, seed-equivalence, as-of, codec, financials, pnl, oracle helpers
   priv/
-    migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql
-    static/                   #   compiled client bundle (app.js) + index.html + styles.css
+    migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql,
+                              #     011_event_log.sql, 012_financials.sql
+    static/                   #   compiled client bundle (app.js) + index.html + styles/ (copied; gitignored)
 
 shared/                       # package `shared` — BOTH targets, target-agnostic
   gleam.toml                  #   deps: gleam_stdlib, gleam_json only
@@ -95,12 +108,19 @@ client/                       # package `client` — JavaScript target only
   src/client/
     app.gleam                 #   Lustre model/update/view; the time slider; board + timesheet
                               #     views, the operations console, and the event-log panel
+  styles/                     #   plain-CSS source: theme.css (design tokens) + per-area
+                              #     component files (base, slider, board, timesheet, console,
+                              #     event-log, financials) wired in page order by main.css.
+                              #     bin/build copies this to ../server/priv/static/styles
+                              #     (a gitignored build artifact, like app.js); ADR-029
 
 e2e/                          # Playwright harness (Node) — drives the real app
   package.json                #   @playwright/test
   playwright.config.js        #   testDir "." → the *.spec.js below
   slider-board.spec.js        #   org board / slider beats
   timesheet.spec.js           #   my-timesheet beats (incl. the negative beat)
+  operations.spec.js          #   operations-console beats (promote; a refused operation)
+  financials.spec.js          #   financials beats (draft → issue → revenue; scrub back → draft)
 ```
 
 **Why three Gleam packages (per-package, per-target compilation).** Gleam 1.17 compiles a *whole
@@ -367,18 +387,41 @@ the modeling lives here.
 
 **`command.dispatch(context, actor, command)`** opens one `pog.transaction` and does *only* two
 things: **route** the command to its aggregate's `handle` (`engineer`, `allocation`, `rate_card`,
-`engagement`, `leave`, `timesheet` — variants grouped per aggregate by alternative patterns), and
-**persist** each emitted event via `event.append`. Each `handle(conn, command)` takes the
-in-transaction connection, does its temporal writes, and **returns
-`Result(List(Event), OperationError)`** — owning its own `operation` tag, human `summary`, and the
-command re-encoded as `payload` (the flat journal `Event` = operation/summary/payload). Facts and
-journal commit together or not at all. `dispatch` **returns the created events** (the persisted
-`List(Event)`), so the web layer echoes exactly what was written — no fetch-newest round-trip.
+`engagement`, `leave`, `timesheet`, `salary`, `invoice`, `payroll` — variants grouped per aggregate
+by alternative patterns), and **persist** each event the handler returns via `event.append` (a
+`list.try_map`, classifying any rejection). Facts and journal commit together or not at all.
+`dispatch` **returns the created events** (the persisted `List(Event)`, with their minted
+id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest round-trip.
+`dispatch_in` is the transaction-free core (route + persist on an already-open connection) so a test
+can drive it inside its own rolled-back transaction.
+
+**Each aggregate's `handle(conn, command)` is a *pure dispatch*** (ADR-027): a `case` that routes each
+variant it owns to a **named per-operation function** (`onboard_engineer`, `promote`,
+`terminate_employment`; `assign_to_project`, `change_allocation_fraction`, `roll_off`;
+`revise_rate_card`, `adjust_rate_for_portion`; `sign_contract`, `start_project`; `take_leave`;
+`set_salary`; `log_timesheet`; `draft_invoice`, `issue_invoice`, `pay_invoice`; `run_payroll`) and
+**panics** on any other variant (`panic as "<aggregate>.handle: … (dispatch bug)"`) — an unrouted
+command is a routing bug, never a silent `Ok`. The standalone `events(command)` function is **gone**
+from every aggregate.
+
+**Each named op returns `Result(List(Event), OperationError)` and builds its own event(s)** (ADR-028):
+it does its temporal writes on the in-transaction connection, then **constructs** the journal
+`Event` — owning its `operation` tag, human `summary`, and the command re-encoded as `payload` (the
+flat journal `Event` = operation/summary/payload). Because the handler builds the event *after* the
+write, the five **create-ops** (`onboard_engineer`, `sign_contract`, `start_project`, `draft_invoice`,
+`run_payroll`) surface the database-minted `RETURNING` id in the summary. A single `INSERT … RETURNING`
+row is read with a **`let assert [row] = …`** on a one-element list (in the create-ops, `event.append`,
+and the connection smoke check) — an empty or multi result crashes as the SQL/driver bug it would be,
+never the fabricated id 0. `dispatch` only routes and persists; it never builds events.
 
 To break the `command` ↔ aggregate import cycle, the journal `Event` type, the `OperationError` type,
 the SQLSTATE/constraint `classify` helpers, and the ISO/period date helpers live in a leaf module
-**`operation.gleam`** (it imports only `pog`/`json`/`shared`, so it sits below the aggregates).
-`command` is now route + persist only.
+**`operation.gleam`** (it imports only `pog`/`json`/`shared`, so it sits below the aggregates). It also
+exports two helpers that encapsulate the classify so a handler body reads as a flat sequence: **`try`**
+chains a write into the next step (`use _ <- operation.try(sql.…)`, mapping `pog.QueryError →
+OperationError`), and **`run`** runs a single terminal write or a `list.try_map` of writes. The
+insert loops (`insert_lines` in `invoice`/`payroll`) and `command.persist` both use `list.try_map` —
+no hand-rolled recursion. `command` is route + persist only.
 
 The temporal writes fall into four patterns. PG19's `FOR PORTION OF` produces the before/after
 "temporal leftovers" and drops a fully-covered row itself, so there is **no** hand-rolled
@@ -435,10 +478,10 @@ fully-future ones). The `PERIOD` FKs both force the child-first order and verify
 leftovers, so Postgres deletes the prior assertion — a correction *is* a retroactive change
 (ADR-021).
 
-**Error handling — constraints, not code.** Each `handle` issues the writes and lets the database
-reject violations, then *classifies* the rejection by SQLSTATE + the explicit constraint name (§4)
-into a typed `OperationError` (via `operation.classify`), generalizing the existing
-`timesheet`/`NotAllocated` path (ADR-022):
+**Error handling — constraints, not code.** Each named op issues the writes and lets the database
+reject violations; `operation.try`/`run` then *classify* the rejection by SQLSTATE + the explicit
+constraint name (§4) into a typed `OperationError` (via `operation.classify`), generalizing the
+existing `timesheet`/`NotAllocated` path (ADR-022):
 
 | violation | SQLSTATE | `OperationError` | HTTP |
 |---|---|---|---|
@@ -452,10 +495,12 @@ into a typed `OperationError` (via `operation.classify`), generalizing the exist
 `POST /api/operations` decodes an `{actor, command}` envelope, calls `dispatch`, and returns the
 created events as a JSON array (`json.array(events, codecs.encode_event)`). There is no separate
 timesheet write path — logging hours is the `LogTimesheet` command on this same endpoint. Reads are
-plain queries: `GET /api/board` (the as-of board) and `GET /api/timesheet` (the timesheet *form*);
-`GET /api/events` lists the journal. The client builds a `Command` (operations console or timesheet),
-posts it, decodes the returned events, and on success refetches the relevant reads (board / timesheet
-form / events) — reads being trivial.
+plain queries: `GET /api/board` (the as-of board), `GET /api/timesheet` (the timesheet *form*), and
+`GET /api/roster?as_of=` (the console directory — engineers EMPLOYED and projects ACTIVE on the date,
+plus all clients — refetched as the slider moves so the console's name `<select>`s only ever offer a
+subject valid then); `GET /api/events` lists the journal; the financial reads are §12.5. The client
+builds a `Command` (operations console or timesheet), posts it, decodes the returned events, and on
+success refetches the relevant reads (board / timesheet form / roster / events) — reads being trivial.
 
 ## 6. Squirrel integration
 
@@ -546,17 +591,26 @@ cd server && gleam run -m tempo/migrate             # bin/migrate
 # regenerate typed SQL after schema changes
 cd server && gleam run -m squirrel                  # bin/squirrel
 
-# client bundle → ../server/priv/static (from the JS `client` package, ADR-014)
+# client bundle → ../server/priv/static; also copies client/styles → priv/static/styles
 cd client && gleam run -m lustre/dev build client/app   # bin/build
 
 # server (serves JSON API + static assets; from the server/ package)
 cd server && gleam run                              # bin/serve
 ```
 
+On-demand demo financials seed (issued + draft invoices + a payroll run, via the real
+`command.dispatch`; idempotent). Deliberately **not** run by `bin/up`, so a freshly-migrated DB stays
+test-clean — run it only when you want demo financial data on the dev DB:
+
+```sh
+cd server && gleam run -m tempo/seed_financials     # bin/seed-invoices
+```
+
 ## 10. Testing
 
-Layered — each guarantee verified at the cheapest level that can prove it. Layers 1–6 are Gleam and
-follow strict TDD (`todo` stubs first, `assert expr == expected`, deterministic seed values).
+Layered — each guarantee verified at the cheapest level that can prove it. The Gleam layers (112
+tests) follow strict TDD (`todo` stubs first, `assert expr == expected`, deterministic seed values);
+the migration oracle and 15 Playwright specs sit on top.
 
 **1. Temporal-constraint tests** (Gleam + pog against an ephemeral PG19). Prove the database, not the
 app, enforces the rules. Each asserts the expected rejection or split, **and** that the rejection
@@ -608,16 +662,24 @@ the employed-but-unallocated row. It exits non-zero (panics) on the first
 differing date and leaves the DB at v2-split (same end state as
 `gleam run -m tempo/migrate`).
 
-**7. End-to-end (Playwright).** Drives the real app — Wisp serving the Lustre SPA against a
-migrated+seeded PG19. **Behaviour-driven**: assert what the user sees, never CSS classes / ids / DOM
-structure. One test per read beat *and* per operation beat (PRD §7, §9):
-  - scrub to a date → expected engineers/projects/clients shown;
-  - scrub across a seeded future promotion → level and charge rate increase;
-  - scrub onto a leave period → engineer shows "On leave";
-  - my timesheet: scrub to a day → only allocated projects offered; enter hours → reload → persisted;
-  - negative: a rolled-off project is not offered;
-  - perform an operation in the console (e.g. promote, revise the rate card, terminate) → the board
-    re-renders to reflect it and the event-log panel shows the new entry.
+**7. End-to-end (Playwright, 15 specs across four files).** Drives the real app — Wisp serving the
+Lustre SPA against a migrated+seeded PG19. **Behaviour-driven**: assert what the user sees, never CSS
+classes / ids / DOM structure. Each panel is a named region (`role=region`, e.g. "My timesheet",
+"Operations console") so a query scoped to it is unambiguous even where two panels share a control
+label — the timesheet's and the console's same-named "Engineer" `<select>` resolve only because each
+lookup is scoped to its region. One test per read beat *and* per operation beat (PRD §7, §9):
+  - `slider-board.spec.js` — scrub to a date → expected engineers/projects/clients shown; scrub across
+    a seeded future promotion → level and charge rate increase; scrub onto a leave period → "On leave";
+    an employed-but-unallocated engineer shows as Unassigned; the selected date round-trips through the
+    URL;
+  - `timesheet.spec.js` — scrub to a day → only allocated projects offered; enter hours → reload →
+    persisted; a rolled-off project is not offered; on leave → nothing to log; an empty hours field
+    shows a friendly message, not a crash;
+  - `operations.spec.js` — promote in the console → the board re-renders with the new level/rate and the
+    event-log panel shows the new entry; an operation the database refuses shows the user why and leaves
+    the board unchanged;
+  - `financials.spec.js` — draft then issue an invoice → its total appears in the P&L revenue; scrub the
+    slider before the issue date → the invoice shows as `draft` again.
 
 **Schema-version-agnostic suite.** The Playwright suite is a behavioural contract that must be green
 on **both** `v1-wide` and `v2-split`, *unmodified*. The v1 seed is the single source of truth; the

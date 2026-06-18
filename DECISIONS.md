@@ -321,6 +321,10 @@ source of truth, ADR-021).
 **Amended (ADR-025).** `dispatch` is slimmed to route + persist; each aggregate's `handle` now owns its
 own event emission (tag/summary/payload) and returns the events, which `dispatch` returns to the
 caller.
+**Amended (ADR-027/028).** The aggregate `handle` is now a pure dispatch to **named per-operation
+functions** (an unrouted command `panic`s — a routing bug, never a silent `Ok`); `operation.try/run`
+encapsulate the SQLSTATE→`OperationError` classification the operations repeated; the standalone
+`events(command)` function is gone — each named op **builds its own event(s)** after the write.
 
 ## ADR-020 — Writes use native `FOR PORTION OF` (no hand-rolled cap-and-insert)
 **Status:** Accepted
@@ -433,6 +437,11 @@ lets the client update without a second read.
 cross-aggregate coupling it codified); put `Event`/`OperationError` in `command` (rejected — aggregates
 returning events would import `command`, which routes to them: a cycle); leave the timesheet on its own
 endpoint (rejected — the very inconsistency this refactor removes).
+**Amended (ADR-027/028).** `handle` is no longer a single command-destructuring body: it is a pure
+dispatch to named per-operation functions (ADR-027), and those functions now **build** their own
+events directly (the `events(command)` function is gone, ADR-028). A single `INSERT … RETURNING` row
+is read with `let assert [row]`, so the created-record id flows into the event summary instead of
+being fabricated.
 
 ## ADR-026 — Financials: temporal invoice lifecycle, agreed-rate billing, proration, P&L as a query
 **Status:** Accepted (extends ADR-004, ADR-009, ADR-019/025; see `PRD-financials.md`)
@@ -476,6 +485,97 @@ status as a mutable column on `invoice` (rejected — no history, can't ask the 
 cross-entity PERIOD FKs from the financial tables (rejected — no identity table for project/contract
 entities to key against; containment lives in the computing queries, PRD §3/§8); a materialized P&L
 (rejected — would diverge from facts and need invalidation; a query is simpler and always current).
+
+## ADR-027 — Aggregate `handle` dispatches to named operations; `operation.try/run` encapsulate classification; an unrouted command panics
+**Status:** Accepted (refines ADR-019, ADR-025)
+
+**Context.** Under ADR-025 each aggregate gained a `handle(conn, command)`, but the body was a single
+case that destructured the command's fields *and* did the writes *and* built the event inline, mixing
+abstraction levels (SLAP, ADR-016). Every temporal write also repeated the same
+`result.try(sql.… |> result.map_error(operation.classify))` ceremony, and the multi-write paths
+(insert loops, the journal append) were hand-rolled recursion. `command.route` had already narrowed
+each aggregate to the variants it owns, so an aggregate `handle` receiving a foreign variant could
+only be a routing bug — yet the fall-through risked being papered over as an `Ok`.
+**Decision.** Each aggregate's `handle` is a **pure dispatch**: `case command { <Variant>(..) ->
+<named_op>(conn, command) ; _ -> panic as "<aggregate>.handle: … (dispatch bug)" }`. It routes to
+**named per-operation functions** (`onboard_engineer`, `promote`, `terminate_employment`;
+`assign_to_project`, `change_allocation_fraction`, `roll_off`; `revise_rate_card`,
+`adjust_rate_for_portion`; `sign_contract`, `start_project`; `take_leave`; `set_salary`;
+`run_payroll`; `log_timesheet`; `draft_invoice`, `issue_invoice`, `pay_invoice`), each a flat readable
+sequence. The unrouted arm **`panic`s** — an unrouted command is a routing bug, never a silent `Ok`.
+The `operation` leaf gains two helpers that encapsulate the classify: **`try`** (chain a write, mapping
+`pog.QueryError → OperationError`, into the next step via `use <-`) and **`run`** (a single terminal
+write, or a `list.try_map` of writes); hand-rolled recursion is gone — insert loops and the journal
+persist use `list.try_map`.
+**Rationale.** SLAP (ADR-016): the dispatch level (which operation?) is separated from the operation
+level (what writes, in what order?); each named op reads as a sequence of `use _ <- operation.try(…)`
+with one obvious shape. The `panic` makes the routing invariant load-bearing instead of silently
+absorbed — if `command.route` and an aggregate's `handle` ever disagree, the bug crashes loudly in a
+test rather than returning a misleading success. `try`/`run` remove the classification boilerplate the
+operations otherwise repeat verbatim, so the classify lives in one place (ADR-022).
+**Alternatives.** Keep the one-case `handle` doing destructure+write+event (rejected — mixes three
+abstraction levels and grows unreadable as aggregates gain operations); return an `Error`/`Ok(Nil)` on
+the unrouted arm (rejected — it would hide a dispatch bug as a benign result); leave the
+`map_error(classify)` ceremony inline at every write (rejected — repetitive and easy to forget on a new
+write).
+
+## ADR-028 — Handlers build their own events (carrying created-record ids); single `RETURNING` rows are read with `let assert`, never fabricating id 0
+**Status:** Accepted (refines ADR-025)
+
+**Context.** ADR-025 moved event *ownership* to the aggregates, but a standalone `events(command)`
+function still derived the journal event from the *command alone*, separately from the writes. That
+left two problems. First, a command does not know the ids the database mints — so a create operation's
+event could not name the record it created. Second, the create-ops read their `INSERT … RETURNING id`
+row with a defensive `case rows { [r, ..] -> r.id ; [] -> 0 }`, **fabricating id 0** on an
+"impossible" empty result and silently swallowing a SQL/driver bug into a bogus id.
+**Decision.** Each named operation (ADR-027) **constructs its own event(s)** after its writes and
+returns `Result(List(Event), OperationError)`; the standalone `events(command)` function is **deleted
+from every aggregate**, and `dispatch` only routes and persists the returned events (it no longer
+builds them). Because the event is built *after* the write, it carries **write-time data**: the five
+create-ops (`onboard_engineer`, `sign_contract`, `start_project`, `draft_invoice`, `run_payroll`)
+surface the minted `RETURNING` id in the event summary. A single `INSERT … RETURNING` row is read with
+**`let assert [row] = …`** on a one-element list — in the five create-ops, `event.append`, and the
+connection smoke check — never the old `[] -> 0` fabrication. An empty/multi result crashes as the
+SQL/pog-driver bug it would be, never a fabricated id.
+**Rationale.** Provenance should describe what actually happened, which is only fully known after the
+write commits the minted ids; building the event from the command alone could not include them. The
+`let assert` states the SQL invariant ("`RETURNING` from a single insert yields exactly one row")
+directly in code — a violation is a driver/schema bug and should crash, not be laundered into id 0 that
+flows downstream into a summary and an `event_log` payload. Deleting `events()` removes the last place
+event-shaping lived apart from the operation that earns it (SLAP, ADR-016).
+**Alternatives.** Keep `events(command)` and have `dispatch` re-query for the new id (rejected — a
+second read, and a race outside the write's own row); keep the `[] -> 0` fallback (rejected — it
+fabricates a lie and hides the bug it claims to guard against); return an `Error` on the empty case
+(rejected — an empty `RETURNING` is not a domain error the caller can act on, it is a broken invariant
+that should `panic`).
+
+## ADR-029 — CSS source as `client/styles` components copied by the build, with a central design-token `theme.css`
+**Status:** Accepted
+
+**Context.** The stylesheet was a single hand-served `styles.css` full of magic numbers (literal sizes,
+weights, colours, radii) repeated and drifting across the board, timesheet, console, event-log, and
+financial areas. There was no single place to re-tune spacing or shift the palette, and the served file
+was an edited artifact rather than a build output like `app.js`.
+**Decision.** CSS source lives in **`client/styles/`** as plain-CSS component files (`base`, `slider`,
+`board`, `timesheet`, `console`, `event-log`, `financials`) imported in page order by `main.css`;
+`bin/build` copies `client/styles/ → server/priv/static/styles/` (a gitignored build artifact, like
+`app.js`). The old hand-served `styles.css` is gone and `index.html` links `/static/styles/main.css`.
+**`client/styles/theme.css` is the single source of design tokens**: t-shirt sizing scales
+(`--space-xs..xl`, `--text-xs..xl`, `--size-xs..page`), `--weight-{normal,medium,bold}`, a semantic
+`--color-*` palette, `--border`/`--border-thin`, `--tracking-{tight,tighter}`, `--leading`, `--radius`,
+`--font-root`. Every component references `var(--token)` — there are **no magic numbers** left in any
+component; the values all live on the central scales.
+**Rationale.** One edit to a token re-tunes the whole app (tighten spacing, shift the palette, change
+the type ramp) and propagates everywhere, because nothing hard-codes a value. Splitting by UI area
+keeps each component file small and matched to the part of the page it styles (the same
+isolate-by-concern discipline as the server layers, ADR-016). Treating the served CSS as a copied build
+artifact mirrors how `app.js` is produced, so the served tree is never hand-edited and a fresh build is
+authoritative.
+**Alternatives.** Keep one hand-served `styles.css` (rejected — magic numbers drift, no single tuning
+point, and the served file is an edited artifact); a CSS preprocessor (Sass/Less) for variables
+(rejected — CSS custom properties already give cascade-aware tokens with no build-time toolchain); a
+utility/atomic CSS framework (rejected — out of proportion for the demo and obscures the page-area
+structure the component split makes legible).
 
 ---
 

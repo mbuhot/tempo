@@ -74,7 +74,7 @@ bin/test                     # cd server && gleam test && gleam format --check s
 
 ### Migration oracle (board provably identical across v1 → v2)
 
-The standout automated check (ARCHITECTURE.md §7, §10.2): it seeds a **fresh
+The standout automated check (ARCHITECTURE.md §7, §10.6): it seeds a **fresh
 v1-wide** database, snapshots the org board for **every day** of the seed span
 (2024-01-01 .. 2026-12-31, 1096 dates), applies the `010_split_allocation`
 migration, re-snapshots, and asserts the user-visible board
@@ -120,24 +120,39 @@ cd client && gleam run -m lustre/dev build client/app
 # or: bin/build
 ```
 
-Rebuild after changing `client/*` or `shared/*`, then `cd server && gleam run`
-(or refresh the browser) to serve the new bundle.
+`bin/build` does two things: it compiles the Lustre bundle to
+`../server/priv/static/app.js`, then copies the CSS source. The CSS source lives
+in `client/styles/` as plain-CSS component files (`base`, `slider`, `board`,
+`timesheet`, `console`, `event-log`, `financials`) plus a central `theme.css` of
+design tokens (a constrained t-shirt scale for spacing/type/sizes and a semantic
+`--color-*` palette — every component references `var(--token)`), imported in
+page order by `main.css`. `bin/build` copies `client/styles/` to
+`server/priv/static/styles/`, which is a gitignored build artifact (like
+`app.js`); `index.html` links `/static/styles/main.css`.
+
+Rebuild after changing `client/*` (including `client/styles/*`) or `shared/*`,
+then `cd server && gleam run` (or refresh the browser) to serve the new bundle.
 
 ### End-to-end tests (Playwright)
 
 The Playwright harness is its own package under `e2e/` (`package.json`,
-`playwright.config.js`, and one spec per UI surface, exercising the PRD §7
-functional requirements): the slider/org board (`slider-board.spec.js`, FR-1–FR-4),
-the my-timesheet panel including the negative beat (`timesheet.spec.js`, FR-5,
-FR-7), and the operations console + event-log panel (`operations.spec.js`, FR-9,
-FR-11) — applying a `promote` and asserting the board re-renders to the new
-level/rate and the event log gains the entry, plus a containment-violating
-operation that surfaces a typed rejection to the user. They drive the **real app**
-and assert only what the user sees. The read-model specs (slider/board and
-timesheet) assert nothing tag-specific, so they pass *unmodified* against both
-`v1-wide` and `v2-split` (see `ARCHITECTURE.md` §10.5); the operations spec
-exercises the v2 write model (operations console + `event_log`) and so targets
-`v2-split`.
+`playwright.config.js`, and one spec per UI surface): the slider/org board
+(`slider-board.spec.js`), the my-timesheet panel including the negative beat
+(`timesheet.spec.js`), the operations console + event-log panel
+(`operations.spec.js`) — applying a `promote` and asserting the board re-renders
+to the new level/rate and the event log gains the entry, plus a
+containment-violating operation that surfaces a typed rejection to the user — and
+the financials view (`financials.spec.js`): drafting then issuing an invoice and
+watching its total land in the P&L revenue, with the invoice status read as-of the
+slider date. They drive the **real app** and assert only what the user sees. The
+read-model specs (slider/board and timesheet) assert nothing tag-specific, so they
+pass *unmodified* against both `v1-wide` and `v2-split`; the operations and
+financials specs exercise the v2 write model (operations console + `event_log` and
+the invoice/payroll tables) and so target `v2-split`.
+
+The whole suite is **112 Gleam tests** (`cd server && gleam test`) **+ 15
+Playwright specs** (across the four spec files above), plus the migration oracle
+(board parity for 1096 dates), run separately.
 
 First-time setup (from `e2e/`):
 
