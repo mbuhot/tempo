@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# On-demand demo financials seed: populate a demo invoice set (one issued + one draft)
-# plus a June payroll run against the dev DB. Idempotent — safe to re-run; skips if
-# already populated. NOT wired into bin/up, so a freshly-migrated DB stays test-clean
-# until you ask for demo data. This pre-commits invoices the read tests do not expect,
-# so run `gleam test` only on a freshly-migrated DB (re-migrate before testing).
+# On-demand demo financials seed: populate the full Jan–Jun 2026 pipeline against the
+# dev DB — weekly timesheets, 18 invoices (Jan–Mar paid, Apr–May issued, Jun draft),
+# and six monthly payroll runs. Idempotent — safe to re-run; skips if already
+# populated. NOT wired into bin/up, so a freshly-migrated DB stays test-clean until you
+# ask for demo data. This pre-commits invoices the read tests do not expect, so run
+# `gleam test` only on a freshly-migrated DB (re-migrate before testing).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
