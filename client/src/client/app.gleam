@@ -277,8 +277,12 @@ pub type Message {
   /// rows the dispatch appended), `Error` the typed `{error, detail}` body the
   /// server returned for the rejection.
   ApiAppliedOperation(result: Result(List(Event), rsvp.Error(String)))
-  /// An event-log fetch resolved with the journal (newest-first) or an error.
-  ApiReturnedEvents(result: Result(List(Event), rsvp.Error(String)))
+  /// An event-log fetch resolved; `as_of` tags which slider date it answers so a
+  /// response overtaken by a later scrub is discarded.
+  ApiReturnedEvents(
+    as_of: calendar.Date,
+    result: Result(List(Event), rsvp.Error(String)),
+  )
   /// A roster fetch resolved; `as_of` tags which slider date it answers so a
   /// response overtaken by a later scrub is discarded.
   ApiReturnedRoster(
@@ -371,7 +375,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
     effect.batch([
       fetch_board(date),
       fetch_timesheet(engineer_id, week_start_of(date)),
-      fetch_events(),
+      fetch_events(date),
       fetch_financials(date),
       fetch_roster(date),
       sync_url(date),
@@ -425,6 +429,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         effect.batch([
           fetch_board(date),
           fetch_timesheet(model.engineer_id, week_start_of(date)),
+          fetch_events(date),
           fetch_financials(date),
           fetch_roster(date),
           sync_url(date),
@@ -509,7 +514,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               effect.batch([
                 fetch_timesheet(engineer_id, week_start),
                 fetch_board(model.date),
-                fetch_events(),
+                fetch_events(model.date),
               ]),
             )
             Error(error) -> #(
@@ -560,13 +565,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               summary: event.summary,
             ),
           ),
-          effect.batch([fetch_board(model.date), fetch_events()]),
+          effect.batch([fetch_board(model.date), fetch_events(model.date)]),
         )
         // A committed operation that returned no event is still a success; refresh
         // the board and journal without a specific summary line.
         Ok([]) -> #(
           Model(..model, operation_state: OperationIdle),
-          effect.batch([fetch_board(model.date), fetch_events()]),
+          effect.batch([fetch_board(model.date), fetch_events(model.date)]),
         )
         Error(error) -> #(
           Model(
@@ -577,16 +582,23 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
       }
 
-    ApiReturnedEvents(result:) ->
-      case result {
-        Ok(events) -> #(
-          Model(..model, event_log: EventLogLoaded(events)),
-          effect.none(),
-        )
-        Error(error) -> #(
-          Model(..model, event_log: EventLogFailed(describe_board_error(error))),
-          effect.none(),
-        )
+    ApiReturnedEvents(as_of:, result:) ->
+      case as_of == model.date {
+        False -> #(model, effect.none())
+        True ->
+          case result {
+            Ok(events) -> #(
+              Model(..model, event_log: EventLogLoaded(events)),
+              effect.none(),
+            )
+            Error(error) -> #(
+              Model(
+                ..model,
+                event_log: EventLogFailed(describe_board_error(error)),
+              ),
+              effect.none(),
+            )
+          }
       }
 
     ApiReturnedRoster(as_of:, result:) ->
@@ -714,11 +726,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               summary: event.summary,
             ),
           ),
-          effect.batch([fetch_financials(model.date), fetch_events()]),
+          effect.batch([fetch_financials(model.date), fetch_events(model.date)]),
         )
         Ok([]) -> #(
           Model(..model, finance_state: FinanceIdle),
-          effect.batch([fetch_financials(model.date), fetch_events()]),
+          effect.batch([fetch_financials(model.date), fetch_events(model.date)]),
         )
         Error(error) -> #(
           Model(
@@ -1028,14 +1040,17 @@ fn submit_operation(command: Command) -> Effect(Message) {
   rsvp.post("/api/operations", body, handler)
 }
 
-/// Fetch `GET /api/events` and decode the journal (a JSON array of `Event`,
-/// newest-first) via the shared codec.
-fn fetch_events() -> Effect(Message) {
+/// Fetch `GET /api/events?date=<as_of>` and decode the journal (a JSON array of
+/// `Event`, newest-first, filtered to operations effective on or before `as_of`)
+/// via the shared codec, tagging the outcome with `as_of` so a response overtaken
+/// by a later scrub can be dropped.
+fn fetch_events(as_of: calendar.Date) -> Effect(Message) {
+  let url = "/api/events?date=" <> iso_date(as_of)
   let handler =
     rsvp.expect_json(decode.list(codecs.event_decoder()), fn(result) {
-      ApiReturnedEvents(result:)
+      ApiReturnedEvents(as_of:, result:)
     })
-  rsvp.get("/api/events", handler)
+  rsvp.get(url, handler)
 }
 
 /// Fetch `GET /api/roster?as_of=<date>` and decode the directory (the engineers

@@ -1,14 +1,17 @@
 //// Domain: the provenance journal beside the facts. `append` writes exactly one
 //// `event_log` row inside the caller's transaction (used by `command.dispatch`,
 //// so facts + journal commit together) and returns it as the shared read `Event`;
-//// `list` reads the journal newest-first for the operations console. No HTTP —
-//// this layer never imports `wisp`.
+//// `list` reads the journal newest-first for the operations console, as of an
+//// application date (an event is shown once that date reaches the operation's
+//// effective date — see `event_log_list.sql`). No HTTP — this layer never imports
+//// `wisp`.
 ////
 //// `occurred_at` is the one real-clock column (system time); everything else is
 //// the applied command's identity (operation tag, human summary, JSON payload).
 
 import gleam/list
 import gleam/result
+import gleam/time/calendar.{type Date}
 import pog
 import shared/types.{type Event, Event}
 import tempo/server/context.{type Context}
@@ -52,11 +55,16 @@ fn append_row_to_event(row: sql.EventLogAppendRow) -> Event {
   )
 }
 
-/// List the provenance journal newest-first for the operations console. Maps
-/// each generated row to the shared `Event`; `payload` is carried as a raw JSON
-/// string so the journal view shows it verbatim.
-pub fn list(context: Context) -> Result(List(Event), pog.QueryError) {
-  use returned <- result.map(sql.event_log_list(context.db))
+/// List the provenance journal newest-first for the operations console, as of
+/// `as_of`: only operations whose effective date is on or before `as_of` are
+/// returned, so the feed scrubs with the slider. Maps each generated row to the
+/// shared `Event`; `payload` is carried as a raw JSON string so the journal view
+/// shows it verbatim.
+pub fn list(
+  context: Context,
+  as_of: Date,
+) -> Result(List(Event), pog.QueryError) {
+  use returned <- result.map(sql.event_log_list(context.db, as_of))
   list.map(returned.rows, list_row_to_event)
 }
 

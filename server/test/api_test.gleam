@@ -395,12 +395,13 @@ pub fn operation_bad_body_is_bad_request_test() {
 
 // --- GET /api/events --------------------------------------------------------
 
-// GET /api/events returns the journal newest-first as a JSON array of Events.
-// The hand-written seed leaves the journal empty, so this test first applies an
-// operation (a Promote) to put one known row in the feed, then asserts the feed
-// returns it; the role split and the journal row are undone afterwards so the
-// shared seed is left pristine.
-pub fn events_returns_journal_test() {
+// GET /api/events?date= returns the journal newest-first, filtered to operations
+// effective on or before the as-of date — so the feed scrubs with the slider. The
+// hand-written seed leaves the journal empty, so this applies a Promote (effective
+// 2026-09-01) and asserts it shows as of that date but is HIDDEN the day before (it
+// has not taken effect yet). The role split and journal row are undone afterwards
+// so the shared seed is left pristine.
+pub fn events_journal_scrubs_with_the_as_of_date_test() {
   let context = ctx()
 
   let post =
@@ -418,22 +419,39 @@ pub fn events_returns_journal_test() {
     |> router.handle_request(context)
   let assert [created] = decode_events(post)
 
-  let response =
-    simulate.request(http.Get, "/api/events")
+  // As of the effective date the event is in the feed; the day before, it is not.
+  let visible =
+    simulate.request(http.Get, "/api/events?date=2026-09-01")
     |> router.handle_request(context)
-  let status = response.status
-  let events = decode_events(response)
+  let hidden =
+    simulate.request(http.Get, "/api/events?date=2026-08-31")
+    |> router.handle_request(context)
 
   // Restore the seed regardless of the assertion outcome.
   restore_engineer_2_roles(context)
   delete_event(context, created.id)
 
-  assert status == 200
-  // The feed comes back newest-first (id DESC) and carries the event just
-  // appended at its head.
+  assert visible.status == 200
+  // The feed comes back newest-first (id DESC) and carries the event just appended.
+  let events = decode_events(visible)
   assert ids_descending(events)
   let assert [newest, ..] = events
   assert newest == created
+
+  // Before its effective date the operation has not taken effect, so it is hidden.
+  assert hidden.status == 200
+  assert list.all(decode_events(hidden), fn(journal_event) {
+    journal_event.id != created.id
+  })
+}
+
+// A missing date param is a 400.
+pub fn events_without_date_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/events")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
 }
 
 // --- static / fallthrough ---------------------------------------------------
