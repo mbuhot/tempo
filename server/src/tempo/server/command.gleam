@@ -18,7 +18,7 @@ import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AssignToProject,
-  ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet,
+  ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet, LogWeek,
   OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
 }
@@ -106,7 +106,7 @@ fn route(
 
     TakeLeave(..) -> leave.handle(conn, command)
 
-    LogTimesheet(..) -> timesheet.handle(conn, command)
+    LogTimesheet(..) | LogWeek(..) -> timesheet.handle(conn, command)
 
     SetSalary(..) -> salary.handle(conn, command)
 

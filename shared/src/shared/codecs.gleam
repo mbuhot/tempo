@@ -13,13 +13,15 @@ import shared/types.{
   type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
   type Invoice, type InvoiceDetail, type InvoiceLine, type OperationRequest,
   type Payroll, type PayrollLine, type Pnl, type PnlRow, type Ref, type Roster,
-  type TimesheetDay, type TimesheetLine, type WriteRequest, AdjustRateForPortion,
+  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, type WriteRequest, AdjustRateForPortion,
   AssignToProject, BoardRow, BoardSnapshot, ChangeAllocationFraction,
   DraftInvoice, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LogTimesheet, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
   PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
   RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetDay, TimesheetLine, Unassigned, WriteRequest,
+  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -175,64 +177,89 @@ pub fn board_snapshot_decoder() -> Decoder(BoardSnapshot) {
   decode.success(BoardSnapshot(date:, rows:))
 }
 
-// --- TimesheetLine ----------------------------------------------------------
+// --- TimesheetCell ----------------------------------------------------------
 
-/// Encode a `TimesheetLine` as a JSON object.
-pub fn encode_timesheet_line(line: TimesheetLine) -> Json {
-  let TimesheetLine(
-    project_id:,
-    project:,
-    fraction:,
-    hours:,
-    valid_from:,
-    valid_to:,
-  ) = line
+/// Encode a `TimesheetCell` (one grid cell) as a JSON object.
+pub fn encode_timesheet_cell(cell: TimesheetCell) -> Json {
+  let TimesheetCell(date:, allocated:, hours:) = cell
+  json.object([
+    #("date", encode_date(date)),
+    #("allocated", json.bool(allocated)),
+    #("hours", json.float(hours)),
+  ])
+}
+
+/// Decode a `TimesheetCell` from a JSON object. `hours` is read leniently (a JS
+/// client may serialise a whole `Float` as an integer-looking number).
+pub fn timesheet_cell_decoder() -> Decoder(TimesheetCell) {
+  use date <- decode.field("date", date_decoder())
+  use allocated <- decode.field("allocated", decode.bool)
+  use hours <- decode.field("hours", lenient_float_decoder())
+  decode.success(TimesheetCell(date:, allocated:, hours:))
+}
+
+// --- TimesheetWeekRow -------------------------------------------------------
+
+/// Encode a `TimesheetWeekRow` (one project's row of cells) as a JSON object.
+pub fn encode_timesheet_week_row(row: TimesheetWeekRow) -> Json {
+  let TimesheetWeekRow(project_id:, project:, cells:) = row
   json.object([
     #("project_id", json.int(project_id)),
     #("project", json.string(project)),
-    #("fraction", json.float(fraction)),
-    #("hours", json.float(hours)),
-    #("valid_from", encode_date(valid_from)),
-    #("valid_to", encode_date(valid_to)),
+    #("cells", json.array(cells, encode_timesheet_cell)),
   ])
 }
 
-/// Decode a `TimesheetLine` from a JSON object.
-pub fn timesheet_line_decoder() -> Decoder(TimesheetLine) {
+/// Decode a `TimesheetWeekRow` from a JSON object.
+pub fn timesheet_week_row_decoder() -> Decoder(TimesheetWeekRow) {
   use project_id <- decode.field("project_id", decode.int)
   use project <- decode.field("project", decode.string)
-  use fraction <- decode.field("fraction", lenient_float_decoder())
-  use hours <- decode.field("hours", lenient_float_decoder())
-  use valid_from <- decode.field("valid_from", date_decoder())
-  use valid_to <- decode.field("valid_to", date_decoder())
-  decode.success(TimesheetLine(
-    project_id:,
-    project:,
-    fraction:,
-    hours:,
-    valid_from:,
-    valid_to:,
-  ))
+  use cells <- decode.field("cells", decode.list(timesheet_cell_decoder()))
+  decode.success(TimesheetWeekRow(project_id:, project:, cells:))
 }
 
-// --- TimesheetDay -----------------------------------------------------------
+// --- TimesheetWeek ----------------------------------------------------------
 
-/// Encode a `TimesheetDay` (the timesheet form for one day) to JSON.
-pub fn encode_timesheet_day(day: TimesheetDay) -> Json {
-  let TimesheetDay(engineer_id:, date:, lines:) = day
+/// Encode a `TimesheetWeek` (the weekly timesheet grid) to JSON.
+pub fn encode_timesheet_week(week: TimesheetWeek) -> Json {
+  let TimesheetWeek(engineer_id:, week_start:, days:, rows:) = week
   json.object([
     #("engineer_id", json.int(engineer_id)),
-    #("date", encode_date(date)),
-    #("lines", json.array(lines, encode_timesheet_line)),
+    #("week_start", encode_date(week_start)),
+    #("days", json.array(days, encode_date)),
+    #("rows", json.array(rows, encode_timesheet_week_row)),
   ])
 }
 
-/// Decode a `TimesheetDay` from JSON.
-pub fn timesheet_day_decoder() -> Decoder(TimesheetDay) {
+/// Decode a `TimesheetWeek` from JSON.
+pub fn timesheet_week_decoder() -> Decoder(TimesheetWeek) {
   use engineer_id <- decode.field("engineer_id", decode.int)
-  use date <- decode.field("date", date_decoder())
-  use lines <- decode.field("lines", decode.list(timesheet_line_decoder()))
-  decode.success(TimesheetDay(engineer_id:, date:, lines:))
+  use week_start <- decode.field("week_start", date_decoder())
+  use days <- decode.field("days", decode.list(date_decoder()))
+  use rows <- decode.field("rows", decode.list(timesheet_week_row_decoder()))
+  decode.success(TimesheetWeek(engineer_id:, week_start:, days:, rows:))
+}
+
+// --- TimesheetEntry ---------------------------------------------------------
+// One (project, day) cell of a `LogWeek` submission.
+
+/// Encode a `TimesheetEntry` (one cell of a week submission) as a JSON object.
+pub fn encode_timesheet_entry(entry: TimesheetEntry) -> Json {
+  let TimesheetEntry(project_id:, day:, hours:) = entry
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("day", encode_date(day)),
+    #("hours", json.float(hours)),
+  ])
+}
+
+/// Decode a `TimesheetEntry` from a JSON object. `hours` is read leniently (a JS
+/// client may serialise a whole `Float` as an integer-looking number).
+pub fn timesheet_entry_decoder() -> Decoder(TimesheetEntry) {
+  use project_id <- decode.field("project_id", decode.int)
+  use day <- decode.field("day", date_decoder())
+  use hours <- decode.field("hours", lenient_float_decoder())
+  decode.success(TimesheetEntry(project_id:, day:, hours:))
 }
 
 // --- Ref ---------------------------------------------------------------------
@@ -381,6 +408,12 @@ pub fn encode_command(command: Command) -> Json {
         #("day", encode_date(day)),
         #("hours", json.float(hours)),
       ])
+    LogWeek(engineer_id:, entries:) ->
+      json.object([
+        #("op", json.string("log_week")),
+        #("engineer_id", json.int(engineer_id)),
+        #("entries", json.array(entries, encode_timesheet_entry)),
+      ])
     Promote(engineer_id:, level:, effective:) ->
       json.object([
         #("op", json.string("promote")),
@@ -512,6 +545,14 @@ pub fn command_decoder() -> Decoder(Command) {
       use day <- decode.field("day", date_decoder())
       use hours <- decode.field("hours", lenient_float_decoder())
       decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
+    }
+    "log_week" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use entries <- decode.field(
+        "entries",
+        decode.list(timesheet_entry_decoder()),
+      )
+      decode.success(LogWeek(engineer_id:, entries:))
     }
     "promote" -> {
       use engineer_id <- decode.field("engineer_id", decode.int)

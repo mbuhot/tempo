@@ -12,16 +12,16 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/time/calendar.{Date, January, July, June}
+import gleam/time/calendar.{Date, January, July, June, May}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
   ChangeAllocationFraction, DraftInvoice, Event, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LogTimesheet, OnLeave, OnProject, OnboardEngineer,
-  OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref,
-  ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetDay, TimesheetLine,
-  Unassigned,
+  InvoiceLine, IssueInvoice, LogTimesheet, LogWeek, OnLeave, OnProject,
+  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
+  PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -193,90 +193,100 @@ pub fn board_snapshot_empty_round_trips_test() {
     == original
 }
 
-// --- TimesheetLine ----------------------------------------------------------
+// --- TimesheetCell ----------------------------------------------------------
 
-pub fn timesheet_line_round_trips_test() {
+// One grid cell: an allocated day carrying logged hours. The 4.0 must survive
+// the JSON float round trip, and `allocated` round-trips as a JSON bool.
+pub fn timesheet_cell_round_trips_test() {
   let original =
-    TimesheetLine(
-      project_id: 200,
-      project: "Inventory Sync",
-      fraction: 0.5,
-      hours: 4.0,
-      valid_from: Date(2025, June, 1),
-      valid_to: Date(2026, July, 1),
-    )
+    TimesheetCell(date: Date(2026, June, 9), allocated: True, hours: 4.0)
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_line,
-      codecs.timesheet_line_decoder(),
+      codecs.encode_timesheet_cell,
+      codecs.timesheet_cell_decoder(),
     )
     == original
 }
 
-// Edge case: zero-hours line — a project offered for the day with nothing
-// logged yet (the form's COALESCE(hours, 0) default). 0.0 must survive the
-// JSON float round trip.
-pub fn timesheet_line_zero_hours_round_trips_test() {
+// Edge case: a disabled (not-allocated) cell with zero hours — the grid renders
+// it non-editable. Both False and 0.0 must survive the round trip.
+pub fn timesheet_cell_disabled_round_trips_test() {
   let original =
-    TimesheetLine(
-      project_id: 100,
-      project: "Ledger Migration",
-      fraction: 0.5,
-      hours: 0.0,
-      valid_from: Date(2024, January, 1),
-      valid_to: Date(2026, July, 1),
-    )
+    TimesheetCell(date: Date(2025, May, 26), allocated: False, hours: 0.0)
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_line,
-      codecs.timesheet_line_decoder(),
+      codecs.encode_timesheet_cell,
+      codecs.timesheet_cell_decoder(),
     )
     == original
 }
 
-// --- TimesheetDay -----------------------------------------------------------
+// --- TimesheetWeekRow -------------------------------------------------------
 
-pub fn timesheet_day_round_trips_test() {
+// One project's row of cells. A short two-cell row is enough to prove the nested
+// cell list round-trips inside its container.
+pub fn timesheet_week_row_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 1, date: Date(2026, June, 9), lines: [
-      TimesheetLine(
-        project_id: 200,
-        project: "Inventory Sync",
-        fraction: 0.5,
-        hours: 4.0,
-        valid_from: Date(2025, June, 1),
-        valid_to: Date(2026, July, 1),
-      ),
-      TimesheetLine(
-        project_id: 100,
-        project: "Ledger Migration",
-        fraction: 0.5,
-        hours: 0.0,
-        valid_from: Date(2024, January, 1),
-        valid_to: Date(2026, July, 1),
-      ),
+    TimesheetWeekRow(project_id: 100, project: "Ledger Migration", cells: [
+      TimesheetCell(date: Date(2026, June, 8), allocated: True, hours: 0.0),
+      TimesheetCell(date: Date(2026, June, 9), allocated: True, hours: 4.0),
     ])
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_day,
-      codecs.timesheet_day_decoder(),
+      codecs.encode_timesheet_week_row,
+      codecs.timesheet_week_row_decoder(),
     )
     == original
 }
 
-// An empty timesheet day — the form a leave day produces (no projects offered,
-// PRD FR-4/FR-5) — round-trips to the same empty form.
-pub fn timesheet_day_on_leave_empty_round_trips_test() {
+// --- TimesheetWeek ----------------------------------------------------------
+
+// The whole weekly grid: the column dates plus the per-project rows, proving the
+// `days` list and every nested row and cell survive the round trip together.
+pub fn timesheet_week_round_trips_test() {
   let original =
-    TimesheetDay(engineer_id: 3, date: Date(2026, June, 15), lines: [])
+    TimesheetWeek(
+      engineer_id: 1,
+      week_start: Date(2026, June, 8),
+      days: [Date(2026, June, 8), Date(2026, June, 9)],
+      rows: [
+        TimesheetWeekRow(project_id: 100, project: "Ledger Migration", cells: [
+          TimesheetCell(date: Date(2026, June, 8), allocated: True, hours: 0.0),
+          TimesheetCell(date: Date(2026, June, 9), allocated: True, hours: 4.0),
+        ]),
+        TimesheetWeekRow(project_id: 200, project: "Inventory Sync", cells: [
+          TimesheetCell(date: Date(2026, June, 8), allocated: True, hours: 0.0),
+          TimesheetCell(date: Date(2026, June, 9), allocated: True, hours: 4.0),
+        ]),
+      ],
+    )
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_day,
-      codecs.timesheet_day_decoder(),
+      codecs.encode_timesheet_week,
+      codecs.timesheet_week_decoder(),
+    )
+    == original
+}
+
+// An empty week — the grid a leave-all-week engineer produces (no rows, no
+// column dates) — round-trips to the same empty grid.
+pub fn timesheet_week_empty_round_trips_test() {
+  let original =
+    TimesheetWeek(
+      engineer_id: 3,
+      week_start: Date(2026, June, 15),
+      days: [],
+      rows: [],
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_timesheet_week,
+      codecs.timesheet_week_decoder(),
     )
     == original
 }
@@ -402,6 +412,19 @@ pub fn command_log_timesheet_round_trips_test() {
       day: Date(2026, June, 9),
       hours: 4.0,
     )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+// The whole-week atomic write: an engineer plus a couple of (project, day) cell
+// entries. The `op` tag must reconstruct the variant and the nested entry list.
+pub fn command_log_week_round_trips_test() {
+  let original =
+    LogWeek(engineer_id: 1, entries: [
+      TimesheetEntry(project_id: 100, day: Date(2026, June, 8), hours: 5.0),
+      TimesheetEntry(project_id: 200, day: Date(2026, June, 9), hours: 0.0),
+    ])
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

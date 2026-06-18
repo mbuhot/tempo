@@ -44,25 +44,38 @@ pub type BoardSnapshot {
   BoardSnapshot(date: Date, rows: List(BoardRow))
 }
 
-/// One project an engineer may log time against on a given day: the project, the
-/// allocation fraction, and the hours already logged (0.0 if none yet). The
-/// allocation engagement window is carried as plain `date` bounds.
-pub type TimesheetLine {
-  TimesheetLine(
-    project_id: Int,
-    project: String,
-    fraction: Float,
-    hours: Float,
-    valid_from: Date,
-    valid_to: Date,
+/// One cell of the weekly timesheet grid: a single (project, day) slot. `allocated`
+/// is the cell's editability — true when an allocation to the project covers `date`
+/// AND the engineer is not on leave that day; the grid disables the cell when false.
+/// `hours` is the hours already logged for that cell (0.0 if none yet).
+pub type TimesheetCell {
+  TimesheetCell(date: Date, allocated: Bool, hours: Float)
+}
+
+/// One row of the weekly timesheet grid: a project the engineer is allocated to on
+/// any day of the week, with one `cell` per column day. `cells` are ordered Mon..Sun,
+/// aligned with the enclosing `TimesheetWeek.days`.
+pub type TimesheetWeekRow {
+  TimesheetWeekRow(project_id: Int, project: String, cells: List(TimesheetCell))
+}
+
+/// An engineer's weekly timesheet grid: the Mon..Sun `days` columns of the week
+/// starting `week_start`, and one `row` per project allocated on any day of the week.
+/// `days` is the 7 column dates (or `[]` when there are no rows). `rows` is empty
+/// when the engineer has nothing to log all week (e.g. on leave all week).
+pub type TimesheetWeek {
+  TimesheetWeek(
+    engineer_id: Int,
+    week_start: Date,
+    days: List(Date),
+    rows: List(TimesheetWeekRow),
   )
 }
 
-/// An engineer's timesheet form for one day: only the projects they are allocated
-/// to on `date`, each with any hours already logged. Empty when the engineer
-/// is on leave that day (the form offers nothing).
-pub type TimesheetDay {
-  TimesheetDay(engineer_id: Int, date: Date, lines: List(TimesheetLine))
+/// One (project, day) entry of a `LogWeek` submission: the hours to set for that
+/// cell. An `hours` of 0.0 clears the cell.
+pub type TimesheetEntry {
+  TimesheetEntry(project_id: Int, day: Date, hours: Float)
 }
 
 /// A directory entry: a durable subject's id paired with its display name. The
@@ -133,6 +146,10 @@ pub type Command {
   TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
   /// Log hours an engineer worked on a project on a day.
   LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+  /// Log a whole week's hours atomically: each entry sets one (project, day) cell
+  /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
+  /// none.
+  LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
   /// Promote an engineer to a new level effective from a date.
   Promote(engineer_id: Int, level: Int, effective: Date)
   /// Change an engineer's allocation fraction on a project effective from a date.

@@ -1,32 +1,48 @@
 const { test, expect } = require("@playwright/test");
 const { execFileSync } = require("node:child_process");
 
-// Behaviour-driven coverage of the my-timesheet panel. Drives the real app (Wisp
-// serving the Lustre SPA) against a seeded PG19, asserting only what the user
-// sees: the projects shown, their fractions, the hours in the inputs, the leave
-// message, and the save feedback — never CSS classes, ids, or DOM structure — so
-// the suite is robust to markup changes.
+// Behaviour-driven coverage of the my-timesheet panel, now a WEEKLY GRID. Drives
+// the real app (Wisp serving the Lustre SPA) against a seeded PG19, asserting only
+// what the user sees: the projects shown as rows, the hours in each (project, day)
+// cell, which cells are editable, and the save feedback — never CSS classes, ids,
+// or DOM structure — so the suite is robust to markup changes.
 //
 // Determinism: the day comes from the slider, whose value is a unix-day index, so
-// we drive it to FIXED absolute seed dates rather than the wall clock.
+// we drive it to FIXED absolute seed dates rather than the wall clock. The panel
+// shows the Monday of the week containing that day as "Week of YYYY-MM-DD".
 //
-//   2025-01-15 = day 20103  (Priya is only on Ledger Migration; Inventory Sync
-//                            does not begin until 2025-06-01 — not offered)
-//   2026-06-09 = day 20613  (Priya logged 4h on each of her two projects)
-//   2026-06-10 = day 20614  (Marcus is on Data Platform; nothing logged yet)
-//   2026-06-15 = day 20619  (seed "now"; Aisha is on annual leave)
+//   2025-05-26 = day 20234  (Monday; Inventory Sync does not begin until the
+//                            SUNDAY 2025-06-01, so it is editable only on Sunday)
+//   2026-06-08 = day 20612  (Monday of the week Priya logged 4h on each project)
+//   2026-06-09 = day 20613  (Tuesday; Priya's logged 4h sit on this column)
+//   2026-06-10 = day 20614  (Wednesday; same week, used for Marcus's fresh write)
+//   2026-06-15 = day 20619  (Monday; Aisha is on annual leave the whole week)
 const DAY = {
-  "2025-01-15": "20103",
+  "2025-05-26": "20234",
+  "2026-06-08": "20612",
   "2026-06-09": "20613",
   "2026-06-10": "20614",
   "2026-06-15": "20619",
 };
 
-// Move the slider to a fixed seed day index; the "Logging for YYYY-MM-DD" line in
-// the panel is the visible confirmation the timesheet re-read for that day.
+// The Monday of the week each scrub date falls in — the date the panel renders in
+// its "Week of YYYY-MM-DD (Mon-Sun)" line, our visible confirmation the timesheet
+// re-read for that week.
+const WEEK_OF = {
+  "2025-05-26": "2025-05-26",
+  "2026-06-08": "2026-06-08",
+  "2026-06-09": "2026-06-08",
+  "2026-06-10": "2026-06-08",
+  "2026-06-15": "2026-06-15",
+};
+
+// Move the slider to a fixed seed day index; the "Week of YYYY-MM-DD (Mon-Sun)"
+// line in the panel is the visible confirmation the timesheet re-read that week.
 async function scrubTo(page, isoDate) {
   await page.getByLabel("Board date").fill(DAY[isoDate]);
-  await expect(page.getByText(`Logging for ${isoDate}`)).toBeVisible();
+  await expect(
+    page.getByText(`Week of ${WEEK_OF[isoDate]} (Mon-Sun)`),
+  ).toBeVisible();
 }
 
 // Pick an engineer in the timesheet selector by their visible name. Scoped to the
@@ -39,18 +55,19 @@ async function selectEngineer(page, name) {
     .selectOption({ label: name });
 }
 
-// The hours input the user types into for a given project.
-function hoursInput(page, project) {
-  return page.getByLabel(`Hours for ${project}`);
+// The hours input for one (project, day) cell — labelled by project and ISO day,
+// exactly as the user's screen reader announces it.
+function cell(page, project, isoDay) {
+  return page.getByLabel(`Hours for ${project} on ${isoDay}`);
 }
 
-// Remove any timesheet row a write test created — AND the log_timesheet journal
-// row the unified operations write path now appends for it — restoring the shared
-// seed (the canonical empty journal included) regardless of test outcome.
-// Connects over TCP with psql using the same env-var defaults as the server
-// (context.gleam), so the same cleanup works for the local Docker container and
-// the CI service alike — no dependency on a container name.
-function restoreSeed(engineerId, projectId, isoDay) {
+// Restore the shared seed after a write test: drop the timesheet rows the LogWeek
+// committed for Marcus on Data Platform across the week, AND the log_week journal
+// row the unified operations write path appended for it. Connects over TCP with
+// psql using the same env-var defaults as the server (context.gleam), so the same
+// cleanup works for the local Docker container and the CI service alike — no
+// dependency on a container name.
+function restoreMarcusWeek() {
   const env = process.env;
   execFileSync(
     "psql",
@@ -64,11 +81,10 @@ function restoreSeed(engineerId, projectId, isoDay) {
       "-d",
       env.TEMPO_DB_NAME ?? "tempo",
       "-c",
-      `DELETE FROM timesheet WHERE engineer_id=${engineerId} AND project_id=${projectId} AND work_day @> '${isoDay}'::date; ` +
-        `DELETE FROM event_log WHERE operation='log_timesheet' ` +
-        `AND (payload->>'engineer_id')::int=${engineerId} ` +
-        `AND (payload->>'project_id')::int=${projectId} ` +
-        `AND payload->>'day'='${isoDay}';`,
+      `DELETE FROM timesheet WHERE engineer_id=2 AND project_id=300 ` +
+        `AND work_day && daterange('2026-06-08','2026-06-15','[)'); ` +
+        `DELETE FROM event_log WHERE operation='log_week' ` +
+        `AND (payload->>'engineer_id')::int=2;`,
     ],
     { env: { ...env, PGPASSWORD: env.TEMPO_DB_PASSWORD ?? "tempo" } },
   );
@@ -76,98 +92,90 @@ function restoreSeed(engineerId, projectId, isoDay) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // The app boots at the seed "now" with the first engineer (Priya) selected.
-  await expect(page.getByText("Logging for 2026-06-15")).toBeVisible();
+  // The app boots at the seed "now" (2026-06-15), whose week begins Monday
+  // 2026-06-15, with the first engineer (Priya) selected.
+  await expect(page.getByText("Week of 2026-06-15 (Mon-Sun)")).toBeVisible();
 });
 
-test("shows only the engineer's allocated projects, with fractions and logged hours", async ({
+test("shows the engineer's allocated projects as rows, with logged hours in the right day column", async ({
   page,
 }) => {
-  // "I'm Priya", scrub to a Tuesday she worked. Her two half-time projects
-  // appear, each showing its 50% split and the 4h already on record — and nothing
-  // she is not allocated to.
+  // "I'm Priya", scrub into the week of her logged Tuesday. Both her half-time
+  // projects appear as rows, and the 4h she logged on 2026-06-09 sit on that day's
+  // cell of each — and nothing she is not allocated to.
   await selectEngineer(page, "Priya Sharma");
   await scrubTo(page, "2026-06-09");
 
-  await expect(page.getByText("Ledger Migration (50%)")).toBeVisible();
-  await expect(page.getByText("Inventory Sync (50%)")).toBeVisible();
-  await expect(hoursInput(page, "Ledger Migration")).toHaveValue("4");
-  await expect(hoursInput(page, "Inventory Sync")).toHaveValue("4");
+  // Scope the row-label checks to the timesheet region: the project names also
+  // appear on the org board and in the console's project select, so an unscoped
+  // getByText would be ambiguous.
+  const panel = page.getByRole("region", { name: "My timesheet" });
+  await expect(panel.getByText("Ledger Migration")).toBeVisible();
+  await expect(panel.getByText("Inventory Sync")).toBeVisible();
+  await expect(cell(page, "Ledger Migration", "2026-06-09")).toHaveValue("4");
+  await expect(cell(page, "Inventory Sync", "2026-06-09")).toHaveValue("4");
 
-  // Marcus's project is not offered for Priya to log against — there is no hours
-  // input for Data Platform in her timesheet (it appears only on the org board).
-  await expect(hoursInput(page, "Data Platform")).toHaveCount(0);
+  // Marcus's project is not a row in Priya's grid — there is no cell for Data
+  // Platform on any day of her week (it appears only on the org board).
+  await expect(cell(page, "Data Platform", "2026-06-09")).toHaveCount(0);
 });
 
-test("a project outside the engineer's allocation that day is not offered for logging", async ({
+test("submits a whole week atomically in one click, and every cell persists", async ({
   page,
 }) => {
-  // Only projects the engineer is actually allocated to on the selected day may
-  // be logged. Scrub Priya back to 2025-01-15 — before her Inventory Sync
-  // allocation begins (2025-06-01) — and only Ledger Migration is offered.
-  // Inventory Sync is not, because she had not rolled onto it yet; the form
-  // refuses to surface a project the day's allocations do not cover.
-  await selectEngineer(page, "Priya Sharma");
-  await scrubTo(page, "2025-01-15");
-
-  await expect(page.getByText("Ledger Migration (50%)")).toBeVisible();
-  await expect(hoursInput(page, "Inventory Sync")).toHaveCount(0);
-});
-
-test("an engineer on leave is told there is nothing to log", async ({ page }) => {
-  // On the seed "now" Aisha is on annual leave, so the form offers no projects —
-  // just the leave state.
-  await selectEngineer(page, "Aisha Okafor");
-  await scrubTo(page, "2026-06-15");
-
-  await expect(page.getByText("On leave — nothing to log")).toBeVisible();
-  await expect(hoursInput(page, "Data Platform")).toHaveCount(0);
-});
-
-test("saving hours reflects the new value and persists across a reload", async ({
-  page,
-}) => {
-  // The write path end to end: log fresh hours for Marcus on a day his allocation
-  // covers, see them reflected, and confirm they survive a reload — proving the
-  // value was committed, not just held in the client.
+  // The core fix: fill TWO cells of the week and submit them with ONE button.
+  // Marcus has nothing logged this week; fill Monday and Tuesday of Data Platform,
+  // click "Submit week" once, then reload and re-read — BOTH cells survive,
+  // proving one atomic submit with no per-line revert.
   await selectEngineer(page, "Marcus Chen");
   await scrubTo(page, "2026-06-10");
 
-  // Nothing logged yet for this day.
-  await expect(hoursInput(page, "Data Platform")).toHaveValue("0");
+  await expect(cell(page, "Data Platform", "2026-06-08")).toHaveValue("0");
+  await expect(cell(page, "Data Platform", "2026-06-09")).toHaveValue("0");
 
   try {
-    await hoursInput(page, "Data Platform").fill("6");
-    await page.getByRole("button", { name: "Save Data Platform" }).click();
+    await cell(page, "Data Platform", "2026-06-08").fill("5");
+    await cell(page, "Data Platform", "2026-06-09").fill("6");
+    await page.getByRole("button", { name: "Submit week" }).click();
 
-    // The save is confirmed and the input reflects the saved value.
     await expect(page.getByText("Saved.")).toBeVisible();
-    await expect(hoursInput(page, "Data Platform")).toHaveValue("6");
+    await expect(cell(page, "Data Platform", "2026-06-08")).toHaveValue("5");
+    await expect(cell(page, "Data Platform", "2026-06-09")).toHaveValue("6");
 
-    // Reload the whole page; the value is re-fetched from the database.
+    // Reload the whole page; both values are re-fetched from the database.
     await page.reload();
     await selectEngineer(page, "Marcus Chen");
     await scrubTo(page, "2026-06-10");
-    await expect(hoursInput(page, "Data Platform")).toHaveValue("6");
+    await expect(cell(page, "Data Platform", "2026-06-08")).toHaveValue("5");
+    await expect(cell(page, "Data Platform", "2026-06-09")).toHaveValue("6");
   } finally {
-    restoreSeed(2, 300, "2026-06-10");
+    restoreMarcusWeek();
   }
 });
 
-test("submitting an empty hours field shows a friendly message, not a crash", async ({
+test("a day the project does not yet cover is not editable", async ({ page }) => {
+  // Only cells the engineer's allocation covers that day may be logged. Scrub
+  // Priya into the week of Monday 2025-05-26: Inventory Sync begins on the SUNDAY
+  // 2025-06-01, so its Monday cell is disabled while its Sunday cell is enabled —
+  // the same mechanism that blocks logging after a project ends. Ledger Migration
+  // covers the whole week, so its Monday cell is editable.
+  await selectEngineer(page, "Priya Sharma");
+  await scrubTo(page, "2025-05-26");
+
+  await expect(cell(page, "Inventory Sync", "2025-05-26")).toBeDisabled();
+  await expect(cell(page, "Inventory Sync", "2025-06-01")).toBeEnabled();
+  await expect(cell(page, "Ledger Migration", "2025-05-26")).toBeEnabled();
+});
+
+test("an engineer on leave the whole week has nothing to log", async ({
   page,
 }) => {
-  // A rejected write is surfaced as a friendly message: clearing the field and
-  // saving prompts the user rather than posting a blank or erroring.
-  await selectEngineer(page, "Marcus Chen");
-  await scrubTo(page, "2026-06-10");
+  // Aisha is on annual leave across the entire week of Monday 2026-06-15. Leave
+  // takes precedence over allocation, so she has no loggable day: the grid shows the
+  // empty-week message and offers no cell for Data Platform on any day.
+  await selectEngineer(page, "Aisha Okafor");
+  await scrubTo(page, "2026-06-15");
 
-  await hoursInput(page, "Data Platform").fill("");
-  await page.getByRole("button", { name: "Save Data Platform" }).click();
-
-  await expect(
-    page.getByText("Enter a number of hours before saving."),
-  ).toBeVisible();
-  // The page is still alive and the project is still shown.
-  await expect(page.getByText("Data Platform (100%)")).toBeVisible();
+  await expect(page.getByText("Nothing to log this week.")).toBeVisible();
+  await expect(cell(page, "Data Platform", "2026-06-15")).toHaveCount(0);
 });

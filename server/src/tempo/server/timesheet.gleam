@@ -1,17 +1,19 @@
-//// Domain: the timesheet aggregate — read (the form for a day) and write (the
-//// PERIOD-FK-backed temporal upsert). `handle` routes the `LogTimesheet` command to
-//// the named `log_timesheet` operation, which runs the upsert through the shared
-//// `log_in` core and maps its `WriteError` into the unified `OperationError`;
-//// `command.dispatch` owns the transaction and persists the journal event `handle`
-//// returns. No HTTP — this layer never imports `wisp`.
+//// Domain: the timesheet aggregate — read (the weekly grid) and write (the
+//// PERIOD-FK-backed temporal upsert). `handle` routes `LogTimesheet` (one day) and
+//// `LogWeek` (a whole week, atomically) to their named operations, which run the
+//// upsert through the shared `log_in` core and map its `WriteError` into the unified
+//// `OperationError`; `command.dispatch` owns the transaction and persists the journal
+//// event `handle` returns. No HTTP — this layer never imports `wisp`.
 ////
-//// `form` maps `timesheet_form` rows to the shared `TimesheetDay`. `log_in` is the
-//// delete-then-insert temporal upsert: the `WITHOUT OVERLAPS` PK cannot be an
-//// `ON CONFLICT` target, so re-entry deletes the covering row then inserts, both
-//// in one transaction. The `PERIOD` FK to `allocation` is the backstop — logging
-//// against a project the engineer is not allocated to that day is rejected by the
-//// database. That rejection (SQLSTATE 23503) is classified as `NotAllocated`,
-//// which `log_timesheet` re-classifies as the unified `ContainmentViolated`.
+//// `form_week` maps `timesheet_week` rows into the shared `TimesheetWeek` grid: one
+//// `TimesheetWeekRow` per project (cells Mon..Sun), dropping a project with no
+//// loggable day that week (e.g. on leave). `log_in` is the delete-then-insert
+//// temporal upsert: the `WITHOUT OVERLAPS` PK cannot be an `ON CONFLICT` target, so
+//// re-entry deletes the covering row then inserts, both in one transaction. The
+//// `PERIOD` FK to `allocation` is the backstop — logging against a project the
+//// engineer is not allocated to that day is rejected by the database. That rejection
+//// (SQLSTATE 23503) is classified as `NotAllocated`, which the log operations
+//// re-classify as the unified `ContainmentViolated`.
 
 import gleam/float
 import gleam/int
@@ -21,8 +23,9 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, type TimesheetDay, type TimesheetLine, type WriteRequest,
-  LogTimesheet, TimesheetDay, TimesheetLine, WriteRequest,
+  type Command, type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
+  LogTimesheet, LogWeek, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, WriteRequest,
 }
 import tempo/server/context.{type Context}
 import tempo/server/operation.{type Event, type OperationError, Event}
@@ -53,6 +56,7 @@ pub fn handle(
 ) -> Result(List(Event), OperationError) {
   case command {
     LogTimesheet(..) -> log_timesheet(conn, command)
+    LogWeek(..) -> log_week(conn, command)
     _ ->
       panic as "timesheet.handle: command not owned by this aggregate (dispatch bug)"
   }
@@ -94,29 +98,108 @@ fn log_timesheet(
   ])
 }
 
-// --- read -------------------------------------------------------------------
-
-/// Compute the timesheet form for an engineer on a day: run `timesheet_form`
-/// and map each row to the shared `TimesheetLine` (empty on a leave day).
-pub fn form(
-  context: Context,
-  engineer_id: Int,
-  day: Date,
-) -> Result(TimesheetDay, pog.QueryError) {
-  use returned <- result.map(sql.timesheet_form(context.db, engineer_id, day))
-  let lines = list.map(returned.rows, form_row_to_shared)
-  TimesheetDay(engineer_id:, date: day, lines:)
+/// Log a whole week's hours atomically: each entry sets one (project, day) cell
+/// for the engineer. An hours of `0.0` clears that cell (a `timesheet_delete`);
+/// otherwise the entry runs through the shared `log_in` core, whose `NotAllocated`
+/// rejection re-classifies as the unified `ContainmentViolated` exactly as
+/// `log_timesheet` does. `list.try_map` short-circuits on the first failure, so the
+/// caller's single transaction commits every entry or none. On success a single
+/// `log_week` journal event carries the whole command.
+fn log_week(
+  conn: pog.Connection,
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert LogWeek(engineer_id:, entries:) = command
+  use _ <- result.try(
+    list.try_map(entries, fn(entry) {
+      let TimesheetEntry(project_id:, day:, hours:) = entry
+      case hours == 0.0 {
+        True ->
+          sql.timesheet_delete(conn, engineer_id, project_id, day)
+          |> result.replace(Nil)
+          |> result.map_error(operation.classify)
+        False ->
+          case
+            log_in(conn, WriteRequest(engineer_id:, project_id:, day:, hours:))
+          {
+            Ok(Nil) -> Ok(Nil)
+            Error(NotAllocated) ->
+              Error(operation.ContainmentViolated(timesheet_period_fk))
+            Error(DatabaseError(query_error)) ->
+              Error(operation.classify(query_error))
+          }
+      }
+    }),
+  )
+  Ok([
+    Event(
+      operation: "log_week",
+      summary: "Log timesheet week for engineer "
+        <> int.to_string(engineer_id)
+        <> " ("
+        <> int.to_string(list.length(entries))
+        <> " entries)",
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
 
-fn form_row_to_shared(row: sql.TimesheetFormRow) -> TimesheetLine {
-  TimesheetLine(
-    project_id: row.project_id,
-    project: row.project,
-    fraction: row.fraction,
-    hours: row.hours,
-    valid_from: row.valid_from,
-    valid_to: row.valid_to,
-  )
+// --- read -------------------------------------------------------------------
+
+/// Compute the weekly timesheet grid for an engineer: run `timesheet_week` and
+/// group its `(project, day)`-ordered rows into one `TimesheetWeekRow` per project
+/// (preserving project order), each row's cells in day order. A project with no
+/// loggable day that week — every cell un-allocated (e.g. the engineer is on leave
+/// all week) — is dropped, so a fully-blocked week yields no rows and the UI shows
+/// "nothing to log". `days` is the column dates taken from the first remaining row's
+/// cells, or `[]` when there are no rows.
+pub fn form_week(
+  context: Context,
+  engineer_id: Int,
+  week_start: Date,
+) -> Result(TimesheetWeek, pog.QueryError) {
+  use returned <- result.map(sql.timesheet_week(
+    context.db,
+    engineer_id,
+    week_start,
+  ))
+  let rows =
+    group_rows(returned.rows)
+    |> list.filter(fn(row) { list.any(row.cells, fn(cell) { cell.allocated }) })
+  let days = case rows {
+    [first, ..] -> list.map(first.cells, fn(cell) { cell.date })
+    [] -> []
+  }
+  TimesheetWeek(engineer_id:, week_start:, days:, rows:)
+}
+
+/// Group `(project, day)`-ordered SQL rows into per-project `TimesheetWeekRow`s.
+/// Rows arrive sorted by project then day, so a fold that opens a new row whenever
+/// the `project_id` changes preserves project order and day order within each row.
+fn group_rows(rows: List(sql.TimesheetWeekRow)) -> List(TimesheetWeekRow) {
+  rows
+  |> list.fold([], fn(acc: List(TimesheetWeekRow), row) {
+    let cell =
+      TimesheetCell(date: row.day, allocated: row.allocated, hours: row.hours)
+    case acc {
+      [current, ..rest] if current.project_id == row.project_id -> [
+        TimesheetWeekRow(..current, cells: [cell, ..current.cells]),
+        ..rest
+      ]
+      _ -> [
+        TimesheetWeekRow(
+          project_id: row.project_id,
+          project: row.project,
+          cells: [cell],
+        ),
+        ..acc
+      ]
+    }
+  })
+  |> list.reverse
+  |> list.map(fn(row) {
+    TimesheetWeekRow(..row, cells: list.reverse(row.cells))
+  })
 }
 
 // --- write ------------------------------------------------------------------

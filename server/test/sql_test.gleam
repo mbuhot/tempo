@@ -11,8 +11,9 @@
 
 import gleam/dynamic/decode
 import gleam/erlang/process
+import gleam/list
 import gleam/option.{Some}
-import gleam/time/calendar.{April, August, Date, January, June, March}
+import gleam/time/calendar.{April, August, Date, January, June, March, May}
 import pog
 import tempo/server/context
 import tempo/server/sql
@@ -194,65 +195,93 @@ pub fn board_leave_after_leave_is_empty_test() {
   assert returned.rows == []
 }
 
-// --- timesheet_form (PRD FR-7) ----------------------------------------------
+// --- timesheet_week ---------------------------------------------------------
 
-// Priya (id 1) on Tuesday 2026-06-09: her two half-time projects, each with the
-// 4.00 hours seeded for that day.
-pub fn timesheet_form_with_logged_hours_test() {
-  let assert Ok(returned) = sql.timesheet_form(db(), 1, Date(2026, June, 9))
+// Priya (id 1), week of Monday 2026-06-08: her two half-time projects, each a row
+// of seven cells Mon 06-08 .. Sun 06-14, ordered by project name then day. Every
+// cell is allocated (both projects cover the whole week, no leave); the Tuesday
+// 06-09 cell of BOTH carries the 4.00 hours the seed logged, every other day 0.
+pub fn timesheet_week_with_logged_hours_test() {
+  let assert Ok(returned) = sql.timesheet_week(db(), 1, Date(2026, June, 8))
 
-  assert returned.rows
-    == [
-      sql.TimesheetFormRow(
-        project_id: 200,
-        project: "Inventory Sync",
-        fraction: 0.5,
-        hours: 4.0,
-        valid_from: Date(2025, June, 1),
-        valid_to: Date(2027, January, 1),
-      ),
-      sql.TimesheetFormRow(
-        project_id: 100,
-        project: "Ledger Migration",
-        fraction: 0.5,
-        hours: 4.0,
-        valid_from: Date(2024, January, 1),
-        valid_to: Date(2027, January, 1),
-      ),
-    ]
+  // One project's seven cells as (day, allocated, hours): allocated all seven
+  // days, 4.0 only on the Tuesday 06-09 cell.
+  let cells_with_tuesday_logged = [
+    #(Date(2026, June, 8), True, 0.0),
+    #(Date(2026, June, 9), True, 4.0),
+    #(Date(2026, June, 10), True, 0.0),
+    #(Date(2026, June, 11), True, 0.0),
+    #(Date(2026, June, 12), True, 0.0),
+    #(Date(2026, June, 13), True, 0.0),
+    #(Date(2026, June, 14), True, 0.0),
+  ]
+
+  let cells_of = fn(project_id) {
+    list.filter(returned.rows, fn(row) { row.project_id == project_id })
+    |> list.map(fn(row) { #(row.day, row.allocated, row.hours) })
+  }
+
+  assert cells_of(200) == cells_with_tuesday_logged
+  assert cells_of(100) == cells_with_tuesday_logged
+
+  // The week is exactly these two projects, each named, in name order (Inventory
+  // Sync sorts before Ledger Migration).
+  assert list.map(returned.rows, fn(row) { #(row.project_id, row.project) })
+    |> list.unique
+    == [#(200, "Inventory Sync"), #(100, "Ledger Migration")]
 }
 
-// A day with no logged hours yet: same projects, hours COALESCEd to 0.
-pub fn timesheet_form_unlogged_day_test() {
-  let assert Ok(returned) = sql.timesheet_form(db(), 1, Date(2026, June, 10))
+// Priya (id 1), week of Monday 2025-05-26: Inventory Sync (200) begins on the
+// Sunday 2025-06-01, so its cell is allocated ONLY on Sunday and NOT editable
+// Mon..Sat — the "not yet on the project" partial-coverage case. Ledger Migration
+// (100) is allocated every day of the week.
+pub fn timesheet_week_partial_coverage_test() {
+  let assert Ok(returned) = sql.timesheet_week(db(), 1, Date(2025, May, 26))
 
-  assert returned.rows
+  // Inventory Sync: allocated only on the Sunday 2025-06-01 cell.
+  let inventory_coverage =
+    list.filter(returned.rows, fn(row) { row.project_id == 200 })
+    |> list.map(fn(row) { #(row.day, row.allocated) })
+  assert inventory_coverage
     == [
-      sql.TimesheetFormRow(
-        project_id: 200,
-        project: "Inventory Sync",
-        fraction: 0.5,
-        hours: 0.0,
-        valid_from: Date(2025, June, 1),
-        valid_to: Date(2027, January, 1),
-      ),
-      sql.TimesheetFormRow(
-        project_id: 100,
-        project: "Ledger Migration",
-        fraction: 0.5,
-        hours: 0.0,
-        valid_from: Date(2024, January, 1),
-        valid_to: Date(2027, January, 1),
-      ),
+      #(Date(2025, May, 26), False),
+      #(Date(2025, May, 27), False),
+      #(Date(2025, May, 28), False),
+      #(Date(2025, May, 29), False),
+      #(Date(2025, May, 30), False),
+      #(Date(2025, May, 31), False),
+      #(Date(2025, June, 1), True),
     ]
+
+  // Ledger Migration: allocated every day.
+  let ledger_coverage =
+    list.filter(returned.rows, fn(row) { row.project_id == 100 })
+    |> list.map(fn(row) { row.allocated })
+  assert ledger_coverage == [True, True, True, True, True, True, True]
 }
 
-// Aisha (id 3) is on leave on the seed "now", so her timesheet form is empty —
-// the form offers no projects on a leave day (PRD FR-4/FR-5).
-pub fn timesheet_form_on_leave_is_empty_test() {
-  let assert Ok(returned) = sql.timesheet_form(db(), 3, Date(2026, June, 15))
+// Aisha (id 3), week of Monday 2026-06-15: her annual leave covers the whole week
+// (2026-06-08 .. 2026-06-22). She is still allocated to Data Platform across that
+// span, so the query still emits its row per day — but leave takes precedence in
+// the `allocated` flag, so every one of the seven cells is NOT editable. There is
+// nothing she can log all week: every cell disabled.
+pub fn timesheet_week_on_leave_all_cells_disabled_test() {
+  let assert Ok(returned) = sql.timesheet_week(db(), 3, Date(2026, June, 15))
 
-  assert returned.rows == []
+  let coverage =
+    list.map(returned.rows, fn(row) {
+      #(row.project_id, row.day, row.allocated)
+    })
+  assert coverage
+    == [
+      #(300, Date(2026, June, 15), False),
+      #(300, Date(2026, June, 16), False),
+      #(300, Date(2026, June, 17), False),
+      #(300, Date(2026, June, 18), False),
+      #(300, Date(2026, June, 19), False),
+      #(300, Date(2026, June, 20), False),
+      #(300, Date(2026, June, 21), False),
+    ]
 }
 
 // --- timesheet write: delete-then-insert (P1-T04) ---------------------------
@@ -267,8 +296,10 @@ type Logged {
 // Re-running with new hours replaces it (delete 1, insert 1) — exactly one row,
 // the new value. The whole fixture is rolled back so the seed is untouched.
 pub fn timesheet_write_is_an_upsert_test() {
-  // Marcus (id 2) on project 300 on 2026-06-10 has no seeded entry.
+  // Marcus (id 2) on project 300 on Wednesday 2026-06-10 has no seeded entry; its
+  // week begins Monday 2026-06-08.
   let day = Date(2026, June, 10)
+  let week_start = Date(2026, June, 8)
   let hours_after =
     run_rolling_back(fn(conn) {
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
@@ -276,11 +307,10 @@ pub fn timesheet_write_is_an_upsert_test() {
       // Re-entry with a corrected value, same code path.
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
       let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 8.0)
-      let assert Ok(form) = sql.timesheet_form(conn, 2, day)
-      case form.rows {
-        [row, ..] -> [Logged(hours: row.hours)]
-        [] -> []
-      }
+      let assert Ok(week) = sql.timesheet_week(conn, 2, week_start)
+      week.rows
+      |> list.filter(fn(row) { row.project_id == 300 && row.day == day })
+      |> list.map(fn(row) { Logged(hours: row.hours) })
     })
 
   assert hours_after == [Logged(hours: 8.0)]

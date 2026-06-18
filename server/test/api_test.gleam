@@ -19,8 +19,8 @@ import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type Event, type TimesheetDay, BoardRow, BoardSnapshot,
-  OnLeave, OnProject, Promote, TimesheetDay, TimesheetLine,
+  type BoardSnapshot, type Event, type TimesheetWeek, BoardRow, BoardSnapshot,
+  OnLeave, OnProject, Promote, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context, Context}
 import tempo/server/web/router
@@ -123,56 +123,72 @@ pub fn board_with_bad_date_is_bad_request_test() {
 
 // --- GET /api/timesheet -----------------------------------------------------
 
-// Priya (id 1) on Tuesday 2026-06-09: her two half-time projects, each with the
-// 4.00 hours the seed logged that day, returned as the shared TimesheetDay.
-pub fn timesheet_read_returns_day_test() {
+// Priya (id 1), week of Monday 2026-06-08: the weekly grid carries her two
+// half-time projects as rows (Inventory Sync then Ledger Migration, by name),
+// each seven cells Mon 06-08 .. Sun 06-14, all allocated, with the 4.00 hours
+// the seed logged on the Tuesday 06-09 cell of both. Returned as the shared
+// TimesheetWeek the client renders.
+pub fn timesheet_read_returns_week_test() {
   let response =
-    simulate.request(http.Get, "/api/timesheet?engineer=1&day=2026-06-09")
+    simulate.request(http.Get, "/api/timesheet?engineer=1&week=2026-06-08")
     |> router.handle_request(ctx())
 
   assert response.status == 200
 
-  let day = decode_timesheet(response)
+  let week = decode_timesheet(response)
 
-  assert day
-    == TimesheetDay(
+  // The seven Mon..Sun column dates the grid renders.
+  let days = [
+    calendar.Date(2026, calendar.June, 8),
+    calendar.Date(2026, calendar.June, 9),
+    calendar.Date(2026, calendar.June, 10),
+    calendar.Date(2026, calendar.June, 11),
+    calendar.Date(2026, calendar.June, 12),
+    calendar.Date(2026, calendar.June, 13),
+    calendar.Date(2026, calendar.June, 14),
+  ]
+  // Every day allocated, 4.0 only on the Tuesday 06-09 cell.
+  let cells =
+    list.map(days, fn(day) {
+      let hours = case day == calendar.Date(2026, calendar.June, 9) {
+        True -> 4.0
+        False -> 0.0
+      }
+      TimesheetCell(date: day, allocated: True, hours:)
+    })
+
+  assert week
+    == TimesheetWeek(
       engineer_id: 1,
-      date: calendar.Date(2026, calendar.June, 9),
-      lines: [
-        TimesheetLine(
-          project_id: 200,
-          project: "Inventory Sync",
-          fraction: 0.5,
-          hours: 4.0,
-          valid_from: calendar.Date(2025, calendar.June, 1),
-          valid_to: calendar.Date(2027, calendar.January, 1),
-        ),
-        TimesheetLine(
-          project_id: 100,
-          project: "Ledger Migration",
-          fraction: 0.5,
-          hours: 4.0,
-          valid_from: calendar.Date(2024, calendar.January, 1),
-          valid_to: calendar.Date(2027, calendar.January, 1),
-        ),
+      week_start: calendar.Date(2026, calendar.June, 8),
+      days:,
+      rows: [
+        TimesheetWeekRow(project_id: 200, project: "Inventory Sync", cells:),
+        TimesheetWeekRow(project_id: 100, project: "Ledger Migration", cells:),
       ],
     )
 }
 
-// Aisha (id 3) is on leave on the seed "now", so the form offers nothing.
-pub fn timesheet_read_on_leave_is_empty_test() {
+// Aisha (id 3), week of Monday 2026-06-15: her leave covers the whole week. Leave
+// takes precedence over her Data Platform allocation, so she has no loggable day —
+// `form_week` drops a project with no loggable day, leaving an empty grid the client
+// renders as "nothing to log this week".
+pub fn timesheet_read_on_leave_has_no_rows_test() {
   let response =
-    simulate.request(http.Get, "/api/timesheet?engineer=3&day=2026-06-15")
+    simulate.request(http.Get, "/api/timesheet?engineer=3&week=2026-06-15")
     |> router.handle_request(ctx())
 
   assert response.status == 200
-  assert decode_timesheet(response).lines == []
+
+  let week = decode_timesheet(response)
+  assert week.rows == []
+  assert week.days == []
 }
 
-// A missing engineer param is a 400.
-pub fn timesheet_read_without_engineer_is_bad_request_test() {
+// A missing week param is a 400.
+pub fn timesheet_read_without_week_is_bad_request_test() {
   let response =
-    simulate.request(http.Get, "/api/timesheet?day=2026-06-09")
+    simulate.request(http.Get, "/api/timesheet?engineer=1")
     |> router.handle_request(ctx())
 
   assert response.status == 400
@@ -207,14 +223,19 @@ pub fn log_timesheet_operation_logs_hours_test() {
   let status = response.status
   let assert [event] = decode_events(response)
 
-  // Re-read the form for that engineer/day; the logged hours are on record.
-  let form =
-    simulate.request(http.Get, "/api/timesheet?engineer=2&day=2026-06-10")
+  // Re-read the week for that engineer; the logged hours are on the 06-10 cell of
+  // the Data Platform (300) row.
+  let week =
+    simulate.request(http.Get, "/api/timesheet?engineer=2&week=2026-06-08")
     |> router.handle_request(context)
   let logged =
-    decode_timesheet(form).lines
-    |> list.filter(fn(line) { line.project_id == 300 })
-    |> list.map(fn(line) { line.hours })
+    decode_timesheet(week).rows
+    |> list.filter(fn(row) { row.project_id == 300 })
+    |> list.flat_map(fn(row) { row.cells })
+    |> list.filter(fn(cell) {
+      cell.date == calendar.Date(2026, calendar.June, 10)
+    })
+    |> list.map(fn(cell) { cell.hours })
 
   // Restore the seed regardless of the assertion outcome: drop the timesheet row
   // and the journal row the operation committed.
@@ -224,6 +245,68 @@ pub fn log_timesheet_operation_logs_hours_test() {
   assert status == 200
   assert event.operation == "log_timesheet"
   assert logged == [7.5]
+}
+
+// --- LogWeek via POST /api/operations ---------------------------------------
+
+// The whole-week atomic write: a LogWeek command setting two (project, day) cells
+// for Marcus (id 2) on Data Platform (300) — Monday 06-08 = 5h, Tuesday 06-09 =
+// 6h — commits in one transaction and returns a single log_week event. Re-reading
+// the week reflects BOTH cells, proving the atomic multi-cell write persists. The
+// two timesheet rows and the journal row are removed afterwards.
+pub fn log_week_operation_logs_two_cells_test() {
+  let context = ctx()
+
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: types.LogWeek(engineer_id: 2, entries: [
+          types.TimesheetEntry(
+            project_id: 300,
+            day: calendar.Date(2026, calendar.June, 8),
+            hours: 5.0,
+          ),
+          types.TimesheetEntry(
+            project_id: 300,
+            day: calendar.Date(2026, calendar.June, 9),
+            hours: 6.0,
+          ),
+        ]),
+      )),
+    )
+    |> router.handle_request(context)
+
+  let status = response.status
+  let assert [event] = decode_events(response)
+
+  // Re-read the week; both cells of the Data Platform (300) row are on record.
+  let week =
+    simulate.request(http.Get, "/api/timesheet?engineer=2&week=2026-06-08")
+    |> router.handle_request(context)
+  let logged =
+    decode_timesheet(week).rows
+    |> list.filter(fn(row) { row.project_id == 300 })
+    |> list.flat_map(fn(row) { row.cells })
+    |> list.filter(fn(cell) {
+      cell.date == calendar.Date(2026, calendar.June, 8)
+      || cell.date == calendar.Date(2026, calendar.June, 9)
+    })
+    |> list.map(fn(cell) { #(cell.date, cell.hours) })
+
+  // Restore the seed regardless of the assertion outcome.
+  delete_timesheet(context, 2, 300, calendar.Date(2026, calendar.June, 8))
+  delete_timesheet(context, 2, 300, calendar.Date(2026, calendar.June, 9))
+  delete_event(context, event.id)
+
+  assert status == 200
+  assert event.operation == "log_week"
+  assert logged
+    == [
+      #(calendar.Date(2026, calendar.June, 8), 5.0),
+      #(calendar.Date(2026, calendar.June, 9), 6.0),
+    ]
 }
 
 // --- POST /api/operations ---------------------------------------------------
@@ -373,11 +456,11 @@ fn decode_board(response) -> BoardSnapshot {
   snapshot
 }
 
-fn decode_timesheet(response) -> TimesheetDay {
-  let assert Ok(day) =
+fn decode_timesheet(response) -> TimesheetWeek {
+  let assert Ok(week) =
     simulate.read_body(response)
-    |> json.parse(codecs.timesheet_day_decoder())
-  day
+    |> json.parse(codecs.timesheet_week_decoder())
+  week
 }
 
 fn decode_error_code(response) -> String {

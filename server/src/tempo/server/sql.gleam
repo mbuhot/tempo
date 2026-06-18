@@ -2524,90 +2524,101 @@ WHERE engineer_id = $1
   |> pog.execute(db)
 }
 
-/// A row you get from running the `timesheet_form` query
-/// defined in `./src/tempo/server/sql/timesheet_form.sql`.
+/// A row you get from running the `timesheet_week` query
+/// defined in `./src/tempo/server/sql/timesheet_week.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type TimesheetFormRow {
-  TimesheetFormRow(
+pub type TimesheetWeekRow {
+  TimesheetWeekRow(
     project_id: Int,
     project: String,
-    fraction: Float,
+    day: Date,
+    allocated: Bool,
     hours: Float,
-    valid_from: Date,
-    valid_to: Date,
   )
 }
 
-/// timesheet_form.sql — my allocations as of a day, with any hours already logged.
-/// Only projects the engineer is actually on as of $2::date
-/// are returned; on a day covered by leave the result is empty, so the form offers
-/// nothing (leave takes precedence over an allocation). A project the engineer has
-/// rolled off is simply absent — the negative case the PERIOD FK also backstops on
-/// write.
-///
-/// $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
-/// project so the form always has a value to render. Ranges are decomposed to
-/// plain `date`s at the boundary: valid_from/valid_to are the allocation
-/// engagement window.
+/// timesheet_week.sql -- an engineer's whole Mon-Sun week: every project allocated on
+/// ANY day of the week, with each day's allocation coverage and any hours logged. One
+/// row per (project, day). $1 = engineer_id, $2 = the Monday of the week; the week is
+/// the half-open range [$2, $2 + 7). 'allocated' is the cell's editability: an
+/// allocation to this project covers that day AND the engineer is not on leave that day
+/// (leave takes precedence, as on the old single-day form). The grid disables a cell
+/// where it is false; the timesheet_within_allocation PERIOD FK backstops the same rule
+/// on write.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn timesheet_form(
+pub fn timesheet_week(
   db: pog.Connection,
   allocation_engineer_id: Int,
   arg_2: Date,
-) -> Result(pog.Returned(TimesheetFormRow), pog.QueryError) {
+) -> Result(pog.Returned(TimesheetWeekRow), pog.QueryError) {
   let decoder = {
     use project_id <- decode.field(0, decode.int)
     use project <- decode.field(1, decode.string)
-    use fraction <- decode.field(2, pog.numeric_decoder())
-    use hours <- decode.field(3, pog.numeric_decoder())
-    use valid_from <- decode.field(4, pog.calendar_date_decoder())
-    use valid_to <- decode.field(5, pog.calendar_date_decoder())
-    decode.success(TimesheetFormRow(
+    use day <- decode.field(2, pog.calendar_date_decoder())
+    use allocated <- decode.field(3, decode.bool)
+    use hours <- decode.field(4, pog.numeric_decoder())
+    decode.success(TimesheetWeekRow(
       project_id:,
       project:,
-      fraction:,
+      day:,
+      allocated:,
       hours:,
-      valid_from:,
-      valid_to:,
     ))
   }
 
-  "-- timesheet_form.sql — my allocations as of a day, with any hours already logged.
--- Only projects the engineer is actually on as of $2::date
--- are returned; on a day covered by leave the result is empty, so the form offers
--- nothing (leave takes precedence over an allocation). A project the engineer has
--- rolled off is simply absent — the negative case the PERIOD FK also backstops on
--- write.
---
--- $1 = engineer_id, $2 = the day. `hours` is COALESCEd to 0 for an un-logged
--- project so the form always has a value to render. Ranges are decomposed to
--- plain `date`s at the boundary: valid_from/valid_to are the allocation
--- engagement window.
+  "-- timesheet_week.sql -- an engineer's whole Mon-Sun week: every project allocated on
+-- ANY day of the week, with each day's allocation coverage and any hours logged. One
+-- row per (project, day). $1 = engineer_id, $2 = the Monday of the week; the week is
+-- the half-open range [$2, $2 + 7). 'allocated' is the cell's editability: an
+-- allocation to this project covers that day AND the engineer is not on leave that day
+-- (leave takes precedence, as on the old single-day form). The grid disables a cell
+-- where it is false; the timesheet_within_allocation PERIOD FK backstops the same rule
+-- on write.
+WITH week AS (
+  SELECT daterange($2::date, ($2::date + 7), '[)') AS span
+),
+days AS (
+  SELECT generate_series($2::date, $2::date + 6, interval '1 day')::date AS day
+),
+week_projects AS (
+  SELECT DISTINCT allocation.project_id, project.name AS project
+  FROM allocation
+  JOIN project ON project.id = allocation.project_id
+  CROSS JOIN week
+  WHERE allocation.engineer_id = $1
+    AND allocation.allocated_during && week.span
+    AND project.active_during && week.span
+)
 SELECT
-  project.id AS project_id,
-  project.name AS project,
-  allocation.fraction,
-  COALESCE(timesheet.hours, 0) AS hours,
-  lower(allocation.allocated_during) AS valid_from,
-  upper(allocation.allocated_during) AS valid_to
-FROM allocation
-JOIN project ON project.id = allocation.project_id AND project.active_during @> $2::date
+  week_projects.project_id,
+  week_projects.project,
+  days.day,
+  (
+    EXISTS (
+      SELECT 1 FROM allocation a
+      WHERE a.engineer_id = $1
+        AND a.project_id = week_projects.project_id
+        AND a.allocated_during @> days.day
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM leave l
+      WHERE l.engineer_id = $1 AND l.on_leave_during @> days.day
+    )
+  ) AS allocated,
+  COALESCE(timesheet.hours, 0) AS hours
+FROM week_projects
+CROSS JOIN days
 LEFT JOIN timesheet
-  ON timesheet.engineer_id = allocation.engineer_id
- AND timesheet.project_id  = allocation.project_id
- AND timesheet.work_day @> $2::date
-WHERE allocation.engineer_id = $1 AND allocation.allocated_during @> $2::date
-  AND NOT EXISTS (
-    SELECT 1 FROM leave
-    WHERE leave.engineer_id = $1 AND leave.on_leave_during @> $2::date
-  )
-ORDER BY project.name;
+  ON timesheet.engineer_id = $1
+ AND timesheet.project_id = week_projects.project_id
+ AND timesheet.work_day @> days.day
+ORDER BY week_projects.project, days.day;
 "
   |> pog.query
   |> pog.parameter(pog.int(allocation_engineer_id))

@@ -33,10 +33,11 @@ import shared/codecs
 import shared/types.{
   type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
   type Invoice, type Payroll, type Pnl, type PnlRow, type Ref, type Roster,
-  type TimesheetDay, type TimesheetLine, AdjustRateForPortion, AssignToProject,
-  DraftInvoice, IssueInvoice, LogTimesheet, OnLeave, OnProject, OnboardEngineer,
-  OperationRequest, PayInvoice, Promote, ReviseRateCard, RollOff, Roster,
-  RunPayroll, TakeLeave, TerminateEmployment, Unassigned,
+  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, AdjustRateForPortion, AssignToProject, DraftInvoice,
+  IssueInvoice, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  PayInvoice, Promote, ReviseRateCard, RollOff, Roster, RunPayroll, TakeLeave,
+  TerminateEmployment, TimesheetEntry, Unassigned,
 }
 
 /// The fixed seed "now" the board first renders as of (003_seed.sql). The slider
@@ -87,7 +88,7 @@ pub type Board {
 /// day: still loading, the decoded form, or a human-readable failure.
 pub type Timesheet {
   TimesheetLoading
-  TimesheetLoaded(TimesheetDay)
+  TimesheetLoaded(TimesheetWeek)
   TimesheetFailed(String)
 }
 
@@ -218,7 +219,7 @@ pub type Model {
     board: Board,
     engineer_id: Int,
     timesheet: Timesheet,
-    hours_input: Dict(Int, String),
+    hours_input: Dict(#(Int, String), String),
     save_state: SaveState,
     console_kind: ConsoleKind,
     console_form: ConsoleForm,
@@ -245,23 +246,24 @@ pub type Message {
   )
   /// The timesheet engineer selector changed to a new engineer id.
   EngineerSelected(engineer_id: Int)
-  /// A timesheet form fetch resolved; `engineer_id` and `date` tag which request
-  /// it answers so a response overtaken by a later scrub/selection is discarded.
+  /// A timesheet week fetch resolved; `engineer_id` and `week_start` tag which
+  /// request it answers so a response overtaken by a later scrub/selection is
+  /// discarded.
   ApiReturnedTimesheet(
     engineer_id: Int,
-    date: calendar.Date,
-    result: Result(TimesheetDay, rsvp.Error(String)),
+    week_start: calendar.Date,
+    result: Result(TimesheetWeek, rsvp.Error(String)),
   )
-  /// The user edited the hours input for one project.
-  HoursEdited(project_id: Int, raw_hours: String)
-  /// The user submitted hours for one project (the row's Save button).
-  SubmittedHours(project_id: Int)
-  /// A timesheet `LogTimesheet` operation resolved; `engineer_id`/`date` tag it
+  /// The user edited the hours input for one (project, day) cell.
+  HoursEdited(project_id: Int, day: calendar.Date, raw_hours: String)
+  /// The user submitted the whole week (the single "Submit week" button).
+  SubmittedWeek
+  /// A timesheet `LogWeek` operation resolved; `engineer_id`/`week_start` tag it
   /// for the same staleness check, and the body is either the created event(s)
   /// the operation appended or the typed error.
   ApiSavedTimesheet(
     engineer_id: Int,
-    date: calendar.Date,
+    week_start: calendar.Date,
     result: Result(List(Event), rsvp.Error(String)),
   )
   /// The operations console switched to composing a different command.
@@ -368,7 +370,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
     model,
     effect.batch([
       fetch_board(date),
-      fetch_timesheet(engineer_id, date),
+      fetch_timesheet(engineer_id, week_start_of(date)),
       fetch_events(),
       fetch_financials(date),
       fetch_roster(date),
@@ -422,7 +424,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ),
         effect.batch([
           fetch_board(date),
-          fetch_timesheet(model.engineer_id, date),
+          fetch_timesheet(model.engineer_id, week_start_of(date)),
           fetch_financials(date),
           fetch_roster(date),
           sync_url(date),
@@ -453,51 +455,60 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         timesheet: TimesheetLoading,
         save_state: Unsaved,
       ),
-      fetch_timesheet(engineer_id, model.date),
+      fetch_timesheet(engineer_id, week_start_of(model.date)),
     )
 
-    ApiReturnedTimesheet(engineer_id:, date:, result:) ->
-      case engineer_id == model.engineer_id && date == model.date {
+    ApiReturnedTimesheet(engineer_id:, week_start:, result:) ->
+      case
+        engineer_id == model.engineer_id
+        && week_start == week_start_of(model.date)
+      {
         False -> #(model, effect.none())
         True -> #(store_timesheet(model, result), effect.none())
       }
 
-    HoursEdited(project_id:, raw_hours:) -> #(
+    HoursEdited(project_id:, day:, raw_hours:) -> #(
       Model(
         ..model,
-        hours_input: dict.insert(model.hours_input, project_id, raw_hours),
+        hours_input: dict.insert(
+          model.hours_input,
+          #(project_id, iso_date(day)),
+          raw_hours,
+        ),
       ),
       effect.none(),
     )
 
-    SubmittedHours(project_id:) ->
-      case hours_for(model, project_id) {
-        Error(Nil) -> #(
-          Model(
-            ..model,
-            save_state: SaveRejected("Enter a number of hours before saving."),
-          ),
-          effect.none(),
-        )
-        Ok(hours) -> #(
+    SubmittedWeek ->
+      case model.timesheet {
+        TimesheetLoaded(week) -> #(
           Model(..model, save_state: Saving),
-          save_hours(model.engineer_id, model.date, project_id, hours),
+          save_week(
+            model.engineer_id,
+            week_start_of(model.date),
+            week_entries(model, week),
+          ),
         )
+        // No loaded week to submit (loading/failed); ignore the click.
+        _ -> #(model, effect.none())
       }
 
-    ApiSavedTimesheet(engineer_id:, date:, result:) ->
-      case engineer_id == model.engineer_id && date == model.date {
+    ApiSavedTimesheet(engineer_id:, week_start:, result:) ->
+      case
+        engineer_id == model.engineer_id
+        && week_start == week_start_of(model.date)
+      {
         False -> #(model, effect.none())
         True ->
           case result {
-            // The LogTimesheet operation committed: confirm the save, then
-            // refetch the timesheet form (the authoritative logged hours), the
-            // board, and the event log so all three reflect the write.
+            // The LogWeek operation committed: confirm the save, then refetch the
+            // week (the authoritative logged hours), the board, and the event log
+            // so all three reflect the write.
             Ok(_events) -> #(
               Model(..model, save_state: Saved),
               effect.batch([
-                fetch_timesheet(engineer_id, date),
-                fetch_board(date),
+                fetch_timesheet(engineer_id, week_start),
+                fetch_board(model.date),
                 fetch_events(),
               ]),
             )
@@ -874,40 +885,61 @@ fn require_date(raw: String, label: String) -> Result(calendar.Date, String) {
   }
 }
 
-/// Store a fetched/refreshed timesheet form into the model, seeding the editable
-/// hours inputs from the server's saved values so the form shows what is on
+/// Store a fetched/refreshed timesheet week into the model, seeding the editable
+/// hours inputs from the server's saved values so the grid shows what is on
 /// record. A failure becomes a human-readable `TimesheetFailed`.
 fn store_timesheet(
   model: Model,
-  result: Result(TimesheetDay, rsvp.Error(String)),
+  result: Result(TimesheetWeek, rsvp.Error(String)),
 ) -> Model {
   case result {
-    Ok(day) ->
+    Ok(week) ->
       Model(
         ..model,
-        timesheet: TimesheetLoaded(day),
-        hours_input: hours_input_from_day(day),
+        timesheet: TimesheetLoaded(week),
+        hours_input: hours_input_from_week(week),
       )
     Error(error) ->
       Model(..model, timesheet: TimesheetFailed(describe_board_error(error)))
   }
 }
 
-/// Seed the editable inputs from a fetched form: each project maps to its logged
-/// hours rendered as text (e.g. 4.0 -> "4").
-fn hours_input_from_day(day: TimesheetDay) -> Dict(Int, String) {
-  list.fold(day.lines, dict.new(), fn(acc, line) {
-    dict.insert(acc, line.project_id, format_hours(line.hours))
+/// Seed the editable inputs from a fetched week: every cell of every row maps its
+/// #(project_id, iso-date) identity to its logged hours rendered as text (4.0 ->
+/// "4"), so each grid cell shows what is on record.
+fn hours_input_from_week(week: TimesheetWeek) -> Dict(#(Int, String), String) {
+  list.fold(week.rows, dict.new(), fn(acc, row) {
+    list.fold(row.cells, acc, fn(acc, cell) {
+      dict.insert(
+        acc,
+        #(row.project_id, iso_date(cell.date)),
+        format_hours(cell.hours),
+      )
+    })
   })
 }
 
-/// Parse the hours currently typed for a project, accepting an integer or decimal.
-/// An absent or non-numeric value is an error so the submit handler can prompt.
-fn hours_for(model: Model, project_id: Int) -> Result(Float, Nil) {
-  case dict.get(model.hours_input, project_id) {
-    Error(Nil) -> Error(Nil)
-    Ok(raw_hours) -> parse_hours(raw_hours)
-  }
+/// Build the week's `TimesheetEntry` list to submit: for every editable cell (an
+/// allocated cell) of every row, read the value currently typed at #(project_id,
+/// iso-date), parse it (blank/invalid -> 0.0, which clears the cell), and pair it
+/// with the project and the cell's day. Disabled (un-allocated) cells are skipped.
+fn week_entries(model: Model, week: TimesheetWeek) -> List(TimesheetEntry) {
+  list.flat_map(week.rows, fn(row) {
+    list.filter_map(row.cells, fn(cell) {
+      case cell.allocated {
+        False -> Error(Nil)
+        True -> {
+          let hours = case
+            dict.get(model.hours_input, #(row.project_id, iso_date(cell.date)))
+          {
+            Ok(raw_hours) -> parse_hours(raw_hours) |> result.unwrap(0.0)
+            Error(Nil) -> 0.0
+          }
+          Ok(TimesheetEntry(project_id: row.project_id, day: cell.date, hours:))
+        }
+      }
+    })
+  })
 }
 
 fn parse_hours(raw_hours: String) -> Result(Float, Nil) {
@@ -935,43 +967,45 @@ fn fetch_board(date: calendar.Date) -> Effect(Message) {
   rsvp.get(url, handler)
 }
 
-/// Fetch `GET /api/timesheet?engineer=<id>&day=<date>` and decode the form,
-/// tagging the outcome with the requested engineer/day so a response overtaken by
-/// a later scrub or engineer change can be discarded.
-fn fetch_timesheet(engineer_id: Int, date: calendar.Date) -> Effect(Message) {
+/// Fetch `GET /api/timesheet?engineer=<id>&week=<monday>` and decode the week,
+/// tagging the outcome with the requested engineer/week-start so a response
+/// overtaken by a later scrub or engineer change can be discarded.
+fn fetch_timesheet(
+  engineer_id: Int,
+  week_start: calendar.Date,
+) -> Effect(Message) {
   let url =
     "/api/timesheet?engineer="
     <> int.to_string(engineer_id)
-    <> "&day="
-    <> iso_date(date)
+    <> "&week="
+    <> iso_date(week_start)
   let handler =
-    rsvp.expect_json(codecs.timesheet_day_decoder(), fn(result) {
-      ApiReturnedTimesheet(engineer_id:, date:, result:)
+    rsvp.expect_json(codecs.timesheet_week_decoder(), fn(result) {
+      ApiReturnedTimesheet(engineer_id:, week_start:, result:)
     })
   rsvp.get(url, handler)
 }
 
-/// Log `hours` against `project_id` for the engineer on the day through the
-/// unified operations write path: a `LogTimesheet` command posted to
-/// `/api/operations` (the same seam the console uses). The server returns the
-/// created event(s) as a JSON array on success; a non-2xx (the PERIOD-FK 409
-/// containment violation) arrives as an `HttpError` carrying the typed error
-/// body, surfaced as a friendly message. The staleness check tags the outcome
-/// with the requesting engineer/day.
-fn save_hours(
+/// Log the whole week's `entries` for the engineer atomically through the unified
+/// operations write path: one `LogWeek` command posted to `/api/operations` (the
+/// same seam the console uses), committed in a single transaction. The server
+/// returns the created event(s) as a JSON array on success; a non-2xx (the
+/// PERIOD-FK 409 containment violation) arrives as an `HttpError` carrying the
+/// typed error body, surfaced as a friendly message. The staleness check tags the
+/// outcome with the requesting engineer/week-start.
+fn save_week(
   engineer_id: Int,
-  date: calendar.Date,
-  project_id: Int,
-  hours: Float,
+  week_start: calendar.Date,
+  entries: List(TimesheetEntry),
 ) -> Effect(Message) {
   let body =
     codecs.encode_operation_request(OperationRequest(
       actor: console_actor,
-      command: LogTimesheet(engineer_id:, project_id:, day: date, hours:),
+      command: LogWeek(engineer_id:, entries:),
     ))
   let handler =
     rsvp.expect_json(decode.list(codecs.event_decoder()), fn(result) {
-      ApiSavedTimesheet(engineer_id:, date:, result:)
+      ApiSavedTimesheet(engineer_id:, week_start:, result:)
     })
   rsvp.post("/api/operations", body, handler)
 }
@@ -1315,8 +1349,8 @@ fn describe_engagement(engagement: Engagement) -> String {
 
 // --- Timesheet panel --------------------------------------------------------
 
-/// The my-timesheet panel: an engineer selector, the day it reads (the slider's
-/// date), and the form for that engineer/day below.
+/// The my-timesheet panel: an engineer selector, the Monday-to-Sunday week it
+/// reads (the week containing the slider's date), and the weekly grid below.
 fn view_timesheet(model: Model) -> Element(Message) {
   html.div(
     [
@@ -1327,7 +1361,11 @@ fn view_timesheet(model: Model) -> Element(Message) {
     [
       html.h2([], [html.text("My timesheet")]),
       view_engineer_selector(model.engineer_id),
-      html.p([], [html.text("Logging for " <> iso_date(model.date))]),
+      html.p([], [
+        html.text(
+          "Week of " <> iso_date(week_start_of(model.date)) <> " (Mon-Sun)",
+        ),
+      ]),
       view_timesheet_body(model),
     ],
   )
@@ -1371,14 +1409,26 @@ fn view_timesheet_body(model: Model) -> Element(Message) {
     TimesheetLoading -> html.p([], [html.text("Loading the timesheet…")])
     TimesheetFailed(detail) ->
       html.p([], [html.text("Could not load the timesheet: " <> detail)])
-    TimesheetLoaded(day) ->
-      case day.lines {
-        [] -> html.p([], [html.text("On leave — nothing to log")])
-        lines ->
+    TimesheetLoaded(week) ->
+      case week.rows {
+        // The engineer has nothing allocated all week (e.g. on leave the whole
+        // week), so there is no grid to draw.
+        [] -> html.p([], [html.text("Nothing to log this week.")])
+        rows ->
           html.div([], [
-            html.ul(
-              [attribute.class("timesheet-lines")],
-              list.map(lines, fn(line) { view_timesheet_line(model, line) }),
+            html.table([attribute.class("timesheet-week")], [
+              view_week_header(week.days),
+              html.tbody(
+                [],
+                list.map(rows, fn(row) { view_week_row(model, row) }),
+              ),
+            ]),
+            html.button(
+              [
+                attribute.class("submit-week"),
+                event.on_click(SubmittedWeek),
+              ],
+              [html.text("Submit week")],
             ),
             view_save_feedback(model.save_state),
           ])
@@ -1386,32 +1436,71 @@ fn view_timesheet_body(model: Model) -> Element(Message) {
   }
 }
 
-/// One timesheet row: the project (with its allocation fraction), an hours input
-/// pre-filled with what is currently typed, and a Save button that posts it.
-fn view_timesheet_line(model: Model, line: TimesheetLine) -> Element(Message) {
-  let project_id = line.project_id
-  let current = case dict.get(model.hours_input, project_id) {
-    Ok(value) -> value
-    Error(Nil) -> ""
+/// The grid header: an empty leading cell (above the project column) then one
+/// column header per week day, showing the weekday abbreviation and day-of-month
+/// (e.g. "Mon 8"). The columns are ordered Mon..Sun, aligned with each row's cells.
+fn view_week_header(days: List(calendar.Date)) -> Element(Message) {
+  let day_headers =
+    list.index_map(days, fn(day, index) {
+      html.th([], [
+        html.text(weekday_abbrev(index) <> " " <> int.to_string(day.day)),
+      ])
+    })
+  html.thead([], [html.tr([], [html.th([], []), ..day_headers])])
+}
+
+/// One grid row for a project: a leading cell with the project name, then one
+/// cell per day. An allocated cell renders an editable hours input pre-filled
+/// with what is currently typed; an un-allocated cell (the allocation does not
+/// cover that day, or the engineer is on leave) renders a disabled, empty input
+/// so the column still aligns and the cell cannot be edited.
+fn view_week_row(model: Model, row: TimesheetWeekRow) -> Element(Message) {
+  let leading = html.th([attribute.class("project")], [html.text(row.project)])
+  let cells = list.map(row.cells, fn(cell) { view_week_cell(model, row, cell) })
+  html.tr([attribute.attribute("data-project", row.project)], [leading, ..cells])
+}
+
+/// One grid cell: the hours input for (project, day). Editable when the cell is
+/// allocated; otherwise disabled and blank so it reads as non-editable.
+fn view_week_cell(
+  model: Model,
+  row: TimesheetWeekRow,
+  cell: TimesheetCell,
+) -> Element(Message) {
+  let label = "Hours for " <> row.project <> " on " <> iso_date(cell.date)
+  case cell.allocated {
+    True -> {
+      let project_id = row.project_id
+      let day = cell.date
+      let current = case
+        dict.get(model.hours_input, #(project_id, iso_date(cell.date)))
+      {
+        Ok(value) -> value
+        Error(Nil) -> ""
+      }
+      html.td([], [
+        html.input([
+          attribute.type_("number"),
+          attribute.attribute("aria-label", label),
+          attribute.value(current),
+          attribute.step("0.5"),
+          attribute.min("0"),
+          event.on_input(fn(raw_hours) {
+            HoursEdited(project_id:, day:, raw_hours:)
+          }),
+        ]),
+      ])
+    }
+    False ->
+      html.td([attribute.class("disabled-cell")], [
+        html.input([
+          attribute.type_("number"),
+          attribute.attribute("aria-label", label),
+          attribute.value(""),
+          attribute.disabled(True),
+        ]),
+      ])
   }
-  html.li([attribute.attribute("data-project", line.project)], [
-    html.label([], [
-      html.span([attribute.class("project")], [
-        html.text(line.project <> " (" <> format_fraction(line.fraction) <> ")"),
-      ]),
-      html.input([
-        attribute.type_("number"),
-        attribute.attribute("aria-label", "Hours for " <> line.project),
-        attribute.value(current),
-        attribute.step("0.5"),
-        attribute.min("0"),
-        event.on_input(fn(raw_hours) { HoursEdited(project_id:, raw_hours:) }),
-      ]),
-    ]),
-    html.button([event.on_click(SubmittedHours(project_id:))], [
-      html.text("Save " <> line.project),
-    ]),
-  ])
 }
 
 /// The save feedback line under the form: silent until a submission, then
@@ -2158,6 +2247,32 @@ fn day_index_to_date(day_index: Int) -> calendar.Date {
 
 fn midnight() -> calendar.TimeOfDay {
   calendar.TimeOfDay(hours: 0, minutes: 0, seconds: 0, nanoseconds: 0)
+}
+
+// --- Week arithmetic --------------------------------------------------------
+// The timesheet grid spans the Monday-to-Sunday week containing the slider's
+// date. Working in day indices (unix-day 0 is a Thursday = ISO weekday 4), the
+// Monday-of-week index for a day index `d` is `d - modulo(d + 3, 7)`, and the
+// weekday column (0=Mon..6=Sun) of `d` is `modulo(d + 3, 7)`.
+
+/// The Monday of the week containing `date`, as a calendar date.
+fn week_start_of(date: calendar.Date) -> calendar.Date {
+  let day_index = date_to_day_index(date)
+  let weekday = int.modulo(day_index + 3, 7) |> result.unwrap(0)
+  day_index_to_date(day_index - weekday)
+}
+
+/// The three-letter abbreviation for a weekday column index (0=Mon..6=Sun).
+fn weekday_abbrev(weekday: Int) -> String {
+  case weekday {
+    0 -> "Mon"
+    1 -> "Tue"
+    2 -> "Wed"
+    3 -> "Thu"
+    4 -> "Fri"
+    5 -> "Sat"
+    _ -> "Sun"
+  }
 }
 
 // --- Month windows ----------------------------------------------------------

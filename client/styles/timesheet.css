@@ -24,46 +24,52 @@
   margin-left: var(--space-s);
 }
 
-.timesheet-lines {
-  list-style: none;
-  margin: var(--space-s) 0 0;
-  padding: 0;
-}
-
-.timesheet-lines > li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-m);
-  flex-wrap: wrap;
-  padding: var(--space-s) 0;
-  border-top: var(--border-thin) solid var(--color-border);
+.timesheet-week {
+  border-collapse: collapse;
+  margin: var(--space-s) 0 var(--space-m);
   font-size: var(--text-m);
 }
 
-.timesheet-lines > li:first-child {
-  border-top: none;
+.timesheet-week th,
+.timesheet-week td {
+  border: var(--border-thin) solid var(--color-border);
+  padding: var(--space-xs) var(--space-s);
+  text-align: center;
 }
 
-.timesheet-lines > li > label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
+.timesheet-week thead th {
+  font-weight: var(--weight-medium);
+  color: var(--color-muted);
 }
 
-.timesheet-lines .project {
+.timesheet-week .project {
   font-weight: var(--weight-bold);
-  min-width: var(--size-xl);
+  text-align: left;
+  min-width: var(--size-l);
 }
 
-.timesheet-lines input[type="number"] {
+.timesheet-week input[type="number"] {
   font-size: var(--text-m);
-  width: var(--size-m);
+  width: var(--size-s);
   padding: var(--space-xs) var(--space-s);
 }
 
-.timesheet-lines button {
+.timesheet-week .disabled-cell {
+  background: var(--color-bg);
+}
+
+.timesheet-week .disabled-cell input[type="number"] {
+  cursor: not-allowed;
+}
+
+.submit-week {
   font-size: var(--text-m);
-  padding: var(--space-s) var(--space-m);
+  font-weight: var(--weight-medium);
+  padding: var(--space-s) var(--space-l);
+  color: var(--color-surface);
+  background: var(--color-accent);
+  border: var(--border-thin) solid var(--color-accent);
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
