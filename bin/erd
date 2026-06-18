@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Generate a Mermaid ER diagram FROM THE LIVE DATABASE and splice it into SCHEMA.md
+# (between the generated-ERD markers). It reads pg_catalog directly — so the diagram
+# reflects what the migrations actually built, not a hand transcription, and it
+# captures the temporal constructs ordinary ERD tools miss:
+#   * PERIOD foreign keys      (pg_constraint.conperiod) — drawn solid, labelled "PERIOD FK"
+#   * plain foreign keys       — drawn solid, labelled "FK"
+#   * WITHOUT OVERLAPS keys    — the daterange period column in a temporal PK is annotated
+# Unenforced "logical" references (an <x>_id column with no FK, where table <x>
+# exists — e.g. invoice.project_id, which points at a project ENTITY that has no
+# single-row identity to key against) are inferred by naming convention and drawn
+# DASHED, labelled "logical (no FK)".
+#
+# Usage:  bin/erd          # regenerate SCHEMA.md's diagram from the dev DB
+# Requires the DB up (bin/db) and migrated (bin/migrate). Override the connection
+# with DATABASE_URL.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${DATABASE_URL:=postgres://tempo:tempo@127.0.0.1:5434/tempo}"
+
+diagram="$(psql "$DATABASE_URL" -tA -X -q -v ON_ERROR_STOP=1 <<'SQL'
+WITH tabs AS (
+  -- ordinary tables in the public schema, minus the migration runner's bookkeeping
+  SELECT c.oid, c.relname
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'schema_migrations'
+),
+pk AS (  -- (table, column) pairs in a primary key, with conperiod = temporal (WITHOUT OVERLAPS)
+  SELECT con.conrelid AS reloid, unnest(con.conkey) AS attnum, con.conperiod
+  FROM pg_constraint con WHERE con.contype = 'p'
+),
+fkcol AS (  -- columns participating in any foreign key (local side)
+  SELECT con.conrelid AS reloid, unnest(con.conkey) AS attnum
+  FROM pg_constraint con WHERE con.contype = 'f'
+),
+attrs AS (  -- one Mermaid attribute line per column: "<type> <name> [PK|FK|PK,FK] [comment]"
+  SELECT t.oid AS reloid, t.relname, a.attnum,
+    '    '
+    || regexp_replace(format_type(a.atttypid, a.atttypmod), '\(.*?\)|\s.*$', '', 'g')
+    || ' ' || a.attname
+    || CASE
+         WHEN EXISTS (SELECT 1 FROM pk WHERE pk.reloid = t.oid AND pk.attnum = a.attnum)
+          AND EXISTS (SELECT 1 FROM fkcol WHERE fkcol.reloid = t.oid AND fkcol.attnum = a.attnum)
+           THEN ' PK,FK'
+         WHEN EXISTS (SELECT 1 FROM pk WHERE pk.reloid = t.oid AND pk.attnum = a.attnum)
+           THEN ' PK'
+         WHEN EXISTS (SELECT 1 FROM fkcol WHERE fkcol.reloid = t.oid AND fkcol.attnum = a.attnum)
+           THEN ' FK'
+         ELSE '' END
+    || CASE
+         WHEN EXISTS (SELECT 1 FROM pk WHERE pk.reloid = t.oid AND pk.attnum = a.attnum AND pk.conperiod)
+          AND format_type(a.atttypid, a.atttypmod) = 'daterange'
+           THEN ' "WITHOUT OVERLAPS"'
+         ELSE '' END AS line
+  FROM tabs t
+  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
+),
+entity_blocks AS (
+  SELECT t.relname,
+    '  ' || t.relname || ' {' || E'\n'
+    || string_agg(attrs.line, E'\n' ORDER BY attrs.attnum) || E'\n  }' AS block
+  FROM tabs t JOIN attrs ON attrs.reloid = t.oid GROUP BY t.relname
+),
+enforced AS (  -- real foreign keys; conperiod marks the temporal (PERIOD) ones
+  SELECT parent.relname AS parent, child.relname AS child, con.conperiod
+  FROM pg_constraint con
+  JOIN pg_class child  ON child.oid  = con.conrelid
+  JOIN pg_class parent ON parent.oid = con.confrelid
+  WHERE con.contype = 'f'
+),
+inferred AS (  -- unenforced <x>_id references (column named for a table, but no FK on it)
+  SELECT DISTINCT target.relname AS parent, t.relname AS child
+  FROM tabs t
+  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
+                     AND a.attname ~ '_id$'
+  JOIN tabs target ON target.relname = regexp_replace(a.attname, '_id$', '')
+                  AND target.oid <> t.oid
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+    WHERE con.conrelid = t.oid AND con.contype = 'f' AND a.attnum = ANY(con.conkey)
+  )
+)
+SELECT out FROM (
+  SELECT 'erDiagram' AS out, 0 AS ord, '' AS k
+  UNION ALL
+  SELECT '  ' || parent || ' ||--o{ ' || child || ' : "'
+         || CASE WHEN conperiod THEN 'PERIOD FK' ELSE 'FK' END || '"',
+         1, parent || '~' || child FROM enforced
+  UNION ALL
+  SELECT '  ' || parent || ' ||..o{ ' || child || ' : "logical (no FK)"',
+         2, parent || '~' || child FROM inferred
+  UNION ALL
+  SELECT block, 3, relname FROM entity_blocks
+) s ORDER BY ord, k
+SQL
+)"
+
+if [[ -z "${diagram//[$'\n ']/}" ]]; then
+  echo "erd: empty diagram — is the database up and migrated? (DATABASE_URL=$DATABASE_URL)" >&2
+  exit 1
+fi
+
+doc="SCHEMA.md"
+begin='<!-- BEGIN GENERATED ERD (bin/erd) -->'
+end='<!-- END GENERATED ERD -->'
+start_line="$(grep -n -F "$begin" "$doc" | head -1 | cut -d: -f1)"
+end_line="$(grep -n -F "$end" "$doc" | head -1 | cut -d: -f1)"
+if [[ -z "$start_line" || -z "$end_line" ]]; then
+  echo "erd: could not find the generated-ERD markers in $doc" >&2
+  exit 1
+fi
+
+# Replace everything between the markers (keeping the marker lines) with a fresh
+# fenced Mermaid block built from the live schema.
+{
+  head -n "$start_line" "$doc"
+  echo '```mermaid'
+  printf '%s\n' "$diagram"
+  echo '```'
+  tail -n +"$end_line" "$doc"
+} > "$doc.tmp" && mv "$doc.tmp" "$doc"
+
+table_count="$(printf '%s\n' "$diagram" | grep -c ' {$' || true)"
+echo "erd: regenerated $doc from $DATABASE_URL ($table_count tables)"
