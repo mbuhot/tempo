@@ -46,10 +46,8 @@ fn onboard_engineer(
 ) -> Result(List(Event), OperationError) {
   let assert OnboardEngineer(name:, level:, effective:) = command
   use created <- operation.try(sql.engineer_create(conn, name))
-  let engineer_id = case created.rows {
-    [row, ..] -> row.id
-    [] -> 0
-  }
+  let assert [row] = created.rows
+  let engineer_id = row.id
   use _ <- operation.try(sql.employment_open(conn, engineer_id, effective))
   use _ <- operation.try(sql.engineer_role_open(
     conn,

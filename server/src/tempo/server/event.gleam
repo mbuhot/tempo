@@ -7,7 +7,6 @@
 //// `occurred_at` is the one real-clock column (system time); everything else is
 //// the applied command's identity (operation tag, human summary, JSON payload).
 
-import gleam/dynamic/decode
 import gleam/list
 import gleam/result
 import pog
@@ -36,21 +35,10 @@ pub fn append(
     summary,
     payload,
   ))
-  case returned.rows {
-    [row, ..] -> Ok(append_row_to_event(row))
-    // INSERT … RETURNING always yields its inserted row; the empty case is
-    // unreachable, surfaced as a decode failure rather than fabricating an Event.
-    [] ->
-      Error(
-        pog.UnexpectedResultType([
-          decode.DecodeError(
-            expected: "event_log row",
-            found: "no rows",
-            path: [],
-          ),
-        ]),
-      )
-  }
+  // A single INSERT … RETURNING always yields exactly one row; an empty or multi
+  // result would be a SQL/driver bug, so assert it rather than fabricate an Event.
+  let assert [row] = returned.rows
+  Ok(append_row_to_event(row))
 }
 
 fn append_row_to_event(row: sql.EventLogAppendRow) -> Event {

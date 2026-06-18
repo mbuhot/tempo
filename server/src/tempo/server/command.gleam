@@ -13,6 +13,8 @@
 //// no event building here; the aggregate owns its temporal writes, its summaries,
 //// and its `OperationError` classification (which lives in the `operation` leaf).
 
+import gleam/list
+import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AssignToProject,
@@ -76,18 +78,10 @@ fn persist(
   actor: String,
   events: List(JournalEvent),
 ) -> Result(List(Event), OperationError) {
-  case events {
-    [] -> Ok([])
-    [journal_event, ..rest] ->
-      case event.append(conn, actor:, event: journal_event) {
-        Error(query_error) -> Error(operation.classify(query_error))
-        Ok(persisted) ->
-          case persist(conn, actor, rest) {
-            Error(operation_error) -> Error(operation_error)
-            Ok(persisted_rest) -> Ok([persisted, ..persisted_rest])
-          }
-      }
-  }
+  list.try_map(events, fn(journal_event) {
+    event.append(conn, actor:, event: journal_event)
+    |> result.map_error(operation.classify)
+  })
 }
 
 /// Route a command to its aggregate handler (the temporal writes plus the journal

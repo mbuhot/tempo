@@ -60,10 +60,8 @@ fn draft_invoice(
     billing_from,
     billing_to,
   ))
-  let invoice_id = case created.rows {
-    [row, ..] -> row.id
-    [] -> 0
-  }
+  let assert [row] = created.rows
+  let invoice_id = row.id
   use _ <- operation.try(sql.invoice_status_open(
     conn,
     invoice_id,

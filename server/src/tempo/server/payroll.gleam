@@ -49,10 +49,8 @@ fn run_payroll(
     period_from,
     period_to,
   ))
-  let run_id = case created.rows {
-    [row, ..] -> row.id
-    [] -> 0
-  }
+  let assert [row] = created.rows
+  let run_id = row.id
   use amounts <- operation.try(sql.payroll_amounts(conn, period_from, period_to))
   use _ <- result.try(insert_lines(conn, run_id, amounts.rows))
   Ok([

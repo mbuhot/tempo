@@ -82,10 +82,8 @@ pub fn smoke_check(db: pog.Connection) -> Result(Int, pog.QueryError) {
     |> pog.returning(row_decoder)
     |> pog.execute(on: db),
   )
-  case returned.rows {
-    [value, ..] -> value
-    [] -> 0
-  }
+  let assert [value] = returned.rows
+  value
 }
 
 fn env_string(name: String, default: String) -> String {

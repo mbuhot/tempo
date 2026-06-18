@@ -48,10 +48,8 @@ fn sign_contract(
     valid_from,
     valid_to,
   ))
-  let contract_id = case created.rows {
-    [row, ..] -> row.id
-    [] -> 0
-  }
+  let assert [row] = created.rows
+  let contract_id = row.id
   Ok([
     Event(
       operation: "sign_contract",
@@ -81,10 +79,8 @@ fn start_project(
     valid_from,
     valid_to,
   ))
-  let project_id = case created.rows {
-    [row, ..] -> row.id
-    [] -> 0
-  }
+  let assert [row] = created.rows
+  let project_id = row.id
   Ok([
     Event(
       operation: "start_project",
