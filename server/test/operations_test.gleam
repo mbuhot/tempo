@@ -188,12 +188,13 @@ fn read_journal(conn: pog.Connection) -> List(Journal) {
 // effective date, and appends one journal row. The board's containment chain
 // holds: role ⊂ employment, both open-ended.
 pub fn onboard_engineer_opens_employment_and_role_test() {
-  let #(employment, role, journal) =
+  let #(engineer_id, employment, role, journal) =
     rolling_back(fn(conn) {
       apply(conn, OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1)))
       let engineer_id = engineer_id_named(conn, "Ada Lovelace")
       let where_eng = "engineer_id = " <> int.to_string(engineer_id)
       #(
+        engineer_id,
         read_periods(conn, "employment", "''", "employed_during", where_eng),
         read_periods(
           conn,
@@ -216,7 +217,10 @@ pub fn onboard_engineer_opens_employment_and_role_test() {
   let assert [row] = journal
   assert row.actor == "tester"
   assert row.operation == "onboard_engineer"
-  assert row.summary == "Onboard Ada Lovelace at L5 from 2026-01-01"
+  assert row.summary
+    == "Onboard Ada Lovelace at L5 (engineer "
+    <> int.to_string(engineer_id)
+    <> ") from 2026-01-01"
   assert json.parse(row.payload, codecs.command_decoder())
     == Ok(OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1)))
 }

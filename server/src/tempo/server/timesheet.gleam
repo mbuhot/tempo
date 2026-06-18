@@ -43,62 +43,55 @@ const timesheet_period_fk = "timesheet_within_allocation"
 
 // --- dispatch ---------------------------------------------------------------
 
-/// Apply a timesheet-aggregate command: route it to its named operation, then on
-/// success return the journal event(s) it produced. The dispatch `route` only ever
-/// sends timesheet commands here, so any other variant is a routing bug — `panic`.
+/// Apply a timesheet-aggregate command: route it to its named operation, which does
+/// its temporal write and returns the journal event(s) it produced. The dispatch
+/// `route` only ever sends timesheet commands here, so any other variant is a routing
+/// bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
 ) -> Result(List(Event), OperationError) {
-  let written = case command {
-    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
-      log_timesheet(conn, engineer_id, project_id, day, hours)
+  case command {
+    LogTimesheet(..) -> log_timesheet(conn, command)
     _ ->
       panic as "timesheet.handle: command not owned by this aggregate (dispatch bug)"
   }
-  result.map(written, fn(_) { events(command) })
 }
 
-/// Log hours against a project for a day via the `log_in` temporal upsert. A
-/// `NotAllocated` rejection (the timesheet PERIOD FK firing) re-classifies as the
-/// unified `ContainmentViolated("timesheet_within_allocation")` — the same
-/// classification every other containment FK gets — and any other query error maps
-/// through `operation.classify`.
+/// Log hours against a project for a day via the `log_in` temporal upsert, then
+/// return its journal event. A `NotAllocated` rejection (the timesheet PERIOD FK
+/// firing) re-classifies as the unified
+/// `ContainmentViolated("timesheet_within_allocation")` — the same classification
+/// every other containment FK gets — and any other query error maps through
+/// `operation.classify`.
 fn log_timesheet(
   conn: pog.Connection,
-  engineer_id: Int,
-  project_id: Int,
-  day: Date,
-  hours: Float,
-) -> Result(Nil, OperationError) {
-  case log_in(conn, WriteRequest(engineer_id:, project_id:, day:, hours:)) {
-    Ok(Nil) -> Ok(Nil)
-    Error(NotAllocated) ->
-      Error(operation.ContainmentViolated(timesheet_period_fk))
-    Error(DatabaseError(query_error)) -> Error(operation.classify(query_error))
-  }
-}
-
-/// The journal event(s) an applied timesheet command produces.
-fn events(command: Command) -> List(Event) {
-  case command {
-    LogTimesheet(engineer_id:, project_id:, day:, hours:) -> [
-      Event(
-        operation: "log_timesheet",
-        summary: "Log "
-          <> float.to_string(hours)
-          <> "h for engineer "
-          <> int.to_string(engineer_id)
-          <> " on project "
-          <> int.to_string(project_id)
-          <> " on "
-          <> operation.iso(day),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    _ ->
-      panic as "timesheet.events: command not owned by this aggregate (dispatch bug)"
-  }
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert LogTimesheet(engineer_id:, project_id:, day:, hours:) = command
+  use _ <- result.try(
+    case log_in(conn, WriteRequest(engineer_id:, project_id:, day:, hours:)) {
+      Ok(Nil) -> Ok(Nil)
+      Error(NotAllocated) ->
+        Error(operation.ContainmentViolated(timesheet_period_fk))
+      Error(DatabaseError(query_error)) ->
+        Error(operation.classify(query_error))
+    },
+  )
+  Ok([
+    Event(
+      operation: "log_timesheet",
+      summary: "Log "
+        <> float.to_string(hours)
+        <> "h for engineer "
+        <> int.to_string(engineer_id)
+        <> " on project "
+        <> int.to_string(project_id)
+        <> " on "
+        <> operation.iso(day),
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
 
 // --- read -------------------------------------------------------------------

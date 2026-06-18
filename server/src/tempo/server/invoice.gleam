@@ -27,36 +27,33 @@ import tempo/server/operation.{
 }
 import tempo/server/sql
 
-/// Apply an invoice-aggregate command: route it to its named operation, then on
-/// success return the journal event(s) it produced. The dispatch `route` only ever
-/// sends invoice commands here, so any other variant is a routing bug — `panic`.
+/// Apply an invoice-aggregate command: route it to its named operation, which does
+/// its temporal writes and returns the journal event(s) it produced. The dispatch
+/// `route` only ever sends invoice commands here, so any other variant is a routing
+/// bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
 ) -> Result(List(Event), OperationError) {
-  let written = case command {
-    DraftInvoice(project_id:, billing_from:, billing_to:) ->
-      draft_invoice(conn, project_id, billing_from, billing_to)
-    IssueInvoice(invoice_id:, at:) ->
-      transition(conn, invoice_id, from: "draft", to: "issued", at: at)
-    PayInvoice(invoice_id:, at:) ->
-      transition(conn, invoice_id, from: "issued", to: "paid", at: at)
+  case command {
+    DraftInvoice(..) -> draft_invoice(conn, command)
+    IssueInvoice(..) -> issue_invoice(conn, command)
+    PayInvoice(..) -> pay_invoice(conn, command)
     _ ->
       panic as "invoice.handle: command not owned by this aggregate (dispatch bug)"
   }
-  result.map(written, fn(_) { events(command) })
 }
 
 /// Draft an invoice: mint the identity, open its `draft` status from the start of
 /// the billing month, compute the contract-agreed lines for the month, and insert
-/// each — threaded through the minted id. The status opens at `billing_from` so an
-/// as-of query within or after the month reads `draft` (FR-F4).
+/// each — threaded through the minted id — then return its journal event carrying
+/// that id. The status opens at `billing_from` so an as-of query within or after the
+/// month reads `draft` (FR-F4).
 fn draft_invoice(
   conn: pog.Connection,
-  project_id: Int,
-  billing_from: Date,
-  billing_to: Date,
-) -> Result(Nil, OperationError) {
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
   use created <- operation.try(sql.invoice_create(
     conn,
     project_id,
@@ -79,7 +76,71 @@ fn draft_invoice(
     billing_from,
     billing_to,
   ))
-  insert_lines(conn, invoice_id, lines.rows)
+  use _ <- result.try(insert_lines(conn, invoice_id, lines.rows))
+  Ok([
+    Event(
+      operation: "draft_invoice",
+      summary: "Draft invoice for project "
+        <> int.to_string(project_id)
+        <> " (invoice "
+        <> int.to_string(invoice_id)
+        <> ") over "
+        <> operation.span(billing_from, billing_to),
+      payload: codecs.encode_command(command),
+    ),
+  ])
+}
+
+/// Issue an invoice: move its status draft → issued at `at`, then return its journal
+/// event.
+fn issue_invoice(
+  conn: pog.Connection,
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert IssueInvoice(invoice_id:, at:) = command
+  use _ <- result.try(transition(
+    conn,
+    invoice_id,
+    from: "draft",
+    to: "issued",
+    at: at,
+  ))
+  Ok([
+    Event(
+      operation: "issue_invoice",
+      summary: "Issue invoice "
+        <> int.to_string(invoice_id)
+        <> " on "
+        <> operation.iso(at),
+      payload: codecs.encode_command(command),
+    ),
+  ])
+}
+
+/// Pay an invoice: move its status issued → paid at `at`, then return its journal
+/// event.
+fn pay_invoice(
+  conn: pog.Connection,
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert PayInvoice(invoice_id:, at:) = command
+  use _ <- result.try(transition(
+    conn,
+    invoice_id,
+    from: "issued",
+    to: "paid",
+    at: at,
+  ))
+  Ok([
+    Event(
+      operation: "pay_invoice",
+      summary: "Pay invoice "
+        <> int.to_string(invoice_id)
+        <> " on "
+        <> operation.iso(at),
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
 
 /// Insert each computed billing line for the drafted invoice: engineer, level, the
@@ -134,43 +195,5 @@ fn validate_invoice_status(
   case list.map(current.rows, fn(row) { row.status }) == [expected] {
     True -> Ok(Nil)
     False -> Error(InvalidValue)
-  }
-}
-
-/// The journal event(s) an applied invoice command produces.
-fn events(command: Command) -> List(Event) {
-  case command {
-    DraftInvoice(project_id:, billing_from:, billing_to:) -> [
-      Event(
-        operation: "draft_invoice",
-        summary: "Draft invoice for project "
-          <> int.to_string(project_id)
-          <> " over "
-          <> operation.span(billing_from, billing_to),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    IssueInvoice(invoice_id:, at:) -> [
-      Event(
-        operation: "issue_invoice",
-        summary: "Issue invoice "
-          <> int.to_string(invoice_id)
-          <> " on "
-          <> operation.iso(at),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    PayInvoice(invoice_id:, at:) -> [
-      Event(
-        operation: "pay_invoice",
-        summary: "Pay invoice "
-          <> int.to_string(invoice_id)
-          <> " on "
-          <> operation.iso(at),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    _ ->
-      panic as "invoice.events: command not owned by this aggregate (dispatch bug)"
   }
 }

@@ -376,7 +376,7 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
 // ReviseRateCard that raises L1 from March 2026 does not change the billed rate:
 // the June invoice still bills the old agreed 800, days = 30 (June), amount = 24000.
 pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
-  let #(lines, status, journal, project_id) =
+  let #(lines, status, journal, project_id, invoice_id) =
     rolling_back(fn(conn) {
       let _engineer_id =
         billing_fixture(
@@ -400,6 +400,7 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
         status_as_of(conn, invoice_id, Date(2026, June, 15)),
         read_journal(conn),
         80_101,
+        invoice_id,
       )
     })
 
@@ -414,7 +415,9 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
   assert row.summary
     == "Draft invoice for project "
     <> int.to_string(project_id)
-    <> " over 2026-06-01..2026-07-01"
+    <> " (invoice "
+    <> int.to_string(invoice_id)
+    <> ") over 2026-06-01..2026-07-01"
   assert json.parse(row.payload, codecs.command_decoder())
     == Ok(DraftInvoice(project_id, Date(2026, June, 1), Date(2026, July, 1)))
 }
@@ -507,7 +510,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
   let names = [
     "Pay Full", "Pay Hired", "Pay Terminated", "Pay Promoted", "Pay OnLeave",
   ]
-  let #(lines, journal) =
+  let #(lines, journal, run_id) =
     rolling_back(fn(conn) {
       // Baseline L1 / L2 cost rates (levels the seed leaves empty), open-ended
       // from 2024 — inserted directly, since SetSalary is a CHANGE (FOR PORTION
@@ -569,7 +572,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
 
       apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
       let run_id = run_id_covering(conn, Date(2026, June, 15))
-      #(read_payroll_lines(conn, run_id, names), read_journal(conn))
+      #(read_payroll_lines(conn, run_id, names), read_journal(conn), run_id)
     })
 
   // Ordered by engineer name (read_payroll_lines ORDER BY e.name).
@@ -585,7 +588,10 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
   let assert [row] = journal
   assert row.actor == "tester"
   assert row.operation == "run_payroll"
-  assert row.summary == "Run payroll over 2026-06-01..2026-07-01"
+  assert row.summary
+    == "Run payroll over 2026-06-01..2026-07-01 (run "
+    <> int.to_string(run_id)
+    <> ")"
   assert json.parse(row.payload, codecs.command_decoder())
     == Ok(RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
 }

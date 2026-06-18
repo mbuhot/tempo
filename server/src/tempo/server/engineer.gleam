@@ -12,44 +12,39 @@
 //// PERIOD FKs forcing the order and verifying completeness.
 
 import gleam/int
-import gleam/result
-import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{type Command, OnboardEngineer, Promote, TerminateEmployment}
 import tempo/server/operation.{type Event, type OperationError, Event}
 import tempo/server/sql
 
-/// Apply an engineer-aggregate command: route it to its named operation, then on
-/// success return the journal event(s) it produced. The dispatch `route` only ever
-/// sends engineer commands here, so any other variant is a routing bug — `panic`.
+/// Apply an engineer-aggregate command: route it to its named operation, which does
+/// its temporal writes and returns the journal event(s) it produced. The dispatch
+/// `route` only ever sends engineer commands here, so any other variant is a routing
+/// bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
 ) -> Result(List(Event), OperationError) {
-  let written = case command {
-    OnboardEngineer(name:, level:, effective:) ->
-      onboard_engineer(conn, name, level, effective)
-    Promote(engineer_id:, level:, effective:) ->
-      promote(conn, engineer_id, level, effective)
-    TerminateEmployment(engineer_id:, effective:) ->
-      terminate_employment(conn, engineer_id, effective)
+  case command {
+    OnboardEngineer(..) -> onboard_engineer(conn, command)
+    Promote(..) -> promote(conn, command)
+    TerminateEmployment(..) -> terminate_employment(conn, command)
     _ ->
       panic as "engineer.handle: command not owned by this aggregate (dispatch bug)"
   }
-  result.map(written, fn(_) { events(command) })
 }
 
 /// Hire an engineer: mint the identity, open ongoing employment, then open the
-/// initial role — all from `effective`, threaded through the minted id. Each step is
-/// contained in the last by its PERIOD FK (role ⊂ employment), so an out-of-order or
-/// dangling fact is rejected by the database.
+/// initial role — all from `effective`, threaded through the minted id — then return
+/// its journal event carrying that id. Each step is contained in the last by its
+/// PERIOD FK (role ⊂ employment), so an out-of-order or dangling fact is rejected by
+/// the database.
 fn onboard_engineer(
   conn: pog.Connection,
-  name: String,
-  level: Int,
-  effective: Date,
-) -> Result(Nil, OperationError) {
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert OnboardEngineer(name:, level:, effective:) = command
   use created <- operation.try(sql.engineer_create(conn, name))
   let engineer_id = case created.rows {
     [row, ..] -> row.id
@@ -62,29 +57,60 @@ fn onboard_engineer(
     level,
     effective,
   ))
-  Ok(Nil)
+  Ok([
+    Event(
+      operation: "onboard_engineer",
+      summary: "Onboard "
+        <> name
+        <> " at L"
+        <> int.to_string(level)
+        <> " (engineer "
+        <> int.to_string(engineer_id)
+        <> ") from "
+        <> operation.iso(effective),
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
 
 /// Promote an engineer to a new level from `effective` onward (Change, FOR PORTION
-/// OF held_during … TO NULL); the `@>` guard leaves a scheduled-future role untouched.
+/// OF held_during … TO NULL), then return its journal event; the `@>` guard leaves a
+/// scheduled-future role untouched.
 fn promote(
   conn: pog.Connection,
-  engineer_id: Int,
-  level: Int,
-  effective: Date,
-) -> Result(Nil, OperationError) {
-  operation.run(sql.engineer_role_change(conn, engineer_id, level, effective))
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert Promote(engineer_id:, level:, effective:) = command
+  use _ <- operation.try(sql.engineer_role_change(
+    conn,
+    engineer_id,
+    level,
+    effective,
+  ))
+  Ok([
+    Event(
+      operation: "promote",
+      summary: "Promote engineer "
+        <> int.to_string(engineer_id)
+        <> " to L"
+        <> int.to_string(level)
+        <> " from "
+        <> operation.iso(effective),
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
 
 /// Terminate an engineer's employment from `effective`, capping every contained fact
-/// (Close/cascade). Children are closed FIRST — allocation → leave → role — then
-/// `employment` last; the PERIOD FKs both force that order and verify completeness: a
-/// child left dangling past `effective` rejects the whole transaction.
+/// (Close/cascade), then return its journal event. Children are closed FIRST —
+/// allocation → leave → role — then `employment` last; the PERIOD FKs both force that
+/// order and verify completeness: a child left dangling past `effective` rejects the
+/// whole transaction.
 fn terminate_employment(
   conn: pog.Connection,
-  engineer_id: Int,
-  effective: Date,
-) -> Result(Nil, OperationError) {
+  command: Command,
+) -> Result(List(Event), OperationError) {
+  let assert TerminateEmployment(engineer_id:, effective:) = command
   use _ <- operation.try(sql.allocation_close_all(conn, engineer_id, effective))
   use _ <- operation.try(sql.leave_close_all(conn, engineer_id, effective))
   use _ <- operation.try(sql.engineer_role_close_all(
@@ -93,47 +119,14 @@ fn terminate_employment(
     effective,
   ))
   use _ <- operation.try(sql.employment_close(conn, engineer_id, effective))
-  Ok(Nil)
-}
-
-/// The journal event(s) an applied engineer command produces.
-fn events(command: Command) -> List(Event) {
-  case command {
-    OnboardEngineer(name:, level:, effective:) -> [
-      Event(
-        operation: "onboard_engineer",
-        summary: "Onboard "
-          <> name
-          <> " at L"
-          <> int.to_string(level)
-          <> " from "
-          <> operation.iso(effective),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    Promote(engineer_id:, level:, effective:) -> [
-      Event(
-        operation: "promote",
-        summary: "Promote engineer "
-          <> int.to_string(engineer_id)
-          <> " to L"
-          <> int.to_string(level)
-          <> " from "
-          <> operation.iso(effective),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    TerminateEmployment(engineer_id:, effective:) -> [
-      Event(
-        operation: "terminate_employment",
-        summary: "Terminate engineer "
-          <> int.to_string(engineer_id)
-          <> " employment from "
-          <> operation.iso(effective),
-        payload: codecs.encode_command(command),
-      ),
-    ]
-    _ ->
-      panic as "engineer.events: command not owned by this aggregate (dispatch bug)"
-  }
+  Ok([
+    Event(
+      operation: "terminate_employment",
+      summary: "Terminate engineer "
+        <> int.to_string(engineer_id)
+        <> " employment from "
+        <> operation.iso(effective),
+      payload: codecs.encode_command(command),
+    ),
+  ])
 }
