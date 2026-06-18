@@ -19,6 +19,16 @@ bin/up
 It is idempotent — safe to re-run. The individual steps below are for when you want
 to run a single piece (e.g. just the server, or just the tests).
 
+On a freshly-migrated DB the financial screens are empty. To populate a demo set —
+one issued invoice + one draft invoice + a June payroll run — on demand, run:
+
+```sh
+bin/seed-invoices            # populate demo financials; idempotent, NOT run by bin/up
+```
+
+It is idempotent (skips if already populated) and deliberately left out of `bin/up`,
+so a freshly-migrated DB stays test-clean until you ask for the demo data.
+
 ### Database (PostgreSQL 19)
 
 The demo requires **PostgreSQL 19** (for `WITHOUT OVERLAPS`, `PERIOD` foreign
