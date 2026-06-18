@@ -356,6 +356,98 @@ pub fn timesheet_without_allocation_is_rejected_test() {
   assert constraint_name(error) == "timesheet_within_allocation"
 }
 
+// --- Financial cross-references (013) ---------------------------------------
+
+// An invoice whose billing month falls outside the project's active period is
+// rejected by the PERIOD FK `invoice_within_project` (invoice's month ⊂ project).
+// A plain FK is impossible (project's PK is composite, so `id` is not unique); the
+// temporal FK keys against project's temporal PK instead.
+pub fn invoice_outside_project_active_period_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Xanadu")
+        insert_contract(conn, 9006, client_id, "2026-01-01", "2027-01-01")
+        insert_project(
+          conn,
+          8006,
+          9006,
+          "Hypertext",
+          "2026-01-01",
+          "2027-01-01",
+        )
+        Nil
+      },
+      fn(conn) {
+        // Bill a 2025 month, before the project was active.
+        exec(
+          conn,
+          "INSERT INTO invoice (project_id, billing_period) VALUES "
+            <> "(8006, daterange('2025-06-01','2025-07-01'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "invoice_within_project"
+}
+
+// An invoice_line referencing a non-existent engineer is rejected by the plain FK
+// `invoice_line_engineer_fkey` (the snapshot ledger stays self-consistent).
+pub fn invoice_line_for_unknown_engineer_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Aperture")
+        insert_contract(conn, 9007, client_id, "2026-01-01", "2027-01-01")
+        insert_project(conn, 8007, 9007, "Portal", "2026-01-01", "2027-01-01")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO invoice (project_id, billing_period) VALUES "
+              <> "(8007, daterange('2026-06-01','2026-07-01'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        // engineer 999999 does not exist.
+        exec(
+          conn,
+          "INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount) "
+            <> "SELECT id, 999999, 1, 800, 1, 800 FROM invoice WHERE project_id = 8007",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "invoice_line_engineer_fkey"
+}
+
+// A payroll_line referencing a non-existent engineer is rejected by the plain FK
+// `payroll_line_engineer_fkey`.
+pub fn payroll_line_for_unknown_engineer_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO payroll_run (period) VALUES "
+              <> "(daterange('2099-01-01','2099-02-01'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        exec(
+          conn,
+          "INSERT INTO payroll_line (run_id, engineer_id, amount, days) "
+            <> "SELECT id, 999999, 100, 1 FROM payroll_run "
+            <> "WHERE period = daterange('2099-01-01','2099-02-01')",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "payroll_line_engineer_fkey"
+}
+
 // --- FOR PORTION OF: surgical rate edits (PRD FR-6) -------------------------
 
 /// One rate-card sub-period row, rendered as plain text for exact assertions:

@@ -27,13 +27,13 @@ erDiagram
   employment ||--o{ engineer_role : "PERIOD FK"
   employment ||--o{ leave : "PERIOD FK"
   engineer ||--o{ employment : "FK"
+  engineer ||--o{ invoice_line : "FK"
+  engineer ||--o{ payroll_line : "FK"
   invoice ||--o{ invoice_line : "FK"
   invoice ||--o{ invoice_status : "FK"
   payroll_run ||--o{ payroll_line : "FK"
   project ||--o{ allocation : "PERIOD FK"
-  engineer ||..o{ invoice_line : "logical (no FK)"
-  engineer ||..o{ payroll_line : "logical (no FK)"
-  project ||..o{ invoice : "logical (no FK)"
+  project ||--o{ invoice : "PERIOD FK"
   allocation {
     integer engineer_id PK,FK
     integer project_id PK,FK
@@ -72,12 +72,12 @@ erDiagram
   }
   invoice {
     integer id PK
-    integer project_id
-    daterange billing_period
+    integer project_id FK
+    daterange billing_period FK
   }
   invoice_line {
     integer invoice_id FK
-    integer engineer_id
+    integer engineer_id FK
     integer level
     numeric day_rate
     numeric days
@@ -95,7 +95,7 @@ erDiagram
   }
   payroll_line {
     integer run_id FK
-    integer engineer_id
+    integer engineer_id FK
     numeric amount
     numeric days
   }
@@ -155,7 +155,9 @@ engineer ─▶ employment ─┤
 So you can only allocate an engineer to a project over a window covered by
 **both** their employment **and** the project's active period; you can only log a
 timesheet day covered by an allocation; a project can only run within its
-contract's term. Each arrow is a `PERIOD FK` the database enforces on write.
+contract's term. Each arrow is a `PERIOD FK` the database enforces on write. The
+financial layer joins the same way: `invoice ⊂ project` (an invoice's billing
+month must fall within the project's active period; migration `013`).
 
 ## What the diagram can't show
 
@@ -166,12 +168,13 @@ A pure schema dump captures structure, not intent. Two things to know:
   uses `engineer_role × rate_card` for the charge rate, payroll uses
   `engineer_role × salary` for the cost — but there is no `level` table to draw a
   relationship to (it is a `CHECK (level BETWEEN 1 AND 7)`).
-- **The dashed edges are by-convention, not enforced.** `invoice.project_id`
-  points at a `project` *entity* (which has many period-rows and no single
-  identity row to key against); `invoice_line.engineer_id` and
-  `payroll_line.engineer_id` are snapshots taken when the invoice/run is computed.
-  These are real references the application relies on, just not database
-  constraints — so they are inferred and drawn dashed.
+- **No unenforced cross-references remain.** Migration `013` closed the former
+  gaps: `invoice.project_id` is now a PERIOD FK into `project` (keyed against
+  `project`'s temporal PK, since a plain FK to a multi-row temporal entity is
+  impossible), and the snapshot lines' `engineer_id`s are now plain FKs. So the
+  diagram currently has no dashed edges — but `bin/erd` would still draw any future
+  `<x>_id` column that lacks a foreign key as a dashed `logical (no FK)` edge,
+  inferred from the naming convention.
 
 ## Tables
 
