@@ -2,8 +2,10 @@
  * copied to server/priv/static/styles/ as a build step (see bin/build); the
  * browser resolves these relative @import paths from the served main.css.
  *
- * Order follows the page top-to-bottom: shared base first, then each UI area. */
+ * Order follows the page top-to-bottom: design tokens first (so every component
+ * can resolve var(--token)), then shared base, then each UI area. */
 
+@import "./theme.css";
 @import "./base.css";
 @import "./slider.css";
 @import "./board.css";

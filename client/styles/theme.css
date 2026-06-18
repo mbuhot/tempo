@@ -1,0 +1,64 @@
+/* Tempo design tokens — the single source of theme constants.
+ *
+ * Every component must reach for a value on these scales (var(--token)); no
+ * component should use a literal size, weight, colour, or radius. To re-tune the
+ * whole app — tighten spacing, shift the palette, change the type ramp — edit a
+ * token here and it propagates everywhere. The scales are deliberately small and
+ * constrained: t-shirt sizes for spacing and type, semantic names for colour. */
+
+:root {
+  /* spacing scale */
+  --space-xs: 0.25rem;
+  --space-s: 0.5rem;
+  --space-m: 1rem;
+  --space-l: 1.5rem;
+  --space-xl: 2.5rem;
+
+  /* font-size scale */
+  --text-xs: 0.85rem;
+  --text-s: 0.95rem;
+  --text-m: 1.1rem;
+  --text-l: 1.4rem;
+  --text-xl: 2rem;
+
+  /* font weights */
+  --weight-normal: 400;
+  --weight-medium: 600;
+  --weight-bold: 700;
+
+  /* colour palette */
+  --color-bg: #f6f8fb;
+  --color-surface: #fff;
+  --color-border: #cbd5e1;
+  --color-text: #10151c;
+  --color-muted: #6b7280;
+  --color-accent: #1d4ed8;
+  --color-warn: #f59e0b;
+  --color-warn-bg: #fff7ed;
+  --color-warn-text: #b45309;
+
+  /* radius */
+  --radius: 0.5rem;
+
+  /* layout sizes */
+  --size-xs: 2rem;
+  --size-s: 4rem;
+  --size-m: 6rem;
+  --size-l: 9rem;
+  --size-xl: 16rem;
+  --size-page: 60rem;
+
+  /* border widths */
+  --border-thin: 1px;
+  --border: 2px;
+
+  /* letter-spacing */
+  --tracking-tight: -0.01em;
+  --tracking-tighter: -0.02em;
+
+  /* line-height */
+  --leading: 1.4;
+
+  /* root font size */
+  --font-root: 20px;
+}

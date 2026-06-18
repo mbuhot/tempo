@@ -1,37 +1,37 @@
 /* --- Financials: invoices, payroll, and the P&L statement. --- */
 
 .financials {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  margin-top: 1.75rem;
+  background: var(--color-surface);
+  border: var(--border) solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-l) var(--space-l);
+  margin-top: var(--space-l);
 }
 
 .financials > h2 {
-  font-size: 1.9rem;
-  font-weight: 800;
-  margin: 0 0 0.25rem;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  margin: 0 0 var(--space-xs);
 }
 
 .financials-asof {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--accent);
-  margin: 0 0 0.5rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  margin: 0 0 var(--space-s);
 }
 
 .financials h3 {
-  font-size: 1.4rem;
-  font-weight: 800;
-  margin: 1.5rem 0 0.6rem;
+  font-size: var(--text-l);
+  font-weight: var(--weight-bold);
+  margin: var(--space-l) 0 var(--space-s);
 }
 
 .finance-state {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--accent);
-  margin: 0 0 0.5rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  margin: 0 0 var(--space-s);
 }
 
 /* The Draft and Run-payroll controls: a selector/button row above each table. */
@@ -40,23 +40,23 @@
 .payroll-control {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-m);
   flex-wrap: wrap;
-  margin-bottom: 0.75rem;
-  font-size: 1.1rem;
-  font-weight: 600;
+  margin-bottom: var(--space-s);
+  font-size: var(--text-m);
+  font-weight: var(--weight-medium);
 }
 
 .draft-control select {
-  font-size: 1.1rem;
-  padding: 0.35rem 0.5rem;
-  margin-left: 0.4rem;
+  font-size: var(--text-m);
+  padding: var(--space-xs) var(--space-s);
+  margin-left: var(--space-s);
 }
 
 .financials button {
-  font-size: 1.1rem;
-  font-weight: 700;
-  padding: 0.4rem 0.9rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  padding: var(--space-s) var(--space-m);
   cursor: pointer;
 }
 
@@ -65,22 +65,22 @@
 .financials table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 1.15rem;
-  margin-bottom: 0.5rem;
+  font-size: var(--text-m);
+  margin-bottom: var(--space-s);
 }
 
 .financials th,
 .financials td {
   text-align: left;
-  padding: 0.55rem 0.75rem;
-  border-top: 1px solid var(--line);
+  padding: var(--space-s) var(--space-s);
+  border-top: var(--border-thin) solid var(--color-border);
 }
 
 .financials thead th {
   border-top: none;
-  border-bottom: 2px solid var(--line);
-  font-weight: 800;
-  color: var(--muted);
+  border-bottom: var(--border) solid var(--color-border);
+  font-weight: var(--weight-bold);
+  color: var(--color-muted);
 }
 
 /* Numeric columns read better right-aligned and tabular: every column except
@@ -93,16 +93,16 @@
 }
 
 .invoice-status {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .invoice-paid {
-  color: var(--muted);
+  color: var(--color-muted);
   font-style: italic;
 }
 
 .pnl-totals th[scope="row"] {
-  font-weight: 700;
-  color: var(--ink);
-  border-top: 1px solid var(--line);
+  font-weight: var(--weight-bold);
+  color: var(--color-text);
+  border-top: var(--border-thin) solid var(--color-border);
 }

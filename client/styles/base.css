@@ -7,44 +7,30 @@
  *
  * This file styles by class only and never alters the page's visible text, so
  * the behaviour-driven Playwright suite (which asserts text and ARIA labels,
- * never CSS) is unaffected. */
-
-:root {
-  --ink: #10151c;
-  --muted: #475569;
-  --bg: #f6f8fb;
-  --panel: #ffffff;
-  --line: #cbd5e1;
-  --accent: #1d4ed8;
-  --leave: #b45309;
-  --leave-bg: #fff7ed;
-  --leave-line: #f59e0b;
-  --unassigned: #6b7280;
-  --unassigned-bg: #f1f5f9;
-}
+ * never CSS) is unaffected. Theme constants live in theme.css. */
 
 html {
-  font-size: 20px;
+  font-size: var(--font-root);
 }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--ink);
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
-  line-height: 1.4;
+  line-height: var(--leading);
 }
 
 .page {
-  max-width: 60rem;
+  max-width: var(--size-page);
   margin: 0 auto;
-  padding: 1.5rem 2rem 4rem;
+  padding: var(--space-l) var(--space-xl) var(--space-xl);
 }
 
 .page > h1 {
-  font-size: 2.8rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  margin: 0 0 1rem;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tighter);
+  margin: 0 0 var(--space-m);
 }

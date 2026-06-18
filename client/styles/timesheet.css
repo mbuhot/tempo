@@ -1,43 +1,43 @@
 /* --- Timesheet panel. --- */
 
 .timesheet {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
+  background: var(--color-surface);
+  border: var(--border) solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-l) var(--space-l);
 }
 
 .timesheet h2 {
-  font-size: 1.9rem;
-  font-weight: 800;
-  margin: 0 0 0.75rem;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  margin: 0 0 var(--space-s);
 }
 
 .timesheet > label {
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-size: var(--text-m);
+  font-weight: var(--weight-medium);
 }
 
 .timesheet select {
-  font-size: 1.2rem;
-  padding: 0.35rem 0.5rem;
-  margin-left: 0.4rem;
+  font-size: var(--text-m);
+  padding: var(--space-xs) var(--space-s);
+  margin-left: var(--space-s);
 }
 
 .timesheet-lines {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: var(--space-s) 0 0;
   padding: 0;
 }
 
 .timesheet-lines > li {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-m);
   flex-wrap: wrap;
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--line);
-  font-size: 1.2rem;
+  padding: var(--space-s) 0;
+  border-top: var(--border-thin) solid var(--color-border);
+  font-size: var(--text-m);
 }
 
 .timesheet-lines > li:first-child {
@@ -47,29 +47,29 @@
 .timesheet-lines > li > label {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-s);
 }
 
 .timesheet-lines .project {
-  font-weight: 700;
-  min-width: 16rem;
+  font-weight: var(--weight-bold);
+  min-width: var(--size-xl);
 }
 
 .timesheet-lines input[type="number"] {
-  font-size: 1.2rem;
-  width: 6rem;
-  padding: 0.35rem 0.5rem;
+  font-size: var(--text-m);
+  width: var(--size-m);
+  padding: var(--space-xs) var(--space-s);
 }
 
 .timesheet-lines button {
-  font-size: 1.1rem;
-  padding: 0.4rem 0.9rem;
+  font-size: var(--text-m);
+  padding: var(--space-s) var(--space-m);
   cursor: pointer;
 }
 
 .save-state {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--accent);
-  margin-top: 0.75rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  margin-top: var(--space-s);
 }

@@ -1,33 +1,33 @@
 /* --- Slider: the visual spine. Big "As of" date, full-width range input. --- */
 
 .slider {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.75rem;
+  background: var(--color-surface);
+  border: var(--border) solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-l) var(--space-l);
+  margin-bottom: var(--space-l);
 }
 
 .slider h2 {
-  font-size: 2.4rem;
-  font-weight: 800;
-  color: var(--accent);
-  margin: 0 0 0.75rem;
-  letter-spacing: -0.01em;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  margin: 0 0 var(--space-s);
+  letter-spacing: var(--tracking-tight);
 }
 
 .slider input[type="range"] {
   width: 100%;
-  height: 2rem;
-  accent-color: var(--accent);
+  height: var(--size-xs);
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
 .slider-bounds {
   display: flex;
   justify-content: space-between;
-  font-size: 0.95rem;
-  color: var(--muted);
-  margin-top: 0.25rem;
+  font-size: var(--text-s);
+  color: var(--color-muted);
+  margin-top: var(--space-xs);
   font-variant-numeric: tabular-nums;
 }

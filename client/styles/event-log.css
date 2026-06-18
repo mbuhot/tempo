@@ -1,17 +1,17 @@
 /* --- Event log: the provenance journal, newest-first. --- */
 
 .event-log {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  margin-top: 1.75rem;
+  background: var(--color-surface);
+  border: var(--border) solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-l) var(--space-l);
+  margin-top: var(--space-l);
 }
 
 .event-log h2 {
-  font-size: 1.9rem;
-  font-weight: 800;
-  margin: 0 0 0.75rem;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  margin: 0 0 var(--space-s);
 }
 
 .event-list {
@@ -22,12 +22,12 @@
 
 .event-row {
   display: grid;
-  grid-template-columns: 16rem 1fr;
-  gap: 0.5rem 1rem;
+  grid-template-columns: var(--size-xl) 1fr;
+  gap: var(--space-s) var(--space-m);
   align-items: baseline;
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--line);
-  font-size: 1.1rem;
+  padding: var(--space-s) 0;
+  border-top: var(--border-thin) solid var(--color-border);
+  font-size: var(--text-m);
 }
 
 .event-row:first-child {
@@ -35,17 +35,17 @@
 }
 
 .event-operation {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 
 .event-summary {
-  color: var(--ink);
+  color: var(--color-text);
 }
 
 .event-meta {
   grid-column: 1 / -1;
-  font-size: 0.95rem;
-  color: var(--muted);
+  font-size: var(--text-s);
+  color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }

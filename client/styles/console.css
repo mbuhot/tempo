@@ -1,61 +1,61 @@
 /* --- Operations console: a write surface to drive the demo live. --- */
 
 .console {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  margin-top: 1.75rem;
+  background: var(--color-surface);
+  border: var(--border) solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-l) var(--space-l);
+  margin-top: var(--space-l);
 }
 
 .console h2 {
-  font-size: 1.9rem;
-  font-weight: 800;
-  margin: 0 0 0.75rem;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  margin: 0 0 var(--space-s);
 }
 
 .console > label {
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-size: var(--text-m);
+  font-weight: var(--weight-medium);
 }
 
 .console select {
-  font-size: 1.2rem;
-  padding: 0.35rem 0.5rem;
-  margin-left: 0.4rem;
+  font-size: var(--text-m);
+  padding: var(--space-xs) var(--space-s);
+  margin-left: var(--space-s);
 }
 
 .console-fields {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin: 1rem 0;
+  gap: var(--space-m);
+  margin: var(--space-m) 0;
 }
 
 .console-field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 1.05rem;
-  font-weight: 600;
+  gap: var(--space-xs);
+  font-size: var(--text-m);
+  font-weight: var(--weight-medium);
 }
 
 .console-field input {
-  font-size: 1.2rem;
-  padding: 0.35rem 0.5rem;
-  min-width: 9rem;
+  font-size: var(--text-m);
+  padding: var(--space-xs) var(--space-s);
+  min-width: var(--size-l);
 }
 
 .console-apply {
-  font-size: 1.2rem;
-  font-weight: 700;
-  padding: 0.5rem 1.1rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  padding: var(--space-s) var(--space-m);
   cursor: pointer;
 }
 
 .operation-state {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--accent);
-  margin-top: 0.75rem;
+  font-size: var(--text-m);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  margin-top: var(--space-s);
 }
