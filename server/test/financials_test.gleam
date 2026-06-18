@@ -596,6 +596,31 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
     == Ok(RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
 }
 
+// A second run whose period overlaps an existing run is rejected by the
+// payroll_run_no_overlap exclusion — payroll cannot be run twice for a month.
+pub fn running_payroll_twice_for_a_month_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      exec(
+        conn,
+        "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "
+          <> "(1, 3000.00, daterange('2024-01-01', NULL, '[)'))",
+      )
+      let engineer = insert_engineer(conn, "Pay Once")
+      employed_at(conn, engineer, "2026-01-01", "", level: 1, role_to: "")
+
+      // First run for June succeeds; a second run for the same month must be refused.
+      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      command.dispatch_in(
+        conn,
+        "tester",
+        RunPayroll(Date(2026, June, 1), Date(2026, July, 1)),
+      )
+    })
+
+  assert outcome == Error(operation.OverlappingFact)
+}
+
 /// Insert an employed engineer with one role version. `employed_to`/`role_to` are
 /// "" for an open-ended span. `level` is the role level. Used by the payroll
 /// fixtures (the full-month, hired, terminated, and on-leave engineers).

@@ -70,7 +70,11 @@ CREATE TABLE invoice_line (
 -- "a payroll run for a month" (period = the month's daterange).
 CREATE TABLE payroll_run (
   id     int GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  period daterange NOT NULL
+  period daterange NOT NULL,
+  -- At most one run per period: a second run whose period overlaps an existing one
+  -- is rejected (an exclusion violation, classified as OverlappingFact), so payroll
+  -- cannot be run twice for the same month.
+  CONSTRAINT payroll_run_no_overlap EXCLUDE USING gist (period WITH &&)
 );
 
 -- The payment instruction per engineer for a run: the prorated salary owed for
