@@ -55,13 +55,13 @@ sub AS (
 )
 SELECT
   sub.engineer_id,
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
       / (upper(params.month) - lower(params.month)))::numeric AS amount,
   sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
 FROM sub
 CROSS JOIN params
-JOIN engineer ON engineer.id = sub.engineer_id
+JOIN engineer_current engineer ON engineer.id = sub.engineer_id
 WHERE NOT isempty(sub.sub_period)
 GROUP BY sub.engineer_id, engineer.name
 ORDER BY engineer.name;

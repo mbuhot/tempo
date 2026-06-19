@@ -5,8 +5,10 @@
 //// transaction and persists the journal event(s) `handle` returns. No HTTP — never
 //// imports `wisp`.
 ////
-//// The operations span the four write patterns: `onboard_engineer` is three Asserts
-//// (identity → employment → role, each contained in the last by its PERIOD FK);
+//// The operations span the four write patterns: `onboard_engineer` is a sequence of
+//// Asserts (identity → employment → role → contact: role ⊂ employment by PERIOD FK,
+//// and the founding engineer_contact row carrying the NAME — the ID-ONLY anchor no
+//// longer stores it);
 //// `promote` is a Change (FOR PORTION OF … TO NULL); and `terminate_employment` is
 //// the Close/cascade — children first (allocation → leave → role → employment), the
 //// PERIOD FKs forcing the order and verifying completeness.
@@ -45,7 +47,7 @@ fn onboard_engineer(
   command: Command,
 ) -> Result(List(Event), OperationError) {
   let assert OnboardEngineer(name:, level:, effective:) = command
-  use created <- operation.try(sql.engineer_create(conn, name))
+  use created <- operation.try(sql.engineer_create(conn))
   let assert [row] = created.rows
   let engineer_id = row.id
   use _ <- operation.try(sql.employment_open(conn, engineer_id, effective))
@@ -53,6 +55,17 @@ fn onboard_engineer(
     conn,
     engineer_id,
     level,
+    effective,
+  ))
+  // The NAME lives in engineer_contact now (the anchor is ID-ONLY); email/phone/
+  // postal default to '' and are fillable later via UpdateContactDetails.
+  use _ <- operation.try(sql.engineer_contact_open(
+    conn,
+    engineer_id,
+    name,
+    "",
+    "",
+    "",
     effective,
   ))
   Ok([

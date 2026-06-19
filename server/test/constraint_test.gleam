@@ -29,18 +29,29 @@ import tempo/server/context
 
 // --- fixtures ---------------------------------------------------------------
 
-/// Insert an engineer and return its generated id.
+/// Insert an engineer (ID-ONLY anchor) plus a founding engineer_contact row
+/// carrying `name`, and return the generated id. The name now lives in the
+/// contact fact (read via the engineer_current view), not on the anchor, so
+/// anything reading the engineer's name still works.
 fn insert_engineer(conn: pog.Connection, name: String) -> Int {
   let row_decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("INSERT INTO engineer (name) VALUES ($1) RETURNING id")
-    |> pog.parameter(pog.text(name))
+    pog.query("INSERT INTO engineer DEFAULT VALUES RETURNING id")
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
   let assert [id, ..] = returned.rows
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO engineer_contact "
+      <> "(engineer_id, name, email, phone, postal_address, recorded_during) "
+      <> "VALUES ($1, $2, '', '', '', daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(id))
+    |> pog.parameter(pog.text(name))
+    |> pog.execute(on: conn)
   id
 }
 
@@ -175,6 +186,35 @@ pub fn overlapping_allocation_is_rejected_test() {
   assert constraint_name(error) == "allocation_no_overlap"
 }
 
+// A second engineer_contact row overlapping an existing one for the same engineer
+// is rejected by the WITHOUT OVERLAPS PK `engineer_contact_no_overlap`: at most
+// one contact fact may be in force per engineer per instant. (`insert_engineer`
+// already opens a [2024-01-01, NULL) contact row, so any new row starting on or
+// after 2024-01-01 overlaps the open tail.)
+pub fn overlapping_engineer_contact_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let _engineer_id = insert_engineer(conn, "Ada Lovelace")
+        Nil
+      },
+      fn(conn) {
+        // A second contact row for the same engineer, starting inside the open
+        // [2024-01-01, NULL) span the founding row already covers.
+        exec(
+          conn,
+          "INSERT INTO engineer_contact "
+            <> "(engineer_id, name, email, phone, postal_address, recorded_during) "
+            <> "SELECT engineer_id, name, email, phone, postal_address, "
+            <> "daterange('2025-01-01', NULL, '[)') "
+            <> "FROM engineer_contact WHERE name = 'Ada Lovelace'",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "engineer_contact_no_overlap"
+}
+
 // --- PERIOD foreign keys: the containment chain (PRD FR-5) ------------------
 
 // An allocation whose period runs past the engineer's employment is rejected by
@@ -225,7 +265,7 @@ pub fn leave_past_employment_is_rejected_test() {
           conn,
           "INSERT INTO leave (engineer_id, kind, on_leave_during) "
             <> "SELECT employment.engineer_id, 'annual', daterange('2026-05-01','2026-07-01') "
-            <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+            <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
             <> "WHERE engineer.name = 'Katherine Johnson'",
         )
       },
@@ -253,7 +293,7 @@ pub fn role_past_employment_is_rejected_test() {
           conn,
           "INSERT INTO engineer_role (engineer_id, level, held_during) "
             <> "SELECT employment.engineer_id, 5, daterange('2026-01-01','2026-08-01') "
-            <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+            <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
             <> "WHERE engineer.name = 'Margaret Hamilton'",
         )
       },
@@ -677,7 +717,7 @@ fn insert_allocation_for(
       <> "','"
       <> valid_to
       <> "') "
-      <> "FROM employment JOIN engineer ON engineer.id = employment.engineer_id "
+      <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
       <> "WHERE engineer.name = '"
       <> engineer_name
       <> "'",

@@ -10,13 +10,13 @@
 -- Ranges decomposed to plain `date`s at the boundary: valid_from/valid_to are
 -- the leave period's `lower()/upper()`.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   leave.kind,
   lower(leave.on_leave_during) AS valid_from,
   upper(leave.on_leave_during) AS valid_to
 FROM leave
-JOIN engineer            ON engineer.id = leave.engineer_id
+JOIN engineer_current engineer ON engineer.id = leave.engineer_id
 LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
 WHERE leave.on_leave_during @> $1::date
 ORDER BY engineer.name;

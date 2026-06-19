@@ -7,10 +7,10 @@
 -- has a role in the seed (engineer_role spans employment). All columns non-null,
 -- so the row decodes without Option plumbing.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level
 FROM employment
-JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_current engineer ON engineer.id = employment.engineer_id
 JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
 WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (

@@ -27,6 +27,9 @@ erDiagram
   employment ||--o{ engineer_role : "PERIOD FK"
   employment ||--o{ leave : "PERIOD FK"
   engineer ||--o{ employment : "FK"
+  engineer ||--o{ engineer_banking : "FK"
+  engineer ||--o{ engineer_contact : "FK"
+  engineer ||--o{ engineer_emergency : "FK"
   engineer ||--o{ invoice_line : "FK"
   engineer ||--o{ payroll_line : "FK"
   invoice ||--o{ invoice_line : "FK"
@@ -55,7 +58,30 @@ erDiagram
   }
   engineer {
     integer id PK
+  }
+  engineer_banking {
+    integer engineer_id PK,FK
+    text bank
+    text branch
+    text account_no
+    text account_name
+    daterange recorded_during PK "WITHOUT OVERLAPS"
+  }
+  engineer_contact {
+    integer engineer_id PK,FK
     text name
+    text email
+    text phone
+    text postal_address
+    daterange recorded_during PK "WITHOUT OVERLAPS"
+  }
+  engineer_emergency {
+    integer engineer_id PK,FK
+    text relation
+    text name
+    text phone
+    text email
+    daterange recorded_during PK "WITHOUT OVERLAPS"
   }
   engineer_role {
     integer engineer_id PK,FK

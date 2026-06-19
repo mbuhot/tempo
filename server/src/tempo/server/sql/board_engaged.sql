@@ -17,7 +17,7 @@
 -- window is `lower(allocation.allocated_during)`/`upper(allocation.allocated_during)` AS
 -- valid_from/valid_to.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   project.name AS project,
   client.name AS client,
@@ -26,7 +26,7 @@ SELECT
   lower(allocation.allocated_during) AS valid_from,
   upper(allocation.allocated_during) AS valid_to
 FROM employment
-JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_current engineer ON engineer.id = employment.engineer_id
 JOIN engineer_role  ON engineer_role.engineer_id = engineer.id  AND engineer_role.held_during @> $1::date
 JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.effective_during @> $1::date
 JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.allocated_during @> $1::date

@@ -68,18 +68,28 @@ fn exec(conn: pog.Connection, sql: String) -> Nil {
   Nil
 }
 
-/// Insert an engineer and return its minted id.
+/// Insert an engineer (ID-ONLY anchor) plus a founding engineer_contact row
+/// carrying `name`, and return the minted id. The name now lives in the contact
+/// fact (read via the engineer_current view), not on the anchor.
 fn insert_engineer(conn: pog.Connection, name: String) -> Int {
   let row_decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("INSERT INTO engineer (name) VALUES ($1) RETURNING id")
-    |> pog.parameter(pog.text(name))
+    pog.query("INSERT INTO engineer DEFAULT VALUES RETURNING id")
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
   let assert [id, ..] = returned.rows
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO engineer_contact "
+      <> "(engineer_id, name, email, phone, postal_address, recorded_during) "
+      <> "VALUES ($1, $2, '', '', '', daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(id))
+    |> pog.parameter(pog.text(name))
+    |> pog.execute(on: conn)
   id
 }
 
@@ -125,7 +135,7 @@ fn read_invoice_lines(conn: pog.Connection, invoice_id: Int) -> List(Line) {
   let assert Ok(returned) =
     pog.query(
       "SELECT e.name, il.level, il.day_rate, il.days, il.amount
-         FROM invoice_line il JOIN engineer e ON e.id = il.engineer_id
+         FROM invoice_line il JOIN engineer_current e ON e.id = il.engineer_id
         WHERE il.invoice_id = $1
         ORDER BY e.name, il.level",
     )
@@ -179,7 +189,7 @@ fn read_payroll_lines(
   let assert Ok(returned) =
     pog.query(
       "SELECT e.name, pl.amount, pl.days
-         FROM payroll_line pl JOIN engineer e ON e.id = pl.engineer_id
+         FROM payroll_line pl JOIN engineer_current e ON e.id = pl.engineer_id
         WHERE pl.run_id = $1 AND e.name = ANY($2)
         ORDER BY e.name",
     )

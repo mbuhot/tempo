@@ -104,6 +104,49 @@ pub type WriteRequest {
   WriteRequest(engineer_id: Int, project_id: Int, day: Date, hours: Float)
 }
 
+/// An engineer's contact details as one edit-grouped fact: the person's
+/// `name`, `email`, `phone`, and `postal_address`. The underlying
+/// `engineer_contact` table is period-keyed (`recorded_during`) and
+/// append-only, read LATEST — so this record carries only the scalar fields of
+/// the most-recently-recorded version, not its transaction-time bounds.
+pub type EngineerContact {
+  EngineerContact(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    phone: String,
+    postal_address: String,
+  )
+}
+
+/// An engineer's banking details as one edit-grouped fact: `bank`, `branch`,
+/// `account_no` (text, never numeric — it may carry leading zeros), and
+/// `account_name`. Backed by the append-only `engineer_banking` table read
+/// LATEST; this record is the most-recently-recorded version's scalar fields.
+pub type EngineerBanking {
+  EngineerBanking(
+    engineer_id: Int,
+    bank: String,
+    branch: String,
+    account_no: String,
+    account_name: String,
+  )
+}
+
+/// An engineer's emergency contact as one edit-grouped fact: the `relation`
+/// (e.g. "spouse"), the contact's `name`, `phone`, and `email`. Backed by the
+/// append-only `engineer_emergency` table read LATEST; this record is the
+/// most-recently-recorded version's scalar fields.
+pub type EngineerEmergency {
+  EngineerEmergency(
+    engineer_id: Int,
+    relation: String,
+    name: String,
+    phone: String,
+    email: String,
+  )
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -146,6 +189,42 @@ pub type Command {
   TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
   /// Log hours an engineer worked on a project on a day.
   LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+  /// Record new contact details for an engineer effective from a date: close
+  /// the `engineer_contact` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `name`/`email`/`phone`/`postal_address` (a
+  /// temporal Change on the append-only contact fact).
+  UpdateContactDetails(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    phone: String,
+    postal_address: String,
+    effective: Date,
+  )
+  /// Record new banking details for an engineer effective from a date: close
+  /// the `engineer_banking` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `bank`/`branch`/`account_no`/`account_name`
+  /// (a temporal Change on the append-only banking fact). `account_no` is text.
+  UpdateBankingDetails(
+    engineer_id: Int,
+    bank: String,
+    branch: String,
+    account_no: String,
+    account_name: String,
+    effective: Date,
+  )
+  /// Record a new emergency contact for an engineer effective from a date:
+  /// close the `engineer_emergency` row covering `effective` and open a new
+  /// full row `[effective, NULL)` carrying `relation`/`name`/`phone`/`email`
+  /// (a temporal Change on the append-only emergency fact).
+  UpdateEmergencyContact(
+    engineer_id: Int,
+    relation: String,
+    name: String,
+    phone: String,
+    email: String,
+    effective: Date,
+  )
   /// Log a whole week's hours atomically: each entry sets one (project, day) cell
   /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
   /// none.

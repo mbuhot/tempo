@@ -10,18 +10,21 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
-  type Invoice, type InvoiceDetail, type InvoiceLine, type OperationRequest,
-  type Payroll, type PayrollLine, type Pnl, type PnlRow, type Ref, type Roster,
-  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
-  type TimesheetWeekRow, type WriteRequest, AdjustRateForPortion,
-  AssignToProject, BoardRow, BoardSnapshot, ChangeAllocationFraction,
-  DraftInvoice, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  type BoardRow, type BoardSnapshot, type Command, type Engagement,
+  type EngineerBanking, type EngineerContact, type EngineerEmergency,
+  type Event, type Invoice, type InvoiceDetail, type InvoiceLine,
+  type OperationRequest, type Payroll, type PayrollLine, type Pnl, type PnlRow,
+  type Ref, type Roster, type TimesheetCell, type TimesheetEntry,
+  type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
+  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
+  ChangeAllocationFraction, DraftInvoice, EngineerBanking, EngineerContact,
+  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
   LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
   PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
   RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
   TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, WriteRequest,
+  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateContactDetails,
+  UpdateEmergencyContact, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -346,6 +349,104 @@ pub fn decode_error_detail(body: String) -> Result(String, Nil) {
   |> result.replace_error(Nil)
 }
 
+// --- EngineerContact ---------------------------------------------------------
+// The most-recently-recorded contact fact for an engineer (the LATEST read of
+// the append-only `engineer_contact` table): scalar fields only, no
+// transaction-time bounds.
+
+/// Encode an `EngineerContact` (the engineer's current contact fact) as a JSON
+/// object.
+pub fn encode_engineer_contact(contact: EngineerContact) -> Json {
+  let EngineerContact(engineer_id:, name:, email:, phone:, postal_address:) =
+    contact
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("name", json.string(name)),
+    #("email", json.string(email)),
+    #("phone", json.string(phone)),
+    #("postal_address", json.string(postal_address)),
+  ])
+}
+
+/// Decode an `EngineerContact` from a JSON object.
+pub fn engineer_contact_decoder() -> Decoder(EngineerContact) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use email <- decode.field("email", decode.string)
+  use phone <- decode.field("phone", decode.string)
+  use postal_address <- decode.field("postal_address", decode.string)
+  decode.success(EngineerContact(
+    engineer_id:,
+    name:,
+    email:,
+    phone:,
+    postal_address:,
+  ))
+}
+
+// --- EngineerBanking ---------------------------------------------------------
+// The most-recently-recorded banking fact for an engineer (LATEST read of the
+// append-only `engineer_banking` table). `account_no` is a String, never
+// numeric — it may carry leading zeros.
+
+/// Encode an `EngineerBanking` (the engineer's current banking fact) as a JSON
+/// object.
+pub fn encode_engineer_banking(banking: EngineerBanking) -> Json {
+  let EngineerBanking(engineer_id:, bank:, branch:, account_no:, account_name:) =
+    banking
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("bank", json.string(bank)),
+    #("branch", json.string(branch)),
+    #("account_no", json.string(account_no)),
+    #("account_name", json.string(account_name)),
+  ])
+}
+
+/// Decode an `EngineerBanking` from a JSON object.
+pub fn engineer_banking_decoder() -> Decoder(EngineerBanking) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use bank <- decode.field("bank", decode.string)
+  use branch <- decode.field("branch", decode.string)
+  use account_no <- decode.field("account_no", decode.string)
+  use account_name <- decode.field("account_name", decode.string)
+  decode.success(EngineerBanking(
+    engineer_id:,
+    bank:,
+    branch:,
+    account_no:,
+    account_name:,
+  ))
+}
+
+// --- EngineerEmergency -------------------------------------------------------
+// The most-recently-recorded emergency-contact fact for an engineer (LATEST
+// read of the append-only `engineer_emergency` table).
+
+/// Encode an `EngineerEmergency` (the engineer's current emergency contact) as
+/// a JSON object.
+pub fn encode_engineer_emergency(emergency: EngineerEmergency) -> Json {
+  let EngineerEmergency(engineer_id:, relation:, name:, phone:, email:) =
+    emergency
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("relation", json.string(relation)),
+    #("name", json.string(name)),
+    #("phone", json.string(phone)),
+    #("email", json.string(email)),
+  ])
+}
+
+/// Decode an `EngineerEmergency` from a JSON object.
+pub fn engineer_emergency_decoder() -> Decoder(EngineerEmergency) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use relation <- decode.field("relation", decode.string)
+  use name <- decode.field("name", decode.string)
+  use phone <- decode.field("phone", decode.string)
+  use email <- decode.field("email", decode.string)
+  decode.success(EngineerEmergency(engineer_id:, relation:, name:, phone:, email:))
+}
+
 // --- Command ----------------------------------------------------------------
 // A tagged object: `op` discriminates the operation; the remaining fields belong
 // to the active variant. The same encoding serves both the POST /api/operations
@@ -407,6 +508,57 @@ pub fn encode_command(command: Command) -> Json {
         #("project_id", json.int(project_id)),
         #("day", encode_date(day)),
         #("hours", json.float(hours)),
+      ])
+    UpdateContactDetails(
+      engineer_id:,
+      name:,
+      email:,
+      phone:,
+      postal_address:,
+      effective:,
+    ) ->
+      json.object([
+        #("op", json.string("update_contact_details")),
+        #("engineer_id", json.int(engineer_id)),
+        #("name", json.string(name)),
+        #("email", json.string(email)),
+        #("phone", json.string(phone)),
+        #("postal_address", json.string(postal_address)),
+        #("effective", encode_date(effective)),
+      ])
+    UpdateBankingDetails(
+      engineer_id:,
+      bank:,
+      branch:,
+      account_no:,
+      account_name:,
+      effective:,
+    ) ->
+      json.object([
+        #("op", json.string("update_banking_details")),
+        #("engineer_id", json.int(engineer_id)),
+        #("bank", json.string(bank)),
+        #("branch", json.string(branch)),
+        #("account_no", json.string(account_no)),
+        #("account_name", json.string(account_name)),
+        #("effective", encode_date(effective)),
+      ])
+    UpdateEmergencyContact(
+      engineer_id:,
+      relation:,
+      name:,
+      phone:,
+      email:,
+      effective:,
+    ) ->
+      json.object([
+        #("op", json.string("update_emergency_contact")),
+        #("engineer_id", json.int(engineer_id)),
+        #("relation", json.string(relation)),
+        #("name", json.string(name)),
+        #("phone", json.string(phone)),
+        #("email", json.string(email)),
+        #("effective", encode_date(effective)),
       ])
     LogWeek(engineer_id:, entries:) ->
       json.object([
@@ -545,6 +697,54 @@ pub fn command_decoder() -> Decoder(Command) {
       use day <- decode.field("day", date_decoder())
       use hours <- decode.field("hours", lenient_float_decoder())
       decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
+    }
+    "update_contact_details" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use name <- decode.field("name", decode.string)
+      use email <- decode.field("email", decode.string)
+      use phone <- decode.field("phone", decode.string)
+      use postal_address <- decode.field("postal_address", decode.string)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateContactDetails(
+        engineer_id:,
+        name:,
+        email:,
+        phone:,
+        postal_address:,
+        effective:,
+      ))
+    }
+    "update_banking_details" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use bank <- decode.field("bank", decode.string)
+      use branch <- decode.field("branch", decode.string)
+      use account_no <- decode.field("account_no", decode.string)
+      use account_name <- decode.field("account_name", decode.string)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateBankingDetails(
+        engineer_id:,
+        bank:,
+        branch:,
+        account_no:,
+        account_name:,
+        effective:,
+      ))
+    }
+    "update_emergency_contact" -> {
+      use engineer_id <- decode.field("engineer_id", decode.int)
+      use relation <- decode.field("relation", decode.string)
+      use name <- decode.field("name", decode.string)
+      use phone <- decode.field("phone", decode.string)
+      use email <- decode.field("email", decode.string)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateEmergencyContact(
+        engineer_id:,
+        relation:,
+        name:,
+        phone:,
+        email:,
+        effective:,
+      ))
     }
     "log_week" -> {
       use engineer_id <- decode.field("engineer_id", decode.int)

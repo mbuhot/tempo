@@ -109,13 +109,13 @@ cost AS (
 )
 SELECT
   emp.engineer_id,
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   coalesce(rev.revenue, 0)::numeric AS revenue,
   coalesce(cost.cost, 0)::numeric AS cost,
   coalesce(util.utilization_days, 0)::numeric AS utilization_days,
   emp.employed_days
 FROM emp
-JOIN engineer  ON engineer.id = emp.engineer_id
+JOIN engineer_current engineer ON engineer.id = emp.engineer_id
 LEFT JOIN util ON util.engineer_id = emp.engineer_id
 LEFT JOIN rev  ON rev.engineer_id = emp.engineer_id
 LEFT JOIN cost ON cost.engineer_id = emp.engineer_id

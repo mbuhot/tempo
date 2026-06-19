@@ -71,18 +71,28 @@ fn apply(conn: pog.Connection, command: Command) -> Nil {
 
 // --- fixtures ---------------------------------------------------------------
 
-/// Insert an engineer and return its minted id.
+/// Insert an engineer (ID-ONLY anchor) plus a founding engineer_contact row
+/// carrying `name`, and return the minted id. The name now lives in the contact
+/// fact (read via the engineer_current view), not on the anchor.
 fn insert_engineer(conn: pog.Connection, name: String) -> Int {
   let row_decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("INSERT INTO engineer (name) VALUES ($1) RETURNING id")
-    |> pog.parameter(pog.text(name))
+    pog.query("INSERT INTO engineer DEFAULT VALUES RETURNING id")
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
   let assert [id, ..] = returned.rows
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO engineer_contact "
+      <> "(engineer_id, name, email, phone, postal_address, recorded_during) "
+      <> "VALUES ($1, $2, '', '', '', daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(id))
+    |> pog.parameter(pog.text(name))
+    |> pog.execute(on: conn)
   id
 }
 
@@ -843,7 +853,7 @@ fn engineer_id_named(conn: pog.Connection, name: String) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("SELECT id FROM engineer WHERE name = $1")
+    pog.query("SELECT id FROM engineer_current WHERE name = $1")
     |> pog.parameter(pog.text(name))
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)

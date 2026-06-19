@@ -277,7 +277,7 @@ pub fn board_engaged(
 -- window is `lower(allocation.allocated_during)`/`upper(allocation.allocated_during)` AS
 -- valid_from/valid_to.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   project.name AS project,
   client.name AS client,
@@ -286,7 +286,7 @@ SELECT
   lower(allocation.allocated_during) AS valid_from,
   upper(allocation.allocated_during) AS valid_to
 FROM employment
-JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_current engineer ON engineer.id = employment.engineer_id
 JOIN engineer_role  ON engineer_role.engineer_id = engineer.id  AND engineer_role.held_during @> $1::date
 JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.effective_during @> $1::date
 JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.allocated_during @> $1::date
@@ -368,13 +368,13 @@ pub fn board_leave(
 -- Ranges decomposed to plain `date`s at the boundary: valid_from/valid_to are
 -- the leave period's `lower()/upper()`.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   leave.kind,
   lower(leave.on_leave_during) AS valid_from,
   upper(leave.on_leave_during) AS valid_to
 FROM leave
-JOIN engineer            ON engineer.id = leave.engineer_id
+JOIN engineer_current engineer ON engineer.id = leave.engineer_id
 LEFT JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
 WHERE leave.on_leave_during @> $1::date
 ORDER BY engineer.name;
@@ -426,10 +426,10 @@ pub fn board_unassigned(
 -- has a role in the seed (engineer_role spans employment). All columns non-null,
 -- so the row decodes without Option plumbing.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   engineer_role.level
 FROM employment
-JOIN engineer       ON engineer.id = employment.engineer_id
+JOIN engineer_current engineer ON engineer.id = employment.engineer_id
 JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
 WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (
@@ -574,6 +574,304 @@ VALUES ($1, daterange($2::date, NULL, '[)'));
   |> pog.execute(db)
 }
 
+/// engineer_banking_close.sql — step 1 of the banking Change.
+///
+/// Close the engineer_banking row covering $2 by deleting its [$2, NULL) portion
+/// (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
+/// engineer_banking_open in ONE transaction — same delete-then-insert shape as the
+/// contact/timesheet upsert. $1 = engineer_id, $2 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_banking_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_banking_close.sql — step 1 of the banking Change.
+--
+-- Close the engineer_banking row covering $2 by deleting its [$2, NULL) portion
+-- (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
+-- engineer_banking_open in ONE transaction — same delete-then-insert shape as the
+-- contact/timesheet upsert. $1 = engineer_id, $2 = effective date.
+DELETE FROM engineer_banking
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+ WHERE engineer_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_banking_current` query
+/// defined in `./src/tempo/server/sql/engineer_banking_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerBankingCurrentRow {
+  EngineerBankingCurrentRow(
+    engineer_id: Int,
+    bank: String,
+    branch: String,
+    account_no: String,
+    account_name: String,
+  )
+}
+
+/// engineer_banking_current.sql — an engineer's CURRENT banking (latest read).
+///
+/// The most-recently-effective engineer_banking row: DISTINCT ON ordered by the
+/// start of recorded_during descending (append-only + WITHOUT OVERLAPS → greatest
+/// start is in force). Scalar columns only. $1 = engineer_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_banking_current(
+  db: pog.Connection,
+  engineer_id: Int,
+) -> Result(pog.Returned(EngineerBankingCurrentRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use bank <- decode.field(1, decode.string)
+    use branch <- decode.field(2, decode.string)
+    use account_no <- decode.field(3, decode.string)
+    use account_name <- decode.field(4, decode.string)
+    decode.success(EngineerBankingCurrentRow(
+      engineer_id:,
+      bank:,
+      branch:,
+      account_no:,
+      account_name:,
+    ))
+  }
+
+  "-- engineer_banking_current.sql — an engineer's CURRENT banking (latest read).
+--
+-- The most-recently-effective engineer_banking row: DISTINCT ON ordered by the
+-- start of recorded_during descending (append-only + WITHOUT OVERLAPS → greatest
+-- start is in force). Scalar columns only. $1 = engineer_id.
+SELECT DISTINCT ON (engineer_id)
+  engineer_id,
+  bank,
+  branch,
+  account_no,
+  account_name
+FROM engineer_banking
+WHERE engineer_id = $1
+ORDER BY engineer_id, lower(recorded_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_banking_open.sql — step 2 of the banking Change.
+///
+/// Insert the new full banking row over [$6, NULL). account_no is text (leading
+/// zeros preserved). Only scalar params cross the boundary; the range is built in
+/// SQL. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
+/// $5 = account_name, $6 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_banking_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  arg_6: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_banking_open.sql — step 2 of the banking Change.
+--
+-- Insert the new full banking row over [$6, NULL). account_no is text (leading
+-- zeros preserved). Only scalar params cross the boundary; the range is built in
+-- SQL. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
+-- $5 = account_name, $6 = effective date.
+INSERT INTO engineer_banking
+  (engineer_id, bank, branch, account_no, account_name, recorded_during)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_contact_close.sql — step 1 of the contact Change.
+///
+/// Close the engineer_contact row covering $2 by deleting its [$2, NULL) portion:
+/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+/// companion engineer_contact_open then inserts the new full [$2, NULL) row, both
+/// in ONE transaction (mirrors the timesheet delete-then-insert: the WITHOUT
+/// OVERLAPS PK cannot be an ON CONFLICT target). First edit deletes 0 rows (a
+/// harmless no-op when seeding from onboarding); a re-record deletes the tail of
+/// the prior row. $1 = engineer_id, $2 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_contact_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_contact_close.sql — step 1 of the contact Change.
+--
+-- Close the engineer_contact row covering $2 by deleting its [$2, NULL) portion:
+-- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+-- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+-- companion engineer_contact_open then inserts the new full [$2, NULL) row, both
+-- in ONE transaction (mirrors the timesheet delete-then-insert: the WITHOUT
+-- OVERLAPS PK cannot be an ON CONFLICT target). First edit deletes 0 rows (a
+-- harmless no-op when seeding from onboarding); a re-record deletes the tail of
+-- the prior row. $1 = engineer_id, $2 = effective date.
+DELETE FROM engineer_contact
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+ WHERE engineer_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_contact_current` query
+/// defined in `./src/tempo/server/sql/engineer_contact_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerContactCurrentRow {
+  EngineerContactCurrentRow(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    phone: String,
+    postal_address: String,
+  )
+}
+
+/// engineer_contact_current.sql — an engineer's CURRENT contact (latest read).
+///
+/// The most-recently-effective engineer_contact row for one engineer: DISTINCT ON
+/// ordered by the start of recorded_during descending. Append-only + WITHOUT
+/// OVERLAPS means the row with the greatest start is the one whose [effective,
+/// NULL) span is in force. Scalar columns only — recorded_during bounds are not
+/// exposed (the read record is scalar-only). $1 = engineer_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_contact_current(
+  db: pog.Connection,
+  engineer_id: Int,
+) -> Result(pog.Returned(EngineerContactCurrentRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use email <- decode.field(2, decode.string)
+    use phone <- decode.field(3, decode.string)
+    use postal_address <- decode.field(4, decode.string)
+    decode.success(EngineerContactCurrentRow(
+      engineer_id:,
+      name:,
+      email:,
+      phone:,
+      postal_address:,
+    ))
+  }
+
+  "-- engineer_contact_current.sql — an engineer's CURRENT contact (latest read).
+--
+-- The most-recently-effective engineer_contact row for one engineer: DISTINCT ON
+-- ordered by the start of recorded_during descending. Append-only + WITHOUT
+-- OVERLAPS means the row with the greatest start is the one whose [effective,
+-- NULL) span is in force. Scalar columns only — recorded_during bounds are not
+-- exposed (the read record is scalar-only). $1 = engineer_id.
+SELECT DISTINCT ON (engineer_id)
+  engineer_id,
+  name,
+  email,
+  phone,
+  postal_address
+FROM engineer_contact
+WHERE engineer_id = $1
+ORDER BY engineer_id, lower(recorded_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_contact_open.sql — step 2 of the contact Change (and the row Onboard
+/// writes).
+///
+/// Insert the new full contact row over [$6, NULL): daterange($6::date, NULL,
+/// '[)'), so only scalar params cross the Squirrel boundary. Run after
+/// engineer_contact_close has carved [$6, NULL) out of the covering row, so the
+/// WITHOUT OVERLAPS PK is satisfied. $1 = engineer_id, $2 = name, $3 = email,
+/// $4 = phone, $5 = postal_address, $6 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_contact_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  arg_6: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_contact_open.sql — step 2 of the contact Change (and the row Onboard
+-- writes).
+--
+-- Insert the new full contact row over [$6, NULL): daterange($6::date, NULL,
+-- '[)'), so only scalar params cross the Squirrel boundary. Run after
+-- engineer_contact_close has carved [$6, NULL) out of the covering row, so the
+-- WITHOUT OVERLAPS PK is satisfied. $1 = engineer_id, $2 = name, $3 = email,
+-- $4 = phone, $5 = postal_address, $6 = effective date.
+INSERT INTO engineer_contact
+  (engineer_id, name, email, phone, postal_address, recorded_during)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `engineer_create` query
 /// defined in `./src/tempo/server/sql/engineer_create.sql`.
 ///
@@ -584,37 +882,173 @@ pub type EngineerCreateRow {
   EngineerCreateRow(id: Int)
 }
 
-/// engineer_create.sql — mint a new engineer identity.
+/// engineer_create.sql — mint a new engineer identity (ID-ONLY anchor).
 ///
-/// Step 1 of onboarding (identity → employment → role, each contained in the
-/// last by its PERIOD FK). `engineer.id` is GENERATED ALWAYS AS IDENTITY, so the
-/// caller never supplies it; RETURNING hands back the minted id to thread into
-/// the employment and role inserts. $1 = name.
+/// Step 1 of onboarding (identity → employment → role, each contained in the last
+/// by its PERIOD FK; the engineer's NAME is now a separate engineer_contact fact,
+/// written alongside, NOT a column here). `engineer.id` is GENERATED ALWAYS AS
+/// IDENTITY, so the caller supplies nothing; RETURNING hands back the minted id to
+/// thread into the employment, role, and contact inserts.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn engineer_create(
   db: pog.Connection,
-  arg_1: String,
 ) -> Result(pog.Returned(EngineerCreateRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(EngineerCreateRow(id:))
   }
 
-  "-- engineer_create.sql — mint a new engineer identity.
+  "-- engineer_create.sql — mint a new engineer identity (ID-ONLY anchor).
 --
--- Step 1 of onboarding (identity → employment → role, each contained in the
--- last by its PERIOD FK). `engineer.id` is GENERATED ALWAYS AS IDENTITY, so the
--- caller never supplies it; RETURNING hands back the minted id to thread into
--- the employment and role inserts. $1 = name.
-INSERT INTO engineer (name)
-VALUES ($1)
+-- Step 1 of onboarding (identity → employment → role, each contained in the last
+-- by its PERIOD FK; the engineer's NAME is now a separate engineer_contact fact,
+-- written alongside, NOT a column here). `engineer.id` is GENERATED ALWAYS AS
+-- IDENTITY, so the caller supplies nothing; RETURNING hands back the minted id to
+-- thread into the employment, role, and contact inserts.
+INSERT INTO engineer DEFAULT VALUES
 RETURNING id;
 "
   |> pog.query
-  |> pog.parameter(pog.text(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_emergency_close.sql — step 1 of the emergency Change.
+///
+/// Close the engineer_emergency row covering $2 by deleting its [$2, NULL) portion
+/// (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
+/// engineer_emergency_open in ONE transaction. $1 = engineer_id, $2 = effective.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_emergency_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_emergency_close.sql — step 1 of the emergency Change.
+--
+-- Close the engineer_emergency row covering $2 by deleting its [$2, NULL) portion
+-- (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
+-- engineer_emergency_open in ONE transaction. $1 = engineer_id, $2 = effective.
+DELETE FROM engineer_emergency
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+ WHERE engineer_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_emergency_current` query
+/// defined in `./src/tempo/server/sql/engineer_emergency_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerEmergencyCurrentRow {
+  EngineerEmergencyCurrentRow(
+    engineer_id: Int,
+    relation: String,
+    name: String,
+    phone: String,
+    email: String,
+  )
+}
+
+/// engineer_emergency_current.sql — an engineer's CURRENT emergency contact
+/// (latest read).
+///
+/// The most-recently-effective engineer_emergency row: DISTINCT ON ordered by the
+/// start of recorded_during descending. Scalar columns only. $1 = engineer_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_emergency_current(
+  db: pog.Connection,
+  engineer_id: Int,
+) -> Result(pog.Returned(EngineerEmergencyCurrentRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use relation <- decode.field(1, decode.string)
+    use name <- decode.field(2, decode.string)
+    use phone <- decode.field(3, decode.string)
+    use email <- decode.field(4, decode.string)
+    decode.success(EngineerEmergencyCurrentRow(
+      engineer_id:,
+      relation:,
+      name:,
+      phone:,
+      email:,
+    ))
+  }
+
+  "-- engineer_emergency_current.sql — an engineer's CURRENT emergency contact
+-- (latest read).
+--
+-- The most-recently-effective engineer_emergency row: DISTINCT ON ordered by the
+-- start of recorded_during descending. Scalar columns only. $1 = engineer_id.
+SELECT DISTINCT ON (engineer_id)
+  engineer_id,
+  relation,
+  name,
+  phone,
+  email
+FROM engineer_emergency
+WHERE engineer_id = $1
+ORDER BY engineer_id, lower(recorded_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_emergency_open.sql — step 2 of the emergency Change.
+///
+/// Insert the new full emergency row over [$6, NULL). Only scalar params cross the
+/// boundary; the range is built in SQL. $1 = engineer_id, $2 = relation,
+/// $3 = name, $4 = phone, $5 = email, $6 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_emergency_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  arg_6: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_emergency_open.sql — step 2 of the emergency Change.
+--
+-- Insert the new full emergency row over [$6, NULL). Only scalar params cross the
+-- boundary; the range is built in SQL. $1 = engineer_id, $2 = relation,
+-- $3 = name, $4 = phone, $5 = email, $6 = effective date.
+INSERT INTO engineer_emergency
+  (engineer_id, relation, name, phone, email, recorded_during)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.calendar_date(arg_6))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1092,7 +1526,7 @@ sub AS (
 )
 SELECT
   sub.engineer_id,
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   sub.level,
   rate_card.day_rate::numeric AS day_rate,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
@@ -1101,7 +1535,7 @@ SELECT
       * rate_card.day_rate)::numeric AS amount
 FROM sub
 CROSS JOIN agreed
-JOIN engineer  ON engineer.id = sub.engineer_id
+JOIN engineer_current engineer ON engineer.id = sub.engineer_id
 JOIN rate_card ON rate_card.level = sub.level
               AND rate_card.effective_during @> agreed.agreed_date
 WHERE NOT isempty(sub.sub_period)
@@ -1357,13 +1791,13 @@ pub fn invoice_lines(
 -- level) so a promotion's two lines stay adjacent and the wire order is
 -- deterministic for the client and tests.
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   invoice_line.level,
   invoice_line.day_rate::numeric AS day_rate,
   invoice_line.days::numeric AS days,
   invoice_line.amount::numeric AS amount
 FROM invoice_line
-JOIN engineer ON engineer.id = invoice_line.engineer_id
+JOIN engineer_current engineer ON engineer.id = invoice_line.engineer_id
 WHERE invoice_line.invoice_id = $1
 ORDER BY engineer.name, invoice_line.level;
 "
@@ -1807,13 +2241,13 @@ sub AS (
 )
 SELECT
   sub.engineer_id,
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
       / (upper(params.month) - lower(params.month)))::numeric AS amount,
   sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
 FROM sub
 CROSS JOIN params
-JOIN engineer ON engineer.id = sub.engineer_id
+JOIN engineer_current engineer ON engineer.id = sub.engineer_id
 WHERE NOT isempty(sub.sub_period)
 GROUP BY sub.engineer_id, engineer.name
 ORDER BY engineer.name;
@@ -1914,13 +2348,13 @@ WITH params AS (
   SELECT daterange($1::date, $2::date, '[)') AS period
 )
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   payroll_line.amount::numeric AS amount,
   payroll_line.days::numeric AS days
 FROM params
 JOIN payroll_run  ON payroll_run.period && params.period
 JOIN payroll_line ON payroll_line.run_id = payroll_run.id
-JOIN engineer     ON engineer.id = payroll_line.engineer_id
+JOIN engineer_current engineer ON engineer.id = payroll_line.engineer_id
 ORDER BY engineer.name;
 "
   |> pog.query
@@ -2175,13 +2609,13 @@ cost AS (
 )
 SELECT
   emp.engineer_id,
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   coalesce(rev.revenue, 0)::numeric AS revenue,
   coalesce(cost.cost, 0)::numeric AS cost,
   coalesce(util.utilization_days, 0)::numeric AS utilization_days,
   emp.employed_days
 FROM emp
-JOIN engineer  ON engineer.id = emp.engineer_id
+JOIN engineer_current engineer ON engineer.id = emp.engineer_id
 LEFT JOIN util ON util.engineer_id = emp.engineer_id
 LEFT JOIN rev  ON rev.engineer_id = emp.engineer_id
 LEFT JOIN cost ON cost.engineer_id = emp.engineer_id
@@ -2407,6 +2841,13 @@ pub type RosterEngineersRow {
 /// row per engineer (employment has at most one row covering a date), id + name,
 /// ordered by name for a stable, alphabetised dropdown.
 ///
+/// The id comes from the `engineer` ANCHOR (provably NOT NULL); the NAME, which
+/// left the anchor for the edit-grouped contact fact, is read through the
+/// `engineer_current` view (latest contact per engineer). The INNER JOIN means an
+/// engineer with no contact row is omitted (every seeded/onboarded engineer has
+/// one). coalesce keeps the name column NOT NULL through the view boundary; it is
+/// never actually null (the join is on a NOT NULL contact column).
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
@@ -2427,11 +2868,19 @@ pub fn roster_engineers(
 -- console can never name an engineer who is not on the books on that date. One
 -- row per engineer (employment has at most one row covering a date), id + name,
 -- ordered by name for a stable, alphabetised dropdown.
-SELECT e.id, e.name
+--
+-- The id comes from the `engineer` ANCHOR (provably NOT NULL); the NAME, which
+-- left the anchor for the edit-grouped contact fact, is read through the
+-- `engineer_current` view (latest contact per engineer). The INNER JOIN means an
+-- engineer with no contact row is omitted (every seeded/onboarded engineer has
+-- one). coalesce keeps the name column NOT NULL through the view boundary; it is
+-- never actually null (the join is on a NOT NULL contact column).
+SELECT e.id, coalesce(ec.name, '') AS name
 FROM engineer e
 JOIN employment emp
   ON emp.engineer_id = e.id AND emp.employed_during @> $1::date
-ORDER BY e.name;
+JOIN engineer_current ec ON ec.id = e.id
+ORDER BY name;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))

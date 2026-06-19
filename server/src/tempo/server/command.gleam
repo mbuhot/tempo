@@ -21,11 +21,13 @@ import shared/types.{
   ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet, LogWeek,
   OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
+  UpdateBankingDetails, UpdateContactDetails, UpdateEmergencyContact,
 }
 import tempo/server/allocation
 import tempo/server/context.{type Context}
 import tempo/server/engagement
 import tempo/server/engineer
+import tempo/server/engineer_details
 import tempo/server/event
 import tempo/server/invoice
 import tempo/server/leave
@@ -95,6 +97,10 @@ fn route(
   case command {
     OnboardEngineer(..) | Promote(..) | TerminateEmployment(..) ->
       engineer.handle(conn, command)
+
+    UpdateContactDetails(..)
+    | UpdateBankingDetails(..)
+    | UpdateEmergencyContact(..) -> engineer_details.handle(conn, command)
 
     AssignToProject(..) | ChangeAllocationFraction(..) | RollOff(..) ->
       allocation.handle(conn, command)

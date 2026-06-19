@@ -14,11 +14,11 @@ WITH params AS (
   SELECT daterange($1::date, $2::date, '[)') AS period
 )
 SELECT
-  engineer.name AS engineer,
+  coalesce(engineer.name, '') AS engineer,
   payroll_line.amount::numeric AS amount,
   payroll_line.days::numeric AS days
 FROM params
 JOIN payroll_run  ON payroll_run.period && params.period
 JOIN payroll_line ON payroll_line.run_id = payroll_run.id
-JOIN engineer     ON engineer.id = payroll_line.engineer_id
+JOIN engineer_current engineer ON engineer.id = payroll_line.engineer_id
 ORDER BY engineer.name;

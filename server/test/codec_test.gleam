@@ -16,12 +16,14 @@ import gleam/time/calendar.{Date, January, July, June, May}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, DraftInvoice, Event, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LogTimesheet, LogWeek, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
-  PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  ChangeAllocationFraction, DraftInvoice, EngineerBanking, EngineerContact,
+  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
+  RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -488,6 +490,57 @@ pub fn command_terminate_employment_round_trips_test() {
     == original
 }
 
+// --- Engineer-detail commands ------------------------------------------------
+// The three append-only edit-grouped facts (contact / banking / emergency),
+// each a temporal CHANGE keyed by `effective`. The `op` tag must reconstruct the
+// exact variant and every text field, including `account_no` whose leading zeros
+// must survive as a String (it is text, never numeric).
+
+pub fn command_update_contact_details_round_trips_test() {
+  let original =
+    UpdateContactDetails(
+      engineer_id: 1,
+      name: "Priya Sharma",
+      email: "priya.sharma@alembic.com.au",
+      phone: "+61 400 000 001",
+      postal_address: "1 Demo St, Brisbane",
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_update_banking_details_round_trips_test() {
+  let original =
+    UpdateBankingDetails(
+      engineer_id: 2,
+      bank: "Big Bank",
+      branch: "062",
+      account_no: "00123452",
+      account_name: "Marcus Chen",
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+pub fn command_update_emergency_contact_round_trips_test() {
+  let original =
+    UpdateEmergencyContact(
+      engineer_id: 3,
+      relation: "spouse",
+      name: "Sam Okafor",
+      phone: "+61 400 999 003",
+      email: "sam.okafor@example.com",
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
 // --- Financial commands ------------------------------------------------------
 // The five new write operations (PRD-financials §5), anchored to the seed frame:
 // salary by level, the invoice draft/issue/pay lifecycle, and a payroll run.
@@ -817,5 +870,67 @@ pub fn pnl_empty_round_trips_test() {
     )
 
   assert round_trip(original, codecs.encode_pnl, codecs.pnl_decoder())
+    == original
+}
+
+// --- EngineerContact ---------------------------------------------------------
+// The latest-read contact fact (scalar projection, no period bounds exposed).
+
+pub fn engineer_contact_round_trips_test() {
+  let original =
+    EngineerContact(
+      engineer_id: 1,
+      name: "Priya Sharma",
+      email: "priya.sharma@alembic.com.au",
+      phone: "+61 400 000 001",
+      postal_address: "1 Demo St, Brisbane",
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_engineer_contact,
+      codecs.engineer_contact_decoder(),
+    )
+    == original
+}
+
+// --- EngineerBanking ---------------------------------------------------------
+
+// `account_no` is text: its leading zeros must survive the round trip intact.
+pub fn engineer_banking_round_trips_test() {
+  let original =
+    EngineerBanking(
+      engineer_id: 2,
+      bank: "Big Bank",
+      branch: "062",
+      account_no: "00123452",
+      account_name: "Marcus Chen",
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_engineer_banking,
+      codecs.engineer_banking_decoder(),
+    )
+    == original
+}
+
+// --- EngineerEmergency -------------------------------------------------------
+
+pub fn engineer_emergency_round_trips_test() {
+  let original =
+    EngineerEmergency(
+      engineer_id: 3,
+      relation: "spouse",
+      name: "Sam Okafor",
+      phone: "+61 400 999 003",
+      email: "sam.okafor@example.com",
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_engineer_emergency,
+      codecs.engineer_emergency_decoder(),
+    )
     == original
 }
