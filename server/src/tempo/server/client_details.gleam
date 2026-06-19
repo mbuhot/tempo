@@ -6,13 +6,11 @@
 //// `handle` returns. No HTTP — never imports `wisp`.
 ////
 //// client_profile is APPEND-ONLY and read LATEST (its period is `recorded_during`,
-//// transaction-time), so an edit is a temporal Change: close the row covering
-//// `effective` by carving its [effective, NULL) tail off (DELETE FOR PORTION OF),
-//// then open a new full row [effective, NULL) (INSERT). The pair runs in the
-//// caller's single transaction — the SAME delete-then-insert shape as the engineer
-//// detail facts, because the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target.
-//// On the first edit the close deletes 0 rows (a harmless no-op) and the open seeds
-//// the first version.
+//// transaction-time), so an edit is a temporal Change in ONE statement — a
+//// FOR PORTION OF UPDATE (like rate_card/salary): it re-sets the [effective, NULL)
+//// portion of the row covering `effective`, and PG carves off the unchanged
+//// [start, effective) remainder as its own row. The founding row is opened at
+//// client creation (sign_contract), so the covering row always exists.
 
 import gleam/int
 import pog
@@ -37,19 +35,18 @@ pub fn handle(
 }
 
 /// Record a new client profile from `effective` onward (Change on client_profile):
-/// close the covering row at `effective`, open a new full [effective, NULL) row,
-/// then return its journal event.
+/// re-set the covering row's [effective, NULL) portion in one FOR PORTION OF
+/// UPDATE, then return its journal event.
 fn update_client_profile(
   conn: pog.Connection,
   command: Command,
 ) -> Result(List(Event), OperationError) {
   let assert UpdateClientProfile(client_id:, name:, effective:) = command
-  use _ <- operation.try(sql.client_profile_close(conn, client_id, effective))
-  use _ <- operation.try(sql.client_profile_open(
+  use _ <- operation.try(sql.client_profile_revise(
     conn,
     client_id,
-    name,
     effective,
+    name,
   ))
   Ok([
     Event(

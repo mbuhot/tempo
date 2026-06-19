@@ -6,13 +6,11 @@
 //// `handle` returns. No HTTP — never imports `wisp`.
 ////
 //// These facts are APPEND-ONLY and read LATEST (their period is `recorded_during`,
-//// transaction-time), so an edit is a temporal Change: close the row covering
-//// `effective` by carving its [effective, NULL) tail off (DELETE FOR PORTION OF),
-//// then open a new full row [effective, NULL) (INSERT). The pair runs in the
-//// caller's single transaction — the SAME delete-then-insert shape as the
-//// timesheet upsert, because the WITHOUT OVERLAPS PK cannot be an ON CONFLICT
-//// target. On the first edit the close deletes 0 rows (a harmless no-op) and the
-//// open seeds the first version.
+//// transaction-time), so an edit is a temporal Change in ONE statement — a
+//// FOR PORTION OF UPDATE (like rate_card/salary): it re-sets the [effective, NULL)
+//// portion of the row covering `effective`, and PG carves off the unchanged
+//// [start, effective) remainder as its own row. The founding row is opened at
+//// onboard, so the covering row always exists.
 
 import gleam/int
 import pog
@@ -56,19 +54,14 @@ fn update_contact_details(
     postal_address:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_contact_close(
+  use _ <- operation.try(sql.engineer_contact_revise(
     conn,
     engineer_id,
     effective,
-  ))
-  use _ <- operation.try(sql.engineer_contact_open(
-    conn,
-    engineer_id,
     name,
     email,
     phone,
     postal_address,
-    effective,
   ))
   Ok([
     Event(
@@ -99,19 +92,14 @@ fn update_banking_details(
     account_name:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_banking_close(
+  use _ <- operation.try(sql.engineer_banking_revise(
     conn,
     engineer_id,
     effective,
-  ))
-  use _ <- operation.try(sql.engineer_banking_open(
-    conn,
-    engineer_id,
     bank,
     branch,
     account_no,
     account_name,
-    effective,
   ))
   Ok([
     Event(
@@ -142,19 +130,14 @@ fn update_emergency_contact(
     email:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_emergency_close(
+  use _ <- operation.try(sql.engineer_emergency_revise(
     conn,
     engineer_id,
     effective,
-  ))
-  use _ <- operation.try(sql.engineer_emergency_open(
-    conn,
-    engineer_id,
     relation,
     name,
     phone,
     email,
-    effective,
   ))
   Ok([
     Event(

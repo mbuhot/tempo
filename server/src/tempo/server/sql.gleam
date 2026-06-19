@@ -449,46 +449,6 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// client_profile_close.sql — step 1 of the profile Change.
-///
-/// Close the client_profile row covering $2 by deleting its [$2, NULL) portion:
-/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
-/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
-/// companion client_profile_open then inserts the new full [$2, NULL) row, both in
-/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
-/// edit deletes 0 rows (a harmless no-op); a re-record deletes the tail of the
-/// prior row. $1 = client_id, $2 = effective date.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn client_profile_close(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- client_profile_close.sql — step 1 of the profile Change.
---
--- Close the client_profile row covering $2 by deleting its [$2, NULL) portion:
--- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
--- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
--- companion client_profile_open then inserts the new full [$2, NULL) row, both in
--- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
--- edit deletes 0 rows (a harmless no-op); a re-record deletes the tail of the
--- prior row. $1 = client_id, $2 = effective date.
-DELETE FROM client_profile
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
- WHERE client_id = $1;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
 /// A row you get from running the `client_profile_current` query
 /// defined in `./src/tempo/server/sql/client_profile_current.sql`.
 ///
@@ -574,6 +534,42 @@ VALUES ($1, $2, daterange($3::date, NULL, '[)'));
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// client_profile_revise.sql — record a new client profile from $2 onward in ONE
+/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+/// value on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder as its own row. The `@>` guard confines it to the
+/// single covering row. $1 = client_id, $2 = effective date, $3 = name.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_profile_revise(
+  db: pog.Connection,
+  client_id: Int,
+  arg_2: Date,
+  name: String,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- client_profile_revise.sql — record a new client profile from $2 onward in ONE
+-- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+-- value on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder as its own row. The `@>` guard confines it to the
+-- single covering row. $1 = client_id, $2 = effective date, $3 = name.
+UPDATE client_profile
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+   SET name = $3
+ WHERE client_id = $1
+   AND recorded_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(client_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(name))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -737,40 +733,6 @@ VALUES ($1, daterange($2::date, NULL, '[)'));
   |> pog.execute(db)
 }
 
-/// engineer_banking_close.sql — step 1 of the banking Change.
-///
-/// Close the engineer_banking row covering $2 by deleting its [$2, NULL) portion
-/// (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
-/// engineer_banking_open in ONE transaction — same delete-then-insert shape as the
-/// contact/timesheet upsert. $1 = engineer_id, $2 = effective date.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_banking_close(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_banking_close.sql — step 1 of the banking Change.
---
--- Close the engineer_banking row covering $2 by deleting its [$2, NULL) portion
--- (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
--- engineer_banking_open in ONE transaction — same delete-then-insert shape as the
--- contact/timesheet upsert. $1 = engineer_id, $2 = effective date.
-DELETE FROM engineer_banking
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
- WHERE engineer_id = $1;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
 /// A row you get from running the `engineer_banking_current` query
 /// defined in `./src/tempo/server/sql/engineer_banking_current.sql`.
 ///
@@ -878,44 +840,46 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.execute(db)
 }
 
-/// engineer_contact_close.sql — step 1 of the contact Change.
-///
-/// Close the engineer_contact row covering $2 by deleting its [$2, NULL) portion:
-/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
-/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
-/// companion engineer_contact_open then inserts the new full [$2, NULL) row, both
-/// in ONE transaction (mirrors the timesheet delete-then-insert: the WITHOUT
-/// OVERLAPS PK cannot be an ON CONFLICT target). First edit deletes 0 rows (a
-/// harmless no-op when seeding from onboarding); a re-record deletes the tail of
-/// the prior row. $1 = engineer_id, $2 = effective date.
+/// engineer_banking_revise.sql — record new banking details from $2 onward in ONE
+/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+/// $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch, $5 = account_no,
+/// $6 = account_name.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_contact_close(
+pub fn engineer_banking_revise(
   db: pog.Connection,
-  arg_1: Int,
+  engineer_id: Int,
   arg_2: Date,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  account_name: String,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_contact_close.sql — step 1 of the contact Change.
---
--- Close the engineer_contact row covering $2 by deleting its [$2, NULL) portion:
--- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
--- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
--- companion engineer_contact_open then inserts the new full [$2, NULL) row, both
--- in ONE transaction (mirrors the timesheet delete-then-insert: the WITHOUT
--- OVERLAPS PK cannot be an ON CONFLICT target). First edit deletes 0 rows (a
--- harmless no-op when seeding from onboarding); a re-record deletes the tail of
--- the prior row. $1 = engineer_id, $2 = effective date.
-DELETE FROM engineer_contact
+  "-- engineer_banking_revise.sql — record new banking details from $2 onward in ONE
+-- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+-- values on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+-- $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch, $5 = account_no,
+-- $6 = account_name.
+UPDATE engineer_banking
    FOR PORTION OF recorded_during FROM $2::date TO NULL
- WHERE engineer_id = $1;
+   SET bank = $3, branch = $4, account_no = $5, account_name = $6
+ WHERE engineer_id = $1
+   AND recorded_during @> $2::date;
 "
   |> pog.query
-  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(engineer_id))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.text(account_name))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1035,6 +999,48 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.execute(db)
 }
 
+/// engineer_contact_revise.sql — record new contact details from $2 onward in ONE
+/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+/// $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_contact_revise(
+  db: pog.Connection,
+  engineer_id: Int,
+  arg_2: Date,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  postal_address: String,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_contact_revise.sql — record new contact details from $2 onward in ONE
+-- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+-- values on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+-- $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal.
+UPDATE engineer_contact
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+   SET name = $3, email = $4, phone = $5, postal_address = $6
+ WHERE engineer_id = $1
+   AND recorded_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.text(postal_address))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `engineer_create` query
 /// defined in `./src/tempo/server/sql/engineer_create.sql`.
 ///
@@ -1075,38 +1081,6 @@ INSERT INTO engineer DEFAULT VALUES
 RETURNING id;
 "
   |> pog.query
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// engineer_emergency_close.sql — step 1 of the emergency Change.
-///
-/// Close the engineer_emergency row covering $2 by deleting its [$2, NULL) portion
-/// (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
-/// engineer_emergency_open in ONE transaction. $1 = engineer_id, $2 = effective.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_emergency_close(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_emergency_close.sql — step 1 of the emergency Change.
---
--- Close the engineer_emergency row covering $2 by deleting its [$2, NULL) portion
--- (DELETE FOR PORTION OF; re-inserts the [row.lower, $2) remainder). Paired with
--- engineer_emergency_open in ONE transaction. $1 = engineer_id, $2 = effective.
-DELETE FROM engineer_emergency
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
- WHERE engineer_id = $1;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1212,6 +1186,48 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// engineer_emergency_revise.sql — record a new emergency contact from $2 onward in
+/// ONE statement (the Change pattern, like salary_revise). FOR PORTION OF sets the
+/// new values on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+/// $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_emergency_revise(
+  db: pog.Connection,
+  engineer_id: Int,
+  arg_2: Date,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  email: String,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- engineer_emergency_revise.sql — record a new emergency contact from $2 onward in
+-- ONE statement (the Change pattern, like salary_revise). FOR PORTION OF sets the
+-- new values on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+-- $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email.
+UPDATE engineer_emergency
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+   SET relation = $3, name = $4, phone = $5, email = $6
+ WHERE engineer_id = $1
+   AND recorded_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.text(email))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2918,46 +2934,6 @@ RETURNING id;
   |> pog.execute(db)
 }
 
-/// project_plan_close.sql — step 1 of the plan Change.
-///
-/// Close the project_plan row covering $2 by deleting its [$2, NULL) portion:
-/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
-/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
-/// companion project_plan_open then inserts the new full [$2, NULL) row, both in
-/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
-/// edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
-/// re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn project_plan_close(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- project_plan_close.sql — step 1 of the plan Change.
---
--- Close the project_plan row covering $2 by deleting its [$2, NULL) portion:
--- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
--- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
--- companion project_plan_open then inserts the new full [$2, NULL) row, both in
--- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
--- edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
--- re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
-DELETE FROM project_plan
-   FOR PORTION OF planned_during FROM $2::date TO NULL
- WHERE project_id = $1;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
 /// A row you get from running the `project_plan_current` query
 /// defined in `./src/tempo/server/sql/project_plan_current.sql`.
 ///
@@ -3057,42 +3033,40 @@ VALUES ($1, $2, $3::date, daterange($4::date, NULL, '[)'));
   |> pog.execute(db)
 }
 
-/// project_profile_close.sql — step 1 of the profile Change.
-///
-/// Close the project_profile row covering $2 by deleting its [$2, NULL) portion:
-/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
-/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
-/// companion project_profile_open then inserts the new full [$2, NULL) row, both in
-/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
-/// edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
-/// re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
+/// project_plan_revise.sql — record a new project plan from $2 onward in ONE
+/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+/// $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn project_profile_close(
+pub fn project_plan_revise(
   db: pog.Connection,
-  arg_1: Int,
+  project_id: Int,
   arg_2: Date,
+  arg_3: Float,
+  arg_4: Date,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_profile_close.sql — step 1 of the profile Change.
---
--- Close the project_profile row covering $2 by deleting its [$2, NULL) portion:
--- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
--- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
--- companion project_profile_open then inserts the new full [$2, NULL) row, both in
--- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
--- edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
--- re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
-DELETE FROM project_profile
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
- WHERE project_id = $1;
+  "-- project_plan_revise.sql — record a new project plan from $2 onward in ONE
+-- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+-- values on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+-- $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion.
+UPDATE project_plan
+   FOR PORTION OF planned_during FROM $2::date TO NULL
+   SET budget = $3, target_completion = $4::date
+ WHERE project_id = $1
+   AND planned_during @> $2::date;
 "
   |> pog.query
-  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.float(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3186,6 +3160,44 @@ VALUES ($1, $2, $3, daterange($4::date, NULL, '[)'));
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_profile_revise.sql — record a new project profile from $2 onward in ONE
+/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
+/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+/// $1 = project_id, $2 = effective, $3 = title, $4 = summary.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_profile_revise(
+  db: pog.Connection,
+  project_id: Int,
+  arg_2: Date,
+  arg_3: String,
+  summary: String,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_profile_revise.sql — record a new project profile from $2 onward in ONE
+-- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
+-- values on the [$2, NULL) portion of the row covering $2; PG carves off the
+-- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
+-- $1 = project_id, $2 = effective, $3 = title, $4 = summary.
+UPDATE project_profile
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+   SET title = $3, summary = $4
+ WHERE project_id = $1
+   AND recorded_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(summary))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
