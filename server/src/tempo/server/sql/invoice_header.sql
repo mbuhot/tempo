@@ -12,7 +12,7 @@ SELECT
   invoice.id,
   coalesce((
     SELECT project.title FROM project_current project
-     WHERE project.id = invoice.project_id
+     WHERE project.id = invoice_subject.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
@@ -20,11 +20,11 @@ SELECT
       FROM project_run
       JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
       JOIN client_current client ON client.id = contract_terms.client_id
-     WHERE project_run.project_id = invoice.project_id
+     WHERE project_run.project_id = invoice_subject.project_id
      LIMIT 1
   ), '') AS client,
-  lower(invoice.billing_period) AS billing_from,
-  upper(invoice.billing_period) AS billing_to,
+  lower(invoice_subject.billing_period) AS billing_from,
+  upper(invoice_subject.billing_period) AS billing_to,
   coalesce((
     SELECT invoice_status.status FROM invoice_status
      WHERE invoice_status.invoice_id = invoice.id
@@ -36,4 +36,5 @@ SELECT
      WHERE invoice_line.invoice_id = invoice.id
   ), 0)::numeric AS total
 FROM invoice
+JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 WHERE invoice.id = $1;

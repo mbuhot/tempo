@@ -239,7 +239,9 @@ fn invoice_id_for_project(conn: pog.Connection, project_id: Int) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("SELECT id FROM invoice WHERE project_id = $1 ORDER BY id DESC")
+    pog.query(
+      "SELECT invoice_id FROM invoice_subject WHERE project_id = $1 ORDER BY invoice_id DESC",
+    )
     |> pog.parameter(pog.int(project_id))
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
@@ -255,7 +257,7 @@ fn run_id_covering(conn: pog.Connection, period_start: Date) -> Int {
   }
   let assert Ok(returned) =
     pog.query(
-      "SELECT id FROM payroll_run WHERE period @> $1::date ORDER BY id DESC",
+      "SELECT run_id FROM payroll_period WHERE period @> $1::date ORDER BY run_id DESC",
     )
     |> pog.parameter(pog.calendar_date(period_start))
     |> pog.returning(row_decoder)
@@ -632,7 +634,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
 }
 
 // A second run whose period overlaps an existing run is rejected by the
-// payroll_run_no_overlap exclusion — payroll cannot be run twice for a month.
+// payroll_period_no_overlap exclusion — payroll cannot be run twice for a month.
 pub fn running_payroll_twice_for_a_month_is_rejected_test() {
   let outcome =
     rolling_back(fn(conn) {

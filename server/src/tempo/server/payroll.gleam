@@ -44,13 +44,15 @@ fn run_payroll(
   command: Command,
 ) -> Result(List(Event), OperationError) {
   let assert RunPayroll(period_from:, period_to:) = command
-  use created <- operation.try(sql.payroll_run_create(
+  use created <- operation.try(sql.payroll_run_create(conn))
+  let assert [row] = created.rows
+  let run_id = row.id
+  use _ <- operation.try(sql.payroll_period_insert(
     conn,
+    run_id,
     period_from,
     period_to,
   ))
-  let assert [row] = created.rows
-  let run_id = row.id
   use amounts <- operation.try(sql.payroll_amounts(conn, period_from, period_to))
   use _ <- result.try(insert_lines(conn, run_id, amounts.rows))
   Ok([

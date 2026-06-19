@@ -36,11 +36,13 @@ erDiagram
   engineer ||--o{ payroll_line : "FK"
   invoice ||--o{ invoice_line : "FK"
   invoice ||--o{ invoice_status : "FK"
+  invoice ||--o{ invoice_subject : "FK"
   payroll_run ||--o{ payroll_line : "FK"
+  payroll_run ||--o{ payroll_period : "FK"
   project_run ||--o{ allocation : "PERIOD FK"
-  project_run ||--o{ invoice : "PERIOD FK"
+  project_run ||--o{ invoice_subject : "PERIOD FK"
   project ||--o{ allocation : "FK"
-  project ||--o{ invoice : "FK"
+  project ||--o{ invoice_subject : "FK"
   project ||--o{ project_plan : "FK"
   project ||--o{ project_profile : "FK"
   project ||--o{ project_run : "FK"
@@ -112,8 +114,6 @@ erDiagram
   }
   invoice {
     integer id PK
-    integer project_id FK
-    daterange billing_period FK
   }
   invoice_line {
     integer invoice_id FK
@@ -128,6 +128,11 @@ erDiagram
     text status
     daterange status_during PK "WITHOUT OVERLAPS"
   }
+  invoice_subject {
+    integer invoice_id PK,FK
+    integer project_id FK
+    daterange billing_period FK
+  }
   leave {
     integer engineer_id PK,FK
     text kind
@@ -139,9 +144,12 @@ erDiagram
     numeric amount
     numeric days
   }
+  payroll_period {
+    integer run_id PK,FK
+    daterange period
+  }
   payroll_run {
     integer id PK
-    daterange period
   }
   project {
     integer id PK

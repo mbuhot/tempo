@@ -54,14 +54,16 @@ fn draft_invoice(
   command: Command,
 ) -> Result(List(Event), OperationError) {
   let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
-  use created <- operation.try(sql.invoice_create(
+  use created <- operation.try(sql.invoice_create(conn))
+  let assert [row] = created.rows
+  let invoice_id = row.id
+  use _ <- operation.try(sql.invoice_subject_insert(
     conn,
+    invoice_id,
     project_id,
     billing_from,
     billing_to,
   ))
-  let assert [row] = created.rows
-  let invoice_id = row.id
   use _ <- operation.try(sql.invoice_status_open(
     conn,
     invoice_id,

@@ -8,11 +8,12 @@
 -- dropped — the status JOIN is not a LEFT JOIN, so only invoices that "exist as
 -- of $1" are listed.
 --
--- Name resolution. `project_id` is a project ENTITY id (no identity table; it may
--- have several period-rows). The project/contract/client names are stable across
--- an entity's period-rows in the seed, so a correlated LIMIT-1 subquery picks one
--- name without multiplying the row by every period version. An invoice whose
--- project entity has no project row at all yields NULL names (coalesced to '').
+-- Name resolution. The durable subject (project_id, billing_period) lives in the
+-- 1:1 immutable invoice_subject fact, INNER JOINed here. `project_id` is a project
+-- ENTITY id whose names are stable across its period-rows in the seed, so a
+-- correlated LIMIT-1 subquery picks one name without multiplying the row by every
+-- period version. An invoice whose project entity has no project row at all yields
+-- NULL names (coalesced to '').
 --
 -- Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
 -- no billable lines totals 0 rather than vanishing.
@@ -20,7 +21,7 @@ SELECT
   invoice.id,
   coalesce((
     SELECT project.title FROM project_current project
-     WHERE project.id = invoice.project_id
+     WHERE project.id = invoice_subject.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
@@ -28,11 +29,11 @@ SELECT
       FROM project_run
       JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
       JOIN client_current client ON client.id = contract_terms.client_id
-     WHERE project_run.project_id = invoice.project_id
+     WHERE project_run.project_id = invoice_subject.project_id
      LIMIT 1
   ), '') AS client,
-  lower(invoice.billing_period) AS billing_from,
-  upper(invoice.billing_period) AS billing_to,
+  lower(invoice_subject.billing_period) AS billing_from,
+  upper(invoice_subject.billing_period) AS billing_to,
   invoice_status.status,
   coalesce((
     SELECT sum(invoice_line.amount)
@@ -40,6 +41,7 @@ SELECT
      WHERE invoice_line.invoice_id = invoice.id
   ), 0)::numeric AS total
 FROM invoice
+JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 JOIN invoice_status ON invoice_status.invoice_id = invoice.id
                    AND invoice_status.status_during @> $1::date
-ORDER BY lower(invoice.billing_period), invoice.id;
+ORDER BY lower(invoice_subject.billing_period), invoice.id;

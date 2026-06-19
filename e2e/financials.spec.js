@@ -78,10 +78,11 @@ function restoreSeed() {
       "-d",
       env.TEMPO_DB_NAME ?? "tempo",
       "-c",
-      `DELETE FROM invoice_line WHERE invoice_id IN (SELECT id FROM invoice WHERE project_id=${PROJECT.id}); ` +
-        `DELETE FROM invoice_status WHERE invoice_id IN (SELECT id FROM invoice WHERE project_id=${PROJECT.id}); ` +
-        `DELETE FROM invoice WHERE project_id=${PROJECT.id}; ` +
-        `DELETE FROM payroll_line; DELETE FROM payroll_run; ` +
+      `DELETE FROM invoice_line WHERE invoice_id IN (SELECT invoice_id FROM invoice_subject WHERE project_id=${PROJECT.id}); ` +
+        `DELETE FROM invoice_status WHERE invoice_id IN (SELECT invoice_id FROM invoice_subject WHERE project_id=${PROJECT.id}); ` +
+        `WITH doomed AS (DELETE FROM invoice_subject WHERE project_id=${PROJECT.id} RETURNING invoice_id) ` +
+        `DELETE FROM invoice WHERE id IN (SELECT invoice_id FROM doomed); ` +
+        `DELETE FROM payroll_line; DELETE FROM payroll_period; DELETE FROM payroll_run; ` +
         `DELETE FROM event_log WHERE operation IN ('draft_invoice','issue_invoice','pay_invoice','run_payroll');`,
     ],
     { env: { ...env, PGPASSWORD: env.TEMPO_DB_PASSWORD ?? "tempo" } },

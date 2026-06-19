@@ -86,7 +86,9 @@ fn newest_invoice_for_project(conn: pog.Connection, project_id: Int) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("SELECT id FROM invoice WHERE project_id = $1 ORDER BY id DESC")
+    pog.query(
+      "SELECT invoice_id FROM invoice_subject WHERE project_id = $1 ORDER BY invoice_id DESC",
+    )
     |> pog.parameter(pog.int(project_id))
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)

@@ -87,11 +87,11 @@ rev AS (
     invoice_line.engineer_id,
     sum(invoice_line.amount)::numeric AS revenue
   FROM params
-  JOIN invoice      ON invoice.billing_period && params.period
-  JOIN invoice_line ON invoice_line.invoice_id = invoice.id
+  JOIN invoice_subject ON invoice_subject.billing_period && params.period
+  JOIN invoice_line    ON invoice_line.invoice_id = invoice_subject.invoice_id
   WHERE EXISTS (
     SELECT 1 FROM invoice_status
-    WHERE invoice_status.invoice_id = invoice.id
+    WHERE invoice_status.invoice_id = invoice_subject.invoice_id
       AND invoice_status.status_during @> params.as_of
       AND invoice_status.status IN ('issued', 'paid')
   )
@@ -103,8 +103,8 @@ cost AS (
     payroll_line.engineer_id,
     sum(payroll_line.amount)::numeric AS cost
   FROM params
-  JOIN payroll_run  ON payroll_run.period && params.period
-  JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+  JOIN payroll_period ON payroll_period.period && params.period
+  JOIN payroll_line   ON payroll_line.run_id = payroll_period.run_id
   GROUP BY payroll_line.engineer_id
 )
 SELECT

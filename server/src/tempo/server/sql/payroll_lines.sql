@@ -18,7 +18,7 @@ SELECT
   payroll_line.amount::numeric AS amount,
   payroll_line.days::numeric AS days
 FROM params
-JOIN payroll_run  ON payroll_run.period && params.period
-JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+JOIN payroll_period ON payroll_period.period && params.period
+JOIN payroll_line   ON payroll_line.run_id = payroll_period.run_id
 JOIN engineer_current engineer ON engineer.id = payroll_line.engineer_id
 ORDER BY engineer.name;

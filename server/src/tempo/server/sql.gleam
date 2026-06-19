@@ -1723,39 +1723,36 @@ pub type InvoiceCreateRow {
   InvoiceCreateRow(id: Int)
 }
 
-/// invoice_create.sql — open an invoice for a project's billing period.
+/// invoice_create.sql — mint a new invoice identity (ID-ONLY anchor).
 ///
-/// A plain INSERT (write pattern 1). The id is auto-generated and returned. The
-/// billing_period is a daterange built from the half-open [$2, $3) month bounds;
-/// $1 is the project_id.
+/// Step 1 of draft_invoice (anchor → subject → status → lines). `invoice.id` is
+/// GENERATED ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands
+/// back the minted id to thread into the invoice_subject, status, and line inserts.
+/// The durable subject (project_id, billing_period) is written separately into the
+/// 1:1 immutable invoice_subject fact by invoice_subject_insert.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn invoice_create(
   db: pog.Connection,
-  arg_1: Int,
-  arg_2: Date,
-  arg_3: Date,
 ) -> Result(pog.Returned(InvoiceCreateRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(InvoiceCreateRow(id:))
   }
 
-  "-- invoice_create.sql — open an invoice for a project's billing period.
+  "-- invoice_create.sql — mint a new invoice identity (ID-ONLY anchor).
 --
--- A plain INSERT (write pattern 1). The id is auto-generated and returned. The
--- billing_period is a daterange built from the half-open [$2, $3) month bounds;
--- $1 is the project_id.
-INSERT INTO invoice (project_id, billing_period)
-VALUES ($1, daterange($2::date, $3::date, '[)'))
+-- Step 1 of draft_invoice (anchor → subject → status → lines). `invoice.id` is
+-- GENERATED ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands
+-- back the minted id to thread into the invoice_subject, status, and line inserts.
+-- The durable subject (project_id, billing_period) is written separately into the
+-- 1:1 immutable invoice_subject fact by invoice_subject_insert.
+INSERT INTO invoice DEFAULT VALUES
 RETURNING id;
 "
   |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1830,7 +1827,7 @@ SELECT
   invoice.id,
   coalesce((
     SELECT project.title FROM project_current project
-     WHERE project.id = invoice.project_id
+     WHERE project.id = invoice_subject.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
@@ -1838,11 +1835,11 @@ SELECT
       FROM project_run
       JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
       JOIN client_current client ON client.id = contract_terms.client_id
-     WHERE project_run.project_id = invoice.project_id
+     WHERE project_run.project_id = invoice_subject.project_id
      LIMIT 1
   ), '') AS client,
-  lower(invoice.billing_period) AS billing_from,
-  upper(invoice.billing_period) AS billing_to,
+  lower(invoice_subject.billing_period) AS billing_from,
+  upper(invoice_subject.billing_period) AS billing_to,
   coalesce((
     SELECT invoice_status.status FROM invoice_status
      WHERE invoice_status.invoice_id = invoice.id
@@ -1854,6 +1851,7 @@ SELECT
      WHERE invoice_line.invoice_id = invoice.id
   ), 0)::numeric AS total
 FROM invoice
+JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 WHERE invoice.id = $1;
 "
   |> pog.query
@@ -1998,11 +1996,12 @@ pub type InvoiceListRow {
 /// dropped — the status JOIN is not a LEFT JOIN, so only invoices that "exist as
 /// of $1" are listed.
 ///
-/// Name resolution. `project_id` is a project ENTITY id (no identity table; it may
-/// have several period-rows). The project/contract/client names are stable across
-/// an entity's period-rows in the seed, so a correlated LIMIT-1 subquery picks one
-/// name without multiplying the row by every period version. An invoice whose
-/// project entity has no project row at all yields NULL names (coalesced to '').
+/// Name resolution. The durable subject (project_id, billing_period) lives in the
+/// 1:1 immutable invoice_subject fact, INNER JOINed here. `project_id` is a project
+/// ENTITY id whose names are stable across its period-rows in the seed, so a
+/// correlated LIMIT-1 subquery picks one name without multiplying the row by every
+/// period version. An invoice whose project entity has no project row at all yields
+/// NULL names (coalesced to '').
 ///
 /// Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
 /// no billable lines totals 0 rather than vanishing.
@@ -2043,11 +2042,12 @@ pub fn invoice_list(
 -- dropped — the status JOIN is not a LEFT JOIN, so only invoices that \"exist as
 -- of $1\" are listed.
 --
--- Name resolution. `project_id` is a project ENTITY id (no identity table; it may
--- have several period-rows). The project/contract/client names are stable across
--- an entity's period-rows in the seed, so a correlated LIMIT-1 subquery picks one
--- name without multiplying the row by every period version. An invoice whose
--- project entity has no project row at all yields NULL names (coalesced to '').
+-- Name resolution. The durable subject (project_id, billing_period) lives in the
+-- 1:1 immutable invoice_subject fact, INNER JOINed here. `project_id` is a project
+-- ENTITY id whose names are stable across its period-rows in the seed, so a
+-- correlated LIMIT-1 subquery picks one name without multiplying the row by every
+-- period version. An invoice whose project entity has no project row at all yields
+-- NULL names (coalesced to '').
 --
 -- Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
 -- no billable lines totals 0 rather than vanishing.
@@ -2055,7 +2055,7 @@ SELECT
   invoice.id,
   coalesce((
     SELECT project.title FROM project_current project
-     WHERE project.id = invoice.project_id
+     WHERE project.id = invoice_subject.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
@@ -2063,11 +2063,11 @@ SELECT
       FROM project_run
       JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
       JOIN client_current client ON client.id = contract_terms.client_id
-     WHERE project_run.project_id = invoice.project_id
+     WHERE project_run.project_id = invoice_subject.project_id
      LIMIT 1
   ), '') AS client,
-  lower(invoice.billing_period) AS billing_from,
-  upper(invoice.billing_period) AS billing_to,
+  lower(invoice_subject.billing_period) AS billing_from,
+  upper(invoice_subject.billing_period) AS billing_to,
   invoice_status.status,
   coalesce((
     SELECT sum(invoice_line.amount)
@@ -2075,9 +2075,10 @@ SELECT
      WHERE invoice_line.invoice_id = invoice.id
   ), 0)::numeric AS total
 FROM invoice
+JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 JOIN invoice_status ON invoice_status.invoice_id = invoice.id
                    AND invoice_status.status_during @> $1::date
-ORDER BY lower(invoice.billing_period), invoice.id;
+ORDER BY lower(invoice_subject.billing_period), invoice.id;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -2202,6 +2203,45 @@ VALUES ($1, $2, daterange($3::date, NULL, '[)'));
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// invoice_subject_insert.sql — record an invoice's immutable subject (1:1 fact).
+///
+/// A plain INSERT (write pattern 1) into the 1:1 invoice_subject fact, keyed by the
+/// minted invoice anchor id. The subject is set once at draft and never changed:
+/// $1 = invoice_id, $2/$3 = the half-open [from, to) billing-month bounds, built
+/// into a daterange in SQL. The invoice_subject_within_project PERIOD FK enforces
+/// the billing month ⊂ the project's active run.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_subject_insert(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Date,
+  arg_4: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- invoice_subject_insert.sql — record an invoice's immutable subject (1:1 fact).
+--
+-- A plain INSERT (write pattern 1) into the 1:1 invoice_subject fact, keyed by the
+-- minted invoice anchor id. The subject is set once at draft and never changed:
+-- $1 = invoice_id, $2/$3 = the half-open [from, to) billing-month bounds, built
+-- into a daterange in SQL. The invoice_subject_within_project PERIOD FK enforces
+-- the billing month ⊂ the project's active run.
+INSERT INTO invoice_subject (invoice_id, project_id, billing_period)
+VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2515,14 +2555,51 @@ SELECT
   payroll_line.amount::numeric AS amount,
   payroll_line.days::numeric AS days
 FROM params
-JOIN payroll_run  ON payroll_run.period && params.period
-JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+JOIN payroll_period ON payroll_period.period && params.period
+JOIN payroll_line   ON payroll_line.run_id = payroll_period.run_id
 JOIN engineer_current engineer ON engineer.id = payroll_line.engineer_id
 ORDER BY engineer.name;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// payroll_period_insert.sql — record a payroll run's immutable period (1:1 fact).
+///
+/// A plain INSERT (write pattern 1) into the 1:1 payroll_period fact, keyed by the
+/// minted payroll_run anchor id. The period is set once at run and never changed:
+/// $1 = run_id, $2/$3 = the half-open [from, to) month bounds, built into a daterange
+/// in SQL. The payroll_period_no_overlap GiST exclusion forbids two runs whose
+/// periods overlap.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_period_insert(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+  arg_3: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- payroll_period_insert.sql — record a payroll run's immutable period (1:1 fact).
+--
+-- A plain INSERT (write pattern 1) into the 1:1 payroll_period fact, keyed by the
+-- minted payroll_run anchor id. The period is set once at run and never changed:
+-- $1 = run_id, $2/$3 = the half-open [from, to) month bounds, built into a daterange
+-- in SQL. The payroll_period_no_overlap GiST exclusion forbids two runs whose
+-- periods overlap.
+INSERT INTO payroll_period (run_id, period)
+VALUES ($1, daterange($2::date, $3::date, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2537,35 +2614,36 @@ pub type PayrollRunCreateRow {
   PayrollRunCreateRow(id: Int)
 }
 
-/// payroll_run_create.sql — open a payroll run for a period.
+/// payroll_run_create.sql — mint a new payroll run identity (ID-ONLY anchor).
 ///
-/// A plain INSERT (write pattern 1). The id is auto-generated and returned. The
-/// period is a daterange built from the half-open [$1, $2) month bounds.
+/// Step 1 of run_payroll (anchor → period → lines). `payroll_run.id` is GENERATED
+/// ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands back the
+/// minted id to thread into the payroll_period and line inserts. The run's period is
+/// written separately into the 1:1 immutable payroll_period fact by
+/// payroll_period_insert.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn payroll_run_create(
   db: pog.Connection,
-  arg_1: Date,
-  arg_2: Date,
 ) -> Result(pog.Returned(PayrollRunCreateRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(PayrollRunCreateRow(id:))
   }
 
-  "-- payroll_run_create.sql — open a payroll run for a period.
+  "-- payroll_run_create.sql — mint a new payroll run identity (ID-ONLY anchor).
 --
--- A plain INSERT (write pattern 1). The id is auto-generated and returned. The
--- period is a daterange built from the half-open [$1, $2) month bounds.
-INSERT INTO payroll_run (period)
-VALUES (daterange($1::date, $2::date, '[)'))
+-- Step 1 of run_payroll (anchor → period → lines). `payroll_run.id` is GENERATED
+-- ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands back the
+-- minted id to thread into the payroll_period and line inserts. The run's period is
+-- written separately into the 1:1 immutable payroll_period fact by
+-- payroll_period_insert.
+INSERT INTO payroll_run DEFAULT VALUES
 RETURNING id;
 "
   |> pog.query
-  |> pog.parameter(pog.calendar_date(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2750,11 +2828,11 @@ rev AS (
     invoice_line.engineer_id,
     sum(invoice_line.amount)::numeric AS revenue
   FROM params
-  JOIN invoice      ON invoice.billing_period && params.period
-  JOIN invoice_line ON invoice_line.invoice_id = invoice.id
+  JOIN invoice_subject ON invoice_subject.billing_period && params.period
+  JOIN invoice_line    ON invoice_line.invoice_id = invoice_subject.invoice_id
   WHERE EXISTS (
     SELECT 1 FROM invoice_status
-    WHERE invoice_status.invoice_id = invoice.id
+    WHERE invoice_status.invoice_id = invoice_subject.invoice_id
       AND invoice_status.status_during @> params.as_of
       AND invoice_status.status IN ('issued', 'paid')
   )
@@ -2766,8 +2844,8 @@ cost AS (
     payroll_line.engineer_id,
     sum(payroll_line.amount)::numeric AS cost
   FROM params
-  JOIN payroll_run  ON payroll_run.period && params.period
-  JOIN payroll_line ON payroll_line.run_id = payroll_run.id
+  JOIN payroll_period ON payroll_period.period && params.period
+  JOIN payroll_line   ON payroll_line.run_id = payroll_period.run_id
   GROUP BY payroll_line.engineer_id
 )
 SELECT

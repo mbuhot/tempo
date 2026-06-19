@@ -453,13 +453,14 @@ pub fn invoice_outside_project_active_period_is_rejected_test() {
         // Bill a 2025 month, before the project was active.
         exec(
           conn,
-          "INSERT INTO invoice (project_id, billing_period) VALUES "
-            <> "(8006, daterange('2025-06-01','2025-07-01'))",
+          "WITH a AS (INSERT INTO invoice DEFAULT VALUES RETURNING id) "
+            <> "INSERT INTO invoice_subject (invoice_id, project_id, billing_period) "
+            <> "SELECT id, 8006, daterange('2025-06-01','2025-07-01') FROM a",
         )
       },
     )
 
-  assert constraint_name(error) == "invoice_within_project"
+  assert constraint_name(error) == "invoice_subject_within_project"
 }
 
 // An invoice_line referencing a non-existent engineer is rejected by the plain FK
@@ -474,8 +475,9 @@ pub fn invoice_line_for_unknown_engineer_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO invoice (project_id, billing_period) VALUES "
-              <> "(8007, daterange('2026-06-01','2026-07-01'))",
+            "WITH a AS (INSERT INTO invoice DEFAULT VALUES RETURNING id) "
+              <> "INSERT INTO invoice_subject (invoice_id, project_id, billing_period) "
+              <> "SELECT id, 8007, daterange('2026-06-01','2026-07-01') FROM a",
           )
         Nil
       },
@@ -484,7 +486,7 @@ pub fn invoice_line_for_unknown_engineer_is_rejected_test() {
         exec(
           conn,
           "INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount) "
-            <> "SELECT id, 999999, 1, 800, 1, 800 FROM invoice WHERE project_id = 8007",
+            <> "SELECT invoice_id, 999999, 1, 800, 1, 800 FROM invoice_subject WHERE project_id = 8007",
         )
       },
     )
@@ -501,8 +503,9 @@ pub fn payroll_line_for_unknown_engineer_is_rejected_test() {
         let assert Ok(_) =
           exec(
             conn,
-            "INSERT INTO payroll_run (period) VALUES "
-              <> "(daterange('2099-01-01','2099-02-01'))",
+            "WITH a AS (INSERT INTO payroll_run DEFAULT VALUES RETURNING id) "
+              <> "INSERT INTO payroll_period (run_id, period) "
+              <> "SELECT id, daterange('2099-01-01','2099-02-01') FROM a",
           )
         Nil
       },
@@ -510,7 +513,7 @@ pub fn payroll_line_for_unknown_engineer_is_rejected_test() {
         exec(
           conn,
           "INSERT INTO payroll_line (run_id, engineer_id, amount, days) "
-            <> "SELECT id, 999999, 100, 1 FROM payroll_run "
+            <> "SELECT run_id, 999999, 100, 1 FROM payroll_period "
             <> "WHERE period = daterange('2099-01-01','2099-02-01')",
         )
       },
