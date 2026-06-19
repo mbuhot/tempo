@@ -13,14 +13,16 @@
 //// onboard, so the covering row always exists.
 
 import gleam/int
+import gleam/result
 import pog
 import shared/codecs
 import shared/types.{
   type Command, UpdateBankingDetails, UpdateContactDetails,
   UpdateEmergencyContact,
 }
+import tempo/server/fact
 import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/repository
 
 /// Apply an engineer-details command: route it to its named operation, which does
 /// its temporal write and returns the journal event(s) it produced. The dispatch
@@ -54,15 +56,18 @@ fn update_contact_details(
     postal_address:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_contact_revise(
-    conn,
-    engineer_id,
-    effective,
-    name,
-    email,
-    phone,
-    postal_address,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.EngineerContactDetails(
+        engineer_id:,
+        name:,
+        email:,
+        phone:,
+        postal_address:,
+        effective:,
+      ),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_contact_details",
@@ -92,15 +97,18 @@ fn update_banking_details(
     account_name:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_banking_revise(
-    conn,
-    engineer_id,
-    effective,
-    bank,
-    branch,
-    account_no,
-    account_name,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.EngineerBankingDetails(
+        engineer_id:,
+        bank:,
+        branch:,
+        account_no:,
+        account_name:,
+        effective:,
+      ),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_banking_details",
@@ -130,15 +138,18 @@ fn update_emergency_contact(
     email:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.engineer_emergency_revise(
-    conn,
-    engineer_id,
-    effective,
-    relation,
-    name,
-    phone,
-    email,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.EngineerEmergencyContact(
+        engineer_id:,
+        relation:,
+        name:,
+        phone:,
+        email:,
+        effective:,
+      ),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_emergency_contact",

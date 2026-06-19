@@ -13,11 +13,13 @@
 //// client creation (sign_contract), so the covering row always exists.
 
 import gleam/int
+import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, UpdateClientProfile}
+import tempo/server/fact
 import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/repository
 
 /// Apply a client-details command: route it to its named operation, which does its
 /// temporal write and returns the journal event(s) it produced. The dispatch
@@ -42,12 +44,11 @@ fn update_client_profile(
   command: Command,
 ) -> Result(List(Event), OperationError) {
   let assert UpdateClientProfile(client_id:, name:, effective:) = command
-  use _ <- operation.try(sql.client_profile_revise(
-    conn,
-    client_id,
-    effective,
-    name,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.ClientProfile(client_id:, name:, effective:),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_client_profile",

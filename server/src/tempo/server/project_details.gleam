@@ -14,11 +14,13 @@
 
 import gleam/float
 import gleam/int
+import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, UpdateProjectPlan, UpdateProjectProfile}
+import tempo/server/fact
 import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/repository
 
 /// Apply a project-details command: route it to its named operation, which does its
 /// temporal write and returns the journal event(s) it produced. The dispatch
@@ -45,13 +47,11 @@ fn update_project_profile(
 ) -> Result(List(Event), OperationError) {
   let assert UpdateProjectProfile(project_id:, title:, summary:, effective:) =
     command
-  use _ <- operation.try(sql.project_profile_revise(
-    conn,
-    project_id,
-    effective,
-    title,
-    summary,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.ProjectProfile(project_id:, title:, summary:, effective:),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_project_profile",
@@ -79,13 +79,11 @@ fn update_project_plan(
     target_completion:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.project_plan_revise(
-    conn,
-    project_id,
-    effective,
-    budget,
-    target_completion,
-  ))
+  use _ <- result.try(
+    repository.record_facts(conn, [
+      fact.ProjectPlan(project_id:, budget:, target_completion:, effective:),
+    ]),
+  )
   Ok([
     Event(
       operation: "update_project_plan",
