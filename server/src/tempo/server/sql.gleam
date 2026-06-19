@@ -279,7 +279,7 @@ pub fn board_engaged(
 SELECT
   coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
-  project.name AS project,
+  coalesce(project.title, '') AS project,
   coalesce(client.name, '') AS client,
   allocation.fraction,
   rate_card.day_rate,
@@ -290,15 +290,16 @@ JOIN engineer_current engineer ON engineer.id = employment.engineer_id
 JOIN engineer_role  ON engineer_role.engineer_id = engineer.id  AND engineer_role.held_during @> $1::date
 JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.effective_during @> $1::date
 JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.allocated_during @> $1::date
-JOIN project        ON project.id = allocation.project_id       AND project.active_during @> $1::date
-JOIN contract       ON contract.id = project.contract_id        AND contract.term @> $1::date
-JOIN client_current client ON client.id = contract.client_id
+JOIN project_run    ON project_run.project_id = allocation.project_id  AND project_run.active_during @> $1::date
+JOIN project_current project ON project.id = project_run.project_id
+JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id  AND contract_terms.term @> $1::date
+JOIN client_current client ON client.id = contract_terms.client_id
 WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (
     SELECT 1 FROM leave
     WHERE leave.engineer_id = engineer.id AND leave.on_leave_during @> $1::date
   )
-ORDER BY engineer.name, project.name;
+ORDER BY engineer.name, project.title;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -587,51 +588,80 @@ pub type ContractCreateRow {
   ContractCreateRow(id: Int)
 }
 
-/// contract_create.sql — assert a new client engagement (sign_contract).
+/// contract_create.sql — mint a new contract identity (ID-ONLY anchor).
 ///
-/// A plain INSERT (write pattern 1). The contract id is NOT generated: it is an
-/// entity id reused across period-rows, so we mint a fresh one with
-/// coalesce(max(id),0)+1. The command carries the client by NAME, resolved to
-/// client_id via a subquery. The NAME left the `client` anchor for the
-/// edit-grouped client_profile fact, so the resolver reads it through the
-/// `client_current` view (latest profile per client). term = daterange($2, $3,
-/// '[)') is the engagement window; $3 may be NULL for an open-ended term.
+/// Step 1 of sign_contract (anchor → terms). The contract id is an entity id reused
+/// across the contract_terms period-rows; there is no IDENTITY on the anchor, so we
+/// mint a fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread
+/// into the terms insert.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn contract_create(
   db: pog.Connection,
-  arg_1: String,
-  arg_2: Date,
-  arg_3: Date,
 ) -> Result(pog.Returned(ContractCreateRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(ContractCreateRow(id:))
   }
 
-  "-- contract_create.sql — assert a new client engagement (sign_contract).
+  "-- contract_create.sql — mint a new contract identity (ID-ONLY anchor).
 --
--- A plain INSERT (write pattern 1). The contract id is NOT generated: it is an
--- entity id reused across period-rows, so we mint a fresh one with
--- coalesce(max(id),0)+1. The command carries the client by NAME, resolved to
--- client_id via a subquery. The NAME left the `client` anchor for the
--- edit-grouped client_profile fact, so the resolver reads it through the
--- `client_current` view (latest profile per client). term = daterange($2, $3,
--- '[)') is the engagement window; $3 may be NULL for an open-ended term.
-INSERT INTO contract (id, client_id, term)
-VALUES (
-  (SELECT coalesce(max(id), 0) + 1 FROM contract),
-  (SELECT id FROM client_current WHERE name = $1),
-  daterange($2::date, $3::date, '[)')
-)
+-- Step 1 of sign_contract (anchor → terms). The contract id is an entity id reused
+-- across the contract_terms period-rows; there is no IDENTITY on the anchor, so we
+-- mint a fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread
+-- into the terms insert.
+INSERT INTO contract (id)
+VALUES ((SELECT coalesce(max(id), 0) + 1 FROM contract))
 RETURNING id;
 "
   |> pog.query
-  |> pog.parameter(pog.text(arg_1))
-  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// contract_terms_open.sql — open a contract's term (the engagement window).
+///
+/// Step 2 of sign_contract: insert the contract_terms row over [$3, $4) for contract
+/// $1, resolving the client by NAME to its id. The NAME left the `client` anchor for
+/// the edit-grouped client_profile fact, so the resolver reads it through the
+/// `client_current` view (latest profile per client). term = daterange($3, $4, '[)')
+/// is the engagement window; $4 may be NULL for an open-ended term. $1 = contract_id,
+/// $2 = client name, $3 = valid_from, $4 = valid_to.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn contract_terms_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Date,
+  arg_4: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- contract_terms_open.sql — open a contract's term (the engagement window).
+--
+-- Step 2 of sign_contract: insert the contract_terms row over [$3, $4) for contract
+-- $1, resolving the client by NAME to its id. The NAME left the `client` anchor for
+-- the edit-grouped client_profile fact, so the resolver reads it through the
+-- `client_current` view (latest profile per client). term = daterange($3, $4, '[)')
+-- is the engagement window; $4 may be NULL for an open-ended term. $1 = contract_id,
+-- $2 = client name, $3 = valid_from, $4 = valid_to.
+INSERT INTO contract_terms (contract_id, client_id, term)
+VALUES (
+  $1,
+  (SELECT id FROM client_current WHERE name = $2),
+  daterange($3::date, $4::date, '[)')
+);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1634,12 +1664,12 @@ WITH params AS (
 ),
 agreed AS (
   -- the contract active over the month, and its agreed date = lower(term)
-  SELECT lower(contract.term) AS agreed_date
+  SELECT lower(contract_terms.term) AS agreed_date
   FROM params
-  JOIN project  ON project.id = params.project_id
-               AND project.active_during && params.month
-  JOIN contract ON contract.id = project.contract_id
-               AND contract.term && params.month
+  JOIN project_run    ON project_run.project_id = params.project_id
+                     AND project_run.active_during && params.month
+  JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+                     AND contract_terms.term && params.month
   LIMIT 1
 ),
 sub AS (
@@ -1799,16 +1829,16 @@ pub fn invoice_header(
 SELECT
   invoice.id,
   coalesce((
-    SELECT project.name FROM project
+    SELECT project.title FROM project_current project
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
     SELECT client.name
-      FROM project
-      JOIN contract ON contract.id = project.contract_id
-      JOIN client_current client ON client.id = contract.client_id
-     WHERE project.id = invoice.project_id
+      FROM project_run
+      JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+      JOIN client_current client ON client.id = contract_terms.client_id
+     WHERE project_run.project_id = invoice.project_id
      LIMIT 1
   ), '') AS client,
   lower(invoice.billing_period) AS billing_from,
@@ -2024,16 +2054,16 @@ pub fn invoice_list(
 SELECT
   invoice.id,
   coalesce((
-    SELECT project.name FROM project
+    SELECT project.title FROM project_current project
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
     SELECT client.name
-      FROM project
-      JOIN contract ON contract.id = project.contract_id
-      JOIN client_current client ON client.id = contract.client_id
-     WHERE project.id = invoice.project_id
+      FROM project_run
+      JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+      JOIN client_current client ON client.id = contract_terms.client_id
+     WHERE project_run.project_id = invoice.project_id
      LIMIT 1
   ), '') AS client,
   lower(invoice.billing_period) AS billing_from,
@@ -2771,48 +2801,350 @@ pub type ProjectCreateRow {
   ProjectCreateRow(id: Int)
 }
 
-/// project_create.sql — assert a new project under a contract (start_project).
+/// project_create.sql — mint a new project identity (ID-ONLY anchor).
 ///
-/// A plain INSERT (write pattern 1). The project id is NOT generated: it is an
-/// entity id reused across period-rows, so we mint a fresh one with
-/// coalesce(max(id),0)+1. The project runs under an existing contract_id ($1)
-/// and is contained by it via the project_within_contract PERIOD FK.
-/// active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
+/// Step 1 of start_project (anchor → run → profile → plan, the run contained in its
+/// contract by the project_within_contract PERIOD FK; the project's NAME is now a
+/// project_profile fact and its budget/target a project_plan fact, both written
+/// alongside, NOT columns here). The project id is an entity id reused across the
+/// run/profile/plan period-rows; there is no IDENTITY on the anchor, so we mint a
+/// fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread into
+/// the run, profile, and plan inserts.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn project_create(
   db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: Date,
-  arg_4: Date,
 ) -> Result(pog.Returned(ProjectCreateRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
     decode.success(ProjectCreateRow(id:))
   }
 
-  "-- project_create.sql — assert a new project under a contract (start_project).
+  "-- project_create.sql — mint a new project identity (ID-ONLY anchor).
 --
--- A plain INSERT (write pattern 1). The project id is NOT generated: it is an
--- entity id reused across period-rows, so we mint a fresh one with
--- coalesce(max(id),0)+1. The project runs under an existing contract_id ($1)
--- and is contained by it via the project_within_contract PERIOD FK.
--- active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
-INSERT INTO project (id, contract_id, name, active_during)
-VALUES (
-  (SELECT coalesce(max(id), 0) + 1 FROM project),
-  $1,
-  $2,
-  daterange($3::date, $4::date, '[)')
-)
+-- Step 1 of start_project (anchor → run → profile → plan, the run contained in its
+-- contract by the project_within_contract PERIOD FK; the project's NAME is now a
+-- project_profile fact and its budget/target a project_plan fact, both written
+-- alongside, NOT columns here). The project id is an entity id reused across the
+-- run/profile/plan period-rows; there is no IDENTITY on the anchor, so we mint a
+-- fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread into
+-- the run, profile, and plan inserts.
+INSERT INTO project (id)
+VALUES ((SELECT coalesce(max(id), 0) + 1 FROM project))
 RETURNING id;
+"
+  |> pog.query
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_plan_close.sql — step 1 of the plan Change.
+///
+/// Close the project_plan row covering $2 by deleting its [$2, NULL) portion:
+/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+/// companion project_plan_open then inserts the new full [$2, NULL) row, both in
+/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+/// edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
+/// re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_plan_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_plan_close.sql — step 1 of the plan Change.
+--
+-- Close the project_plan row covering $2 by deleting its [$2, NULL) portion:
+-- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+-- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+-- companion project_plan_open then inserts the new full [$2, NULL) row, both in
+-- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+-- edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
+-- re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
+DELETE FROM project_plan
+   FOR PORTION OF planned_during FROM $2::date TO NULL
+ WHERE project_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_plan_current` query
+/// defined in `./src/tempo/server/sql/project_plan_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectPlanCurrentRow {
+  ProjectPlanCurrentRow(project_id: Int, budget: Float, target_completion: Date)
+}
+
+/// project_plan_current.sql — a project's CURRENT plan (latest read).
+///
+/// The most-recently-effective project_plan row for one project: DISTINCT ON ordered
+/// by the start of planned_during descending. Append-only + WITHOUT OVERLAPS means
+/// the row with the greatest start is the one whose [effective, NULL) span is in
+/// force. Scalar columns only — planned_during bounds are not exposed (the read
+/// record is scalar-only). $1 = project_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_plan_current(
+  db: pog.Connection,
+  project_id: Int,
+) -> Result(pog.Returned(ProjectPlanCurrentRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use budget <- decode.field(1, pog.numeric_decoder())
+    use target_completion <- decode.field(2, pog.calendar_date_decoder())
+    decode.success(ProjectPlanCurrentRow(
+      project_id:,
+      budget:,
+      target_completion:,
+    ))
+  }
+
+  "-- project_plan_current.sql — a project's CURRENT plan (latest read).
+--
+-- The most-recently-effective project_plan row for one project: DISTINCT ON ordered
+-- by the start of planned_during descending. Append-only + WITHOUT OVERLAPS means
+-- the row with the greatest start is the one whose [effective, NULL) span is in
+-- force. Scalar columns only — planned_during bounds are not exposed (the read
+-- record is scalar-only). $1 = project_id.
+SELECT DISTINCT ON (project_id)
+  project_id,
+  budget,
+  target_completion
+FROM project_plan
+WHERE project_id = $1
+ORDER BY project_id, lower(planned_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_plan_open.sql — step 2 of the plan Change (and the row StartProject
+/// writes).
+///
+/// Insert the new full plan row over [$4, NULL): daterange($4::date, NULL, '[)'), so
+/// only scalar params cross the Squirrel boundary. Run after project_plan_close has
+/// carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
+/// satisfied. $1 = project_id, $2 = budget, $3 = target_completion date, $4 =
+/// effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_plan_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Float,
+  arg_3: Date,
+  arg_4: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_plan_open.sql — step 2 of the plan Change (and the row StartProject
+-- writes).
+--
+-- Insert the new full plan row over [$4, NULL): daterange($4::date, NULL, '[)'), so
+-- only scalar params cross the Squirrel boundary. Run after project_plan_close has
+-- carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
+-- satisfied. $1 = project_id, $2 = budget, $3 = target_completion date, $4 =
+-- effective date.
+INSERT INTO project_plan
+  (project_id, budget, target_completion, planned_during)
+VALUES ($1, $2, $3::date, daterange($4::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.float(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_profile_close.sql — step 1 of the profile Change.
+///
+/// Close the project_profile row covering $2 by deleting its [$2, NULL) portion:
+/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+/// companion project_profile_open then inserts the new full [$2, NULL) row, both in
+/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+/// edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
+/// re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_profile_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_profile_close.sql — step 1 of the profile Change.
+--
+-- Close the project_profile row covering $2 by deleting its [$2, NULL) portion:
+-- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+-- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+-- companion project_profile_open then inserts the new full [$2, NULL) row, both in
+-- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+-- edit deletes 0 rows (a harmless no-op when seeding from StartProject); a
+-- re-record deletes the tail of the prior row. $1 = project_id, $2 = effective date.
+DELETE FROM project_profile
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+ WHERE project_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_profile_current` query
+/// defined in `./src/tempo/server/sql/project_profile_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectProfileCurrentRow {
+  ProjectProfileCurrentRow(project_id: Int, title: String, summary: String)
+}
+
+/// project_profile_current.sql — a project's CURRENT profile (latest read).
+///
+/// The most-recently-effective project_profile row for one project: DISTINCT ON
+/// ordered by the start of recorded_during descending. Append-only + WITHOUT
+/// OVERLAPS means the row with the greatest start is the one whose [effective, NULL)
+/// span is in force. Scalar columns only — recorded_during bounds are not exposed
+/// (the read record is scalar-only). $1 = project_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_profile_current(
+  db: pog.Connection,
+  project_id: Int,
+) -> Result(pog.Returned(ProjectProfileCurrentRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use title <- decode.field(1, decode.string)
+    use summary <- decode.field(2, decode.string)
+    decode.success(ProjectProfileCurrentRow(project_id:, title:, summary:))
+  }
+
+  "-- project_profile_current.sql — a project's CURRENT profile (latest read).
+--
+-- The most-recently-effective project_profile row for one project: DISTINCT ON
+-- ordered by the start of recorded_during descending. Append-only + WITHOUT
+-- OVERLAPS means the row with the greatest start is the one whose [effective, NULL)
+-- span is in force. Scalar columns only — recorded_during bounds are not exposed
+-- (the read record is scalar-only). $1 = project_id.
+SELECT DISTINCT ON (project_id)
+  project_id,
+  title,
+  summary
+FROM project_profile
+WHERE project_id = $1
+ORDER BY project_id, lower(recorded_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_profile_open.sql — step 2 of the profile Change (and the row StartProject
+/// writes).
+///
+/// Insert the new full profile row over [$4, NULL): daterange($4::date, NULL, '[)'),
+/// so only scalar params cross the Squirrel boundary. Run after project_profile_close
+/// has carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
+/// satisfied. $1 = project_id, $2 = title, $3 = summary, $4 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_profile_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: String,
+  arg_4: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_profile_open.sql — step 2 of the profile Change (and the row StartProject
+-- writes).
+--
+-- Insert the new full profile row over [$4, NULL): daterange($4::date, NULL, '[)'),
+-- so only scalar params cross the Squirrel boundary. Run after project_profile_close
+-- has carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
+-- satisfied. $1 = project_id, $2 = title, $3 = summary, $4 = effective date.
+INSERT INTO project_profile
+  (project_id, title, summary, recorded_during)
+VALUES ($1, $2, $3, daterange($4::date, NULL, '[)'));
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// project_run_open.sql — open a project's run (existence/contract window).
+///
+/// Step 2 of start_project: insert the project_run row over [$3, $4) under contract
+/// $2, contained by the contract's term via the project_within_contract PERIOD FK —
+/// a run whose active period falls outside the contract's term is rejected by the
+/// database. active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
+/// $1 = project_id, $2 = contract_id, $3 = valid_from, $4 = valid_to.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_run_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Date,
+  arg_4: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_run_open.sql — open a project's run (existence/contract window).
+--
+-- Step 2 of start_project: insert the project_run row over [$3, $4) under contract
+-- $2, contained by the contract's term via the project_within_contract PERIOD FK —
+-- a run whose active period falls outside the contract's term is rejected by the
+-- database. active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
+-- $1 = project_id, $2 = contract_id, $3 = valid_from, $4 = valid_to.
+INSERT INTO project_run (project_id, contract_id, active_during)
+VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.returning(decoder)
@@ -3049,10 +3381,13 @@ pub type RosterProjectsRow {
 /// roster_projects.sql — projects ACTIVE as-of the date ($1::date).
 ///
 /// The project-directory slice the operations console offers as a name <select>:
-/// only projects whose active window covers the slider's as-of date. The
-/// `active_during` WITHOUT OVERLAPS constraint guarantees at most one row per
-/// project id per date, so this returns one row per active project, id + name,
-/// ordered by name for a stable, alphabetised dropdown.
+/// only projects whose active window covers the slider's as-of date. The run's
+/// `active_during` WITHOUT OVERLAPS constraint guarantees at most one project_run
+/// row per project id per date, so this returns one row per active project, id +
+/// name, ordered by name for a stable, alphabetised dropdown. The NAME left the
+/// project anchor for the project_profile fact, so the title is read through the
+/// `project_current` view (latest profile per project) and coalesced to keep the
+/// String contract past Squirrel's nullable-view inference.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3070,13 +3405,17 @@ pub fn roster_projects(
   "-- roster_projects.sql — projects ACTIVE as-of the date ($1::date).
 --
 -- The project-directory slice the operations console offers as a name <select>:
--- only projects whose active window covers the slider's as-of date. The
--- `active_during` WITHOUT OVERLAPS constraint guarantees at most one row per
--- project id per date, so this returns one row per active project, id + name,
--- ordered by name for a stable, alphabetised dropdown.
-SELECT id, name
-FROM project
-WHERE active_during @> $1::date
+-- only projects whose active window covers the slider's as-of date. The run's
+-- `active_during` WITHOUT OVERLAPS constraint guarantees at most one project_run
+-- row per project id per date, so this returns one row per active project, id +
+-- name, ordered by name for a stable, alphabetised dropdown. The NAME left the
+-- project anchor for the project_profile fact, so the title is read through the
+-- `project_current` view (latest profile per project) and coalesced to keep the
+-- String contract past Squirrel's nullable-view inference.
+SELECT project_run.project_id AS id, coalesce(project_current.title, '') AS name
+FROM project_run
+JOIN project_current ON project_current.id = project_run.project_id
+WHERE project_run.active_during @> $1::date
 ORDER BY name;
 "
   |> pog.query
@@ -3241,13 +3580,15 @@ days AS (
   SELECT generate_series($2::date, $2::date + 6, interval '1 day')::date AS day
 ),
 week_projects AS (
-  SELECT DISTINCT allocation.project_id, project.name AS project
+  SELECT DISTINCT allocation.project_id,
+                  coalesce(project_current.title, '') AS project
   FROM allocation
-  JOIN project ON project.id = allocation.project_id
+  JOIN project_run ON project_run.project_id = allocation.project_id
+  JOIN project_current ON project_current.id = allocation.project_id
   CROSS JOIN week
   WHERE allocation.engineer_id = $1
     AND allocation.allocated_during && week.span
-    AND project.active_during && week.span
+    AND project_run.active_during && week.span
 )
 SELECT
   week_projects.project_id,

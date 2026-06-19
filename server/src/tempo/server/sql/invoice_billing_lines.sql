@@ -44,12 +44,12 @@ WITH params AS (
 ),
 agreed AS (
   -- the contract active over the month, and its agreed date = lower(term)
-  SELECT lower(contract.term) AS agreed_date
+  SELECT lower(contract_terms.term) AS agreed_date
   FROM params
-  JOIN project  ON project.id = params.project_id
-               AND project.active_during && params.month
-  JOIN contract ON contract.id = project.contract_id
-               AND contract.term && params.month
+  JOIN project_run    ON project_run.project_id = params.project_id
+                     AND project_run.active_during && params.month
+  JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+                     AND contract_terms.term && params.month
   LIMIT 1
 ),
 sub AS (

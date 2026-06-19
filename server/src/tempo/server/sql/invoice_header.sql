@@ -11,16 +11,16 @@
 SELECT
   invoice.id,
   coalesce((
-    SELECT project.name FROM project
+    SELECT project.title FROM project_current project
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS project,
   coalesce((
     SELECT client.name
-      FROM project
-      JOIN contract ON contract.id = project.contract_id
-      JOIN client_current client ON client.id = contract.client_id
-     WHERE project.id = invoice.project_id
+      FROM project_run
+      JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+      JOIN client_current client ON client.id = contract_terms.client_id
+     WHERE project_run.project_id = invoice.project_id
      LIMIT 1
   ), '') AS client,
   lower(invoice.billing_period) AS billing_from,

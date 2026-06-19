@@ -22,7 +22,7 @@ import shared/types.{
   OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
 }
 import tempo/server/allocation
 import tempo/server/client_details
@@ -35,6 +35,7 @@ import tempo/server/invoice
 import tempo/server/leave
 import tempo/server/operation.{type Event as JournalEvent, type OperationError}
 import tempo/server/payroll
+import tempo/server/project_details
 import tempo/server/rate_card
 import tempo/server/salary
 import tempo/server/timesheet
@@ -105,6 +106,9 @@ fn route(
     | UpdateEmergencyContact(..) -> engineer_details.handle(conn, command)
 
     UpdateClientProfile(..) -> client_details.handle(conn, command)
+
+    UpdateProjectProfile(..) | UpdateProjectPlan(..) ->
+      project_details.handle(conn, command)
 
     AssignToProject(..) | ChangeAllocationFraction(..) | RollOff(..) ->
       allocation.handle(conn, command)

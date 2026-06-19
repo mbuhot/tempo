@@ -22,8 +22,9 @@ missing relationship map. (See `ARCHITECTURE.md` §4/§7 for the why.)
 erDiagram
   allocation ||--o{ timesheet : "PERIOD FK"
   client ||--o{ client_profile : "FK"
-  client ||--o{ contract : "FK"
-  contract ||--o{ project : "PERIOD FK"
+  client ||--o{ contract_terms : "FK"
+  contract_terms ||--o{ project_run : "PERIOD FK"
+  contract ||--o{ contract_terms : "FK"
   employment ||--o{ allocation : "PERIOD FK"
   employment ||--o{ engineer_role : "PERIOD FK"
   employment ||--o{ leave : "PERIOD FK"
@@ -36,8 +37,13 @@ erDiagram
   invoice ||--o{ invoice_line : "FK"
   invoice ||--o{ invoice_status : "FK"
   payroll_run ||--o{ payroll_line : "FK"
-  project ||--o{ allocation : "PERIOD FK"
-  project ||--o{ invoice : "PERIOD FK"
+  project_run ||--o{ allocation : "PERIOD FK"
+  project_run ||--o{ invoice : "PERIOD FK"
+  project ||--o{ allocation : "FK"
+  project ||--o{ invoice : "FK"
+  project ||--o{ project_plan : "FK"
+  project ||--o{ project_profile : "FK"
+  project ||--o{ project_run : "FK"
   allocation {
     integer engineer_id PK,FK
     integer project_id PK,FK
@@ -54,6 +60,9 @@ erDiagram
   }
   contract {
     integer id PK
+  }
+  contract_terms {
+    integer contract_id PK,FK
     integer client_id FK
     daterange term PK "WITHOUT OVERLAPS"
   }
@@ -136,8 +145,22 @@ erDiagram
   }
   project {
     integer id PK
+  }
+  project_plan {
+    integer project_id PK,FK
+    numeric budget
+    date target_completion
+    daterange planned_during PK "WITHOUT OVERLAPS"
+  }
+  project_profile {
+    integer project_id PK,FK
+    text title
+    text summary
+    daterange recorded_during PK "WITHOUT OVERLAPS"
+  }
+  project_run {
+    integer project_id PK,FK
     integer contract_id FK
-    text name
     daterange active_during PK,FK "WITHOUT OVERLAPS"
   }
   rate_card {

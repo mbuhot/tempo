@@ -157,6 +157,25 @@ pub type ClientProfile {
   ClientProfile(client_id: Int, name: String)
 }
 
+/// A project's profile as one edit-grouped fact: the project's `title` (the
+/// human-facing name) and a free-text `summary`. The underlying
+/// `project_profile` table is period-keyed (`recorded_during`) and append-only,
+/// read LATEST — so this record carries only the scalar fields of the
+/// most-recently-recorded version, not its transaction-time bounds (mirroring
+/// `ClientProfile`).
+pub type ProjectProfile {
+  ProjectProfile(project_id: Int, title: String, summary: String)
+}
+
+/// A project's plan as one edit-grouped fact: the `budget` (a money amount, so
+/// a `Float`) and a `target_completion` date. The underlying `project_plan`
+/// table is period-keyed (`planned_during`) and append-only, read LATEST — so
+/// this record carries only the scalar fields of the most-recently-recorded
+/// version, not its transaction-time bounds.
+pub type ProjectPlan {
+  ProjectPlan(project_id: Int, budget: Float, target_completion: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -241,6 +260,27 @@ pub type Command {
   /// client_profile fact). A client has only a name, so this is its single
   /// Update command.
   UpdateClientProfile(client_id: Int, name: String, effective: Date)
+  /// Record a new profile for a project effective from a date: close the
+  /// `project_profile` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `title`/`summary` (a temporal Change on the
+  /// append-only project_profile fact). `title` is the project's human-facing
+  /// name.
+  UpdateProjectProfile(
+    project_id: Int,
+    title: String,
+    summary: String,
+    effective: Date,
+  )
+  /// Record a new plan for a project effective from a date: close the
+  /// `project_plan` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `budget`/`target_completion` (a temporal
+  /// Change on the append-only project_plan fact). `budget` is a money amount.
+  UpdateProjectPlan(
+    project_id: Int,
+    budget: Float,
+    target_completion: Date,
+    effective: Date,
+  )
   /// Log a whole week's hours atomically: each entry sets one (project, day) cell
   /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
   /// none.

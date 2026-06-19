@@ -148,20 +148,15 @@ pub fn overlapping_allocation_is_rejected_test() {
       fn(conn) {
         let engineer_id = insert_engineer(conn, "Ada Lovelace")
         let client_id = insert_client(conn, "Babbage Ltd")
-        let assert Ok(_) =
-          exec(
-            conn,
-            "INSERT INTO contract (id, client_id, term) VALUES "
-              <> "(9001, "
-              <> int.to_string(client_id)
-              <> ", daterange('2026-01-01','2027-01-01'))",
-          )
-        let assert Ok(_) =
-          exec(
-            conn,
-            "INSERT INTO project (id, contract_id, name, active_during) VALUES "
-              <> "(8001, 9001, 'Analytical Engine', daterange('2026-01-01','2027-01-01'))",
-          )
+        insert_contract(conn, 9001, client_id, "2026-01-01", "2027-01-01")
+        insert_project(
+          conn,
+          8001,
+          9001,
+          "Analytical Engine",
+          "2026-01-01",
+          "2027-01-01",
+        )
         let assert Ok(_) =
           exec(
             conn,
@@ -641,6 +636,10 @@ fn read_rolling_back(
 
 // --- additional fixture builders --------------------------------------------
 
+/// Mint a contract: its id-only anchor + a contract_terms row over [from, to).
+/// Contract and project are now anchor + facts, so the term (and its client_id)
+/// live in contract_terms; project_within_contract follows the rename and still
+/// targets contract_terms(contract_id, term).
 fn insert_contract(
   conn: pog.Connection,
   contract_id: Int,
@@ -651,7 +650,12 @@ fn insert_contract(
   let assert Ok(_) =
     exec(
       conn,
-      "INSERT INTO contract (id, client_id, term) VALUES ("
+      "INSERT INTO contract (id) VALUES (" <> int.to_string(contract_id) <> ")",
+    )
+  let assert Ok(_) =
+    exec(
+      conn,
+      "INSERT INTO contract_terms (contract_id, client_id, term) VALUES ("
         <> int.to_string(contract_id)
         <> ", "
         <> int.to_string(client_id)
@@ -664,6 +668,9 @@ fn insert_contract(
   Nil
 }
 
+/// Mint a project: its id-only anchor + a project_run row (the existence/contract
+/// window, target of the allocation/invoice PERIOD FKs) + a project_profile row
+/// carrying the NAME as `title` so name reads through project_current still work.
 fn insert_project(
   conn: pog.Connection,
   project_id: Int,
@@ -684,8 +691,10 @@ fn insert_project(
   Nil
 }
 
-/// Insert a project, returning pog's `Result` so a PERIOD-FK violation against
-/// the contract can be surfaced.
+/// Insert a project (anchor + run + profile), returning pog's `Result` for the
+/// project_run insert so a PERIOD-FK violation against the contract can be
+/// surfaced. The anchor and profile are inserted first (they cannot violate the
+/// PERIOD FK); the run insert is the one whose Result is returned.
 fn try_insert_project(
   conn: pog.Connection,
   project_id: Int,
@@ -694,15 +703,26 @@ fn try_insert_project(
   valid_from: String,
   valid_to: String,
 ) -> Result(Nil, pog.QueryError) {
+  let assert Ok(_) =
+    exec(
+      conn,
+      "INSERT INTO project (id) VALUES (" <> int.to_string(project_id) <> ")",
+    )
+  let assert Ok(_) =
+    exec(
+      conn,
+      "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES ("
+        <> int.to_string(project_id)
+        <> ", '"
+        <> name
+        <> "', '', daterange('2024-01-01', NULL, '[)'))",
+    )
   exec(
     conn,
-    "INSERT INTO project (id, contract_id, name, active_during) VALUES ("
+    "INSERT INTO project_run (project_id, contract_id, active_during) VALUES ("
       <> int.to_string(project_id)
       <> ", "
       <> int.to_string(contract_id)
-      <> ", '"
-      <> name
-      <> "'"
       <> ", daterange('"
       <> valid_from
       <> "','"

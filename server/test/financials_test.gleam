@@ -299,21 +299,38 @@ fn billing_fixture(
       <> rate
       <> ", daterange('2024-01-01', NULL, '[)'))",
   )
+  // Contract = anchor + terms; the term (and client_id) live in contract_terms.
   exec(
     conn,
-    "INSERT INTO contract (id, client_id, term) VALUES ("
+    "INSERT INTO contract (id) VALUES (" <> int.to_string(contract_id) <> ")",
+  )
+  exec(
+    conn,
+    "INSERT INTO contract_terms (contract_id, client_id, term) VALUES ("
       <> int.to_string(contract_id)
       <> ", "
       <> int.to_string(client_id)
       <> ", daterange('2026-01-01', '2027-01-01'))",
   )
+  // Project = anchor + run + profile; the NAME ('Test Project') is the profile
+  // title so the billing reads resolve it through project_current.
   exec(
     conn,
-    "INSERT INTO project (id, contract_id, name, active_during) VALUES ("
+    "INSERT INTO project (id) VALUES (" <> int.to_string(project_id) <> ")",
+  )
+  exec(
+    conn,
+    "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES ("
+      <> int.to_string(project_id)
+      <> ", 'Test Project', '', daterange('2024-01-01', NULL, '[)'))",
+  )
+  exec(
+    conn,
+    "INSERT INTO project_run (project_id, contract_id, active_during) VALUES ("
       <> int.to_string(project_id)
       <> ", "
       <> int.to_string(contract_id)
-      <> ", 'Test Project', daterange('2026-01-01', '2027-01-01'))",
+      <> ", daterange('2026-01-01', '2027-01-01'))",
   )
   exec(
     conn,

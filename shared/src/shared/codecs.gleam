@@ -14,18 +14,19 @@ import shared/types.{
   type Engagement, type EngineerBanking, type EngineerContact,
   type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
   type InvoiceLine, type OperationRequest, type Payroll, type PayrollLine,
-  type Pnl, type PnlRow, type Ref, type Roster, type TimesheetCell,
-  type TimesheetEntry, type TimesheetWeek, type TimesheetWeekRow,
-  type WriteRequest, AdjustRateForPortion, AssignToProject, BoardRow,
-  BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
-  EngineerBanking, EngineerContact, EngineerEmergency, Event, Invoice,
-  InvoiceDetail, InvoiceLine, IssueInvoice, LogTimesheet, LogWeek, OnLeave,
-  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
-  PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster,
-  RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, WriteRequest,
+  type Pnl, type PnlRow, type ProjectPlan, type ProjectProfile, type Ref,
+  type Roster, type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, type WriteRequest, AdjustRateForPortion,
+  AssignToProject, BoardRow, BoardSnapshot, ChangeAllocationFraction,
+  ClientProfile, DraftInvoice, EngineerBanking, EngineerContact,
+  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, ProjectPlan, ProjectProfile,
+  Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -470,6 +471,55 @@ pub fn client_profile_decoder() -> Decoder(ClientProfile) {
   decode.success(ClientProfile(client_id:, name:))
 }
 
+// --- ProjectProfile ----------------------------------------------------------
+// The most-recently-recorded profile fact for a project (the LATEST read of the
+// append-only `project_profile` table): scalar fields only (`title`/`summary`),
+// no transaction-time bounds.
+
+/// Encode a `ProjectProfile` (the project's current profile fact) as a JSON
+/// object.
+pub fn encode_project_profile(profile: ProjectProfile) -> Json {
+  let ProjectProfile(project_id:, title:, summary:) = profile
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("title", json.string(title)),
+    #("summary", json.string(summary)),
+  ])
+}
+
+/// Decode a `ProjectProfile` from a JSON object.
+pub fn project_profile_decoder() -> Decoder(ProjectProfile) {
+  use project_id <- decode.field("project_id", decode.int)
+  use title <- decode.field("title", decode.string)
+  use summary <- decode.field("summary", decode.string)
+  decode.success(ProjectProfile(project_id:, title:, summary:))
+}
+
+// --- ProjectPlan -------------------------------------------------------------
+// The most-recently-recorded plan fact for a project (the LATEST read of the
+// append-only `project_plan` table): scalar fields only (`budget`, a money
+// amount; `target_completion`, a date), no transaction-time bounds. `budget`
+// decodes through the lenient decoder (the JS client may serialise a whole
+// `Float` as an integer-looking number).
+
+/// Encode a `ProjectPlan` (the project's current plan fact) as a JSON object.
+pub fn encode_project_plan(plan: ProjectPlan) -> Json {
+  let ProjectPlan(project_id:, budget:, target_completion:) = plan
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("budget", json.float(budget)),
+    #("target_completion", encode_date(target_completion)),
+  ])
+}
+
+/// Decode a `ProjectPlan` from a JSON object.
+pub fn project_plan_decoder() -> Decoder(ProjectPlan) {
+  use project_id <- decode.field("project_id", decode.int)
+  use budget <- decode.field("budget", lenient_float_decoder())
+  use target_completion <- decode.field("target_completion", date_decoder())
+  decode.success(ProjectPlan(project_id:, budget:, target_completion:))
+}
+
 // --- Command ----------------------------------------------------------------
 // A tagged object: `op` discriminates the operation; the remaining fields belong
 // to the active variant. The same encoding serves both the POST /api/operations
@@ -588,6 +638,22 @@ pub fn encode_command(command: Command) -> Json {
         #("op", json.string("update_client_profile")),
         #("client_id", json.int(client_id)),
         #("name", json.string(name)),
+        #("effective", encode_date(effective)),
+      ])
+    UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
+      json.object([
+        #("op", json.string("update_project_profile")),
+        #("project_id", json.int(project_id)),
+        #("title", json.string(title)),
+        #("summary", json.string(summary)),
+        #("effective", encode_date(effective)),
+      ])
+    UpdateProjectPlan(project_id:, budget:, target_completion:, effective:) ->
+      json.object([
+        #("op", json.string("update_project_plan")),
+        #("project_id", json.int(project_id)),
+        #("budget", json.float(budget)),
+        #("target_completion", encode_date(target_completion)),
         #("effective", encode_date(effective)),
       ])
     LogWeek(engineer_id:, entries:) ->
@@ -781,6 +847,30 @@ pub fn command_decoder() -> Decoder(Command) {
       use name <- decode.field("name", decode.string)
       use effective <- decode.field("effective", date_decoder())
       decode.success(UpdateClientProfile(client_id:, name:, effective:))
+    }
+    "update_project_profile" -> {
+      use project_id <- decode.field("project_id", decode.int)
+      use title <- decode.field("title", decode.string)
+      use summary <- decode.field("summary", decode.string)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateProjectProfile(
+        project_id:,
+        title:,
+        summary:,
+        effective:,
+      ))
+    }
+    "update_project_plan" -> {
+      use project_id <- decode.field("project_id", decode.int)
+      use budget <- decode.field("budget", lenient_float_decoder())
+      use target_completion <- decode.field("target_completion", date_decoder())
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateProjectPlan(
+        project_id:,
+        budget:,
+        target_completion:,
+        effective:,
+      ))
     }
     "log_week" -> {
       use engineer_id <- decode.field("engineer_id", decode.int)

@@ -13,13 +13,15 @@ days AS (
   SELECT generate_series($2::date, $2::date + 6, interval '1 day')::date AS day
 ),
 week_projects AS (
-  SELECT DISTINCT allocation.project_id, project.name AS project
+  SELECT DISTINCT allocation.project_id,
+                  coalesce(project_current.title, '') AS project
   FROM allocation
-  JOIN project ON project.id = allocation.project_id
+  JOIN project_run ON project_run.project_id = allocation.project_id
+  JOIN project_current ON project_current.id = allocation.project_id
   CROSS JOIN week
   WHERE allocation.engineer_id = $1
     AND allocation.allocated_during && week.span
-    AND project.active_during && week.span
+    AND project_run.active_during && week.span
 )
 SELECT
   week_projects.project_id,

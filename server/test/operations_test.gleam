@@ -320,16 +320,23 @@ pub fn terminate_employment_caps_children_then_employment_test() {
           <> int.to_string(engineer_id)
           <> ", 5, daterange('2026-01-01', NULL, '[)'))",
       )
+      exec(conn, "INSERT INTO contract (id) VALUES (90001)")
       exec(
         conn,
-        "INSERT INTO contract (id, client_id, term) VALUES (90001, "
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90001, "
           <> int.to_string(client_id)
           <> ", daterange('2026-01-01', NULL, '[)'))",
       )
+      exec(conn, "INSERT INTO project (id) VALUES (80001)")
       exec(
         conn,
-        "INSERT INTO project (id, contract_id, name, active_during) VALUES "
-          <> "(80001, 90001, 'Orbital Mechanics', daterange('2026-01-01', NULL, '[)'))",
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80001, 'Orbital Mechanics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80001, 90001, daterange('2026-01-01', NULL, '[)'))",
       )
       exec(
         conn,
@@ -389,16 +396,23 @@ pub fn terminate_employment_rejected_when_timesheet_outlives_end_test() {
           <> int.to_string(engineer_id)
           <> ", 5, daterange('2026-01-01', NULL, '[)'))",
       )
+      exec(conn, "INSERT INTO contract (id) VALUES (90002)")
       exec(
         conn,
-        "INSERT INTO contract (id, client_id, term) VALUES (90002, "
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90002, "
           <> int.to_string(client_id)
           <> ", daterange('2026-01-01', NULL, '[)'))",
       )
+      exec(conn, "INSERT INTO project (id) VALUES (80002)")
       exec(
         conn,
-        "INSERT INTO project (id, contract_id, name, active_during) VALUES "
-          <> "(80002, 90002, 'Apollo Guidance', daterange('2026-01-01', NULL, '[)'))",
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80002, 'Apollo Guidance', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80002, 90002, daterange('2026-01-01', NULL, '[)'))",
       )
       exec(
         conn,
@@ -492,7 +506,11 @@ fn employed_engineer_on_project(
   )
   exec(
     conn,
-    "INSERT INTO contract (id, client_id, term) VALUES ("
+    "INSERT INTO contract (id) VALUES (" <> int.to_string(contract_id) <> ")",
+  )
+  exec(
+    conn,
+    "INSERT INTO contract_terms (contract_id, client_id, term) VALUES ("
       <> int.to_string(contract_id)
       <> ", "
       <> int.to_string(client_id)
@@ -500,11 +518,21 @@ fn employed_engineer_on_project(
   )
   exec(
     conn,
-    "INSERT INTO project (id, contract_id, name, active_during) VALUES ("
+    "INSERT INTO project (id) VALUES (" <> int.to_string(project_id) <> ")",
+  )
+  exec(
+    conn,
+    "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES ("
+      <> int.to_string(project_id)
+      <> ", 'Test Project', '', daterange('2024-01-01', NULL, '[)'))",
+  )
+  exec(
+    conn,
+    "INSERT INTO project_run (project_id, contract_id, active_during) VALUES ("
       <> int.to_string(project_id)
       <> ", "
       <> int.to_string(contract_id)
-      <> ", 'Test Project', daterange('2026-01-01', NULL, '[)'))",
+      <> ", daterange('2026-01-01', NULL, '[)'))",
   )
   engineer_id
 }
@@ -781,17 +809,19 @@ pub fn sign_contract_then_start_project_within_term_persists_test() {
       #(
         read_periods(
           conn,
-          "contract",
+          "contract_terms",
           "client_id::text",
           "term",
           "client_id = " <> int.to_string(client_id),
         ),
+        // The project NAME is now project_profile.title and the active window is
+        // project_run.active_during, so read the two together joined on project_id.
         read_periods(
           conn,
-          "project",
-          "name",
-          "active_during",
-          "contract_id = " <> int.to_string(contract_id),
+          "(project_run JOIN project_current ON project_current.id = project_run.project_id) j",
+          "j.title",
+          "j.active_during",
+          "j.contract_id = " <> int.to_string(contract_id),
         ),
         list.map(read_journal(conn), fn(row) { row.operation }),
       )
@@ -846,7 +876,7 @@ fn contract_id_for_client(conn: pog.Connection, client_id: Int) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("SELECT id FROM contract WHERE client_id = $1")
+    pog.query("SELECT contract_id FROM contract_terms WHERE client_id = $1")
     |> pog.parameter(pog.int(client_id))
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
