@@ -199,7 +199,13 @@ Ecto/Ash would normally surface:
 |------|------|---------|
 | solid, labelled `FK` | **Plain foreign key** | child row references a parent **row** by id (ordinary referential integrity) |
 | solid, labelled `PERIOD FK` | **Temporal foreign key** | child's validity period must be **wholly contained** within a *matching* parent row's period, for the same key — the temporal containment chain (PRD FR-5). Enforced by `FOREIGN KEY (..., PERIOD x) REFERENCES parent (..., PERIOD y)` |
-| dashed, labelled `logical (no FK)` | **Reference not enforced by a constraint** | the id is real but there is no single-row parent to key against (a project/engineer *entity* spans many period-rows, or the value is a snapshot). `bin/erd` infers these from the `<table>_id` naming convention; integrity lives in the computing queries, not a constraint |
+| dashed, labelled `logical (no FK)` | **Reference not enforced by a constraint** | the id is real but there is no single-row parent to key against. `bin/erd` infers these from the `<table>_id` naming convention; integrity lives in the computing queries, not a constraint. **There are currently no instances** — every `<x>_id` column resolves to a real FK — but the kind is documented so a future unconstrained reference reads correctly |
+
+Every **entity is now an id-only anchor** (`engineer`, `client`, `contract`,
+`project`, `invoice`, `payroll_run` each hold nothing but a PK `id`); all of its
+attributes live in **fact tables** that reference the anchor's id. So almost every
+solid `FK` edge runs anchor → fact, and the diagram is overwhelmingly anchors and
+their facts.
 
 An attribute tagged `"WITHOUT OVERLAPS"` is the `daterange` period column of a
 **temporal primary key** — "at most one row per key per instant".
@@ -207,19 +213,21 @@ An attribute tagged `"WITHOUT OVERLAPS"` is the `daterange` period column of a
 The temporal containment chain, read top-down:
 
 ```
-contract ─▶ project ─┐
-                     ├─▶ allocation ─▶ timesheet
-engineer ─▶ employment ─┤
-                     ├─▶ engineer_role
-                     └─▶ leave
+contract_terms ─▶ project_run ─┬─▶ allocation ─▶ timesheet
+                               └─▶ invoice_subject
+employment ─────▶ allocation
+employment ─────▶ engineer_role
+employment ─────▶ leave
 ```
 
 So you can only allocate an engineer to a project over a window covered by
-**both** their employment **and** the project's active period; you can only log a
-timesheet day covered by an allocation; a project can only run within its
-contract's term. Each arrow is a `PERIOD FK` the database enforces on write. The
-financial layer joins the same way: `invoice ⊂ project` (an invoice's billing
-month must fall within the project's active period; migration `013`).
+**both** their employment **and** the project's run (`project_run.active_during`);
+you can only log a timesheet day covered by an allocation; a project can only run
+within its contract's term (`contract_terms.term`). Each arrow is a `PERIOD FK` the
+database enforces on write. The financial layer joins the same way:
+`invoice_subject ⊂ project_run` (an invoice's `billing_period` must fall within the
+project's run; migration `013`, re-pointed to `project_run` by the 016/017 anchor
+refactor).
 
 ## What the diagram can't show
 
@@ -231,32 +239,55 @@ A pure schema dump captures structure, not intent. Two things to know:
   `engineer_role × salary` for the cost — but there is no `level` table to draw a
   relationship to (it is a `CHECK (level BETWEEN 1 AND 7)`).
 - **No unenforced cross-references remain.** Migration `013` closed the former
-  gaps: `invoice.project_id` is now a PERIOD FK into `project` (keyed against
-  `project`'s temporal PK, since a plain FK to a multi-row temporal entity is
-  impossible), and the snapshot lines' `engineer_id`s are now plain FKs. So the
-  diagram currently has no dashed edges — but `bin/erd` would still draw any future
-  `<x>_id` column that lacks a foreign key as a dashed `logical (no FK)` edge,
-  inferred from the naming convention.
+  gaps: the invoice→project reference is now a PERIOD FK (today carried by
+  `invoice_subject.billing_period` into `project_run`'s temporal PK, since a plain FK
+  to a multi-row temporal entity is impossible), and the snapshot lines'
+  `engineer_id`s are now plain FKs. So the diagram currently has no dashed edges —
+  but `bin/erd` would still draw any future `<x>_id` column that lacks a foreign key
+  as a dashed `logical (no FK)` edge, inferred from the naming convention.
+- **Two read modes the schema doesn't label.** Both flavours of fact carry a
+  `daterange`, but the application reads them differently. **Valid-time facts**
+  (`employed_during`, `held_during`, `on_leave_during`, `allocated_during`, `term`,
+  `active_during`, `status_during`, `work_day`, `planned_during`, `effective_during`)
+  are read **as-of** a date — the slider asks for the version in force at that
+  instant. **Latest-read facts** name their period `recorded_during` (a
+  transaction-time character): the most-recently-effective row is current truth and
+  older rows are history; current value is exposed through the `*_current` views
+  (`engineer_current`, `client_current`, `project_current`). Which mode applies is a
+  property of the read, not visible in the DDL.
 
 ## Tables
 
+Latest-read facts (period `recorded_during`, read through a `*_current` view) are
+marked **[latest]**; everything else with a period is a valid-time fact read as-of.
+
 | Table | What it asserts | Period column |
 |-------|-----------------|---------------|
-| `engineer` | an engineer exists | — |
-| `client` | a client exists | — |
+| `engineer` | an engineer exists (id-only anchor) | — |
+| `client` | a client exists (id-only anchor) | — |
+| `contract` | a contract exists (id-only anchor) | — |
+| `project` | a project exists (id-only anchor) | — |
+| `invoice` | an invoice exists (id-only anchor) | — |
+| `payroll_run` | a payroll run exists (id-only anchor) | — |
+| `engineer_contact` **[latest]** | engineer's name + email/phone/postal as last recorded | `recorded_during` |
+| `engineer_banking` **[latest]** | engineer's bank/branch/account as last recorded | `recorded_during` |
+| `engineer_emergency` **[latest]** | engineer's emergency contact as last recorded | `recorded_during` |
+| `client_profile` **[latest]** | client's name as last recorded | `recorded_during` |
+| `project_profile` **[latest]** | project's title + summary as last recorded | `recorded_during` |
+| `project_plan` **[latest]** | project's budget + target completion as last planned | `planned_during` |
+| `contract_terms` | contract's engagement term for a client | `term` |
+| `project_run` | project runs under a contract | `active_during` |
+| `invoice_subject` | invoice's project + billing month (immutable 1:1) | `billing_period` |
+| `payroll_period` | payroll run's month, immutable 1:1 (`EXCLUDE` rejects overlapping runs) | `period` |
 | `employment` | engineer is employed | `employed_during` |
 | `engineer_role` | engineer is at level L | `held_during` |
 | `rate_card` | level L bills at this day-rate | `effective_during` |
-| `contract` | a client engagement term | `term` |
-| `project` | project runs under a contract | `active_during` |
 | `allocation` | engineer on project (fractional) | `allocated_during` |
 | `leave` | engineer on leave (overrides allocation in the read model) | `on_leave_during` |
 | `timesheet` | hours logged on a project on a day | `work_day` |
 | `salary` | level L is paid this monthly salary | `effective_during` |
-| `invoice` | an invoice exists (project + month) | `billing_period` |
 | `invoice_status` | invoice's draft→issued→paid lifecycle | `status_during` |
 | `invoice_line` | snapshotted billing line | — (plain rows) |
-| `payroll_run` | a payroll run for a month (`EXCLUDE` rejects overlapping runs) | `period` |
 | `payroll_line` | per-engineer payment for a run | — (plain rows) |
 | `event_log` | provenance journal (who did what, when) | — (`occurred_at` is system time) |
 

@@ -76,21 +76,30 @@ Software engineers are allocated (fractionally) to projects; each project runs u
 client; engineers hold a level (L1–L7) that changes on promotion and drives a charge rate; they take
 leave; and they log timesheets against the projects they are allocated to.
 
-Every time-varying thing is a **narrow fact** with its own validity period, and each period is
-**named for the predicate it asserts** (ADR-018) rather than a generic `valid_at`:
+Every entity is an **ID-only anchor** (`engineer`, `client`, `contract`, `project`); everything that
+varies is a **narrow fact** referencing the anchor, with its own validity period **named for the
+predicate it asserts** (ADR-018) rather than a generic `valid_at`. Facts come in two temporal
+flavours: **valid-time** facts read *as-of* a date (the slider reads the version in force), and
+**latest-read** facts (period `recorded_during`, transaction-time character) whose most-recently-
+effective row is current truth — exposed through `engineer_current` / `client_current` /
+`project_current` views and used for descriptive/contact detail:
 
 | fact | period column | the period means |
 |---|---|---|
 | `employment` | `employed_during` | the engineer is employed |
 | `engineer_role` | `held_during` | the engineer holds a level |
 | `rate_card` | `effective_during` | a level's day-rate is in effect |
-| `contract` | `term` | the engagement's term |
-| `project` | `active_during` | the project is active |
+| `contract_terms` | `term` | the engagement's term |
+| `project_run` | `active_during` | the project is active |
 | `allocation` | `allocated_during` | the engineer is assigned to a project |
 | `leave` | `on_leave_during` | the engineer is away |
 | `timesheet` | `work_day` | the day worked |
+| `engineer_contact` / `engineer_banking` / `engineer_emergency` | `recorded_during` | the engineer's contact / banking / emergency details as last recorded |
+| `client_profile` | `recorded_during` | the client's name as last recorded |
+| `project_profile` | `recorded_during` | the project's title + summary as last recorded |
+| `project_plan` | `planned_during` | the project's budget + target completion |
 
-(See `ARCHITECTURE.md` for the full schema.)
+(See `ARCHITECTURE.md` for the full schema and `SCHEMA.md` for the table/relationship map.)
 
 ## 5. The two axes — application time vs. system time
 
@@ -138,9 +147,13 @@ write model; the event-log panel shows the provenance of every change.
   console, each translating a business intent into the correct native temporal writes plus one
   `event_log` row, in a single transaction:
   - **Assert:** `onboard_engineer`, `sign_contract`, `start_project`, `assign_to_project`,
-    `take_leave`, `log_timesheet`.
+    `take_leave`, `log_timesheet`. Each anchor-minting assert (`onboard_engineer`, `sign_contract`,
+    `start_project`) inserts the ID-only anchor and opens its founding fact rows in one transaction.
   - **Change** (cap-and-split via `FOR PORTION OF … FROM effective TO NULL`): `promote`,
     `change_allocation_fraction`, `revise_rate_card` — "publish a new version effective from a date."
+  - **Latest-read edits** (append a new `recorded_during` row, newest wins): `UpdateContactDetails`,
+    `UpdateBankingDetails`, `UpdateEmergencyContact`, `UpdateClientProfile`, `UpdateProjectProfile`,
+    `UpdateProjectPlan` — revising descriptive/contact detail without a valid-time claim.
   - **Surgical** (`FOR PORTION OF … FROM a TO b`): `adjust_rate_for_portion` — bump a level's rate for
     a bounded window, splitting the row into before/during/after.
   - **Close / cascade** (`DELETE … FOR PORTION OF`): `roll_off`; `terminate_employment`, which caps
@@ -167,15 +180,15 @@ write model; the event-log panel shows the provenance of every change.
   row per *operation*, not per fact-row touched.
 - **FR-12 — Semantically-named validity periods.** Each fact's period is named for the predicate it
   asserts (§4), not a uniform `valid_at`.
-- **FR-13 — Seed as operations.** The seed dataset is a replayed *sequence of operations*, so it
-  exercises every operation and populates the event log with the founding history.
+- **FR-13 — Canonical seed.** The seed dataset is the `003_seed.sql` migration, with `bin/seed-invoices`
+  as the on-demand financial seed; together they establish the founding facts the operations build on.
 
 **Retained as a historical artifact:**
 
 - **FR-8 — Schema-evolution example.** The versioned `v1-wide → v2-split` redesign (a denormalized
-  `day_rate` cache coalesced away via `range_agg`, validated by the migration oracle) is **kept as
-  is** but is no longer the sole centerpiece (ADR-024). New operations target the clean (v2)
-  normalized schema where charge rate is derived from `engineer_role × rate_card`.
+  `day_rate` cache coalesced away via `range_agg`) is **kept as is** but is no longer the sole
+  centerpiece (ADR-024). New operations target the clean (v2) normalized schema where charge rate is
+  derived from `engineer_role × rate_card`.
 
 ## 8. Honest limitations (stated plainly)
 
@@ -205,14 +218,10 @@ Layered, each guarantee checked at the cheapest level that can prove it (detail 
    the covering version yet preserves a scheduled future one; `terminate_employment` cascade-caps and
    is *rejected* when a timesheet outlives the end date; a retroactive `revise_rate_card` covering a
    whole fact erases the prior value; `adjust_rate_for_portion` three-way split.
-3. **Seed-equivalence test** — the operation-built seed produces the expected board across a dense
-   date range (a mini-oracle that "seed-as-operations ≡ the intended data").
-4. **As-of query tests** — crafted seed + fixed dates → exact expected rows.
-5. **Codec round-trip tests** — `encode |> decode == value` for every shared API type, including
+3. **As-of query tests** — crafted seed + fixed dates → exact expected rows.
+4. **Codec round-trip tests** — `encode |> decode == value` for every shared API type, including
    `Command` and `Event`.
-6. **Migration oracle** — the retained `v1-wide → v2-split` property test (board equal for every
-   date) stays green through the rename.
-7. **End-to-end (Playwright)** — behaviour-driven: scrub the slider and assert what the user sees;
+5. **End-to-end (Playwright)** — behaviour-driven: scrub the slider and assert what the user sees;
    *and* perform an operation in the UI and assert the board re-renders and the event-log panel shows
    the entry.
 
@@ -228,7 +237,7 @@ asserted on (tests assert operation/summary/payload).
   by the PERIOD FKs when incomplete.
 - Changing a field in the `shared` types module (including `Command`/`Event`) breaks **both** server
   and client builds until reconciled.
-- The migration oracle and the Playwright suite (slider beats *and* operation beats) pass in CI.
+- The Playwright suite (slider beats *and* operation beats) passes in CI.
 - The whole stack — schema, write/read queries, API, UI — is typed with no `dynamic` escapes outside
   the decode boundary.
 

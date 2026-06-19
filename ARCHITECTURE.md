@@ -44,7 +44,7 @@ and `client/` — wired by path dependencies (no symlinks — portable on any cl
 ```
 bin/                          # thin task wrappers run from the repo root; each cd's
                               #   into the right package: db, migrate, serve, test,
-                              #   build, e2e, oracle, squirrel, up (one-shot stack),
+                              #   build, e2e, erd, squirrel, up (one-shot stack),
                               #   seed-invoices (on-demand demo financials seed)
 docker-compose.yml            # PG19 (tempo-db) on host port 5434
 plan/                         # phased build plan
@@ -55,7 +55,6 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
   src/
     tempo.gleam               #   server entrypoint (gleam run, Erlang target)
     tempo/
-      oracle.gleam            #   migration-oracle entrypoint (gleam run -m tempo/oracle)
       server/
         web/                  #   web layer (HTTP) — never imports sql
           router.gleam        #     routing + static serving; dispatches to handlers
@@ -71,10 +70,13 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
           response.gleam      #     json/error response helpers (leaf; shared by router + handlers)
         command.gleam         #   domain — Command dispatch seam: txn + route + persist
         operation.gleam       #   domain leaf — Event/OperationError, classify, try/run, date render
-        engineer.gleam        #   domain — onboard_engineer / promote / terminate_employment (cascade)
+        engineer.gleam        #   domain — onboard_engineer (mint anchor + open founding facts) / promote / terminate_employment (cascade)
+        engineer_details.gleam #  domain — UpdateContactDetails / UpdateBankingDetails / UpdateEmergencyContact (latest-read facts)
+        client_details.gleam  #   domain — UpdateClientProfile (latest-read fact)
+        project_details.gleam #   domain — UpdateProjectProfile / UpdateProjectPlan (latest-read facts)
         allocation.gleam      #   domain — assign_to_project / change_allocation_fraction / roll_off
         rate_card.gleam       #   domain — revise_rate_card / adjust_rate_for_portion (FOR PORTION OF)
-        engagement.gleam      #   domain — sign_contract / start_project
+        engagement.gleam      #   domain — sign_contract / start_project (each mints the anchor + opens its founding fact rows)
         leave.gleam           #   domain — take_leave
         salary.gleam          #   domain — set_salary (FOR PORTION OF, like rate_card)
         invoice.gleam         #   domain — draft_invoice / issue_invoice / pay_invoice
@@ -85,14 +87,17 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
         board.gleam           #   domain — board.snapshot (no wisp)
         timesheet.gleam       #   domain — form, log, WriteError (no wisp)
         context.gleam         #   pog connection pool
-        sql/                  #   Squirrel .sql sources → generated sql.gleam
+        sql/                  #   Squirrel .sql sources → generated sql.gleam; incl. the
+                              #     *_open/*_close edit-fact writers, the *_current view
+                              #     reads (engineer/client/project), and the anchor *_create
         migrate.gleam         #   numbered-migration runner (gleam run -m tempo/migrate)
-        seed.gleam            #   the seed as an ordered List(Command) replayed through dispatch
       seed_financials.gleam   #   on-demand demo financials seed (gleam run -m tempo/seed_financials)
-  test/                       #   constraint, operation, seed-equivalence, as-of, codec, financials, pnl, oracle helpers
+  test/                       #   constraint, operation, as-of, codec, financials, pnl, api, sql
   priv/
     migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql,
-                              #     011_event_log.sql, 012_financials.sql
+                              #     011_event_log.sql, 012_financials.sql, 013_financial_fks.sql,
+                              #     014_engineer_facts.sql, 015_client_facts.sql,
+                              #     016_contract_project_anchors.sql, 017_invoice_payroll_subjects.sql
     static/                   #   compiled client bundle (app.js) + index.html + styles/ (copied; gitignored)
 
 shared/                       # package `shared` — BOTH targets, target-agnostic
@@ -143,130 +148,75 @@ would keep the client JS build clean; see P4-T01 and ADR-014.) Splitting the pac
 - The **`e2e`** Playwright harness is target-agnostic Node and drives the running app over HTTP
   (`cd e2e && npx playwright test`), so it depends on no Gleam package at all.
 
-## 4. Data model (v2 — the target schema)
+## 4. Data model (anchors + facts)
 
-Two **identity** tables (durable referents) and eight **fact** tables, each valid over a `daterange`
-period **named for the predicate it asserts** (ADR-018) rather than a uniform `valid_at`. This is
-effectively 6NF: one fact per relation. A single append-only `event_log` table records system-time
-provenance *beside* the facts (§5a, ADR-021). The `PERIOD` foreign keys and `WITHOUT OVERLAPS`
-exclusion constraints carry **explicit names** so a violation classifies to a typed domain error
-(ADR-022).
+**`SCHEMA.md` is the authoritative table/relationship map** — it is regenerated from the live database
+by `bin/erd` (it reads `pg_catalog`), so the ER diagram there always reflects what the migrations
+actually built, including the temporal foreign keys. This section is the *why*; consult `SCHEMA.md`
+for the current column-level shape.
 
-```sql
--- Identity ------------------------------------------------------------------
-CREATE TABLE engineer (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL);
-CREATE TABLE client   (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL);
+Every entity is an **ID-ONLY anchor** — a durable referent with nothing but a primary key — and all of
+its attributes live in **edit-grouped fact tables** that reference the anchor's PK. There is no
+`updated_at` and no in-place mutation anywhere: a change is a new row (or a `FOR PORTION OF` split).
+Each fact is valid over a `daterange` period **named for the predicate it asserts** (ADR-018) rather
+than a uniform `valid_at`. A single append-only `event_log` table records system-time provenance
+*beside* the facts (§5a, ADR-021). The `PERIOD` foreign keys and `WITHOUT OVERLAPS` / `EXCLUDE`
+constraints carry **explicit names** so a violation classifies to a typed domain error (ADR-022).
 
--- Facts ---------------------------------------------------------------------
-CREATE TABLE employment (                       -- "engineer is employed"
-  engineer_id    int NOT NULL REFERENCES engineer(id),
-  employed_during daterange NOT NULL,
-  CONSTRAINT employment_no_overlap
-    PRIMARY KEY (engineer_id, employed_during WITHOUT OVERLAPS)
-);
+The anchors are `engineer`, `client`, `contract`, `project`, `invoice`, and `payroll_run` — all
+id-only. Their facts split into **two temporal flavours**, and the application chooses the read per
+query:
 
-CREATE TABLE engineer_role (                    -- "engineer holds level L"; promotion = new row
-  engineer_id int NOT NULL,
-  level       int NOT NULL CHECK (level BETWEEN 1 AND 7),
-  held_during daterange NOT NULL,
-  CONSTRAINT engineer_role_no_overlap
-    PRIMARY KEY (engineer_id, held_during WITHOUT OVERLAPS),
-  CONSTRAINT engineer_role_within_employment
-    FOREIGN KEY (engineer_id, PERIOD held_during)
-    REFERENCES employment (engineer_id, PERIOD employed_during)
-);
+- **Valid-time facts, read AS-OF a date.** The period is named for the world-predicate it asserts —
+  `employed_during`, `held_during`, `on_leave_during`, `allocated_during`, `term`, `active_during`,
+  `effective_during`, `status_during`, `work_day`, `planned_during` — and a query selects the version
+  *in force* on the as-of date with `<period> @> $when::date`. The slider reads the version in force.
+  These are the existence/containment facts and the versioned rates: `employment`, `engineer_role`,
+  `leave`, `allocation`, `rate_card`, `timesheet`, `salary`, `invoice_status`, plus the renamed
+  `contract_terms(contract_id, client_id, term)` and `project_run(project_id, contract_id,
+  active_during)` and the new `project_plan(budget, target_completion, planned_during)`.
+- **Latest-read facts** (transaction-time character), with the period named **`recorded_during`**. A
+  new edit is a new row covering `[effective, NULL)`; the **most-recently-effective** row is current
+  truth and the older rows are the history. The current value is exposed through `*_current` views
+  (`engineer_current`, `client_current`, `project_current`) — `DISTINCT ON (anchor_id) ORDER BY
+  lower(recorded_during) DESC`. These carry the descriptive / contact detail:
+  `engineer_contact(name, email, phone, postal_address)`, `engineer_banking`, `engineer_emergency`,
+  `client_profile(name)`, and `project_profile(title, summary)`.
 
-CREATE TABLE rate_card (                         -- L1–L7 charge rates, versioned over time
-  level           int NOT NULL CHECK (level BETWEEN 1 AND 7),
-  day_rate        numeric(10,2) NOT NULL,
-  effective_during daterange NOT NULL,
-  CONSTRAINT rate_card_no_overlap
-    PRIMARY KEY (level, effective_during WITHOUT OVERLAPS)  -- FOR PORTION OF target
-);
+A third, degenerate flavour: `invoice_subject(invoice_id, project_id, billing_period)` and
+`payroll_period(run_id, period)` are **immutable 1:1 facts** — a subject set once at draft / run, one
+row per anchor (keyed by the anchor PK, not a period PK), with no `*_current` view. Reads `INNER JOIN`
+the fact directly. `payroll_period` carries the no-overlap `EXCLUDE` that rejects overlapping runs.
 
-CREATE TABLE contract (                         -- "client engagement", a term
-  id        int NOT NULL,
-  client_id int NOT NULL REFERENCES client(id),
-  term      daterange NOT NULL,
-  CONSTRAINT contract_no_overlap
-    PRIMARY KEY (id, term WITHOUT OVERLAPS)
-);
+`engineer_role`, `rate_card`, `salary`, `invoice_line`, and `payroll_line` retain their pre-refactor
+shape; the structural change at 014–017 was confined to moving the anchors' own attributes out into
+the facts above. `event_log` is unchanged: an append-only journal, one row per applied operation,
+never referenced by the fact tables (no FKs in or out), so it constrains and contaminates nothing.
 
-CREATE TABLE project (                          -- "project runs under a contract"  (project ⊂ contract)
-  id           int NOT NULL,
-  contract_id  int NOT NULL,
-  name         text NOT NULL,
-  active_during daterange NOT NULL,
-  CONSTRAINT project_no_overlap
-    PRIMARY KEY (id, active_during WITHOUT OVERLAPS),
-  CONSTRAINT project_within_contract
-    FOREIGN KEY (contract_id, PERIOD active_during)
-    REFERENCES contract (id, PERIOD term)
-);
-
-CREATE TABLE allocation (                        -- "engineer on project" (fractional; ⊂ employment AND ⊂ project)
-  engineer_id     int NOT NULL,
-  project_id      int NOT NULL,
-  fraction        numeric(3,2) NOT NULL CHECK (fraction > 0 AND fraction <= 1),
-  allocated_during daterange NOT NULL,
-  CONSTRAINT allocation_no_overlap            -- no overlap per engineer+project
-    PRIMARY KEY (engineer_id, project_id, allocated_during WITHOUT OVERLAPS),
-  CONSTRAINT allocation_within_employment
-    FOREIGN KEY (engineer_id, PERIOD allocated_during)
-    REFERENCES employment (engineer_id, PERIOD employed_during),
-  CONSTRAINT allocation_within_project
-    FOREIGN KEY (project_id, PERIOD allocated_during)
-    REFERENCES project (id, PERIOD active_during)
-);
-
-CREATE TABLE leave (                            -- "engineer on leave" (⊂ employment; overrides allocation)
-  engineer_id   int NOT NULL,
-  kind          text NOT NULL,                  -- annual | sick | parental | …
-  on_leave_during daterange NOT NULL,
-  CONSTRAINT leave_no_overlap
-    PRIMARY KEY (engineer_id, on_leave_during WITHOUT OVERLAPS),
-  CONSTRAINT leave_within_employment
-    FOREIGN KEY (engineer_id, PERIOD on_leave_during)
-    REFERENCES employment (engineer_id, PERIOD employed_during)
-);
-
-CREATE TABLE timesheet (                         -- "hours logged"; a logged day must be covered by an allocation
-  engineer_id int NOT NULL,
-  project_id  int NOT NULL,
-  work_day    daterange NOT NULL,                -- a single day [d, d+1)
-  hours       numeric(4,2) NOT NULL CHECK (hours > 0 AND hours <= 24),
-  CONSTRAINT timesheet_no_overlap
-    PRIMARY KEY (engineer_id, project_id, work_day WITHOUT OVERLAPS),
-  CONSTRAINT timesheet_within_allocation
-    FOREIGN KEY (engineer_id, project_id, PERIOD work_day)
-    REFERENCES allocation (engineer_id, project_id, PERIOD allocated_during)
-);
-
--- Provenance (system time, beside the facts) --------------------------------
--- Append-only journal: one row per applied operation. Never referenced by the
--- fact tables (no FKs in or out), so it constrains and contaminates nothing.
-CREATE TABLE event_log (
-  id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- also the order applied
-  occurred_at timestamptz NOT NULL DEFAULT now(),  -- SYSTEM time: the real wall clock
-  actor       text  NOT NULL,                      -- who applied it (nominal; no auth)
-  operation   text  NOT NULL,                      -- command tag: 'promote', 'revise_rate_card', …
-  summary     text  NOT NULL,                      -- human-readable description
-  payload     jsonb NOT NULL                       -- the command's parameters (shared codecs)
-);
-```
+The migrations build this incrementally: `014_engineer_facts` and `015_client_facts` shed the anchor's
+`name` column into latest-read facts; `016_contract_project_anchors` renames the live `contract`/
+`project` fact tables out from under their old names (so the dependent `PERIOD` FKs follow by rename)
+and mints fresh id-only anchors above them, adding `project_profile`/`project_plan`;
+`017_invoice_payroll_subjects` moves the invoice subject and the payroll period into immutable 1:1
+facts (re-adding the FKs that keyed against the moved columns).
 
 ### PERIOD-FK containment chain
 
 ```
 leave  ──┐
          ├─▶ employment
-allocation ─┘        └─▶ project ─▶ contract
+allocation ─┘        └─▶ project_run ─▶ contract_terms
 engineer_role ─▶ employment
 timesheet ─▶ allocation
+invoice_subject ─▶ project_run
 ```
 
-End an engineer's `employment` and the database blocks any `allocation`/`leave`/`role` that would
-dangle past it (PRD FR-5).
+The temporal containment chain is now `contract_terms → project_run → allocation → timesheet`, and
+`employment → {engineer_role, leave, allocation}`, with `invoice_subject ⊂ project_run` (migration
+`013`/`017`). End an engineer's `employment` and the database blocks any `allocation`/`leave`/`role`
+that would dangle past it (PRD FR-5). The latest-read facts (`engineer_contact`, `client_profile`, …)
+are plain (non-PERIOD) FKs to the anchor and are deliberately **not** in this chain — an ex-employee
+still has a name and a bank account on file.
 
 ### `WITHOUT OVERLAPS` scoping
 
@@ -274,14 +224,18 @@ dangle past it (PRD FR-5).
 |---|---|---|
 | employment, engineer_role, leave | per `engineer_id` | one employment/level/leave at a time |
 | rate_card | per `level` | one rate per level at a time |
-| contract, project | per `id` | one row per entity per instant |
+| contract_terms, project_run | per `contract_id` / `project_id` | one row per entity per instant |
 | allocation | per `(engineer_id, project_id)` | concurrent projects allowed; no double-row for the same project |
 | timesheet | per `(engineer_id, project_id)` | one entry per project per day |
 
 ## 5. Key queries
 
-All temporal columns are `daterange`; the as-of predicate is `<period> @> $when::date`, where
-`<period>` is the table's semantically-named period column (§4).
+All valid-time columns are `daterange`; the as-of predicate is `<period> @> $when::date`, where
+`<period>` is the table's semantically-named period column (§4). Any read that surfaces an entity
+**name** joins the latest-read `*_current` view (`engineer_current`, `client_current`,
+`project_current`) instead of the old anchor column, `coalesce`-d so the `String` contract holds
+(Squirrel infers view columns nullable) — the projected JSON is byte-identical to the pre-refactor
+output. The query files are named `board_engaged.sql` / `board_unassigned.sql` / `board_leave.sql`.
 
 **Org board, as of a date.** The board is **three** as-of queries, one per `Engagement`
 variant of the shared `BoardRow`, merged and re-sorted by engineer name in
@@ -292,61 +246,65 @@ a single `LEFT JOIN` board query cannot represent the employed-but-unallocated r
 500s on those dates; see ADR-015. Each query therefore uses **`INNER JOIN`s only**, so
 every selected column is non-null and decodes without `Option` plumbing.
 
-1. `board_as_of` — the **engaged** slice: engineers `INNER JOIN`ed all the way through
-   `allocation → project → contract → client` and `engineer_role → rate_card`, so they are
-   employed *and* allocated as of the date. One row per (engineer × project). Engineers
-   with a covering `leave` fact are suppressed here (`NOT EXISTS`). Charge rate is the
-   two-hop `engineer_role × rate_card` join (ADR-009), exposed as a plain `day_rate` value
-   (ADR-013). → `OnProject`.
+1. `board_engaged` — the **engaged** slice: engineers `INNER JOIN`ed all the way through
+   `allocation → project_run → contract_terms` and `engineer_role → rate_card`, so they are
+   employed *and* allocated as of the date. The engineer/project/client **names** come from the
+   `*_current` views (the anchors are id-only), `coalesce`-d to satisfy the non-null `String`
+   contract. One row per (engineer × project). Engineers with a covering `leave` fact are suppressed
+   here (`NOT EXISTS`). Charge rate is the two-hop `engineer_role × rate_card` join (ADR-009), exposed
+   as a plain `day_rate` value (ADR-013). → `OnProject`.
 
    ```sql
-   SELECT e.name AS engineer, rl.level, pr.name AS project, cl.name AS client,
-          al.fraction, rc.day_rate,
-          lower(al.allocated_during) AS valid_from, upper(al.allocated_during) AS valid_to
-   FROM employment emp
-   JOIN engineer e       ON e.id = emp.engineer_id
-   JOIN engineer_role rl ON rl.engineer_id = e.id  AND rl.held_during      @> $1::date
-   JOIN rate_card rc     ON rc.level = rl.level     AND rc.effective_during @> $1::date
-   JOIN allocation al    ON al.engineer_id = e.id   AND al.allocated_during @> $1::date
-   JOIN project pr       ON pr.id = al.project_id   AND pr.active_during    @> $1::date
-   JOIN contract ct      ON ct.id = pr.contract_id  AND ct.term            @> $1::date
-   JOIN client cl        ON cl.id = ct.client_id
-   WHERE emp.employed_during @> $1::date
-     AND NOT EXISTS (SELECT 1 FROM leave lv
-                     WHERE lv.engineer_id = e.id AND lv.on_leave_during @> $1::date)
-   ORDER BY e.name, pr.name;
+   SELECT coalesce(engineer.name, '') AS engineer, engineer_role.level,
+          coalesce(project.title, '') AS project, coalesce(client.name, '') AS client,
+          allocation.fraction, rate_card.day_rate,
+          lower(allocation.allocated_during) AS valid_from,
+          upper(allocation.allocated_during) AS valid_to
+   FROM employment
+   JOIN engineer_current engineer ON engineer.id = employment.engineer_id
+   JOIN engineer_role  ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
+   JOIN rate_card      ON rate_card.level = engineer_role.level   AND rate_card.effective_during @> $1::date
+   JOIN allocation     ON allocation.engineer_id = engineer.id    AND allocation.allocated_during @> $1::date
+   JOIN project_run    ON project_run.project_id = allocation.project_id AND project_run.active_during @> $1::date
+   JOIN project_current project ON project.id = project_run.project_id
+   JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id AND contract_terms.term @> $1::date
+   JOIN client_current client ON client.id = contract_terms.client_id
+   WHERE employment.employed_during @> $1::date
+     AND NOT EXISTS (SELECT 1 FROM leave
+                     WHERE leave.engineer_id = engineer.id AND leave.on_leave_during @> $1::date)
+   ORDER BY engineer.name, project.title;
    ```
 
-2. `board_unassigned_as_of` — employed, **not** allocated and **not** on leave as of the
+2. `board_unassigned` — employed, **not** allocated and **not** on leave as of the
    date. `INNER JOIN engineer_role` keeps `level` non-null (an employed engineer always has
-   a role in the seed). Returns just `(engineer, level)`. → `Unassigned`.
+   a role in the seed). Name from `engineer_current`. Returns just `(engineer, level)`. → `Unassigned`.
 
    ```sql
-   SELECT e.name AS engineer, rl.level
-   FROM employment emp
-   JOIN engineer e       ON e.id = emp.engineer_id
-   JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.held_during @> $1::date
-   WHERE emp.employed_during @> $1::date
-     AND NOT EXISTS (SELECT 1 FROM allocation al
-                     WHERE al.engineer_id = e.id AND al.allocated_during @> $1::date)
-     AND NOT EXISTS (SELECT 1 FROM leave lv
-                     WHERE lv.engineer_id = e.id AND lv.on_leave_during @> $1::date)
-   ORDER BY e.name;
+   SELECT coalesce(engineer.name, '') AS engineer, engineer_role.level
+   FROM employment
+   JOIN engineer_current engineer ON engineer.id = employment.engineer_id
+   JOIN engineer_role ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
+   WHERE employment.employed_during @> $1::date
+     AND NOT EXISTS (SELECT 1 FROM allocation
+                     WHERE allocation.engineer_id = engineer.id AND allocation.allocated_during @> $1::date)
+     AND NOT EXISTS (SELECT 1 FROM leave
+                     WHERE leave.engineer_id = engineer.id AND leave.on_leave_during @> $1::date)
+   ORDER BY engineer.name;
    ```
 
-3. `board_leave_as_of` — exactly the engineers a covering `leave` fact hides from
-   `board_as_of`. Leave overrides the engagement: the underlying allocation is deliberately
+3. `board_leave` — exactly the engineers a covering `leave` fact hides from
+   `board_engaged`. Leave overrides the engagement: the underlying allocation is deliberately
    not joined. The level is still resolved (for the charge story). Returns
    `(engineer, level, kind, valid_from, valid_to)`. → `OnLeave`.
 
    ```sql
-   SELECT e.name AS engineer, rl.level, lv.kind,
-          lower(lv.on_leave_during) AS valid_from, upper(lv.on_leave_during) AS valid_to
-   FROM leave lv
-   JOIN engineer e            ON e.id = lv.engineer_id
-   LEFT JOIN engineer_role rl ON rl.engineer_id = e.id AND rl.held_during @> $1::date
-   WHERE lv.on_leave_during @> $1::date
-   ORDER BY e.name;
+   SELECT coalesce(engineer.name, '') AS engineer, engineer_role.level, leave.kind,
+          lower(leave.on_leave_during) AS valid_from, upper(leave.on_leave_during) AS valid_to
+   FROM leave
+   JOIN engineer_current engineer ON engineer.id = leave.engineer_id
+   LEFT JOIN engineer_role ON engineer_role.engineer_id = engineer.id AND engineer_role.held_during @> $1::date
+   WHERE leave.on_leave_during @> $1::date
+   ORDER BY engineer.name;
    ```
 
 Range columns are decomposed to plain `date`s at the boundary (ADR-011):
@@ -355,10 +313,11 @@ Range columns are decomposed to plain `date`s at the boundary (ADR-011):
 **Timesheet form — my allocations as of a day** (only projects I'm on; blank when on leave):
 
 ```sql
-SELECT pr.id AS project_id, pr.name AS project, al.fraction,
+SELECT al.project_id, coalesce(pc.title, '') AS project, al.fraction,
        COALESCE(ts.hours, 0) AS hours
 FROM allocation al
-JOIN project pr ON pr.id = al.project_id AND pr.active_during @> $2::date
+JOIN project_run pr  ON pr.project_id = al.project_id AND pr.active_during @> $2::date
+JOIN project_current pc ON pc.id = al.project_id
 LEFT JOIN timesheet ts ON ts.engineer_id = al.engineer_id
                       AND ts.project_id  = al.project_id
                       AND ts.work_day @> $2::date
@@ -366,6 +325,10 @@ WHERE al.engineer_id = $1 AND al.allocated_during @> $2::date
   AND NOT EXISTS (SELECT 1 FROM leave lv
                   WHERE lv.engineer_id = $1 AND lv.on_leave_during @> $2::date);
 ```
+
+The implemented timesheet read (`timesheet_week.sql`) is the Mon–Sun week grid — one row per
+(project, day), with each day's allocation coverage and any hours logged — built over the same
+joins; the single-day shape above is the illustrative core.
 
 **Timesheet write** — the `PERIOD` FK rejects a day not covered by an allocation:
 
@@ -386,9 +349,10 @@ server decodes the same value), applied through one seam. Reading (§5) is a tri
 the modeling lives here.
 
 **`command.dispatch(context, actor, command)`** opens one `pog.transaction` and does *only* two
-things: **route** the command to its aggregate's `handle` (`engineer`, `allocation`, `rate_card`,
-`engagement`, `leave`, `timesheet`, `salary`, `invoice`, `payroll` — variants grouped per aggregate
-by alternative patterns), and **persist** each event the handler returns via `event.append` (a
+things: **route** the command to its aggregate's `handle` (`engineer`, `engineer_details`,
+`client_details`, `project_details`, `allocation`, `rate_card`, `engagement`, `leave`, `timesheet`,
+`salary`, `invoice`, `payroll` — variants grouped per aggregate by alternative patterns), and
+**persist** each event the handler returns via `event.append` (a
 `list.try_map`, classifying any rejection). Facts and journal commit together or not at all.
 `dispatch` **returns the created events** (the persisted `List(Event)`, with their minted
 id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest round-trip.
@@ -399,7 +363,9 @@ can drive it inside its own rolled-back transaction.
 variant it owns to a **named per-operation function** (`onboard_engineer`, `promote`,
 `terminate_employment`; `assign_to_project`, `change_allocation_fraction`, `roll_off`;
 `revise_rate_card`, `adjust_rate_for_portion`; `sign_contract`, `start_project`; `take_leave`;
-`set_salary`; `log_timesheet`; `draft_invoice`, `issue_invoice`, `pay_invoice`; `run_payroll`) and
+`set_salary`; `log_timesheet`; `draft_invoice`, `issue_invoice`, `pay_invoice`; `run_payroll`;
+`update_contact_details`, `update_banking_details`, `update_emergency_contact`,
+`update_client_profile`, `update_project_profile`, `update_project_plan`) and
 **panics** on any other variant (`panic as "<aggregate>.handle: … (dispatch bug)"`) — an unrouted
 command is a routing bug, never a silent `Ok`. The standalone `events(command)` function is **gone**
 from every aggregate.
@@ -429,8 +395,21 @@ cap-and-insert and no empty-period bookkeeping.
 
 **1. Assert** (`onboard_engineer`, `sign_contract`, `start_project`, `assign_to_project`,
 `take_leave`, `log_timesheet`) — plain `INSERT`, open-ended where the fact is ongoing
-(`employed_during = daterange($start, NULL, '[)')`). `onboard_engineer` is three inserts in one txn
-(identity → employment → role), each contained in the last by its `PERIOD` FK.
+(`employed_during = daterange($start, NULL, '[)')`). Under the anchor/fact split these create-ops now
+**mint the id-only anchor and open the founding fact rows** in one txn: `onboard_engineer` inserts the
+`engineer` anchor → `employment` → `engineer_role` → the `engineer_contact` founding row;
+`sign_contract` inserts the `contract` anchor → opens `contract_terms`; `start_project` inserts the
+`project` anchor → opens `project_run` → `project_profile` → `project_plan`. Each valid-time child is
+contained in the last by its `PERIOD` FK.
+
+**1b. Edit (latest-read Change)** (`update_contact_details`, `update_banking_details`,
+`update_emergency_contact`, `update_client_profile`, `update_project_profile`, `update_project_plan`)
+— the write to a `recorded_during` (or `planned_during`) fact is a Change in one statement, the same
+`FOR PORTION OF` shape as pattern 2: a `*_revise.sql` re-sets the `[effective, NULL)` portion of the row
+covering `effective`, and PG carves off the unchanged `[start, effective)` remainder, so the
+`*_current` view's most-recently-effective pick advances. The founding row is opened at the create-op
+(1a), so a covering row always exists. These do not appear on the board's valid-time reads; they feed
+the descriptive/contact detail and the engineer/client/project name reads.
 
 **2. Change** (`promote`, `change_allocation_fraction`, `revise_rate_card`) — one statement, no read:
 
@@ -516,61 +495,49 @@ success refetches the relevant reads (board / timesheet form / roster / events) 
   Squirrel-typed). De-risked first in the implementation plan.
 - After any migration, regenerate `sql.gleam`; broken queries fail to compile (PRD §1 thesis).
 
-## 7. Schema evolution (the centerpiece)
+## 7. Schema evolution (the anchor/fact refactor)
 
-**v1 (`v1-wide`)** caches a `day_rate` on `allocation` — "so billing didn't have to join
-`engineer_role × rate_card`." Every rate change or promotion therefore *fragments* allocation
-history into adjacent rows that differ only by the cached rate.
+The schema's current shape is the **anchor + fact** model of §4 — see `SCHEMA.md` for the live
+table/relationship map. It was reached by an ordered chain of in-tree migrations, the last four of
+which (`014`–`017`) performed the **anchor/fact split**: every entity became an id-only anchor and its
+attributes moved into edit-grouped fact tables. The constraints are what make each step safe.
 
-**v2 (`v2-split`)** removes the cache (rate is derived from `engineer_role × rate_card`) and
-**coalesces** the fragmented allocations back into whole engagements:
+**The constraints validate the migration.** Each migration runs in one transaction; the `WITHOUT
+OVERLAPS` PKs and the `PERIOD` FKs reject a bad transform *inside* it — the database is the migration's
+own test harness. Two mechanics carry the 014–017 split with minimal risk:
 
-```sql
-BEGIN;
-CREATE TABLE allocation_v2 (LIKE allocation INCLUDING ALL);  -- without the day_rate column
-ALTER TABLE allocation_v2 DROP COLUMN day_rate;
+- **Rename carries the PERIOD FKs.** `016` does not drop and re-add the temporal foreign keys into
+  `contract`/`project`; it **renames** the live fact tables (`contract → contract_terms`, `project →
+  project_run`) and their id columns, so the dependent `PERIOD` FKs (`project_within_contract`,
+  `allocation_within_project`, `invoice_within_project`) re-point by rename. A fresh id-only anchor is
+  then minted above each from the distinct ids, with a plain FK back.
+- **Seed flows the founding fact.** Where an anchor sheds a column (`014`/`015`/`016`), the old column
+  and the new fact table coexist in the same migration (the `DROP COLUMN` is last), so the founding
+  `name`/`title` flows straight from the anchor into the fact — guaranteeing the post-refactor reads
+  expose the **same** name strings the board/financials JSON exposed before. **External JSON
+  (board/financials) is byte-identical** across the refactor.
 
--- range_agg merges adjacent+overlapping periods, preserving genuine gaps;
--- grouping by fraction keeps a fraction change a real boundary, while a
--- rate-only change (not in the group key) is coalesced away.
-INSERT INTO allocation_v2 (engineer_id, project_id, fraction, allocated_during)
-SELECT engineer_id, project_id, fraction, unnest(range_agg(allocated_during))
-FROM allocation
-GROUP BY engineer_id, project_id, fraction;
+`017` is the one step where columns **move tables** rather than rename in place (the invoice subject
+and the payroll period become immutable 1:1 facts), so the constraints that keyed against the moved
+columns are dropped from the anchor and re-added on the fact — including the payroll no-overlap
+`EXCLUDE`, which now lives on `payroll_period`.
 
-DROP TABLE allocation;
-ALTER TABLE allocation_v2 RENAME TO allocation;
-COMMIT;
-```
-
-**The constraints validate the migration.** The new `WITHOUT OVERLAPS` PK and the PERIOD FKs reject
-a bad transform *inside the transaction* — the database is the migration's test harness.
-
-**The slider is the correctness oracle.** Charge rate in v1 is `allocation.day_rate`; in v2 it is
-`engineer_role × rate_card`. The seed data is constructed so the cached rate always equalled the
-rate card (it was a redundant cache), so for **every** date the board's project/client/fraction/rate
-are identical before and after. Proven on stage by scrubbing across the migration boundary.
-
-> Seed invariant: for every allocation row, `day_rate` == `rate_card[engineer_role.level]` for the
-> overlapping period. The seed generator must guarantee this.
+`010_split_allocation` remains in the chain: it removed an earlier denormalized `day_rate` cache from
+`allocation` and `range_agg`-coalesced the fragmented rows, with charge rate thereafter derived from
+the two-hop `engineer_role × rate_card` join (§5). The slider scrubbing across any of these boundaries
+is the on-stage correctness demonstration.
 
 ## 8. Migrations mechanism
 
-- Numbered, hand-written SQL in `server/priv/migrations/` (`NNN_description.sql`), applied in order.
+- Numbered, hand-written SQL in `server/priv/migrations/` (`NNN_description.sql`), applied in order —
+  currently `001`–`017` (`SCHEMA.md` is regenerated from the resulting live DB by `bin/erd`).
 - `server/src/tempo/server/migrate.gleam` runs pending files in a transaction and records them in a
   `schema_migrations(version text primary key, applied_at timestamptz)` table.
-- Git tags mark schema generations: `v1-wide`, `v2-split`. The presenter does
-  `git checkout v2-split && gleam run -m tempo/migrate && <rebuild client>`. Squirrel-generated code
-  and shared types are committed at each tag, so the checked-out tree is internally consistent.
-- **Semantic period rename is done in place** in the existing migration files (`002`, `010`), *not*
-  as a new migration layered on top (ADR-018). The oracle replays the migrations and runs the
-  production board SQL, so a rename-on-top would run pre-rename generations against post-rename query
-  text. The `v1-wide`/`v2-split` *git tags* are historical commits and stay untouched; `main` uses
-  one consistent naming throughout.
-- **Two seed paths.** The running app's clean-schema data is produced by replaying the operations
-  seed (`seed.gleam`, ADR-023), which also populates the `event_log` with the founding history. The
-  hand-written `003_seed.sql` is retained as the **v1 fixture for the migration oracle** (it seeds
-  the wide schema that `010` coalesces), per ADR-024.
+- **Semantic period renames are done in place** in the existing migration files (`002`, `010`), *not*
+  as a new migration layered on top (ADR-018), so `main` uses one consistent naming throughout.
+- **Seed.** `003_seed.sql` is the canonical seed, run as part of the migration chain; the later
+  migrations (`014`–`017`) thread the founding facts off it as they reshape the schema (§7).
+  `bin/seed-invoices` is the separate on-demand financial seed (§9, §12.5).
 
 ## 9. Build & run
 
@@ -608,17 +575,17 @@ cd server && gleam run -m tempo/seed_financials     # bin/seed-invoices
 
 ## 10. Testing
 
-Layered — each guarantee verified at the cheapest level that can prove it. The Gleam layers (112
+Layered — each guarantee verified at the cheapest level that can prove it. The Gleam layers (129
 tests) follow strict TDD (`todo` stubs first, `assert expr == expected`, deterministic seed values);
-the migration oracle and 15 Playwright specs sit on top.
+14 Playwright specs sit on top.
 
 **1. Temporal-constraint tests** (Gleam + pog against an ephemeral PG19). Prove the database, not the
 app, enforces the rules. Each asserts the expected rejection or split, **and** that the rejection
 classifies to the right typed `OperationError` (ADR-022):
   - `WITHOUT OVERLAPS` rejects an overlapping `allocation` for the same `(engineer, project)`.
   - PERIOD FKs reject: an `allocation`/`leave`/`engineer_role` extending past `employment`; an
-    `allocation` outside its `project`; a `project` outside its `contract`; a `timesheet` against a
-    project not allocated that day.
+    `allocation` outside its `project_run`; a `project_run` outside its `contract_terms`; a
+    `timesheet` against a project not allocated that day.
   - `FOR PORTION OF` splits a `rate_card` row into the expected before/during/after sub-periods.
   - `range_agg` coalescing produces the expected merged ranges (and preserves real gaps).
 
@@ -633,36 +600,12 @@ explicitly:
     temporal leftovers).
   - `adjust_rate_for_portion` produces the expected before/during/after split.
 
-**3. Seed-equivalence test.** Replay the operations seed (`seed.gleam`) and assert the board matches a
-reference snapshot across a dense date range — a mini-oracle that "seed-as-operations ≡ the intended
-data," and incidentally exercises every operation end to end.
+**3. As-of query tests.** Crafted seed + fixed dates → exact expected board / timesheet-form rows.
 
-**4. As-of query tests.** Crafted seed + fixed dates → exact expected board / timesheet-form rows.
-
-**5. Codec round-trip tests.** `encode |> decode == value` for every shared API type — including
+**4. Codec round-trip tests.** `encode |> decode == value` for every shared API type — including
 `Command` and `Event` — pure Gleam, runs on both targets.
 
-**6. Migration oracle** (retained, §7). Automates the on-stage claim:
-
-```
-seed v1  →  snapshot board for every date in a dense range  →  apply 010_split_allocation
-         →  re-snapshot  →  assert equal for every date
-```
-
-Makes "history is provably intact" a CI gate, not a hope. Implemented as
-`tempo/oracle` and run **in isolation** — `gleam run -m tempo/oracle` — because it
-drops and rebuilds the `public` schema (a fresh v1 seed) and so cannot share the
-`gleam test` DB. It samples every day of the seed span (2024-01-01 .. 2026-12-31)
-and compares the *user-visible* board only (engineer/level/project/client/
-fraction/rate); the engagement window `valid_from`/`valid_to` is deliberately
-excluded because the coalesce is supposed to merge it (§7) and the client never
-shows it. To stay faithful, the snapshot runs the production `board_as_of.sql`
-text (no re-typed query) and renders each date's board NULL-tolerantly, handling
-the employed-but-unallocated row. It exits non-zero (panics) on the first
-differing date and leaves the DB at v2-split (same end state as
-`gleam run -m tempo/migrate`).
-
-**7. End-to-end (Playwright, 15 specs across four files).** Drives the real app — Wisp serving the
+**5. End-to-end (Playwright, 14 specs across four files).** Drives the real app — Wisp serving the
 Lustre SPA against a migrated+seeded PG19. **Behaviour-driven**: assert what the user sees, never CSS
 classes / ids / DOM structure. Each panel is a named region (`role=region`, e.g. "My timesheet",
 "Operations console") so a query scoped to it is unambiguous even where two panels share a control
@@ -681,13 +624,11 @@ lookup is scoped to its region. One test per read beat *and* per operation beat 
   - `financials.spec.js` — draft then issue an invoice → its total appears in the P&L revenue; scrub the
     slider before the issue date → the invoice shows as `draft` again.
 
-**Schema-version-agnostic suite.** The Playwright suite is a behavioural contract that must be green
-on **both** `v1-wide` and `v2-split`, *unmodified*. The v1 seed is the single source of truth; the
-v2 state is produced by **running the migration on the v1 seed**, so "same suite, both tags" also
-exercises the migration end-to-end and proves at the UI layer that observable behaviour is
-unchanged. Because the tests assert only what the user sees, this holds by construction — never
-assert on the denormalized rate source or any table shape that differs between versions. Playwright
-is written and maintained continuously through development, not added at the end.
+**Behavioural contract.** The Playwright suite asserts only what the user sees — never a table shape,
+the rate source, or any internal that the anchor/fact refactor (§7) moved. Because the migrations
+thread the founding facts so the board/financials JSON is byte-identical across the refactor, the
+suite holds by construction over the migrated+seeded schema. Playwright is written and maintained
+continuously through development, not added at the end.
 
 **Determinism.** Valid-time "now" is a fixed seed date, not the system clock; the seed uses explicit
 names/dates/rates (no factory sequences in assertions), so every layer is reproducible.
@@ -696,9 +637,8 @@ never on the timestamp.
 
 **Provisioning / CI.** Ephemeral PG19 per run (container / CI service). `.github/workflows/test.yml`
 runs each step in its package's working directory: provision PG19 → `gleam test` (layers 1–4) in
-`server/` → build the client in `client/` (bundle → `../server/priv/static`) → run the oracle in
-`server/` → seed `v1-wide` and run `npx playwright test` in `e2e/` → apply the migration to that data
-(`v2-split`) and run the **same** suite again. Both Playwright passes must be green.
+`server/` → build the client in `client/` (bundle → `../server/priv/static`) → migrate + seed and run
+`npx playwright test` (layer 5) in `e2e/`.
 
 ## 11. Open spikes (resolve during planning)
 
@@ -714,16 +654,20 @@ runs each step in its package's working directory: provision PG19 → `gleam tes
 
 Money layered on the temporal staffing model (`PRD-financials.md`): same stack, same discipline —
 writes through the command bus (§5a), reads as as-of queries (§5). Migration **`012_financials.sql`
-is additive** over the v2-split schema; the migration oracle (§10.6) applies only `001`–`003` + `010`
-and **does not run `012`**, so its v1→v2 board replay is untouched by the financial tables.
+is additive** over the staffing schema; `013_financial_fks.sql` then closed the financial layer's
+cross-references, and `017` reshaped invoice/payroll_run into anchors + facts (§4, §7). See `SCHEMA.md`
+for the resulting financial tables.
 
 ### 12.1 Schema (the new tables)
 
 Same naming discipline as §4: periods named for the predicate they assert (ADR-018), `WITHOUT
 OVERLAPS` and `CHECK` constraints carry explicit names so a violation classifies to a typed
-`OperationError` (ADR-022). One **cost fact** (`salary`), one **identity + temporal-status** trio
-(`invoice` / `invoice_status` / `invoice_line`), and one **run** pair (`payroll_run` /
-`payroll_line`).
+`OperationError` (ADR-022). One **cost fact** (`salary`); an invoice **anchor** (`invoice`) with its
+immutable subject (`invoice_subject`), temporal status (`invoice_status`), and snapshot lines
+(`invoice_line`); and a payroll **anchor** (`payroll_run`) with its immutable period
+(`payroll_period`) and lines (`payroll_line`). The DDL below shows the original `012` shape; `017`
+later split the invoice subject and the payroll period into the immutable 1:1 facts (§4, §7) — see
+`SCHEMA.md` for the current shape.
 
 ```sql
 -- Cost rate (the analogue of rate_card: what we PAY a level, vs what we CHARGE) --
@@ -769,25 +713,29 @@ CREATE TABLE payroll_line (
 );
 ```
 
-**No cross-entity PERIOD FKs** (PRD-financials §3, §8). An invoice references a project *entity* id
-which — like `contract` — has no single-row identity table to key against, so containment between the
-financial rows and the staffing facts lives in the **computing queries** (§12.2–12.4), not the
-schema. What *can* be enforced is: the `invoice_status` and `salary` `WITHOUT OVERLAPS` exclusions,
-the status `CHECK`, and the plain `REFERENCES invoice(id)` on the status/line children. `salary` is
-revised exactly like `rate_card` — `salary_revise.sql` is a `FOR PORTION OF effective_during FROM
-$effective TO NULL` Change (§5a pattern 2), and `SetSalary` is its command.
+**Cross-entity containment is now enforced.** As shipped in `012` the financial rows held no
+cross-entity PERIOD FKs — an invoice referenced a project *entity* id with no single-row table to key
+against, so containment lived only in the computing queries (§12.2–12.4). `013_financial_fks.sql` then
+closed those gaps, and `017` carried the constraint to its current home: `invoice_subject.project_id`
+is a **PERIOD FK** into `project_run` (keyed against the project's temporal PK), so an invoice's
+billing month must fall within the project's active period, and the snapshot lines' `engineer_id`s are
+plain FKs. So `SCHEMA.md` has no dashed `logical (no FK)` edges. Also enforced: the `invoice_status`
+`WITHOUT OVERLAPS` exclusion, the `salary` exclusion, the status `CHECK`, the `payroll_period`
+no-overlap `EXCLUDE`, and the plain `REFERENCES` on the status/line children. `salary` is revised
+exactly like `rate_card` — `salary_revise.sql` is a `FOR PORTION OF effective_during FROM $effective
+TO NULL` Change (§5a pattern 2), and `SetSalary` is its command.
 
 ### 12.2 Agreed-rate billing (`invoice_billing_lines.sql`, FR-F1/F2 — the centerpiece)
 
-`DraftInvoice(project_id, month)` mints the invoice identity, opens its `draft` status, and computes
-its lines once (snapshotted). The temporal point is **which `rate_card` version to read**: the
-`day_rate` is `rate_card[level] @> lower(contract.term)` — the rate as of the **contract's signing
-date** — **not** `rate_card @> month`. If the rate card was revised after the contract was signed, the
-invoice still bills the older *agreed* rate, so the board's as-of-today charge rate and an invoice's
-billed rate visibly diverge once a `ReviseRateCard` has landed.
+`DraftInvoice(project_id, month)` mints the invoice anchor, opens its `draft` status and immutable
+`invoice_subject`, and computes its lines once (snapshotted). The temporal point is **which `rate_card`
+version to read**: the `day_rate` is `rate_card[level] @> lower(contract_terms.term)` — the rate as of
+the **contract's signing date** — **not** `rate_card @> month`. If the rate card was revised after the
+contract was signed, the invoice still bills the older *agreed* rate, so the board's as-of-today charge
+rate and an invoice's billed rate visibly diverge once a `ReviseRateCard` has landed.
 
-The query pins `agreed_date = lower(contract.term)` for the one contract active over the month
-(`project ⊂ contract`, both `&&` the month), then per line:
+The query pins `agreed_date = lower(contract_terms.term)` for the one contract active over the month
+(`project_run ⊂ contract_terms`, both `&&` the month), then per line:
 
 - the billable sub-period is the **three-way intersection** (`*`) of `allocation`, the
   `engineer_role` (level) version, and the month — so a **mid-month promotion splits** the work into

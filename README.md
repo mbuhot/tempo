@@ -72,32 +72,35 @@ bin/serve                    # cd server && gleam run
 bin/test                     # cd server && gleam test && gleam format --check src test
 ```
 
-### Migration oracle (board provably identical across v1 → v2)
+### Schema: anchors + edit-grouped facts
 
-The standout automated check (ARCHITECTURE.md §7, §10.6): it seeds a **fresh
-v1-wide** database, snapshots the org board for **every day** of the seed span
-(2024-01-01 .. 2026-12-31, 1096 dates), applies the `010_split_allocation`
-migration, re-snapshots, and asserts the user-visible board
-(engineer / level / project / client / fraction / charge rate) is **identical
-for every date** — failing loudly with the first differing date. It compares the
-user-visible columns only: the engagement window (`valid_from`/`valid_to`) is
-expected to change, because coalescing fragmented allocations into whole
-engagements is the whole point of the migration, and the client never renders it.
+Every entity is an **ID-only anchor** (`engineer`, `client`, `contract`,
+`project`, `invoice`, `payroll_run` are bare `id` rows); all attributes live in
+**fact tables** keyed to the anchor. Facts come in two temporal flavours, and the
+read chosen per query:
 
-It is **not** part of `gleam test`: it drops and rebuilds the `public` schema,
-which would tear down the seed the rest of the suite relies on. Run it on its own.
-It rebuilds a fresh pre-migration schema and applies only `001`–`003` + `010`, so
-it leaves the dev DB at the **v2-split** schema but **without** the later
-`011_event_log` table (it stops at the migration reveal). To get back to the full
-demo state — including the event log the operations console writes to — re-run
-`gleam run -m tempo/migrate` afterward, which applies the pending `011`:
+- **Valid-time facts**, read **AS-OF** the slider date (period named for what it
+  asserts: `employed_during`, `held_during`, `on_leave_during`, `allocated_during`,
+  `term`, `active_during`, `effective_during`, `status_during`, `work_day`,
+  `planned_during`) — the version in force on that date.
+- **Latest-read facts** (descriptive / contact detail), period named
+  `recorded_during`: append-only, the most-recently-effective row is current
+  truth and older rows are history. Current value is exposed via the `*_current`
+  views (`engineer_current`, `client_current`, `project_current`).
 
-```sh
-docker compose up -d                                      # PG19
-cd server && gleam run -m tempo/oracle                    # exits 0 on PASS, non-zero on a mismatch
-cd server && gleam run -m tempo/migrate                   # re-apply 011_event_log → full demo state
-# or: bin/oracle then bin/migrate
-```
+The new fact tables are `engineer_contact` / `engineer_banking` /
+`engineer_emergency`, `client_profile`, `contract_terms`, `project_run`,
+`project_profile`, `project_plan` (all of the above flavours), plus the immutable
+1:1 `invoice_subject` and `payroll_period` (the latter carries the no-overlap
+`EXCLUDE`). Writes flow through the command bus as temporal `Change`s
+(`UpdateContactDetails`, `UpdateBankingDetails`, `UpdateEmergencyContact`,
+`UpdateClientProfile`, `UpdateProjectProfile`, `UpdateProjectPlan`); `sign_contract`
+/ `start_project` / `onboard_engineer` mint the anchor and open its founding fact
+rows. The temporal containment chain is now
+`contract_terms → project_run → allocation → timesheet` and
+`employment → {engineer_role, leave, allocation}`, with `invoice_subject ⊂
+project_run`. See `SCHEMA.md` (regenerated from the live DB by `bin/erd`) for the
+full table/relationship map.
 
 ### Client (Lustre SPA)
 
@@ -145,14 +148,12 @@ containment-violating operation that surfaces a typed rejection to the user — 
 the financials view (`financials.spec.js`): drafting then issuing an invoice and
 watching its total land in the P&L revenue, with the invoice status read as-of the
 slider date. They drive the **real app** and assert only what the user sees. The
-read-model specs (slider/board and timesheet) assert nothing tag-specific, so they
-pass *unmodified* against both `v1-wide` and `v2-split`; the operations and
-financials specs exercise the v2 write model (operations console + `event_log` and
-the invoice/payroll tables) and so target `v2-split`.
+read-model specs (slider/board and timesheet) assert only what the user sees; the
+operations and financials specs exercise the write model (operations console +
+`event_log` and the invoice/payroll tables).
 
-The whole suite is **112 Gleam tests** (`cd server && gleam test`) **+ 15
-Playwright specs** (across the four spec files above), plus the migration oracle
-(board parity for 1096 dates), run separately.
+The whole suite is **129 Gleam tests** (`cd server && gleam test`) **+ 14
+Playwright specs** (across the four spec files above).
 
 First-time setup (from `e2e/`):
 
@@ -161,14 +162,14 @@ cd e2e && npm install       # install @playwright/test
 cd e2e && npx playwright install chromium
 ```
 
-Run the suite — build the client, start the server on the migrated (v2-split)
-seed, then run Playwright (it targets `http://127.0.0.1:8000` by default). The
+Run the suite — build the client, start the server on the migrated seed, then run
+Playwright (it targets `http://127.0.0.1:8000` by default). The
 operations spec applies a write and restores the seed afterward via `psql` (same
 `TEMPO_DB_*` env-var defaults as the server), so `psql` must be on `PATH`:
 
 ```sh
 docker compose up -d                                      # PG19 (repo root)
-cd server && gleam run -m tempo/migrate                   # schema + seed, ending at v2-split
+cd server && gleam run -m tempo/migrate                   # schema + seed
 cd client && gleam run -m lustre/dev build client/app     # bundle → ../server/priv/static
 cd server && gleam run &                                  # serve on :8000
 cd e2e && npx playwright test                             # the e2e suite (chromium)

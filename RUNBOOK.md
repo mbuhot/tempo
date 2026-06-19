@@ -13,8 +13,8 @@ Everything else is identical on both versions by construction (the board asserts
 only what the user sees), so you do **not** switch versions except where beat 6
 says to.
 
-> Operational detail (env vars, the migration oracle, the Playwright harness, the
-> package layout) lives in `README.md`.
+> Operational detail (env vars, the Playwright harness, the package layout) lives
+> in `README.md`.
 
 ---
 
@@ -101,17 +101,9 @@ Because it pre-commits invoices the read tests do not expect, re-migrate
 Smoke-check before going live (each must be green — actually observed, never assumed):
 
 ```sh
-cd server && gleam test          # 112 Gleam tests (DB constraint + operations + as-of + financials + codec layers)   (bin/test)
-cd server && gleam run -m tempo/oracle   # migration oracle: board identical for every date (1096 dates)   (bin/oracle)
-cd e2e && npx playwright test    # 15 Playwright specs (board + timesheet + operations console + financials; needs the server running; see README)   (bin/e2e)
+cd server && gleam test          # 129 Gleam tests (DB constraint + operations + as-of + financials + codec layers)   (bin/test)
+cd e2e && npx playwright test    # 14 Playwright specs (board + timesheet + operations console + financials; needs the server running; see README)   (bin/e2e)
 ```
-
-> The oracle **rebuilds the public schema** to a fresh pre-migration seed and ends
-> at the split-allocation schema — but it stops short of the `011_event_log`
-> migration, leaving the DB **without** the event-log table the operations console
-> writes to. If you run it during prep, re-run `bin/migrate` (or `bin/up`)
-> afterward to apply the pending `011` and get back to the full demo state (board
-> pristine, event log present and empty).
 
 ---
 
@@ -278,15 +270,14 @@ forward and show parity.
    **the board is identical**. "I restructured the schema and history is
    *provably* intact."
 
-4. **The proof, not the hope.** Note that the **migration oracle** asserts this
-   board parity for **every day** of the seed span (2024-01-01..2026-12-31, 1096
-   dates), and the **read-model Playwright specs** (slider/board + timesheet) pass
-   unmodified on both versions (the operations-console and financials specs target
-   the final schema only):
-   ```sh
-   cd server && gleam run -m tempo/oracle   # exits 0; board equal for every date (ends at the split schema, before 011_event_log)
-   cd server && gleam run -m tempo/migrate  # re-apply 011_event_log to return to the full demo state
-   ```
+4. **The proof, not the hope.** The migration validates itself **inside the
+   transaction**: the new `WITHOUT OVERLAPS` PK and the `PERIOD` FKs reject a bad
+   coalesce and roll the whole file back, so a migration that commits is one whose
+   history is intact. And the **read-model Playwright specs** (slider/board +
+   timesheet) pass unmodified on both versions — the same `2026-06-15 / 2026-07-15
+   / 2026-06-01 / 2024-06-01` assertions hold before and after (the operations-
+   console and financials specs target the final schema only). "I restructured the
+   schema and history is *provably* intact."
 
 > **Return to `main` after the talk:** `git checkout main`. The git tags and
 > history are never modified by this demo.
@@ -367,5 +358,5 @@ Observed-green on the talk machine — do not assume:
 - [ ] Beat 6 checkout/migrate/rebuild sequence rehearsed end to end on a fresh DB; boards match across versions.
 - [ ] Beat 7a console: a **Promote** re-renders the board to the new level/rate and the event log gains the entry; a containment-violating **Assign to project** shows a clear "Rejected: …" reason and leaves the board unchanged.
 - [ ] Beat 7b financials (`bin/seed-invoices` or live): an invoice walks draft → issued → paid; an issued invoice's total appears in the month's P&L **Revenue**; payroll runs.
-- [ ] `cd server && gleam test` (`bin/test`, 112 pass), `cd server && gleam run -m tempo/oracle` (`bin/oracle`, PASS), `cd e2e && npx playwright test` (`bin/e2e`, 15 pass).
+- [ ] `cd server && gleam test` (`bin/test`, 129 pass), `cd e2e && npx playwright test` (`bin/e2e`, 14 pass).
 - [ ] Back on `main`, DB freshly seeded, page re-loaded clean.

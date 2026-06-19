@@ -46,9 +46,12 @@ varies over time is a narrow fact.
   time (the cost analogue of `rate_card`, which is what we **charge**). `WITHOUT OVERLAPS (level,
   effective_during)`; revised via `FOR PORTION OF`, exactly like `rate_card`.
 
-**Invoice (identity + temporal status + computed lines):**
-- `invoice(id, project_id, billing_period)` — identity + immutable subject: which project, which
-  month (`billing_period` is a `daterange` covering the month). `project_id` is the project entity id.
+**Invoice (id-only anchor + immutable subject + temporal status + computed lines):**
+- `invoice(id)` — the ID-only anchor (mirrors the engineer/client/contract/project refactor).
+- `invoice_subject(invoice_id, project_id, billing_period)` — the **immutable 1:1 subject** set at
+  draft and never changed: which project, which month (`billing_period` is a `daterange` covering the
+  month). `project_id` is the project entity id; the subject's `billing_period` is a `PERIOD` FK into
+  `project_run`'s `active_during` (the invoice's month must fall within the project's active period).
 - `invoice_status(invoice_id, status, status_during)` — the **temporal lifecycle**: `status ∈ {draft,
   issued, paid}`, `WITHOUT OVERLAPS (invoice_id, status_during)`. A transition caps the current status
   and asserts the next (the Change pattern). Current status = the row covering "now"; full history is
@@ -57,15 +60,17 @@ varies over time is a narrow fact.
   when the invoice is drafted: one per engineer who worked the project in the period, at the
   contract-agreed `day_rate`. Plain rows (an issued invoice's lines do not change).
 
-**Payroll (identity + computed lines):**
-- `payroll_run(id, period)` — a run for a month (`period` = the month `daterange`).
+**Payroll (id-only anchor + immutable period + computed lines):**
+- `payroll_run(id)` — the ID-only anchor.
+- `payroll_period(run_id, period)` — the **immutable 1:1 period** for the run (`period` = the month
+  `daterange`); carries the `EXCLUDE` that rejects a second run whose month overlaps an existing one.
 - `payroll_line(run_id, engineer_id, amount, days)` — the payment instruction per engineer: the
   prorated salary owed for the period.
 
-PERIOD-FK containment is not added across the financial tables (an invoice references a project
-*entity*, which—like `contract`—has no single-row identity table to key against); integrity that can
-be enforced (status non-overlap, value checks, the salary `WITHOUT OVERLAPS`) is, the rest is upheld
-by the computing queries.
+The invoice subject's `billing_period` is contained in `project_run.active_during` by a `PERIOD` FK
+(migration `013`/`017`); the remaining cross-entity invariants (which level worked, the agreed rate)
+are upheld by the computing queries, along with the enforceable checks (status non-overlap, value
+checks, the payroll period `EXCLUDE`, the salary `WITHOUT OVERLAPS`).
 
 ## 4. Functional requirements
 
@@ -132,8 +137,7 @@ Layered, matching the core model:
 - **Codec round-trips** for the new `Command` variants and read types.
 - **Playwright** — a behaviour-driven beat: draft → issue an invoice and see it move to "issued" and
   appear in the P&L revenue; scrub the slider and see status change as-of.
-- The existing suite, the migration oracle, and the board stay green (financials are additive; the
-  board query is untouched).
+- The existing suite and the board stay green (financials are additive; the board query is untouched).
 
 ## 8. Honest limitations (stated, not engineered around)
 
@@ -147,6 +151,6 @@ Layered, matching the core model:
   invoice can diverge from a recomputation — by design).
 - **Utilization** is capacity-share (billable fraction of employed days), not hours-based; it does not
   consult the timesheet.
-- Financial tables carry no cross-entity PERIOD FKs (the project/contract entity ids have no
-  single-row identity table to reference); those invariants live in the computing queries, not the
-  schema.
+- The only cross-entity PERIOD FK in the financial layer is `invoice_subject.billing_period ⊂
+  project_run.active_during` (migration `013`/`017`); the remaining invariants (agreed rate, level
+  worked) live in the computing queries, not the schema.

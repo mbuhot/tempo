@@ -81,6 +81,9 @@ checks out a tag and runs hand-written numbered SQL migrations.
 version-controlled SQL you own. Each tag is an internally-consistent tree (schema + generated code +
 shared types + UI).
 **Alternatives.** A live "migrate now" button; a sandbox side-by-side.
+**Amended by ADR-031.** The git tags and numbered migrations stand, but the automated board-equivalence
+oracle that proved the `v1→v2` transform correct is removed; correctness is now argued from the
+migration text and the constraints, not a CI gate.
 
 ## ADR-007 — Migration shape: decompose + temporally coalesce (range algebra)
 **Status:** Accepted
@@ -97,6 +100,9 @@ identical for every date (the migration's correctness oracle).
 to rehearse).
 **Amended (ADR-024).** Retained as a historical artifact; the operations layer targets the clean
 (v2) schema, so this migration is no longer the sole centerpiece.
+**Superseded by ADR-031.** The migration oracle that validated this transform (board equal for every
+date across `v1→v2`) is removed; the split migration text remains but its automated correctness gate
+is gone.
 
 ## ADR-008 — Fractional allocations + timesheet PERIOD FK
 **Status:** Accepted
@@ -180,6 +186,10 @@ because the tests assert only user-visible behaviour, which is unchanged by the 
 **Alternatives.** E2E-only (too coarse to localize temporal bugs, slow); DB-only (misses
 integration/UI breakage — unacceptable for a live talk); Playwright on `v2` only (rejected — leaves
 the v1 app, shown live, untested and forgoes the UI-level parity proof).
+**Partly superseded by ADR-031.** Layer (2), the automated migration-oracle property test, is removed
+along with the oracle. The other layers stand: DB-level temporal-constraint tests, as-of query tests,
+shared-codec round-trips, and the Playwright end-to-end suite (now 129 Gleam tests + 14 Playwright
+specs).
 
 ## ADR-014 — Three-package workspace (server + `shared` + `client`) wired by path dependencies
 **Status:** Accepted (supersedes the single-package assumption in ADR-005)
@@ -392,6 +402,9 @@ replaying it is a free end-to-end exercise of every operation. The hand-written 
 retained separately as the **v1 fixture for the migration oracle** (ADR-024).
 **Alternatives.** Keep a hand-written SQL seed for the app too (rejected — bypasses the operations
 layer and the event log, and the data would not prove the operations work).
+**Superseded by ADR-031.** The operations-replay seeder (`seed.gleam`) and the seed-equivalence test
+are removed; `003_seed.sql` is again the canonical running-app seed, with `bin/seed-invoices` the
+on-demand financial seed.
 
 ## ADR-024 — Operations target the clean schema; `v1→v2` kept as a historical artifact
 **Status:** Accepted (amends ADR-007)
@@ -408,6 +421,8 @@ without reworking the proven migration/oracle. The cache-cost-as-centerpiece var
 forced to fragment history) is a compelling future enhancement, deliberately deferred.
 **Alternatives.** Make the cache's cost the new centerpiece (deferred — richest but most work); drop
 the cache and the migration beat entirely (rejected for now — discards a working, proven demo asset).
+**Amended by ADR-031.** The oracle that this ADR retained "as is" is now removed; the `010` split
+migration text stays but is no longer guarded by an automated equivalence check.
 
 ## ADR-025 — Command handlers own event emission; `dispatch` only routes and persists
 **Status:** Accepted (amends ADR-010, ADR-019)
@@ -485,6 +500,11 @@ status as a mutable column on `invoice` (rejected — no history, can't ask the 
 cross-entity PERIOD FKs from the financial tables (rejected — no identity table for project/contract
 entities to key against; containment lives in the computing queries, PRD §3/§8); a materialized P&L
 (rejected — would diverge from facts and need invalidation; a query is simpler and always current).
+**Amended by ADR-030.** The invoice's `(project_id, billing_period)` and the payroll run's `period` are
+now immutable 1:1 facts (`invoice_subject`, `payroll_period`) on id-only anchors, and the "no identity
+table to PERIOD-FK against" premise no longer holds: `016`/`017` give `project`/`contract` id-only
+anchors, so the `invoice_subject.billing_period ⊂ project_run.active_during` PERIOD FK now exists
+(migrations `013`/`017`). The lifecycle, billing, proration, and P&L decisions are otherwise unchanged.
 
 ## ADR-027 — Aggregate `handle` dispatches to named operations; `operation.try/run` encapsulate classification; an unrouted command panics
 **Status:** Accepted (refines ADR-019, ADR-025)
@@ -576,6 +596,90 @@ point, and the served file is an edited artifact); a CSS preprocessor (Sass/Less
 (rejected — CSS custom properties already give cascade-aware tokens with no build-time toolchain); a
 utility/atomic CSS framework (rejected — out of proportion for the demo and obscures the page-area
 structure the component split makes legible).
+
+## ADR-030 — Every entity is an id-only anchor; all attributes are edit-grouped facts, read as-of or latest
+**Status:** Accepted (amends ADR-004, ADR-009, ADR-018, ADR-026)
+
+**Context.** Even after ADR-004's facts-not-state and ADR-018's semantic periods, the durable
+identity tables still **carried attributes**: `engineer.name`, `client.name`, `contract.(client_id,
+term)`, `project.(name, active_during, …)`, plus `invoice.(project_id, billing_period)` and
+`payroll_run.period`. So "identity" and "a current descriptive attribute" lived in one row, an attribute
+edit touched the anchor every FK keys against, and the contact/banking/emergency/profile/plan detail had
+no home at all. The model wanted a clean separation: an entity is a bare referent; everything else is a
+dated fact about it.
+**Decision.** Make **every entity an ID-ONLY anchor** (`engineer`, `client`, `contract`, `project`,
+`invoice`, `payroll_run` — each just `(id)`), and move all attributes into **edit-grouped fact tables**
+keyed to the anchor PK (migrations `014`–`017`). Facts come in **three temporal flavours**, and the
+application chooses the read per query:
+- **Valid-time, read AS-OF a date.** The period is named for the predicate it asserts (ADR-018):
+  `employed_during`, `held_during`, `on_leave_during`, `allocated_during`, `term`, `active_during`,
+  `effective_during`, `status_during`, `work_day`, `planned_during`. The slider reads the version in
+  force on the chosen date. New here: `contract_terms(contract_id, client_id, term)`,
+  `project_run(project_id, contract_id, active_during)`, `project_plan(budget, target_completion)`.
+- **Latest-read, period `recorded_during`** (transaction-time character). A new edit is a new row
+  covering `[effective, NULL)`; the **most-recently-effective row is current truth**, older rows are the
+  history; current value is exposed via `*_current` views (`engineer_current`, `client_current`,
+  `project_current`) as `DISTINCT ON (anchor_id) ORDER BY lower(recorded_during) DESC`. Used for
+  descriptive/contact detail: `engineer_contact(name, email, phone, postal)`, `engineer_banking`,
+  `engineer_emergency`, `client_profile(name)`, `project_profile(title, summary)`.
+- **Immutable 1:1 subject** set once and never versioned: `invoice_subject(invoice_id, project_id,
+  billing_period)` and `payroll_period(run_id, period)` — keyed by the anchor PK (no `WITHOUT OVERLAPS`,
+  no `*_current` view); reads INNER JOIN the fact directly. `payroll_period` carries the no-overlap
+  EXCLUDE that moved off `payroll_run`.
+Pre-existing facts are unchanged (`employment`, `engineer_role`, `leave`, `allocation`, `rate_card`,
+`salary`, `timesheet`, `invoice_status`, `invoice_line`, `payroll_line`, `event_log`). Writes go through
+the command bus (ADR-025/027/028) as temporal Changes: new commands `UpdateContactDetails`,
+`UpdateBankingDetails`, `UpdateEmergencyContact`, `UpdateClientProfile`, `UpdateProjectProfile`,
+`UpdateProjectPlan`, with new domain aggregates `engineer_details`, `client_details`, `project_details`;
+`sign_contract` / `start_project` / `onboard_engineer` now mint the anchor and open the founding fact
+rows. Reads that surfaced an entity name re-point to the `*_current` views, coalesced so the `String`
+contract holds (Squirrel infers view columns nullable). External JSON (board / financials) is
+**byte-identical**.
+**Rationale.** The key mechanic is that **renaming a table/column carries its `PERIOD` FKs with it**:
+`016` renames `contract → contract_terms` (id → `contract_id`) and `project → project_run` (id →
+`project_id`), so `project_within_contract`, `allocation_within_project`, and `invoice_within_project`
+**auto-follow** to the renamed parent with no FK drop/re-add — then mints a fresh id-only anchor under
+each. Where columns *move tables* instead of being renamed (`017`'s invoice/payroll), the keying
+constraints don't auto-follow and are explicitly dropped from the anchor and re-added on the fact. The
+three flavours make the read mode explicit at the call site (as-of for valid-time claims about the
+world; latest for "as last recorded" detail; a plain join for the immutable subject), and the temporal
+containment chain now reads as a sentence: `contract_terms → project_run → allocation → timesheet`,
+`employment → {engineer_role, leave, allocation}`, and `invoice_subject ⊂ project_run`. The contact /
+banking / emergency facts deliberately key the anchor with a **plain** (non-PERIOD) FK — they are
+properties of the person, not facts contained by employment, so an ex-employee still has a name and bank
+account on file.
+**Alternatives.** Keep names on the anchors and version only the "rich" detail (rejected — leaves
+identity and attribute tangled, and an attribute edit still touches the FK target); one wide
+`*_details` valid-time fact per entity (rejected — couples unrelated edits and forces an as-of read on
+descriptive detail that has no valid-time meaning); a generic `valid_at` on the new facts (rejected —
+ADR-018: the period name is documentation, and `recorded_during` signals the transaction-time read).
+
+## ADR-031 — Remove the migration oracle and the seed-via-operations equivalence
+**Status:** Accepted (supersedes ADR-023; amends ADR-006, ADR-007, ADR-013, ADR-024)
+
+**Context.** Two automated correctness gates had outlived their value. The **migration oracle**
+(ADR-013 layer 2, validating ADR-007's `v1→v2` `range_agg` coalescing by asserting the board equal for
+every date) and the **seed-equivalence test** (ADR-023, asserting "seed via replayed operations" equals
+"seed via migration") both pinned the project to maintaining two seed paths and a v1 fixture, while the
+re-baseline (ADR-017/024) had already moved the centre of gravity to the operations layer on the clean
+schema and the anchor/fact redesign (ADR-030).
+**Decision.** **Delete the oracle entirely** — `server/src/tempo/oracle.gleam`, `bin/oracle`, the
+operations-replay seeder `server/src/tempo/seed.gleam`, and `server/test/seed_equivalence_test.gleam`.
+The `v1→v2` board-equivalence verification and the seed-via-operations equivalence check are gone.
+`003_seed.sql` is again the **canonical running-app seed**; `bin/seed-invoices` remains the on-demand
+financial seed. `bin/` is now build, db, e2e, erd, migrate, seed-invoices, serve, squirrel, test, up
+(no `bin/oracle`). The suite is **129 Gleam tests + 14 Playwright specs**, with migrations running
+through `017`.
+**Rationale.** The remaining test layers (DB-level temporal-constraint tests, as-of query tests,
+shared-codec round-trips, and the behaviour-driven Playwright suite) cover the live demo; the oracle's
+specific claim — that the lossy `range_agg` split preserves the board — is argued from the migration
+text and the validating constraints, not a CI gate, now that the migration is a historical artifact
+rather than the sole centerpiece (ADR-024). Dropping the operations seeder removes the second seed path
+and its fixture, simplifying the seed story back to one canonical SQL seed.
+**Alternatives.** Keep the oracle as a dormant CI check (rejected — it forces the v1 fixture and a
+second seed path to be maintained for a beat that is no longer central); keep `seed.gleam` as the app
+seed (rejected — ADR-030's anchor/fact founding writes are exercised by the command-bus tests, and the
+SQL seed is simpler and deterministic).
 
 ---
 
