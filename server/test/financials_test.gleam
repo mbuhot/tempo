@@ -100,11 +100,19 @@ fn insert_client(conn: pog.Connection, name: String) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("INSERT INTO client (name) VALUES ($1) RETURNING id")
-    |> pog.parameter(pog.text(name))
+    pog.query("INSERT INTO client DEFAULT VALUES RETURNING id")
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
   let assert [id, ..] = returned.rows
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO client_profile "
+      <> "(client_id, name, recorded_during) "
+      <> "VALUES ($1, $2, daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(id))
+    |> pog.parameter(pog.text(name))
+    |> pog.execute(on: conn)
   id
 }
 

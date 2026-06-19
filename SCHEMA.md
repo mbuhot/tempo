@@ -21,6 +21,7 @@ missing relationship map. (See `ARCHITECTURE.md` §4/§7 for the why.)
 ```mermaid
 erDiagram
   allocation ||--o{ timesheet : "PERIOD FK"
+  client ||--o{ client_profile : "FK"
   client ||--o{ contract : "FK"
   contract ||--o{ project : "PERIOD FK"
   employment ||--o{ allocation : "PERIOD FK"
@@ -45,7 +46,11 @@ erDiagram
   }
   client {
     integer id PK
+  }
+  client_profile {
+    integer client_id PK,FK
     text name
+    daterange recorded_during PK "WITHOUT OVERLAPS"
   }
   contract {
     integer id PK

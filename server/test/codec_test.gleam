@@ -16,14 +16,14 @@ import gleam/time/calendar.{Date, January, July, June, May}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, DraftInvoice, EngineerBanking, EngineerContact,
-  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
-  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateContactDetails,
-  UpdateEmergencyContact,
+  ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
+  EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
+  IssueInvoice, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
+  OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref,
+  ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -541,6 +541,21 @@ pub fn command_update_emergency_contact_round_trips_test() {
     == original
 }
 
+// The client-profile edit: a temporal CHANGE keyed by `effective`, carrying the
+// single text field (the client's name). The `op` tag must reconstruct the exact
+// variant and field.
+pub fn command_update_client_profile_round_trips_test() {
+  let original =
+    UpdateClientProfile(
+      client_id: 1,
+      name: "Northwind Trading",
+      effective: Date(2026, July, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
 // --- Financial commands ------------------------------------------------------
 // The five new write operations (PRD-financials §5), anchored to the seed frame:
 // salary by level, the invoice draft/issue/pay lifecycle, and a payroll run.
@@ -890,6 +905,21 @@ pub fn engineer_contact_round_trips_test() {
       original,
       codecs.encode_engineer_contact,
       codecs.engineer_contact_decoder(),
+    )
+    == original
+}
+
+// --- ClientProfile -----------------------------------------------------------
+// The latest-read client profile fact (scalar projection, just the name; no
+// period bounds exposed).
+
+pub fn client_profile_round_trips_test() {
+  let original = ClientProfile(client_id: 1, name: "Northwind Trading")
+
+  assert round_trip(
+      original,
+      codecs.encode_client_profile,
+      codecs.client_profile_decoder(),
     )
     == original
 }

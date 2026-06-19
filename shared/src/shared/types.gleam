@@ -147,6 +147,16 @@ pub type EngineerEmergency {
   )
 }
 
+/// A client's profile as one edit-grouped fact: the client's `name`. The
+/// underlying `client_profile` table is period-keyed (`recorded_during`) and
+/// append-only, read LATEST — so this record carries only the scalar fields of
+/// the most-recently-recorded version, not its transaction-time bounds. A client
+/// has only a name, so this is the client's single fact group (mirroring
+/// `EngineerContact`).
+pub type ClientProfile {
+  ClientProfile(client_id: Int, name: String)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -225,6 +235,12 @@ pub type Command {
     email: String,
     effective: Date,
   )
+  /// Record a new profile for a client effective from a date: close the
+  /// `client_profile` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only
+  /// client_profile fact). A client has only a name, so this is its single
+  /// Update command.
+  UpdateClientProfile(client_id: Int, name: String, effective: Date)
   /// Log a whole week's hours atomically: each entry sets one (project, day) cell
   /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
   /// none.

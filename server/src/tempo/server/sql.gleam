@@ -280,7 +280,7 @@ SELECT
   coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   project.name AS project,
-  client.name AS client,
+  coalesce(client.name, '') AS client,
   allocation.fraction,
   rate_card.day_rate,
   lower(allocation.allocated_during) AS valid_from,
@@ -292,7 +292,7 @@ JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.ef
 JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.allocated_during @> $1::date
 JOIN project        ON project.id = allocation.project_id       AND project.active_during @> $1::date
 JOIN contract       ON contract.id = project.contract_id        AND contract.term @> $1::date
-JOIN client         ON client.id = contract.client_id
+JOIN client_current client ON client.id = contract.client_id
 WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (
     SELECT 1 FROM leave
@@ -448,6 +448,135 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
+/// client_profile_close.sql — step 1 of the profile Change.
+///
+/// Close the client_profile row covering $2 by deleting its [$2, NULL) portion:
+/// DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+/// sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+/// companion client_profile_open then inserts the new full [$2, NULL) row, both in
+/// ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+/// edit deletes 0 rows (a harmless no-op); a re-record deletes the tail of the
+/// prior row. $1 = client_id, $2 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_profile_close(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- client_profile_close.sql — step 1 of the profile Change.
+--
+-- Close the client_profile row covering $2 by deleting its [$2, NULL) portion:
+-- DELETE FOR PORTION OF intersects [$2, ∞) with the covering row, dropping that
+-- sub-period and re-inserting the unchanged [row.lower, $2) remainder. The
+-- companion client_profile_open then inserts the new full [$2, NULL) row, both in
+-- ONE transaction (the WITHOUT OVERLAPS PK cannot be an ON CONFLICT target). First
+-- edit deletes 0 rows (a harmless no-op); a re-record deletes the tail of the
+-- prior row. $1 = client_id, $2 = effective date.
+DELETE FROM client_profile
+   FOR PORTION OF recorded_during FROM $2::date TO NULL
+ WHERE client_id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `client_profile_current` query
+/// defined in `./src/tempo/server/sql/client_profile_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientProfileCurrentRow {
+  ClientProfileCurrentRow(client_id: Int, name: String)
+}
+
+/// client_profile_current.sql — a client's CURRENT profile (latest read).
+///
+/// The most-recently-effective client_profile row for one client: DISTINCT ON
+/// ordered by the start of recorded_during descending. Append-only + WITHOUT
+/// OVERLAPS means the row with the greatest start is the one whose [effective,
+/// NULL) span is in force. Scalar columns only — recorded_during bounds are not
+/// exposed (the read record is scalar-only). $1 = client_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_profile_current(
+  db: pog.Connection,
+  client_id: Int,
+) -> Result(pog.Returned(ClientProfileCurrentRow), pog.QueryError) {
+  let decoder = {
+    use client_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    decode.success(ClientProfileCurrentRow(client_id:, name:))
+  }
+
+  "-- client_profile_current.sql — a client's CURRENT profile (latest read).
+--
+-- The most-recently-effective client_profile row for one client: DISTINCT ON
+-- ordered by the start of recorded_during descending. Append-only + WITHOUT
+-- OVERLAPS means the row with the greatest start is the one whose [effective,
+-- NULL) span is in force. Scalar columns only — recorded_during bounds are not
+-- exposed (the read record is scalar-only). $1 = client_id.
+SELECT DISTINCT ON (client_id)
+  client_id,
+  name
+FROM client_profile
+WHERE client_id = $1
+ORDER BY client_id, lower(recorded_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(client_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// client_profile_open.sql — step 2 of the profile Change (and the row the seed
+/// writes).
+///
+/// Insert the new full profile row over [$3, NULL): daterange($3::date, NULL,
+/// '[)'), so only scalar params cross the Squirrel boundary. Run after
+/// client_profile_close has carved [$3, NULL) out of the covering row, so the
+/// WITHOUT OVERLAPS PK is satisfied. $1 = client_id, $2 = name, $3 = effective date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_profile_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Date,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- client_profile_open.sql — step 2 of the profile Change (and the row the seed
+-- writes).
+--
+-- Insert the new full profile row over [$3, NULL): daterange($3::date, NULL,
+-- '[)'), so only scalar params cross the Squirrel boundary. Run after
+-- client_profile_close has carved [$3, NULL) out of the covering row, so the
+-- WITHOUT OVERLAPS PK is satisfied. $1 = client_id, $2 = name, $3 = effective date.
+INSERT INTO client_profile
+  (client_id, name, recorded_during)
+VALUES ($1, $2, daterange($3::date, NULL, '[)'));
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `contract_create` query
 /// defined in `./src/tempo/server/sql/contract_create.sql`.
 ///
@@ -463,8 +592,10 @@ pub type ContractCreateRow {
 /// A plain INSERT (write pattern 1). The contract id is NOT generated: it is an
 /// entity id reused across period-rows, so we mint a fresh one with
 /// coalesce(max(id),0)+1. The command carries the client by NAME, resolved to
-/// client_id via a subquery. term = daterange($2, $3, '[)') is the engagement
-/// window; $3 may be NULL for an open-ended term.
+/// client_id via a subquery. The NAME left the `client` anchor for the
+/// edit-grouped client_profile fact, so the resolver reads it through the
+/// `client_current` view (latest profile per client). term = daterange($2, $3,
+/// '[)') is the engagement window; $3 may be NULL for an open-ended term.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -485,12 +616,14 @@ pub fn contract_create(
 -- A plain INSERT (write pattern 1). The contract id is NOT generated: it is an
 -- entity id reused across period-rows, so we mint a fresh one with
 -- coalesce(max(id),0)+1. The command carries the client by NAME, resolved to
--- client_id via a subquery. term = daterange($2, $3, '[)') is the engagement
--- window; $3 may be NULL for an open-ended term.
+-- client_id via a subquery. The NAME left the `client` anchor for the
+-- edit-grouped client_profile fact, so the resolver reads it through the
+-- `client_current` view (latest profile per client). term = daterange($2, $3,
+-- '[)') is the engagement window; $3 may be NULL for an open-ended term.
 INSERT INTO contract (id, client_id, term)
 VALUES (
   (SELECT coalesce(max(id), 0) + 1 FROM contract),
-  (SELECT id FROM client WHERE name = $1),
+  (SELECT id FROM client_current WHERE name = $1),
   daterange($2::date, $3::date, '[)')
 )
 RETURNING id;
@@ -1674,7 +1807,7 @@ SELECT
     SELECT client.name
       FROM project
       JOIN contract ON contract.id = project.contract_id
-      JOIN client   ON client.id = contract.client_id
+      JOIN client_current client ON client.id = contract.client_id
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS client,
@@ -1899,7 +2032,7 @@ SELECT
     SELECT client.name
       FROM project
       JOIN contract ON contract.id = project.contract_id
-      JOIN client   ON client.id = contract.client_id
+      JOIN client_current client ON client.id = contract.client_id
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS client,
@@ -2796,6 +2929,13 @@ pub type RosterClientsRow {
 /// it has no validity window — so this is NOT date-filtered: every client is
 /// always selectable, id + name, ordered by name for a stable dropdown.
 ///
+/// The id comes from the `client` ANCHOR (provably NOT NULL); the NAME, which left
+/// the anchor for the edit-grouped client_profile fact, is read through the
+/// `client_current` view (latest profile per client). The INNER JOIN means a
+/// client with no profile row is omitted (every seeded client has one). coalesce
+/// keeps the name column NOT NULL through the view boundary; it is never actually
+/// null (the join is on a NOT NULL profile column).
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
@@ -2814,8 +2954,16 @@ pub fn roster_clients(
 -- (SignContract carries the client by NAME). A client is a durable identity —
 -- it has no validity window — so this is NOT date-filtered: every client is
 -- always selectable, id + name, ordered by name for a stable dropdown.
-SELECT id, name
+--
+-- The id comes from the `client` ANCHOR (provably NOT NULL); the NAME, which left
+-- the anchor for the edit-grouped client_profile fact, is read through the
+-- `client_current` view (latest profile per client). The INNER JOIN means a
+-- client with no profile row is omitted (every seeded client has one). coalesce
+-- keeps the name column NOT NULL through the view boundary; it is never actually
+-- null (the join is on a NOT NULL profile column).
+SELECT client.id, coalesce(cc.name, '') AS name
 FROM client
+JOIN client_current cc ON cc.id = client.id
 ORDER BY name;
 "
   |> pog.query

@@ -35,6 +35,7 @@
 //// — the mid-2026 L5 step-up — IS a `ReviseRateCard` command in the replayed list,
 //// so it splits the baseline row and lands in the event log like every operation.
 
+import gleam/dynamic/decode
 import gleam/erlang/application
 import gleam/io
 import gleam/list
@@ -257,19 +258,39 @@ pub fn commands() -> List(Command) {
 // --- bootstrap identity -----------------------------------------------------
 
 /// Register the founding client roster (the durable identity rows `sign_contract`
-/// resolves by name). Like `engineer`, `client` is an identity table with no
-/// "create" operation — `sign_contract` carries a client by NAME and resolves it
+/// resolves by name). Like `engineer`, `client` is an ID-ONLY identity table with
+/// no "create" operation — `sign_contract` carries a client by NAME and resolves it
 /// to an existing id — so the roster is bootstrap state, exactly as `003_seed.sql`
-/// inserts it: Northwind Trading and Globex Corporation.
+/// inserts it: Northwind Trading and Globex Corporation. The NAME left the `client`
+/// anchor for the edit-grouped `client_profile` fact, so each client is two inserts:
+/// mint the id-only anchor, then open its founding profile row (the same shape the
+/// `OnboardEngineer` path uses for `engineer_contact`).
 fn register_clients(db: pog.Connection) -> Result(Nil, String) {
   ["Northwind Trading", "Globex Corporation"]
   |> list.try_each(fn(name) {
-    pog.query("INSERT INTO client (name) VALUES ($1)")
+    let row_decoder = {
+      use id <- decode.field(0, decode.int)
+      decode.success(id)
+    }
+    use returned <- result.try(
+      pog.query("INSERT INTO client DEFAULT VALUES RETURNING id")
+      |> pog.returning(row_decoder)
+      |> pog.execute(on: db)
+      |> result.map_error(fn(error) {
+        "registering client " <> name <> ": " <> string.inspect(error)
+      }),
+    )
+    let assert [client_id] = returned.rows
+    pog.query(
+      "INSERT INTO client_profile (client_id, name, recorded_during) "
+      <> "VALUES ($1, $2, daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(client_id))
     |> pog.parameter(pog.text(name))
     |> pog.execute(on: db)
     |> result.map(fn(_) { Nil })
     |> result.map_error(fn(error) {
-      "registering client " <> name <> ": " <> string.inspect(error)
+      "registering client profile " <> name <> ": " <> string.inspect(error)
     })
   })
 }

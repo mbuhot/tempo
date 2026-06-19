@@ -58,7 +58,7 @@ pub fn main() -> Nil {
 
   io.println("Migration oracle (010_split_allocation)")
   io.println(
-    "Resetting to a fresh pre-migration schema (001 + 002 + 003 + 014)...",
+    "Resetting to a fresh pre-migration schema (001 + 002 + 003 + 014 + 015)...",
   )
   let assert Ok(Nil) = reset_to_fresh_v1(db)
 
@@ -89,22 +89,26 @@ pub fn main() -> Nil {
 
 /// Drop and recreate the `public` schema (clearing any prior state and the
 /// migrate runner's `schema_migrations`), recreate an empty ledger, then apply the
-/// pre-migration schema — 001_init, 002_facts, 003_seed — plus 014_engineer_facts,
-/// directly, in order, recording each. Each file's statements run in their own
-/// transaction so a bad seed aborts loudly. `btree_gist` is dropped with the schema
-/// and re-created by 001 (`CREATE EXTENSION IF NOT EXISTS`).
+/// pre-migration schema — 001_init, 002_facts, 003_seed — plus 014_engineer_facts
+/// and 015_client_facts, directly, in order, recording each. Each file's statements
+/// run in their own transaction so a bad seed aborts loudly. `btree_gist` is dropped
+/// with the schema and re-created by 001 (`CREATE EXTENSION IF NOT EXISTS`).
 ///
-/// 014 is applied here even though it post-dates `010`: the production board read
-/// (`board_engaged.sql`) now sources the engineer name from the `engineer_current`
-/// view that 014 introduces, so the view must exist before the board is snapshotted.
-/// 014 (engineer anchor + detail facts) is independent of `010` (the allocation
-/// split), so applying it in the v1 baseline does not affect what `010` changes —
-/// the board comparison still isolates `010`'s effect.
+/// 014 and 015 are applied here even though they post-date `010`: the production
+/// board read (`board_engaged.sql`) now sources the engineer name from the
+/// `engineer_current` view (014) and the client name from the `client_current` view
+/// (015), so both views must exist before the board is snapshotted. 014 (engineer
+/// anchor + detail facts) and 015 (client anchor + profile fact) are independent of
+/// `010` (the allocation split), so applying them in the v1 baseline does not affect
+/// what `010` changes — the board comparison still isolates `010`'s effect.
 fn reset_to_fresh_v1(db: pog.Connection) -> Result(Nil, String) {
   use _ <- result.try(reset_public_schema(db))
   use _ <- result.try(ensure_ledger(db))
   list.try_each(
-    ["001_init.sql", "002_facts.sql", "003_seed.sql", "014_engineer_facts.sql"],
+    [
+      "001_init.sql", "002_facts.sql", "003_seed.sql", "014_engineer_facts.sql",
+      "015_client_facts.sql",
+    ],
     fn(version) { apply_recorded(db, version) },
   )
 }

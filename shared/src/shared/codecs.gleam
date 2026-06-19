@@ -10,21 +10,22 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Command, type Engagement,
-  type EngineerBanking, type EngineerContact, type EngineerEmergency,
-  type Event, type Invoice, type InvoiceDetail, type InvoiceLine,
-  type OperationRequest, type Payroll, type PayrollLine, type Pnl, type PnlRow,
-  type Ref, type Roster, type TimesheetCell, type TimesheetEntry,
-  type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
-  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, DraftInvoice, EngineerBanking, EngineerContact,
-  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
-  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
+  type BoardRow, type BoardSnapshot, type ClientProfile, type Command,
+  type Engagement, type EngineerBanking, type EngineerContact,
+  type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
+  type InvoiceLine, type OperationRequest, type Payroll, type PayrollLine,
+  type Pnl, type PnlRow, type Ref, type Roster, type TimesheetCell,
+  type TimesheetEntry, type TimesheetWeek, type TimesheetWeekRow,
+  type WriteRequest, AdjustRateForPortion, AssignToProject, BoardRow,
+  BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
+  EngineerBanking, EngineerContact, EngineerEmergency, Event, Invoice,
+  InvoiceDetail, InvoiceLine, IssueInvoice, LogTimesheet, LogWeek, OnLeave,
+  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
+  PayrollLine, Pnl, PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster,
+  RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
   TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateContactDetails,
-  UpdateEmergencyContact, WriteRequest,
+  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -447,6 +448,28 @@ pub fn engineer_emergency_decoder() -> Decoder(EngineerEmergency) {
   decode.success(EngineerEmergency(engineer_id:, relation:, name:, phone:, email:))
 }
 
+// --- ClientProfile -----------------------------------------------------------
+// The most-recently-recorded profile fact for a client (the LATEST read of the
+// append-only `client_profile` table): scalar fields only (just the name), no
+// transaction-time bounds.
+
+/// Encode a `ClientProfile` (the client's current profile fact) as a JSON
+/// object.
+pub fn encode_client_profile(profile: ClientProfile) -> Json {
+  let ClientProfile(client_id:, name:) = profile
+  json.object([
+    #("client_id", json.int(client_id)),
+    #("name", json.string(name)),
+  ])
+}
+
+/// Decode a `ClientProfile` from a JSON object.
+pub fn client_profile_decoder() -> Decoder(ClientProfile) {
+  use client_id <- decode.field("client_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  decode.success(ClientProfile(client_id:, name:))
+}
+
 // --- Command ----------------------------------------------------------------
 // A tagged object: `op` discriminates the operation; the remaining fields belong
 // to the active variant. The same encoding serves both the POST /api/operations
@@ -558,6 +581,13 @@ pub fn encode_command(command: Command) -> Json {
         #("name", json.string(name)),
         #("phone", json.string(phone)),
         #("email", json.string(email)),
+        #("effective", encode_date(effective)),
+      ])
+    UpdateClientProfile(client_id:, name:, effective:) ->
+      json.object([
+        #("op", json.string("update_client_profile")),
+        #("client_id", json.int(client_id)),
+        #("name", json.string(name)),
         #("effective", encode_date(effective)),
       ])
     LogWeek(engineer_id:, entries:) ->
@@ -745,6 +775,12 @@ pub fn command_decoder() -> Decoder(Command) {
         email:,
         effective:,
       ))
+    }
+    "update_client_profile" -> {
+      use client_id <- decode.field("client_id", decode.int)
+      use name <- decode.field("name", decode.string)
+      use effective <- decode.field("effective", date_decoder())
+      decode.success(UpdateClientProfile(client_id:, name:, effective:))
     }
     "log_week" -> {
       use engineer_id <- decode.field("engineer_id", decode.int)

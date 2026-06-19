@@ -21,9 +21,11 @@ import shared/types.{
   ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet, LogWeek,
   OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
-  UpdateBankingDetails, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 import tempo/server/allocation
+import tempo/server/client_details
 import tempo/server/context.{type Context}
 import tempo/server/engagement
 import tempo/server/engineer
@@ -101,6 +103,8 @@ fn route(
     UpdateContactDetails(..)
     | UpdateBankingDetails(..)
     | UpdateEmergencyContact(..) -> engineer_details.handle(conn, command)
+
+    UpdateClientProfile(..) -> client_details.handle(conn, command)
 
     AssignToProject(..) | ChangeAllocationFraction(..) | RollOff(..) ->
       allocation.handle(conn, command)

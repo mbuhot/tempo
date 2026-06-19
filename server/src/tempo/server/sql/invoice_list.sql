@@ -27,7 +27,7 @@ SELECT
     SELECT client.name
       FROM project
       JOIN contract ON contract.id = project.contract_id
-      JOIN client   ON client.id = contract.client_id
+      JOIN client_current client ON client.id = contract.client_id
      WHERE project.id = invoice.project_id
      LIMIT 1
   ), '') AS client,

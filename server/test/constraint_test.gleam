@@ -62,11 +62,19 @@ fn insert_client(conn: pog.Connection, name: String) -> Int {
     decode.success(id)
   }
   let assert Ok(returned) =
-    pog.query("INSERT INTO client (name) VALUES ($1) RETURNING id")
-    |> pog.parameter(pog.text(name))
+    pog.query("INSERT INTO client DEFAULT VALUES RETURNING id")
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
   let assert [id, ..] = returned.rows
+  let assert Ok(_) =
+    pog.query(
+      "INSERT INTO client_profile "
+      <> "(client_id, name, recorded_during) "
+      <> "VALUES ($1, $2, daterange('2024-01-01', NULL, '[)'))",
+    )
+    |> pog.parameter(pog.int(id))
+    |> pog.parameter(pog.text(name))
+    |> pog.execute(on: conn)
   id
 }
 
@@ -213,6 +221,34 @@ pub fn overlapping_engineer_contact_is_rejected_test() {
     )
 
   assert constraint_name(error) == "engineer_contact_no_overlap"
+}
+
+// A second client_profile row overlapping an existing one for the same client is
+// rejected by the WITHOUT OVERLAPS PK `client_profile_no_overlap`: at most one
+// profile fact may be in force per client per instant. (`insert_client` already
+// opens a [2024-01-01, NULL) profile row, so any new row starting on or after
+// 2024-01-01 overlaps the open tail.)
+pub fn overlapping_client_profile_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let _client_id = insert_client(conn, "Babbage Ltd")
+        Nil
+      },
+      fn(conn) {
+        // A second profile row for the same client, starting inside the open
+        // [2024-01-01, NULL) span the founding row already covers.
+        exec(
+          conn,
+          "INSERT INTO client_profile "
+            <> "(client_id, name, recorded_during) "
+            <> "SELECT client_id, name, daterange('2025-01-01', NULL, '[)') "
+            <> "FROM client_profile WHERE name = 'Babbage Ltd'",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "client_profile_no_overlap"
 }
 
 // --- PERIOD foreign keys: the containment chain (PRD FR-5) ------------------

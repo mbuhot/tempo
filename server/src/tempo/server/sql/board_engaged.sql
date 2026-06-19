@@ -20,7 +20,7 @@ SELECT
   coalesce(engineer.name, '') AS engineer,
   engineer_role.level,
   project.name AS project,
-  client.name AS client,
+  coalesce(client.name, '') AS client,
   allocation.fraction,
   rate_card.day_rate,
   lower(allocation.allocated_during) AS valid_from,
@@ -32,7 +32,7 @@ JOIN rate_card      ON rate_card.level = engineer_role.level    AND rate_card.ef
 JOIN allocation     ON allocation.engineer_id = engineer.id     AND allocation.allocated_during @> $1::date
 JOIN project        ON project.id = allocation.project_id       AND project.active_during @> $1::date
 JOIN contract       ON contract.id = project.contract_id        AND contract.term @> $1::date
-JOIN client         ON client.id = contract.client_id
+JOIN client_current client ON client.id = contract.client_id
 WHERE employment.employed_during @> $1::date
   AND NOT EXISTS (
     SELECT 1 FROM leave
