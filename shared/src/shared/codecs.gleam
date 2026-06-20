@@ -13,20 +13,21 @@ import shared/types.{
   type BoardRow, type BoardSnapshot, type ClientProfile, type Command,
   type Engagement, type EngineerBanking, type EngineerContact,
   type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
-  type InvoiceLine, type OperationRequest, type Payroll, type PayrollLine,
-  type Pnl, type PnlRow, type ProjectPlan, type ProjectProfile, type Ref,
-  type Roster, type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
-  type TimesheetWeekRow, type WriteRequest, AdjustRateForPortion,
-  AssignToProject, BoardRow, BoardSnapshot, ChangeAllocationFraction,
-  ClientProfile, DraftInvoice, EngineerBanking, EngineerContact,
-  EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
-  PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, ProjectPlan, ProjectProfile,
-  Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  type InvoiceLine, type LeaveBalance, type OperationRequest, type Payroll,
+  type PayrollLine, type Pnl, type PnlRow, type ProjectPlan, type ProjectProfile,
+  type Ref, type Roster, type TimesheetCell, type TimesheetEntry,
+  type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
+  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
+  ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
+  EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
+  IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject,
+  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
+  PnlRow, ProjectPlan, ProjectProfile, Promote, Ref, ReviseRateCard, RollOff,
+  Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
+  UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -164,14 +165,35 @@ pub fn board_row_decoder() -> Decoder(BoardRow) {
   decode.success(BoardRow(engineer:, level:, engagement:))
 }
 
+// --- LeaveBalance -----------------------------------------------------------
+
+/// Encode a `LeaveBalance` as a JSON object.
+pub fn encode_leave_balance(balance: LeaveBalance) -> Json {
+  let LeaveBalance(engineer:, annual:, sick:) = balance
+  json.object([
+    #("engineer", json.string(engineer)),
+    #("annual", json.float(annual)),
+    #("sick", json.float(sick)),
+  ])
+}
+
+/// Decode a `LeaveBalance` from a JSON object.
+pub fn leave_balance_decoder() -> Decoder(LeaveBalance) {
+  use engineer <- decode.field("engineer", decode.string)
+  use annual <- decode.field("annual", decode.float)
+  use sick <- decode.field("sick", decode.float)
+  decode.success(LeaveBalance(engineer:, annual:, sick:))
+}
+
 // --- BoardSnapshot ----------------------------------------------------------
 
 /// Encode a board snapshot to JSON for the HTTP API.
 pub fn encode_board_snapshot(snapshot: BoardSnapshot) -> Json {
-  let BoardSnapshot(date:, rows:) = snapshot
+  let BoardSnapshot(date:, rows:, balances:) = snapshot
   json.object([
     #("date", encode_date(date)),
     #("rows", json.array(rows, encode_board_row)),
+    #("balances", json.array(balances, encode_leave_balance)),
   ])
 }
 
@@ -179,7 +201,8 @@ pub fn encode_board_snapshot(snapshot: BoardSnapshot) -> Json {
 pub fn board_snapshot_decoder() -> Decoder(BoardSnapshot) {
   use date <- decode.field("date", date_decoder())
   use rows <- decode.field("rows", decode.list(board_row_decoder()))
-  decode.success(BoardSnapshot(date:, rows:))
+  use balances <- decode.field("balances", decode.list(leave_balance_decoder()))
+  decode.success(BoardSnapshot(date:, rows:, balances:))
 }
 
 // --- TimesheetCell ----------------------------------------------------------
@@ -446,7 +469,13 @@ pub fn engineer_emergency_decoder() -> Decoder(EngineerEmergency) {
   use name <- decode.field("name", decode.string)
   use phone <- decode.field("phone", decode.string)
   use email <- decode.field("email", decode.string)
-  decode.success(EngineerEmergency(engineer_id:, relation:, name:, phone:, email:))
+  decode.success(EngineerEmergency(
+    engineer_id:,
+    relation:,
+    name:,
+    phone:,
+    email:,
+  ))
 }
 
 // --- ClientProfile -----------------------------------------------------------

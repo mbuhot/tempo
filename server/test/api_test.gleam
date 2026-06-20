@@ -54,8 +54,9 @@ pub fn board_now_returns_snapshot_test() {
 
   let snapshot = decode_board(response)
 
-  assert snapshot
-    == BoardSnapshot(date: calendar.Date(2026, calendar.June, 15), rows: [
+  assert snapshot.date == calendar.Date(2026, calendar.June, 15)
+  assert snapshot.rows
+    == [
       BoardRow(
         engineer: "Aisha Okafor",
         level: 6,
@@ -101,7 +102,11 @@ pub fn board_now_returns_snapshot_test() {
           valid_to: calendar.Date(2027, calendar.January, 1),
         ),
       ),
-    ])
+    ]
+  // Each employed engineer carries a leave balance as of the date (exact values
+  // are asserted at clean dates in leave_test); the board is name-ordered.
+  assert list.map(snapshot.balances, fn(balance) { balance.engineer })
+    == ["Aisha Okafor", "Marcus Chen", "Priya Sharma"]
 }
 
 // A missing date is a 400, not a crash or a 500.

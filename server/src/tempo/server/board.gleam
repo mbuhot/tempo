@@ -16,14 +16,14 @@ import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
 import shared/types.{
-  type BoardRow, type BoardSnapshot, BoardRow, BoardSnapshot, OnLeave, OnProject,
-  Unassigned,
+  type BoardRow, type BoardSnapshot, type LeaveBalance, BoardRow, BoardSnapshot,
+  LeaveBalance, OnLeave, OnProject, Unassigned,
 }
 import tempo/server/context.{type Context}
 import tempo/server/sql
 
-/// Compute the board snapshot for a date: run the three board queries, map each
-/// row to a shared `BoardRow`, and merge them sorted by engineer name.
+/// Compute the board snapshot for a date: run the three board queries and the leave
+/// balances, map each to its shared type, and merge the rows sorted by engineer name.
 pub fn snapshot(
   context: Context,
   date: Date,
@@ -31,6 +31,7 @@ pub fn snapshot(
   use board <- result.try(sql.board_engaged(context.db, date))
   use unassigned <- result.try(sql.board_unassigned(context.db, date))
   use leave <- result.try(sql.board_leave(context.db, date))
+  use balances <- result.try(sql.leave_balances(context.db, date))
   let rows =
     list.flatten([
       list.map(board.rows, board_row_to_shared),
@@ -38,7 +39,14 @@ pub fn snapshot(
       list.map(leave.rows, leave_row_to_shared),
     ])
     |> list.sort(by_engineer)
-  Ok(BoardSnapshot(date:, rows:))
+  let balances = list.map(balances.rows, balance_row_to_shared)
+  Ok(BoardSnapshot(date:, rows:, balances:))
+}
+
+/// Map a leave_balances row to the shared `LeaveBalance` (engineer + annual/sick
+/// days available as of the board date).
+fn balance_row_to_shared(row: sql.LeaveBalancesRow) -> LeaveBalance {
+  LeaveBalance(engineer: row.engineer, annual: row.annual, sick: row.sick)
 }
 
 /// Map an on-project query row to the shared `BoardRow` / `OnProject`.

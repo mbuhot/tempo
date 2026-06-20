@@ -13,6 +13,8 @@ const { test, expect } = require("@playwright/test");
 //   2026-06-01 = day 20605                 2026-12-31 = day 20818 (slider max)
 const DAY = {
   "2024-06-01": "19875",
+  "2025-01-01": "20089",
+  "2026-01-01": "20454",
   "2026-06-01": "20605",
   "2026-06-15": "20619",
   "2026-07-15": "20649",
@@ -132,4 +134,18 @@ test("the selected date is in the URL and is restored on load", async ({
     page.getByRole("heading", { name: "As of 2025-03-01" }),
   ).toBeVisible();
   await expectEngineerLine(page, "Marcus Chen", "Data Platform for Globex Corporation");
+});
+
+test("leave balances accrue as the time slider moves", async ({ page }) => {
+  // At the start of 2025 Aisha has just been hired (no leave accrued yet) while
+  // Priya already has a year's annual leave.
+  await scrubTo(page, "2025-01-01");
+  await expectEngineerLine(page, "Aisha Okafor", "Leave: 0d annual");
+  await expectEngineerLine(page, "Priya Sharma", "Leave: 20d annual");
+
+  // A year on, Aisha has accrued a full year — and at L6 she earns 25 days/yr,
+  // more than an L1-5 engineer's 20 — purely by moving the slider; nothing was
+  // re-fetched or recomputed by hand.
+  await scrubTo(page, "2026-01-01");
+  await expectEngineerLine(page, "Aisha Okafor", "Leave: 25d annual");
 });

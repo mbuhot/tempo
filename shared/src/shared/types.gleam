@@ -39,9 +39,16 @@ pub type BoardRow {
   BoardRow(engineer: String, level: Int, engagement: Engagement)
 }
 
-/// The whole org board for a single date.
+/// An engineer's leave balances (days accrued − taken) for a date — the board
+/// readout. Computed as-of, so it recomputes as the slider moves.
+pub type LeaveBalance {
+  LeaveBalance(engineer: String, annual: Float, sick: Float)
+}
+
+/// The whole org board for a single date: the engagement rows plus each employed
+/// engineer's leave balances as of that date.
 pub type BoardSnapshot {
-  BoardSnapshot(date: Date, rows: List(BoardRow))
+  BoardSnapshot(date: Date, rows: List(BoardRow), balances: List(LeaveBalance))
 }
 
 /// One cell of the weekly timesheet grid: a single (project, day) slot. `allocated`

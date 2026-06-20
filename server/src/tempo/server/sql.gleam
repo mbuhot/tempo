@@ -2303,6 +2303,58 @@ SELECT
   |> pog.execute(db)
 }
 
+/// A row you get from running the `leave_balances` query
+/// defined in `./src/tempo/server/sql/leave_balances.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type LeaveBalancesRow {
+  LeaveBalancesRow(engineer: String, annual: Float, sick: Float)
+}
+
+/// leave_balances.sql — each engineer employed as of $1 with their annual and sick
+/// leave balance (accrued − taken, rounded to one day) on that date, for the board
+/// readout; it recomputes as the board's date moves. $1 = the as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn leave_balances(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(LeaveBalancesRow), pog.QueryError) {
+  let decoder = {
+    use engineer <- decode.field(0, decode.string)
+    use annual <- decode.field(1, pog.numeric_decoder())
+    use sick <- decode.field(2, pog.numeric_decoder())
+    decode.success(LeaveBalancesRow(engineer:, annual:, sick:))
+  }
+
+  "-- leave_balances.sql — each engineer employed as of $1 with their annual and sick
+-- leave balance (accrued − taken, rounded to one day) on that date, for the board
+-- readout; it recomputes as the board's date moves. $1 = the as-of date.
+SELECT
+  coalesce(engineer_current.name, '') AS engineer,
+  round(accrued_leave(engineer.id, 'annual', $1::date)
+        - taken_leave(engineer.id, 'annual', $1::date), 1)::numeric AS annual,
+  round(accrued_leave(engineer.id, 'sick', $1::date)
+        - taken_leave(engineer.id, 'sick', $1::date), 1)::numeric AS sick
+FROM engineer
+JOIN engineer_current ON engineer_current.id = engineer.id
+WHERE EXISTS (
+  SELECT 1 FROM employment
+  WHERE employment.engineer_id = engineer.id
+    AND employment.employed_during @> $1::date
+)
+ORDER BY engineer;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `leave_check` query
 /// defined in `./src/tempo/server/sql/leave_check.sql`.
 ///

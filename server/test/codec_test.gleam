@@ -18,12 +18,13 @@ import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
   ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
   EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
-  OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl, PnlRow, Promote, Ref,
-  ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject,
+  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
+  PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -151,29 +152,36 @@ pub fn board_row_on_leave_round_trips_test() {
 // proving the list and every nested variant survive the round trip together.
 pub fn board_snapshot_round_trips_test() {
   let original =
-    BoardSnapshot(date: Date(2026, June, 15), rows: [
-      BoardRow(
-        engineer: "Marcus Chen",
-        level: 4,
-        engagement: OnProject(
-          project: "Data Platform",
-          client: "Globex Corporation",
-          fraction: 1.0,
-          day_rate: 1000.0,
-          valid_from: Date(2025, January, 1),
-          valid_to: Date(2026, July, 1),
+    BoardSnapshot(
+      date: Date(2026, June, 15),
+      rows: [
+        BoardRow(
+          engineer: "Marcus Chen",
+          level: 4,
+          engagement: OnProject(
+            project: "Data Platform",
+            client: "Globex Corporation",
+            fraction: 1.0,
+            day_rate: 1000.0,
+            valid_from: Date(2025, January, 1),
+            valid_to: Date(2026, July, 1),
+          ),
         ),
-      ),
-      BoardRow(
-        engineer: "Aisha Okafor",
-        level: 6,
-        engagement: OnLeave(
-          kind: "annual",
-          valid_from: Date(2026, June, 8),
-          valid_to: Date(2026, June, 22),
+        BoardRow(
+          engineer: "Aisha Okafor",
+          level: 6,
+          engagement: OnLeave(
+            kind: "annual",
+            valid_from: Date(2026, June, 8),
+            valid_to: Date(2026, June, 22),
+          ),
         ),
-      ),
-    ])
+      ],
+      balances: [
+        LeaveBalance(engineer: "Marcus Chen", annual: 40.7, sick: 20.4),
+        LeaveBalance(engineer: "Aisha Okafor", annual: 29.3, sick: 14.5),
+      ],
+    )
 
   assert round_trip(
       original,
@@ -185,7 +193,8 @@ pub fn board_snapshot_round_trips_test() {
 
 // An empty board (no employed engineers on the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
-  let original = BoardSnapshot(date: Date(2026, June, 15), rows: [])
+  let original =
+    BoardSnapshot(date: Date(2026, June, 15), rows: [], balances: [])
 
   assert round_trip(
       original,

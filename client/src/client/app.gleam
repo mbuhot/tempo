@@ -32,8 +32,8 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type BoardRow, type BoardSnapshot, type Command, type Engagement, type Event,
-  type Invoice, type Payroll, type Pnl, type PnlRow, type Ref, type Roster,
-  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type Invoice, type LeaveBalance, type Payroll, type Pnl, type PnlRow, type Ref,
+  type Roster, type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
   type TimesheetWeekRow, AdjustRateForPortion, AssignToProject, DraftInvoice,
   IssueInvoice, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
   PayInvoice, Promote, ReviseRateCard, RollOff, Roster, RunPayroll, TakeLeave,
@@ -1303,7 +1303,7 @@ fn view_board(board: Board) -> Element(Message) {
               attribute.class("board"),
               attribute.attribute("aria-label", "Org board"),
             ],
-            list.map(rows, view_row),
+            list.map(rows, fn(row) { view_row(row, snapshot.balances) }),
           )
       }
   }
@@ -1314,7 +1314,7 @@ fn view_board(board: Board) -> Element(Message) {
 /// (`on-leave`/`unassigned`/`on-project`) derived from the engagement variant so
 /// the stylesheet can colour leave and idle rows distinctly — purely visual, the
 /// user-facing text is unchanged.
-fn view_row(row: BoardRow) -> Element(Message) {
+fn view_row(row: BoardRow, balances: List(LeaveBalance)) -> Element(Message) {
   html.li(
     [
       attribute.attribute("data-engineer", row.engineer),
@@ -1328,8 +1328,29 @@ fn view_row(row: BoardRow) -> Element(Message) {
       html.span([attribute.class("engagement")], [
         html.text(describe_engagement(row.engagement)),
       ]),
+      html.span([attribute.class("leave-balance")], [
+        html.text(describe_leave_balance(row.engineer, balances)),
+      ]),
     ],
   )
+}
+
+/// The board's leave readout for an engineer as of the selected date: their annual
+/// and sick balance in days, recomputed server-side on each slider move. Empty when
+/// the engineer has no balance row (not employed as of the date).
+fn describe_leave_balance(
+  engineer: String,
+  balances: List(LeaveBalance),
+) -> String {
+  case list.find(balances, fn(balance) { balance.engineer == engineer }) {
+    Ok(balance) ->
+      "Leave: "
+      <> format_days(balance.annual)
+      <> "d annual, "
+      <> format_days(balance.sick)
+      <> "d sick"
+    Error(_) -> ""
+  }
 }
 
 /// The CSS state class for a board row, by engagement variant: on-leave and

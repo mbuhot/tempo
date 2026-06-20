@@ -208,3 +208,23 @@ test("an operation the database refuses shows the user why it was rejected and l
     page.getByText(/Assign engineer 3 to project 100/),
   ).toHaveCount(0);
 });
+
+test("a leave request beyond the accrued balance is rejected with the reason", async ({
+  page,
+}) => {
+  // Priya (L5, employed since 2024) has roughly a year and a half of annual leave
+  // accrued by late 2026 — far short of a four-month request. The take_leave guard
+  // checks the balance on return and the console surfaces the typed reason.
+  await scrubTo(page, "2026-06-15");
+  await selectOperation(page, "Take leave");
+  await selectField(page, "Engineer", "Priya Sharma");
+  await fillField(page, "Leave kind", "annual");
+  await fillField(page, "Valid from", "2026-08-01");
+  await fillField(page, "Valid to", "2026-12-01");
+  await applyOperation(page);
+
+  await expect(page.getByText("Rejected:")).toBeVisible();
+  await expect(
+    page.getByText(/insufficient annual leave balance/),
+  ).toBeVisible();
+});
