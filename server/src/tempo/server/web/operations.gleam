@@ -9,9 +9,10 @@
 //// created events as a JSON array — the authoritative record of what was written
 //// (the client also refetches /api/events). A malformed body is a 400; a rejected
 //// operation maps by its `OperationError`: `ContainmentViolated`/`OverlappingFact`
-//// → 409, `InvalidValue` → 422, `DatabaseError` → 500.
+//// → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422, `DatabaseError` → 500.
 
 import gleam/dynamic/decode
+import gleam/float
 import gleam/http
 import gleam/json
 import shared/codecs
@@ -19,8 +20,8 @@ import shared/types.{type Event, type OperationRequest}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/operation.{
-  type OperationError, ContainmentViolated, DatabaseError, InvalidValue,
-  OverlappingFact,
+  type OperationError, ContainmentViolated, DatabaseError,
+  InsufficientLeaveBalance, InvalidValue, OverlappingFact,
 }
 import tempo/server/web/response
 import wisp
@@ -78,6 +79,18 @@ fn error_response(error: OperationError) -> wisp.Response {
         422,
         "invalid_value",
         "a value is out of range (fraction, level, or hours)",
+      )
+    InsufficientLeaveBalance(kind:, available:, requested:) ->
+      response.error_response(
+        422,
+        "insufficient_leave_balance",
+        "insufficient "
+          <> kind
+          <> " leave balance: "
+          <> float.to_string(available)
+          <> " days available on return, "
+          <> float.to_string(requested)
+          <> " requested",
       )
     DatabaseError(_) -> wisp.internal_server_error()
   }

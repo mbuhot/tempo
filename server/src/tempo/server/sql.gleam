@@ -2253,6 +2253,110 @@ VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5);
   |> pog.execute(db)
 }
 
+/// A row you get from running the `leave_balance` query
+/// defined in `./src/tempo/server/sql/leave_balance.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type LeaveBalanceRow {
+  LeaveBalanceRow(policied: Bool, balance: Float)
+}
+
+/// leave_balance.sql — an engineer's leave balance for a kind as of a date: days
+/// accrued (employment ∩ role ∩ leave_policy[kind, level], leap-aware) minus days
+/// taken, both up to as_of. `policied` is false when the kind has no policy at all —
+/// then it is unlimited and the take_leave guard does not apply. The balance is a
+/// pure calculation at any past or future date; nothing is stored.
+/// $1 = engineer_id, $2 = kind, $3 = as_of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn leave_balance(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Date,
+) -> Result(pog.Returned(LeaveBalanceRow), pog.QueryError) {
+  let decoder = {
+    use policied <- decode.field(0, decode.bool)
+    use balance <- decode.field(1, pog.numeric_decoder())
+    decode.success(LeaveBalanceRow(policied:, balance:))
+  }
+
+  "-- leave_balance.sql — an engineer's leave balance for a kind as of a date: days
+-- accrued (employment ∩ role ∩ leave_policy[kind, level], leap-aware) minus days
+-- taken, both up to as_of. `policied` is false when the kind has no policy at all —
+-- then it is unlimited and the take_leave guard does not apply. The balance is a
+-- pure calculation at any past or future date; nothing is stored.
+-- $1 = engineer_id, $2 = kind, $3 = as_of date.
+SELECT
+  EXISTS (SELECT 1 FROM leave_policy WHERE kind = $2) AS policied,
+  (accrued_leave($1, $2, $3::date) - taken_leave($1, $2, $3::date))::numeric AS balance;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `leave_check` query
+/// defined in `./src/tempo/server/sql/leave_check.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type LeaveCheckRow {
+  LeaveCheckRow(policied: Bool, available: Float, requested: Float)
+}
+
+/// leave_check.sql — the take_leave guard input for a [valid_from, valid_to) leave:
+/// `available` is the balance on return (accrued − taken as of valid_to, the new
+/// leave not yet recorded), `requested` the calendar days (valid_to − valid_from), and
+/// `policied` whether the kind has any policy (false ⇒ unlimited, no guard). The
+/// handler rejects when policied AND available < requested.
+/// $1 = engineer_id, $2 = kind, $3 = valid_from, $4 = valid_to.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn leave_check(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Date,
+  arg_4: Date,
+) -> Result(pog.Returned(LeaveCheckRow), pog.QueryError) {
+  let decoder = {
+    use policied <- decode.field(0, decode.bool)
+    use available <- decode.field(1, pog.numeric_decoder())
+    use requested <- decode.field(2, pog.numeric_decoder())
+    decode.success(LeaveCheckRow(policied:, available:, requested:))
+  }
+
+  "-- leave_check.sql — the take_leave guard input for a [valid_from, valid_to) leave:
+-- `available` is the balance on return (accrued − taken as of valid_to, the new
+-- leave not yet recorded), `requested` the calendar days (valid_to − valid_from), and
+-- `policied` whether the kind has any policy (false ⇒ unlimited, no guard). The
+-- handler rejects when policied AND available < requested.
+-- $1 = engineer_id, $2 = kind, $3 = valid_from, $4 = valid_to.
+SELECT
+  EXISTS (SELECT 1 FROM leave_policy WHERE kind = $2) AS policied,
+  (accrued_leave($1, $2, $4::date) - taken_leave($1, $2, $4::date))::numeric AS available,
+  ($4::date - $3::date)::numeric AS requested;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// leave_close_all.sql — cap all of an engineer's leave from a date (§5a, pattern 4).
 ///
 /// DELETE … FOR PORTION OF over `[end, ∞)` with no `@>` filter: intentionally

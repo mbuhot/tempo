@@ -182,6 +182,20 @@ CREATE TABLE salary (
   CONSTRAINT salary_no_overlap PRIMARY KEY (level, effective_during WITHOUT OVERLAPS)
 );
 
+-- Leave accrual policy: how many days/year a level accrues for a leave kind, over a
+-- period. Versioned per (kind, level) — a company-wide change ("25 days from 2027")
+-- is a FOR PORTION OF revise, and a promotion shifts which (kind, level) row applies
+-- (so accrual blends across the promotion date, like salary in payroll). A kind with
+-- NO policy rows is unlimited (the take_leave guard does not fire for it).
+CREATE TABLE leave_policy (
+  kind          text NOT NULL,
+  level         int NOT NULL CONSTRAINT leave_policy_level_check CHECK (level BETWEEN 1 AND 7),
+  days_per_year numeric(5,2) NOT NULL CONSTRAINT leave_policy_days_check CHECK (days_per_year >= 0),
+  effective_during daterange NOT NULL,
+  CONSTRAINT leave_policy_no_overlap
+    PRIMARY KEY (kind, level, effective_during WITHOUT OVERLAPS)
+);
+
 -- Invoice: anchor + immutable subject, temporal status, snapshot lines ---------
 CREATE TABLE invoice_subject (
   invoice_id     int NOT NULL REFERENCES invoice(id) PRIMARY KEY,
@@ -235,6 +249,58 @@ CREATE VIEW project_current AS
   SELECT DISTINCT ON (project_id) project_id AS id, title, summary
     FROM project_profile ORDER BY project_id, lower(recorded_during) DESC;
 
+-- Leave-balance calculation ----------------------------------------------------
+-- `year_fraction(d)` is a leap-aware "year coordinate": the year plus the fraction
+-- of that year elapsed, scaled by the year's own length (365 or 366). So accrual
+-- over [lo, hi) is days_per_year × (year_fraction(hi) − year_fraction(lo)): a day in
+-- a 366-day year is worth 1/366 of the annual grant, a full year is exactly 1.0, and
+-- a span crossing a leap boundary sums correctly with no drift.
+CREATE FUNCTION year_fraction(d date) RETURNS numeric LANGUAGE sql IMMUTABLE AS $$
+  SELECT extract(year FROM d)::numeric
+    + (d - date_trunc('year', d)::date)::numeric
+      / ((date_trunc('year', d)::date + interval '1 year')::date
+         - date_trunc('year', d)::date);
+$$;
+
+-- Days accrued for an engineer's leave `kind` up to `as_of`: integrate
+-- days_per_year over each employment ∩ engineer_role ∩ leave_policy[kind, level]
+-- sub-period within (-∞, as_of), leap-aware via year_fraction. A promotion changes
+-- which (kind, level) policy applies, so the rate blends across the promotion date.
+CREATE FUNCTION accrued_leave(p_engineer int, p_kind text, p_as_of date)
+RETURNS numeric LANGUAGE sql STABLE AS $$
+  WITH sub AS (
+    SELECT leave_policy.days_per_year,
+           employment.employed_during
+             * engineer_role.held_during
+             * leave_policy.effective_during
+             * daterange(NULL, p_as_of, '[)') AS period
+    FROM employment
+    JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
+                      AND engineer_role.held_during && employment.employed_during
+    JOIN leave_policy  ON leave_policy.kind = p_kind
+                      AND leave_policy.level = engineer_role.level
+                      AND leave_policy.effective_during && engineer_role.held_during
+    WHERE employment.engineer_id = p_engineer
+  )
+  SELECT coalesce(sum(
+    days_per_year * (year_fraction(upper(period)) - year_fraction(lower(period)))
+  ), 0)::numeric
+  FROM sub WHERE NOT isempty(period);
+$$;
+
+-- Days taken for an engineer's leave `kind` up to `as_of`: the calendar-day count of
+-- each leave period intersected with (-∞, as_of).
+CREATE FUNCTION taken_leave(p_engineer int, p_kind text, p_as_of date)
+RETURNS numeric LANGUAGE sql STABLE AS $$
+  SELECT coalesce(sum(
+    upper(on_leave_during * daterange(NULL, p_as_of, '[)'))
+    - lower(on_leave_during * daterange(NULL, p_as_of, '[)'))
+  ), 0)::numeric
+  FROM leave
+  WHERE engineer_id = p_engineer AND kind = p_kind
+    AND NOT isempty(on_leave_during * daterange(NULL, p_as_of, '[)'));
+$$;
+
 -- Per-fact provenance ---------------------------------------------------------
 -- A fact links to the event_log entry (the command) that recorded THAT row-version,
 -- so a row can be traced back to who wrote it and when. The repository sets audit_id
@@ -261,6 +327,7 @@ ALTER TABLE timesheet         ADD COLUMN audit_id bigint REFERENCES event_log(id
 ALTER TABLE client_profile    ADD COLUMN audit_id bigint REFERENCES event_log(id);
 ALTER TABLE rate_card         ADD COLUMN audit_id bigint REFERENCES event_log(id);
 ALTER TABLE salary            ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE leave_policy      ADD COLUMN audit_id bigint REFERENCES event_log(id);
 ALTER TABLE invoice_subject   ADD COLUMN audit_id bigint REFERENCES event_log(id);
 ALTER TABLE invoice_status    ADD COLUMN audit_id bigint REFERENCES event_log(id);
 ALTER TABLE invoice_line      ADD COLUMN audit_id bigint REFERENCES event_log(id);

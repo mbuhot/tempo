@@ -48,6 +48,25 @@ INSERT INTO salary (level, monthly_salary, effective_during, audit_id)
 SELECT v.level, v.monthly_salary, daterange('2024-01-01', NULL), e.id FROM e,
   (VALUES (3, 6000.00), (4, 8000.00), (5, 10000.00), (6, 14000.00)) AS v(level, monthly_salary);
 
+-- Set leave policy: annual 20 days/yr (L1-5) stepping to 25 for senior levels
+-- (L6-7), sick 10 days/yr (all levels), from the company epoch. Per-level so a
+-- promotion across L6 raises the annual accrual rate from the promotion date.
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2024-01-01', 'seed', 'set_leave_policy',
+     'Set leave policy: annual 20/yr (L1-5), 25/yr (L6-7); sick 10/yr (all) from 2024-01-01',
+     '{"annual":{"1-5":20,"6-7":25},"sick":{"all":10},"effective":"2024-01-01"}')
+  RETURNING id)
+INSERT INTO leave_policy (kind, level, days_per_year, effective_during, audit_id)
+SELECT v.kind, v.level, v.days_per_year, daterange('2024-01-01', NULL), e.id FROM e,
+  (VALUES
+    ('annual', 1, 20.00), ('annual', 2, 20.00), ('annual', 3, 20.00),
+    ('annual', 4, 20.00), ('annual', 5, 20.00), ('annual', 6, 25.00),
+    ('annual', 7, 25.00),
+    ('sick', 1, 10.00), ('sick', 2, 10.00), ('sick', 3, 10.00),
+    ('sick', 4, 10.00), ('sick', 5, 10.00), ('sick', 6, 10.00), ('sick', 7, 10.00)
+  ) AS v(kind, level, days_per_year);
+
 -- Register clients. -----------------------------------------------------------
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES

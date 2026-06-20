@@ -46,6 +46,7 @@ erDiagram
   event_log ||--o{ invoice_status : "FK"
   event_log ||--o{ invoice_subject : "FK"
   event_log ||--o{ leave : "FK"
+  event_log ||--o{ leave_policy : "FK"
   event_log ||--o{ payroll_line : "FK"
   event_log ||--o{ payroll_period : "FK"
   event_log ||--o{ project_plan : "FK"
@@ -168,6 +169,13 @@ erDiagram
     integer engineer_id PK,FK
     text kind
     daterange on_leave_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  leave_policy {
+    text kind PK
+    integer level PK
+    numeric days_per_year
+    daterange effective_during PK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
   payroll_line {

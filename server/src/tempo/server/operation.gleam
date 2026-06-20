@@ -41,6 +41,10 @@ pub type OperationError {
   OverlappingFact
   /// A `CHECK` fired: a value is out of range (fraction, level, or hours).
   InvalidValue
+  /// A leave request exceeds the engineer's accrued-minus-taken balance for that
+  /// kind on return (the `take_leave` guard, not a database constraint). `available`
+  /// is the balance on return, `requested` the days asked for.
+  InsufficientLeaveBalance(kind: String, available: Float, requested: Float)
   /// Any other database failure — surfaced opaquely.
   DatabaseError(pog.QueryError)
 }
