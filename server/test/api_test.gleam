@@ -19,8 +19,8 @@ import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type Event, type TimesheetWeek, BoardRow, BoardSnapshot,
-  OnLeave, OnProject, Promote, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
+  type BoardSnapshot, type Event, type TimesheetWeek, BoardRow, OnLeave,
+  OnProject, Promote, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context, Context}
 import tempo/server/event

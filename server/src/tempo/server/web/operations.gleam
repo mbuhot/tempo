@@ -14,6 +14,7 @@
 import gleam/dynamic/decode
 import gleam/float
 import gleam/http
+import gleam/int
 import gleam/json
 import shared/codecs
 import shared/types.{type Event, type OperationRequest}
@@ -87,9 +88,9 @@ fn error_response(error: OperationError) -> wisp.Response {
         "insufficient "
           <> kind
           <> " leave balance: "
-          <> float.to_string(available)
+          <> float.to_string(float.to_precision(available, 1))
           <> " days available on return, "
-          <> float.to_string(requested)
+          <> int.to_string(float.round(requested))
           <> " requested",
       )
     DatabaseError(_) -> wisp.internal_server_error()
