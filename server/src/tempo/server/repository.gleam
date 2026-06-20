@@ -18,9 +18,14 @@
 ////     begins);
 ////   - worked hours is a delete-then-insert upsert (0 clears the day);
 ////   - a retraction (`EngineerOffProject`, `EngineerDeparted`) caps the span — and
-////     departure cascades the cap to allocations, leave, and role;
-////   - `CommandHandled` appends the provenance journal row (`event_log`), stamped
-////     with the actor, and is the only fact that yields a persisted `Event`.
+////     departure cascades the cap to allocations, leave, and role.
+////
+//// `record_facts` first appends the command's journal `entry` to `event_log`, then
+//// writes each fact, passing the appended entry's id as the `audit_id` every fact
+//// carries (its FK back to the command that recorded it). A revise SETs audit_id on
+//// the changed portion; PG copies the original onto the carved-off leftover. A
+//// delete (a retraction's cap) leaves no row, so its provenance lives only in
+//// event_log.
 
 import gleam/list
 import gleam/option.{None, Some}
@@ -30,7 +35,7 @@ import pog
 import shared/types.{type Event}
 import tempo/server/event
 import tempo/server/fact.{
-  type Fact, ClientProfile, CommandHandled, Contract, ContractTerms, Engineer,
+  type Fact, ClientProfile, Contract, ContractTerms, Engineer,
   EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
   EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
   EngineerEmployed, EngineerOffProject, EngineerOnLeave, EngineerWorkedHours,
@@ -38,7 +43,7 @@ import tempo/server/fact.{
   PayrollPeriod, PayrollRun, Project, ProjectPlan, ProjectProfile, ProjectRun,
   RateCard, Salary,
 }
-import tempo/server/operation.{type OperationError}
+import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/sql
 
 /// The id sequences a command reserves from before recording a freshly-minted
@@ -86,47 +91,38 @@ pub fn next_id(
   }
 }
 
-/// Record every fact in order on `conn`, returning the journal events the
-/// `CommandHandled` facts produced (the rows the database minted). Short-circuits on
-/// the first rejection, returning its typed `OperationError`; the caller's
-/// transaction then rolls them all back.
+/// Record a command's outcome in one transaction: append its journal `entry` (the
+/// `event_log` row), then write each fact in order, stamping each with the appended
+/// entry's id as its `audit_id`. Returns the persisted journal event (the row the
+/// database minted). Short-circuits on the first rejection, returning its typed
+/// `OperationError`; the caller's transaction then rolls them all back.
 pub fn record_facts(
   conn: pog.Connection,
   actor actor: String,
+  entry entry: JournalEntry,
   facts facts: List(Fact),
 ) -> Result(List(Event), OperationError) {
-  use events <- result.map(
-    list.try_map(facts, fn(a_fact) { record(conn, actor, a_fact) }),
+  use appended <- result.try(
+    event.append(conn, actor:, event: entry)
+    |> result.map_error(operation.classify),
   )
-  list.flatten(events)
+  use _ <- result.try(
+    list.try_map(facts, fn(a_fact) { write(conn, appended.id, a_fact) })
+    |> result.replace(Nil),
+  )
+  Ok([appended])
 }
 
-fn record(
+/// Write one fact under `audit_id` (the recording command's event_log id): map it to
+/// the SQL that makes the database reflect it, passing `audit_id` to every insert and
+/// revise. Anchors and deletes carry no audit_id.
+fn write(
   conn: pog.Connection,
-  actor: String,
+  audit_id: Int,
   a_fact: Fact,
-) -> Result(List(Event), OperationError) {
+) -> Result(Nil, OperationError) {
   case a_fact {
-    CommandHandled(operation: tag, summary:, payload:) ->
-      event.append(
-        conn,
-        actor:,
-        event: operation.Event(operation: tag, summary:, payload:),
-      )
-      |> result.map_error(operation.classify)
-      |> result.map(fn(journal_event) { [journal_event] })
-
-    _ -> write(conn, a_fact) |> result.replace([])
-  }
-}
-
-/// Write one domain fact (everything except `CommandHandled`): map it to the SQL
-/// that makes the database reflect it.
-fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
-  case a_fact {
-    CommandHandled(..) -> Ok(Nil)
-
-    // --- identity anchors -----------------------------------------------------
+    // --- identity anchors (id-only, no audit_id) ------------------------------
     Engineer(id:) -> sql.engineer_create(conn, id) |> operation.run
     Contract(id:) -> sql.contract_create(conn, id) |> operation.run
     Project(id:) -> sql.project_create(conn, id) |> operation.run
@@ -135,15 +131,17 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
 
     // --- engineer -------------------------------------------------------------
     EngineerEmployed(engineer_id:, from:) ->
-      sql.employment_open(conn, engineer_id, from) |> operation.run
+      sql.employment_open(conn, engineer_id, from, audit_id) |> operation.run
 
     EngineerDeparted(engineer_id:, from:) ->
       record_departure(conn, engineer_id, from)
 
     EngineerAtLevel(engineer_id:, level:, from:) ->
       change_or_open(
-        sql.engineer_role_change(conn, engineer_id, level, from),
-        fn() { sql.engineer_role_open(conn, engineer_id, level, from) },
+        sql.engineer_role_change(conn, engineer_id, level, from, audit_id),
+        fn() {
+          sql.engineer_role_open(conn, engineer_id, level, from, audit_id)
+        },
       )
 
     EngineerContactDetails(
@@ -163,6 +161,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
           email,
           phone,
           postal_address,
+          audit_id,
         ),
         fn() {
           sql.engineer_contact_open(
@@ -173,6 +172,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             phone,
             postal_address,
             from,
+            audit_id,
           )
         },
       )
@@ -194,6 +194,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
           branch,
           account_no,
           account_name,
+          audit_id,
         ),
         fn() {
           sql.engineer_banking_open(
@@ -204,6 +205,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             account_no,
             account_name,
             from,
+            audit_id,
           )
         },
       )
@@ -225,6 +227,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
           name,
           phone,
           email,
+          audit_id,
         ),
         fn() {
           sql.engineer_emergency_open(
@@ -235,6 +238,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             phone,
             email,
             from,
+            audit_id,
           )
         },
       )
@@ -250,6 +254,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             from,
             fraction,
             to_date,
+            audit_id,
           )
           |> operation.run
         None ->
@@ -259,6 +264,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             project_id,
             from,
             fraction,
+            audit_id,
           )
           |> operation.run
       }
@@ -267,35 +273,59 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
       sql.allocation_close(conn, engineer_id, project_id, from) |> operation.run
 
     EngineerOnLeave(engineer_id:, kind:, from:, to:) ->
-      sql.leave_take(conn, engineer_id, kind, from, to) |> operation.run
+      sql.leave_take(conn, engineer_id, kind, from, to, audit_id)
+      |> operation.run
 
     // --- rates & salary -------------------------------------------------------
     RateCard(level:, day_rate:, from:, to:) ->
       case to {
         None ->
-          sql.rate_card_revise(conn, from, day_rate, level) |> operation.run
+          sql.rate_card_revise(conn, from, day_rate, level, audit_id)
+          |> operation.run
         Some(to_date) ->
-          sql.rate_card_for_portion_of(conn, from, to_date, day_rate, level)
+          sql.rate_card_for_portion_of(
+            conn,
+            from,
+            to_date,
+            day_rate,
+            level,
+            audit_id,
+          )
           |> operation.run
       }
 
     Salary(level:, monthly_salary:, from:) ->
-      sql.salary_revise(conn, from, monthly_salary, level) |> operation.run
+      sql.salary_revise(conn, from, monthly_salary, level, audit_id)
+      |> operation.run
 
     // --- engagement -----------------------------------------------------------
     ContractTerms(contract_id:, client:, from:, to:) ->
-      sql.contract_terms_open(conn, contract_id, client, from, to)
+      sql.contract_terms_open(conn, contract_id, client, from, to, audit_id)
       |> operation.run
 
     ProjectRun(project_id:, contract_id:, from:, to:) ->
-      sql.project_run_open(conn, project_id, contract_id, from, to)
+      sql.project_run_open(conn, project_id, contract_id, from, to, audit_id)
       |> operation.run
 
     ProjectProfile(project_id:, title:, summary:, from:) ->
       change_or_open(
-        sql.project_profile_revise(conn, project_id, from, title, summary),
+        sql.project_profile_revise(
+          conn,
+          project_id,
+          from,
+          title,
+          summary,
+          audit_id,
+        ),
         fn() {
-          sql.project_profile_open(conn, project_id, title, summary, from)
+          sql.project_profile_open(
+            conn,
+            project_id,
+            title,
+            summary,
+            from,
+            audit_id,
+          )
         },
       )
 
@@ -307,6 +337,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
           from,
           budget,
           target_completion,
+          audit_id,
         ),
         fn() {
           sql.project_plan_open(
@@ -315,6 +346,7 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
             budget,
             target_completion,
             from,
+            audit_id,
           )
         },
       )
@@ -322,22 +354,30 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
     // --- client ---------------------------------------------------------------
     ClientProfile(client_id:, name:, from:) ->
       change_or_open(
-        sql.client_profile_revise(conn, client_id, from, name),
-        fn() { sql.client_profile_open(conn, client_id, name, from) },
+        sql.client_profile_revise(conn, client_id, from, name, audit_id),
+        fn() { sql.client_profile_open(conn, client_id, name, from, audit_id) },
       )
 
     // --- timesheet ------------------------------------------------------------
     EngineerWorkedHours(engineer_id:, project_id:, day:, hours:) ->
-      record_hours(conn, engineer_id, project_id, day, hours)
+      record_hours(conn, audit_id, engineer_id, project_id, day, hours)
 
     // --- invoice & payroll ----------------------------------------------------
     InvoiceSubject(invoice_id:, project_id:, from:, to:) ->
-      sql.invoice_subject_insert(conn, invoice_id, project_id, from, to)
+      sql.invoice_subject_insert(
+        conn,
+        invoice_id,
+        project_id,
+        from,
+        to,
+        audit_id,
+      )
       |> operation.run
 
     InvoiceInStatus(invoice_id:, status:, from:) -> {
       use _ <- operation.try(sql.invoice_status_close(conn, invoice_id, from))
-      sql.invoice_status_open(conn, invoice_id, status, from) |> operation.run
+      sql.invoice_status_open(conn, invoice_id, status, from, audit_id)
+      |> operation.run
     }
 
     InvoiceLine(invoice_id:, engineer_id:, level:, day_rate:, days:, amount:) ->
@@ -349,14 +389,16 @@ fn write(conn: pog.Connection, a_fact: Fact) -> Result(Nil, OperationError) {
         day_rate,
         days,
         amount,
+        audit_id,
       )
       |> operation.run
 
     PayrollPeriod(run_id:, from:, to:) ->
-      sql.payroll_period_insert(conn, run_id, from, to) |> operation.run
+      sql.payroll_period_insert(conn, run_id, from, to, audit_id)
+      |> operation.run
 
     PayrollLine(run_id:, engineer_id:, amount:, days:) ->
-      sql.payroll_line_insert(conn, run_id, engineer_id, amount, days)
+      sql.payroll_line_insert(conn, run_id, engineer_id, amount, days, audit_id)
       |> operation.run
   }
 }
@@ -385,6 +427,7 @@ fn change_or_open(
 /// unified `ContainmentViolated` when the day is not covered by an allocation.
 fn record_hours(
   conn: pog.Connection,
+  audit_id: Int,
   engineer_id: Int,
   project_id: Int,
   day: Date,
@@ -399,7 +442,7 @@ fn record_hours(
   case hours == 0.0 {
     True -> Ok(Nil)
     False ->
-      sql.timesheet_write(conn, engineer_id, project_id, day, hours)
+      sql.timesheet_write(conn, engineer_id, project_id, day, hours, audit_id)
       |> operation.run
   }
 }
@@ -407,7 +450,8 @@ fn record_hours(
 /// Record an engineer's departure from `from`: cap every fact contained by the
 /// employment FIRST — allocation → leave → role — then the employment itself. The
 /// PERIOD FKs both force that order and verify completeness: a child left dangling
-/// past `from` rejects the whole transaction.
+/// past `from` rejects the whole transaction. These are deletes, so they carry no
+/// audit_id (a retraction's provenance lives only in event_log).
 fn record_departure(
   conn: pog.Connection,
   engineer_id: Int,

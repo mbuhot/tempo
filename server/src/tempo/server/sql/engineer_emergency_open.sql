@@ -1,8 +1,6 @@
--- engineer_emergency_open.sql — step 2 of the emergency Change.
---
--- Insert the new full emergency row over [$6, NULL). Only scalar params cross the
--- boundary; the range is built in SQL. $1 = engineer_id, $2 = relation,
--- $3 = name, $4 = phone, $5 = email, $6 = effective date.
+-- engineer_emergency_open.sql — open an engineer's emergency contact. Last param is
+-- the audit_id. $1 = engineer_id, $2 = relation, $3 = name, $4 = phone, $5 = email,
+-- $6 = from.
 INSERT INTO engineer_emergency
-  (engineer_id, relation, name, phone, email, recorded_during)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+  (engineer_id, relation, name, phone, email, recorded_during, audit_id)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);

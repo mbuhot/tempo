@@ -3,13 +3,16 @@
 //// happened; `repository` maps each to the SQL that makes the database reflect it.
 //// The temporal database preserves the history (a new version per change); the only
 //// history a fact loses is a back-dated edit that overwrites an earlier value, which
-//// the event_log (`CommandHandled`) audits.
+//// the event_log audits. Each recorded fact also carries an `audit_id` FK to the
+//// event_log entry of the command that wrote it (filled by the repository, not a
+//// field here).
 ////
 //// This is the event-sourced shape without the event-log+projection machinery: the
 //// facts ARE the rows, recorded directly. A handler decides WHICH facts a command
-//// records (and in what order — anchors before the facts contained by them); the
-//// repository decides HOW each is written (a fresh assert, a change from a date
-//// onward, a bounded surgical edit, or a cap + cascade).
+//// records (and in what order — anchors before the facts contained by them) and the
+//// audit entry the command produces; the repository decides HOW each fact is written
+//// (a fresh assert, a change from a date onward, a bounded surgical edit, or a cap +
+//// cascade).
 ////
 //// Period convention: `from` alone is an open-ended span `[from, ∞)` (the change
 //// pattern — recording it supersedes the prior version from `from` onward). `from` +
@@ -17,9 +20,18 @@
 //// open-ended change and `Some` the bounded form (assign vs re-fraction; revise vs
 //// surgical portion).
 
-import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import tempo/server/operation.{type Event}
+
+/// What a command records: its journal `entry` (the audit log row) plus the `facts`
+/// it produced, in write order (anchors first, then the facts contained by them).
+/// A handler returns this; `command.dispatch` hands both to
+/// `repository.record_facts`, which appends the entry, sets the audit context, and
+/// writes the facts in one transaction.
+pub type Recorded {
+  Recorded(entry: Event, facts: List(Fact))
+}
 
 pub type Fact {
   // --- identity anchors (must precede the facts contained by them) ------------
@@ -143,10 +155,4 @@ pub type Fact {
   PayrollPeriod(run_id: Int, from: Date, to: Date)
   /// A line on a payroll run: the engineer, prorated amount owed, and employed days.
   PayrollLine(run_id: Int, engineer_id: Int, amount: Float, days: Float)
-
-  // --- audit ------------------------------------------------------------------
-  /// A command was handled: the provenance journal entry (`event_log`). `operation`
-  /// is the command tag, `summary` the human line, `payload` the re-encoded command.
-  /// The actor and timestamp are stamped by `repository.record_facts` / the database.
-  CommandHandled(operation: String, summary: String, payload: Json)
 }

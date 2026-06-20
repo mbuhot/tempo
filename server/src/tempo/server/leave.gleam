@@ -12,16 +12,16 @@ import gleam/int
 import pog
 import shared/codecs
 import shared/types.{type Command, TakeLeave}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 
 /// Apply a leave-aggregate command: route it to its named operation, which returns
-/// the facts it records. The dispatch `route` only ever sends leave commands here,
-/// so any other variant is a routing bug — `panic`.
+/// the audit entry and facts it records. The dispatch `route` only ever sends leave
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   _conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     TakeLeave(..) -> take_leave(command)
     _ ->
@@ -29,21 +29,30 @@ pub fn handle(
   }
 }
 
-/// Record an engineer on leave of a kind over `[valid_from, valid_to)`, plus the
+/// Record an engineer on leave of a kind over `[valid_from, valid_to)`, with the
 /// journal entry.
-fn take_leave(command: Command) -> Result(List(Fact), OperationError) {
+fn take_leave(command: Command) -> Result(Recorded, OperationError) {
   let assert TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) = command
-  Ok([
-    fact.EngineerOnLeave(engineer_id:, kind:, from: valid_from, to: valid_to),
-    fact.CommandHandled(
-      operation: "take_leave",
-      summary: "Engineer "
-        <> int.to_string(engineer_id)
-        <> " on "
-        <> kind
-        <> " leave over "
-        <> operation.span(valid_from, valid_to),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "take_leave",
+        summary: "Engineer "
+          <> int.to_string(engineer_id)
+          <> " on "
+          <> kind
+          <> " leave over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.EngineerOnLeave(
+          engineer_id:,
+          kind:,
+          from: valid_from,
+          to: valid_to,
+        ),
+      ],
     ),
-  ])
+  )
 }

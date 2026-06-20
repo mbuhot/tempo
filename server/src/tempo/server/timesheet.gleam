@@ -23,19 +23,19 @@ import shared/types.{
   TimesheetCell, TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 import tempo/server/sql
 
 // --- dispatch ---------------------------------------------------------------
 
 /// Apply a timesheet-aggregate command: route it to its named operation, which
-/// returns the facts it records. The dispatch `route` only ever sends timesheet
-/// commands here, so any other variant is a routing bug — `panic`.
+/// returns the audit entry and facts it records. The dispatch `route` only ever
+/// sends timesheet commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   _conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     LogTimesheet(..) -> log_timesheet(command)
     LogWeek(..) -> log_week(command)
@@ -44,51 +44,52 @@ pub fn handle(
   }
 }
 
-/// Record one `EngineerWorkedHours` fact, plus the journal entry. A day not covered
+/// Record one `EngineerWorkedHours` fact, with its journal entry. A day not covered
 /// by an allocation trips the timesheet PERIOD FK, which `repository` classifies as
 /// the unified `ContainmentViolated`.
-fn log_timesheet(command: Command) -> Result(List(Fact), OperationError) {
+fn log_timesheet(command: Command) -> Result(Recorded, OperationError) {
   let assert LogTimesheet(engineer_id:, project_id:, day:, hours:) = command
-  Ok([
-    fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:),
-    fact.CommandHandled(
-      operation: "log_timesheet",
-      summary: "Log "
-        <> float.to_string(hours)
-        <> "h for engineer "
-        <> int.to_string(engineer_id)
-        <> " on project "
-        <> int.to_string(project_id)
-        <> " on "
-        <> operation.iso(day),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "log_timesheet",
+        summary: "Log "
+          <> float.to_string(hours)
+          <> "h for engineer "
+          <> int.to_string(engineer_id)
+          <> " on project "
+          <> int.to_string(project_id)
+          <> " on "
+          <> operation.iso(day),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:)],
     ),
-  ])
+  )
 }
 
-/// Record a whole week's worked-hours facts, plus one `log_week` journal entry.
+/// Record a whole week's worked-hours facts, with one `log_week` journal entry.
 /// `command.dispatch` records them in its single transaction (short-circuiting on
 /// the first rejection), so every entry commits or none.
-fn log_week(command: Command) -> Result(List(Fact), OperationError) {
+fn log_week(command: Command) -> Result(Recorded, OperationError) {
   let assert LogWeek(engineer_id:, entries:) = command
   let worked_hours =
     list.map(entries, fn(entry) {
       let TimesheetEntry(project_id:, day:, hours:) = entry
       fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:)
     })
-  Ok(
-    list.append(worked_hours, [
-      fact.CommandHandled(
-        operation: "log_week",
-        summary: "Log timesheet week for engineer "
-          <> int.to_string(engineer_id)
-          <> " ("
-          <> int.to_string(list.length(entries))
-          <> " entries)",
-        payload: codecs.encode_command(command),
-      ),
-    ]),
-  )
+  Ok(Recorded(
+    entry: Event(
+      operation: "log_week",
+      summary: "Log timesheet week for engineer "
+        <> int.to_string(engineer_id)
+        <> " ("
+        <> int.to_string(list.length(entries))
+        <> " entries)",
+      payload: codecs.encode_command(command),
+    ),
+    facts: worked_hours,
+  ))
 }
 
 // --- read -------------------------------------------------------------------

@@ -16,18 +16,18 @@ import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, RunPayroll}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
 import tempo/server/sql
 
 /// Apply a payroll-aggregate command: route it to its named operation, which returns
-/// the facts it records. The dispatch `route` only ever sends payroll commands here,
-/// so any other variant is a routing bug — `panic`.
+/// the audit entry and facts it records. The dispatch `route` only ever sends payroll
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     RunPayroll(..) -> run_payroll(conn, command)
     _ ->
@@ -36,12 +36,12 @@ pub fn handle(
 }
 
 /// Run payroll for a month: reserve the run id, compute the prorated amount per
-/// employed engineer, and record the anchor, its period, one line per row, plus the
-/// journal entry.
+/// employed engineer, and record the anchor, its period, and one line per row, with
+/// the journal entry.
 fn run_payroll(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert RunPayroll(period_from:, period_to:) = command
   use run_id <- result.try(repository.next_id(conn, repository.PayrollRuns))
   use amounts <- operation.try(sql.payroll_amounts(conn, period_from, period_to))
@@ -54,24 +54,22 @@ fn run_payroll(
         days: line.days,
       )
     })
-  Ok(
-    list.flatten([
+  Ok(Recorded(
+    entry: Event(
+      operation: "run_payroll",
+      summary: "Run payroll over "
+        <> operation.span(period_from, period_to)
+        <> " (run "
+        <> int.to_string(run_id)
+        <> ")",
+      payload: codecs.encode_command(command),
+    ),
+    facts: list.flatten([
       [
         fact.PayrollRun(id: run_id),
         fact.PayrollPeriod(run_id:, from: period_from, to: period_to),
       ],
       line_facts,
-      [
-        fact.CommandHandled(
-          operation: "run_payroll",
-          summary: "Run payroll over "
-            <> operation.span(period_from, period_to)
-            <> " (run "
-            <> int.to_string(run_id)
-            <> ")",
-          payload: codecs.encode_command(command),
-        ),
-      ],
     ]),
-  )
+  ))
 }

@@ -234,3 +234,35 @@ CREATE VIEW engineer_current AS
 CREATE VIEW project_current AS
   SELECT DISTINCT ON (project_id) project_id AS id, title, summary
     FROM project_profile ORDER BY project_id, lower(recorded_during) DESC;
+
+-- Per-fact provenance ---------------------------------------------------------
+-- A fact links to the event_log entry (the command) that recorded THAT row-version,
+-- so a row can be traced back to who wrote it and when. The repository sets audit_id
+-- explicitly on each write (and the seed sets it inline): an insert supplies it as a
+-- column; a FOR PORTION OF Change SETs it on the changed [from, NULL) portion while
+-- PG copies the row onto the carved-off leftover (keeping its ORIGINAL audit_id); a
+-- delete (a retraction's cap) leaves no row, so a retraction's provenance lives only
+-- in event_log. This is a provenance pointer, NOT a temporal axis — the as-of reads
+-- never consult audit_id, so the model stays valid-time-only (ADR-021, as amended by
+-- ADR-032). Nullable so low-level constraint-test fixtures that insert facts directly
+-- (bypassing the repository) need not fabricate an entry.
+ALTER TABLE employment        ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE engineer_role     ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE engineer_contact  ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE engineer_banking  ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE engineer_emergency ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE leave             ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE contract_terms    ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE project_run       ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE project_profile   ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE project_plan      ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE allocation        ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE timesheet         ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE client_profile    ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE rate_card         ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE salary            ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE invoice_subject   ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE invoice_status    ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE invoice_line      ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE payroll_period    ADD COLUMN audit_id bigint REFERENCES event_log(id);
+ALTER TABLE payroll_line      ADD COLUMN audit_id bigint REFERENCES event_log(id);

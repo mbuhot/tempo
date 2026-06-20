@@ -30,7 +30,7 @@ import tempo/server/context.{type Context}
 import tempo/server/engagement
 import tempo/server/engineer
 import tempo/server/engineer_details
-import tempo/server/fact.{type Fact}
+import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice
 import tempo/server/leave
 import tempo/server/operation.{type OperationError}
@@ -41,11 +41,11 @@ import tempo/server/repository
 import tempo/server/salary
 import tempo/server/timesheet
 
-/// Apply a command: open one transaction, route to the aggregate for the facts it
-/// records, and record them all (the temporal facts plus the `CommandHandled`
-/// journal entry) — together or not at all. A database rejection is classified into
-/// a typed `OperationError`. Returns the persisted journal events (with their minted
-/// id/occurred_at).
+/// Apply a command: open one transaction, route to the aggregate for its audit entry
+/// and facts, and record them all (the journal entry then the temporal facts,
+/// stamped with its id) — together or not at all. A database rejection is classified
+/// into a typed `OperationError`. Returns the persisted journal event (with its
+/// minted id/occurred_at).
 pub fn dispatch(
   context: Context,
   actor actor: String,
@@ -62,27 +62,27 @@ pub fn dispatch(
 }
 
 /// The transaction-free core of `dispatch`: route the command to its aggregate on
-/// the given (already-open) connection for the facts it records, then record them in
-/// the SAME connection. The caller owns the transaction — production wraps it in
-/// `dispatch`; a test drives it inside its own rolled-back transaction. Returns the
-/// persisted journal events; a database rejection is a typed `OperationError`.
+/// the given (already-open) connection for its audit entry and facts, then record
+/// them in the SAME connection. The caller owns the transaction — production wraps it
+/// in `dispatch`; a test drives it inside its own rolled-back transaction. Returns the
+/// persisted journal event; a database rejection is a typed `OperationError`.
 pub fn dispatch_in(
   conn: pog.Connection,
   actor: String,
   command: Command,
 ) -> Result(List(Event), OperationError) {
-  use facts <- result.try(route(conn, command))
-  repository.record_facts(conn, actor:, facts:)
+  use Recorded(entry:, facts:) <- result.try(route(conn, command))
+  repository.record_facts(conn, actor:, entry:, facts:)
 }
 
-/// Route a command to its aggregate handler, which returns the facts the command
-/// records (recording them is `dispatch`'s job). Each arm groups the variants one
-/// aggregate owns via alternative patterns and hands the WHOLE command to that
-/// aggregate's `handle`.
+/// Route a command to its aggregate handler, which returns the audit entry and facts
+/// the command records (recording them is `dispatch`'s job). Each arm groups the
+/// variants one aggregate owns via alternative patterns and hands the WHOLE command
+/// to that aggregate's `handle`.
 fn route(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     OnboardEngineer(..) | Promote(..) | TerminateEmployment(..) ->
       engineer.handle(conn, command)

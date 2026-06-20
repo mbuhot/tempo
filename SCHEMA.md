@@ -34,6 +34,26 @@ erDiagram
   engineer ||--o{ engineer_emergency : "FK"
   engineer ||--o{ invoice_line : "FK"
   engineer ||--o{ payroll_line : "FK"
+  event_log ||--o{ allocation : "FK"
+  event_log ||--o{ client_profile : "FK"
+  event_log ||--o{ contract_terms : "FK"
+  event_log ||--o{ employment : "FK"
+  event_log ||--o{ engineer_banking : "FK"
+  event_log ||--o{ engineer_contact : "FK"
+  event_log ||--o{ engineer_emergency : "FK"
+  event_log ||--o{ engineer_role : "FK"
+  event_log ||--o{ invoice_line : "FK"
+  event_log ||--o{ invoice_status : "FK"
+  event_log ||--o{ invoice_subject : "FK"
+  event_log ||--o{ leave : "FK"
+  event_log ||--o{ payroll_line : "FK"
+  event_log ||--o{ payroll_period : "FK"
+  event_log ||--o{ project_plan : "FK"
+  event_log ||--o{ project_profile : "FK"
+  event_log ||--o{ project_run : "FK"
+  event_log ||--o{ rate_card : "FK"
+  event_log ||--o{ salary : "FK"
+  event_log ||--o{ timesheet : "FK"
   invoice ||--o{ invoice_line : "FK"
   invoice ||--o{ invoice_status : "FK"
   invoice ||--o{ invoice_subject : "FK"
@@ -51,6 +71,7 @@ erDiagram
     integer project_id PK,FK
     numeric fraction
     daterange allocated_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   client {
     integer id PK
@@ -59,6 +80,7 @@ erDiagram
     integer client_id PK,FK
     text name
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   contract {
     integer id PK
@@ -67,10 +89,12 @@ erDiagram
     integer contract_id PK,FK
     integer client_id FK
     daterange term PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   employment {
     integer engineer_id PK,FK
     daterange employed_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   engineer {
     integer id PK
@@ -82,6 +106,7 @@ erDiagram
     text account_no
     text account_name
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   engineer_contact {
     integer engineer_id PK,FK
@@ -90,6 +115,7 @@ erDiagram
     text phone
     text postal_address
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   engineer_emergency {
     integer engineer_id PK,FK
@@ -98,11 +124,13 @@ erDiagram
     text phone
     text email
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   engineer_role {
     integer engineer_id PK,FK
     integer level
     daterange held_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   event_log {
     bigint id PK
@@ -122,31 +150,37 @@ erDiagram
     numeric day_rate
     numeric days
     numeric amount
+    bigint audit_id FK
   }
   invoice_status {
     integer invoice_id PK,FK
     text status
     daterange status_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   invoice_subject {
     integer invoice_id PK,FK
     integer project_id FK
     daterange billing_period FK
+    bigint audit_id FK
   }
   leave {
     integer engineer_id PK,FK
     text kind
     daterange on_leave_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   payroll_line {
     integer run_id FK
     integer engineer_id FK
     numeric amount
     numeric days
+    bigint audit_id FK
   }
   payroll_period {
     integer run_id PK,FK
     daterange period
+    bigint audit_id FK
   }
   payroll_run {
     integer id PK
@@ -159,33 +193,39 @@ erDiagram
     numeric budget
     date target_completion
     daterange planned_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   project_profile {
     integer project_id PK,FK
     text title
     text summary
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   project_run {
     integer project_id PK,FK
     integer contract_id FK
     daterange active_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   rate_card {
     integer level PK
     numeric day_rate
     daterange effective_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   salary {
     integer level PK
     numeric monthly_salary
     daterange effective_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   timesheet {
     integer engineer_id PK,FK
     integer project_id PK,FK
     daterange work_day PK,FK "WITHOUT OVERLAPS"
     numeric hours
+    bigint audit_id FK
   }
 ```
 <!-- END GENERATED ERD -->

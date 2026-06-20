@@ -1,6 +1,6 @@
 //// Layer-3 query tests (ARCHITECTURE.md §10.3) against the generated
 //// Squirrel functions in `tempo/server/sql`. They run the deterministic v1-wide
-//// seed (003_seed.sql, "now" = 2026-06-15) at fixed dates and assert the exact
+//// seed (002_seed.sql, "now" = 2026-06-15) at fixed dates and assert the exact
 //// rows, proving the temporal joins and the range-decomposition boundary
 //// (ADR-011) end to end.
 ////
@@ -17,6 +17,10 @@ import gleam/time/calendar.{April, August, Date, January, June, March, May}
 import pog
 import tempo/server/context
 import tempo/server/sql
+
+/// A seeded event_log id to satisfy the audit_id FK on the write fixtures below
+/// (these test the SQL mechanics, not provenance). The seed always has entry 1.
+const seed_audit_id = 1
 
 // --- connection -------------------------------------------------------------
 
@@ -303,10 +307,12 @@ pub fn timesheet_write_is_an_upsert_test() {
   let hours_after =
     run_rolling_back(fn(conn) {
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 6.0)
+      let assert Ok(_) =
+        sql.timesheet_write(conn, 2, 300, day, 6.0, seed_audit_id)
       // Re-entry with a corrected value, same code path.
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 8.0)
+      let assert Ok(_) =
+        sql.timesheet_write(conn, 2, 300, day, 8.0, seed_audit_id)
       let assert Ok(week) = sql.timesheet_week(conn, 2, week_start)
       week.rows
       |> list.filter(fn(row) { row.project_id == 300 && row.day == day })
@@ -337,6 +343,7 @@ pub fn rate_card_for_portion_of_splits_test() {
           Date(2026, August, 1),
           950.0,
           4,
+          seed_audit_id,
         )
       Nil
     })

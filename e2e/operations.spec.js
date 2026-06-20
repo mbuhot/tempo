@@ -74,10 +74,11 @@ async function applyOperation(page) {
 
 // Restore engineer 1's (Priya's) role to the pristine seed regardless of test
 // outcome: the promote split her single L5 row, so delete her role rows and
-// re-insert the one seeded L5 span. Also clears any event_log row the operation
-// appended, so the journal is empty again on the next run. Connects over TCP with
-// psql using the same env-var defaults as the server (context.gleam), so the same
-// cleanup works for the local Docker container and CI alike.
+// re-insert the one seeded L5 span. Then clear only this test's journal row (the
+// console-applied promote), leaving the seed's founding history intact — and FK-safe
+// because her role rows (which referenced that entry) are already gone. Connects over
+// TCP with psql using the same env-var defaults as the server (context.gleam), so the
+// same cleanup works for the local Docker container and CI alike.
 function restorePriyaRoleAndJournal() {
   const env = process.env;
   execFileSync(
@@ -95,7 +96,7 @@ function restorePriyaRoleAndJournal() {
       "DELETE FROM engineer_role WHERE engineer_id = 1; " +
         "INSERT INTO engineer_role (engineer_id, level, held_during) " +
         "VALUES (1, 5, daterange('2024-01-01', '2027-01-01')); " +
-        "DELETE FROM event_log;",
+        "DELETE FROM event_log WHERE actor = 'console' AND operation = 'promote';",
     ],
     { env: { ...env, PGPASSWORD: env.TEMPO_DB_PASSWORD ?? "tempo" } },
   );
@@ -121,8 +122,11 @@ test("promoting an engineer re-renders the board with the new level and charge r
       boardLine("Priya Sharma", "Ledger Migration for Northwind Trading (50%, $1200/day)"),
     ),
   ).toBeVisible();
-  // The journal starts empty (canonical seed).
-  await expect(page.getByText("No operations recorded yet.")).toBeVisible();
+  // The journal opens on the seed's founding history (onboards, contracts, …);
+  // the promotion we are about to apply is not among it yet.
+  await expect(
+    page.getByText("Promote engineer 1 to L6 from 2026-06-01", { exact: true }),
+  ).toHaveCount(0);
 
   try {
     // Compose the promotion in the console: Priya (engineer 1) to L6 from
@@ -196,9 +200,11 @@ test("an operation the database refuses shows the user why it was rejected and l
   ).toBeVisible();
 
   // The rejected write rolled back: the board still reads the seed (Aisha on
-  // leave at the seed now) and the journal stays empty.
+  // leave at the seed now) and no journal entry was recorded for the attempt.
   await expect(
     page.getByText(boardLine("Aisha Okafor", "On leave: annual")),
   ).toBeVisible();
-  await expect(page.getByText("No operations recorded yet.")).toBeVisible();
+  await expect(
+    page.getByText(/Assign engineer 3 to project 100/),
+  ).toHaveCount(0);
 });

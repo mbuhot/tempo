@@ -10,18 +10,9 @@ import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import pog
 
-/// allocation_assign.sql — Assert: allocation insert over a period.
-///
-/// Records that an engineer is allocated to a project at `fraction` of their time,
-/// over [$3, $5) (`daterange($3::date, $5::date, '[)')`). The function only ever
-/// sees scalar `date` params; the range is built in SQL.
-///
-/// The PERIOD FKs to `employment` and `project` are the backstop: an allocation not
-/// contained by both a live employment and an active project is rejected — so the
-/// allocated period must stay within both the engineer's employment and the
-/// project's active run. The WITHOUT OVERLAPS primary key rejects a second
-/// overlapping allocation for the same engineer+project. $1 = engineer_id,
-/// $2 = project_id, $3 = start day, $4 = fraction, $5 = end day.
+/// allocation_assign.sql — assert a fractional allocation over a bounded period,
+/// contained by both employment and the project run via PERIOD FKs. Last param is the
+/// audit_id. $1 = engineer_id, $2 = project_id, $3 = from, $4 = fraction, $5 = to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -33,23 +24,15 @@ pub fn allocation_assign(
   arg_3: Date,
   arg_4: Float,
   arg_5: Date,
+  arg_6: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- allocation_assign.sql — Assert: allocation insert over a period.
---
--- Records that an engineer is allocated to a project at `fraction` of their time,
--- over [$3, $5) (`daterange($3::date, $5::date, '[)')`). The function only ever
--- sees scalar `date` params; the range is built in SQL.
---
--- The PERIOD FKs to `employment` and `project` are the backstop: an allocation not
--- contained by both a live employment and an active project is rejected — so the
--- allocated period must stay within both the engineer's employment and the
--- project's active run. The WITHOUT OVERLAPS primary key rejects a second
--- overlapping allocation for the same engineer+project. $1 = engineer_id,
--- $2 = project_id, $3 = start day, $4 = fraction, $5 = end day.
-INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during)
-VALUES ($1, $2, $4, daterange($3::date, $5::date, '[)'));
+  "-- allocation_assign.sql — assert a fractional allocation over a bounded period,
+-- contained by both employment and the project run via PERIOD FKs. Last param is the
+-- audit_id. $1 = engineer_id, $2 = project_id, $3 = from, $4 = fraction, $5 = to.
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+VALUES ($1, $2, $4, daterange($3::date, $5::date, '[)'), $6);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
@@ -57,21 +40,16 @@ VALUES ($1, $2, $4, daterange($3::date, $5::date, '[)'));
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.float(arg_4))
   |> pog.parameter(pog.calendar_date(arg_5))
+  |> pog.parameter(pog.int(arg_6))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// allocation_change_fraction.sql — Change: re-fraction from a date onward.
-///
-/// Sets a new `fraction` from `$3` to the end of time. `WHERE … @> $3` matches only
-/// the allocation version in effect at $3; `FOR PORTION OF allocated_during FROM $3
-/// TO NULL` then intersects [$3, ∞) with that row's own period, so the change lands
-/// on [$3, row.upper) and Postgres re-inserts the [row.lower, $3) leftover at the
-/// old fraction. A separately scheduled future version doesn't contain $3, so the
-/// @> filter excludes it and TO NULL cannot clobber it.
-///
-/// Boundaries are scalar `date` params cast in SQL. $1 = engineer_id,
-/// $2 = project_id, $3 = effective day, $4 = new fraction.
+/// allocation_change_fraction.sql — Change: re-fraction from a date onward. FOR
+/// PORTION OF sets the new fraction + audit_id on [$3, row.upper); PG re-inserts the
+/// [row.lower, $3) leftover at the old fraction keeping its original audit_id. The
+/// `@> $3` filter excludes a scheduled future version. $1 = engineer_id,
+/// $2 = project_id, $3 = effective, $4 = new fraction, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -81,31 +59,27 @@ pub fn allocation_change_fraction(
   engineer_id: Int,
   project_id: Int,
   arg_3: Date,
-  fraction: Float,
+  arg_4: Float,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- allocation_change_fraction.sql — Change: re-fraction from a date onward.
---
--- Sets a new `fraction` from `$3` to the end of time. `WHERE … @> $3` matches only
--- the allocation version in effect at $3; `FOR PORTION OF allocated_during FROM $3
--- TO NULL` then intersects [$3, ∞) with that row's own period, so the change lands
--- on [$3, row.upper) and Postgres re-inserts the [row.lower, $3) leftover at the
--- old fraction. A separately scheduled future version doesn't contain $3, so the
--- @> filter excludes it and TO NULL cannot clobber it.
---
--- Boundaries are scalar `date` params cast in SQL. $1 = engineer_id,
--- $2 = project_id, $3 = effective day, $4 = new fraction.
+  "-- allocation_change_fraction.sql — Change: re-fraction from a date onward. FOR
+-- PORTION OF sets the new fraction + audit_id on [$3, row.upper); PG re-inserts the
+-- [row.lower, $3) leftover at the old fraction keeping its original audit_id. The
+-- `@> $3` filter excludes a scheduled future version. $1 = engineer_id,
+-- $2 = project_id, $3 = effective, $4 = new fraction, $5 = audit_id.
 UPDATE allocation
    FOR PORTION OF allocated_during FROM $3::date TO NULL
-   SET fraction = $4
+   SET fraction = $4, audit_id = $5
  WHERE engineer_id = $1 AND project_id = $2 AND allocated_during @> $3::date;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
   |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_3))
-  |> pog.parameter(pog.float(fraction))
+  |> pog.parameter(pog.float(arg_4))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -500,13 +474,8 @@ ORDER BY client_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// client_profile_open.sql — step 2 of the profile Change (and the row the seed
-/// writes).
-///
-/// Insert the new full profile row over [$3, NULL): daterange($3::date, NULL,
-/// '[)'), so only scalar params cross the Squirrel boundary. Run after
-/// client_profile_close has carved [$3, NULL) out of the covering row, so the
-/// WITHOUT OVERLAPS PK is satisfied. $1 = client_id, $2 = name, $3 = effective date.
+/// client_profile_open.sql — open a client's founding profile (the NAME). Last param
+/// is the audit_id. $1 = client_id, $2 = name, $3 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -516,33 +485,29 @@ pub fn client_profile_open(
   arg_1: Int,
   arg_2: String,
   arg_3: Date,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- client_profile_open.sql — step 2 of the profile Change (and the row the seed
--- writes).
---
--- Insert the new full profile row over [$3, NULL): daterange($3::date, NULL,
--- '[)'), so only scalar params cross the Squirrel boundary. Run after
--- client_profile_close has carved [$3, NULL) out of the covering row, so the
--- WITHOUT OVERLAPS PK is satisfied. $1 = client_id, $2 = name, $3 = effective date.
+  "-- client_profile_open.sql — open a client's founding profile (the NAME). Last param
+-- is the audit_id. $1 = client_id, $2 = name, $3 = from.
 INSERT INTO client_profile
-  (client_id, name, recorded_during)
-VALUES ($1, $2, daterange($3::date, NULL, '[)'));
+  (client_id, name, recorded_during, audit_id)
+VALUES ($1, $2, daterange($3::date, NULL, '[)'), $4);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// client_profile_revise.sql — record a new client profile from $2 onward in ONE
-/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
-/// value on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder as its own row. The `@>` guard confines it to the
-/// single covering row. $1 = client_id, $2 = effective date, $3 = name.
+/// client_profile_revise.sql — record a new client profile from $2 onward (the Change
+/// pattern). FOR PORTION OF sets the new name + audit_id on the [$2, NULL) portion; PG
+/// carves off the unchanged [start, $2) remainder keeping its original audit_id.
+/// $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -551,25 +516,26 @@ pub fn client_profile_revise(
   db: pog.Connection,
   client_id: Int,
   arg_2: Date,
-  name: String,
+  arg_3: String,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- client_profile_revise.sql — record a new client profile from $2 onward in ONE
--- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
--- value on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder as its own row. The `@>` guard confines it to the
--- single covering row. $1 = client_id, $2 = effective date, $3 = name.
+  "-- client_profile_revise.sql — record a new client profile from $2 onward (the Change
+-- pattern). FOR PORTION OF sets the new name + audit_id on the [$2, NULL) portion; PG
+-- carves off the unchanged [start, $2) remainder keeping its original audit_id.
+-- $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
 UPDATE client_profile
    FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET name = $3
+   SET name = $3, audit_id = $4
  WHERE client_id = $1
    AND recorded_during @> $2::date;
 "
   |> pog.query
   |> pog.parameter(pog.int(client_id))
   |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.parameter(pog.text(name))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -639,14 +605,9 @@ SELECT nextval('contract_id_seq')::int AS id;
   |> pog.execute(db)
 }
 
-/// contract_terms_open.sql — open a contract's term (the engagement window).
-///
-/// Step 2 of sign_contract: insert the contract_terms row over [$3, $4) for contract
-/// $1, resolving the client by NAME to its id. The NAME left the `client` anchor for
-/// the edit-grouped client_profile fact, so the resolver reads it through the
-/// `client_current` view (latest profile per client). term = daterange($3, $4, '[)')
-/// is the engagement window; $4 may be NULL for an open-ended term. $1 = contract_id,
-/// $2 = client name, $3 = valid_from, $4 = valid_to.
+/// contract_terms_open.sql — open a contract's term (resolving the client by name to
+/// its id). Last param is the audit_id. $1 = contract_id, $2 = client name,
+/// $3 = from, $4 = to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -657,22 +618,19 @@ pub fn contract_terms_open(
   arg_2: String,
   arg_3: Date,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- contract_terms_open.sql — open a contract's term (the engagement window).
---
--- Step 2 of sign_contract: insert the contract_terms row over [$3, $4) for contract
--- $1, resolving the client by NAME to its id. The NAME left the `client` anchor for
--- the edit-grouped client_profile fact, so the resolver reads it through the
--- `client_current` view (latest profile per client). term = daterange($3, $4, '[)')
--- is the engagement window; $4 may be NULL for an open-ended term. $1 = contract_id,
--- $2 = client name, $3 = valid_from, $4 = valid_to.
-INSERT INTO contract_terms (contract_id, client_id, term)
+  "-- contract_terms_open.sql — open a contract's term (resolving the client by name to
+-- its id). Last param is the audit_id. $1 = contract_id, $2 = client name,
+-- $3 = from, $4 = to.
+INSERT INTO contract_terms (contract_id, client_id, term, audit_id)
 VALUES (
   $1,
   (SELECT id FROM client_current WHERE name = $2),
-  daterange($3::date, $4::date, '[)')
+  daterange($3::date, $4::date, '[)'),
+  $5
 );
 "
   |> pog.query
@@ -680,6 +638,7 @@ VALUES (
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -722,12 +681,8 @@ DELETE FROM employment
   |> pog.execute(db)
 }
 
-/// employment_open.sql — assert ongoing employment (open-ended).
-///
-/// Step 2 of onboarding. The fact is ongoing, so `employed_during` runs from the
-/// start date to NULL ("the end of time"): daterange($2::date, NULL, '[)'). Only
-/// scalar `date` params cross the Squirrel boundary; the range is built in SQL.
-/// $1 = engineer_id, $2 = start date.
+/// employment_open.sql — assert ongoing employment (open-ended). The last param is
+/// the audit_id (the event_log id of the command recording this fact).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -736,21 +691,19 @@ pub fn employment_open(
   db: pog.Connection,
   arg_1: Int,
   arg_2: Date,
+  arg_3: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- employment_open.sql — assert ongoing employment (open-ended).
---
--- Step 2 of onboarding. The fact is ongoing, so `employed_during` runs from the
--- start date to NULL (\"the end of time\"): daterange($2::date, NULL, '[)'). Only
--- scalar `date` params cross the Squirrel boundary; the range is built in SQL.
--- $1 = engineer_id, $2 = start date.
-INSERT INTO employment (engineer_id, employed_during)
-VALUES ($1, daterange($2::date, NULL, '[)'));
+  "-- employment_open.sql — assert ongoing employment (open-ended). The last param is
+-- the audit_id (the event_log id of the command recording this fact).
+INSERT INTO employment (engineer_id, employed_during, audit_id)
+VALUES ($1, daterange($2::date, NULL, '[)'), $3);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.int(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -820,12 +773,9 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_banking_open.sql — step 2 of the banking Change.
-///
-/// Insert the new full banking row over [$6, NULL). account_no is text (leading
-/// zeros preserved). Only scalar params cross the boundary; the range is built in
-/// SQL. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
-/// $5 = account_name, $6 = effective date.
+/// engineer_banking_open.sql — open an engineer's banking details. Last param is the
+/// audit_id. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
+/// $5 = account_name, $6 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -838,18 +788,16 @@ pub fn engineer_banking_open(
   arg_4: String,
   arg_5: String,
   arg_6: Date,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_banking_open.sql — step 2 of the banking Change.
---
--- Insert the new full banking row over [$6, NULL). account_no is text (leading
--- zeros preserved). Only scalar params cross the boundary; the range is built in
--- SQL. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
--- $5 = account_name, $6 = effective date.
+  "-- engineer_banking_open.sql — open an engineer's banking details. Last param is the
+-- audit_id. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
+-- $5 = account_name, $6 = from.
 INSERT INTO engineer_banking
-  (engineer_id, bank, branch, account_no, account_name, recorded_during)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+  (engineer_id, bank, branch, account_no, account_name, recorded_during, audit_id)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
@@ -858,16 +806,16 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// engineer_banking_revise.sql — record new banking details from $2 onward in ONE
-/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
-/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
-/// $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch, $5 = account_no,
-/// $6 = account_name.
+/// engineer_banking_revise.sql — record new banking details from $2 onward (the
+/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
+/// audit_id. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
+/// $5 = account_no, $6 = account_name, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -879,19 +827,19 @@ pub fn engineer_banking_revise(
   arg_3: String,
   arg_4: String,
   arg_5: String,
-  account_name: String,
+  arg_6: String,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_banking_revise.sql — record new banking details from $2 onward in ONE
--- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
--- values on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
--- $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch, $5 = account_no,
--- $6 = account_name.
+  "-- engineer_banking_revise.sql — record new banking details from $2 onward (the
+-- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+-- portion; PG carves off the unchanged [start, $2) remainder keeping its original
+-- audit_id. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
+-- $5 = account_no, $6 = account_name, $7 = audit_id.
 UPDATE engineer_banking
    FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET bank = $3, branch = $4, account_no = $5, account_name = $6
+   SET bank = $3, branch = $4, account_no = $5, account_name = $6, audit_id = $7
  WHERE engineer_id = $1
    AND recorded_during @> $2::date;
 "
@@ -901,7 +849,8 @@ UPDATE engineer_banking
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.text(account_name))
+  |> pog.parameter(pog.text(arg_6))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -975,14 +924,9 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_contact_open.sql — step 2 of the contact Change (and the row Onboard
-/// writes).
-///
-/// Insert the new full contact row over [$6, NULL): daterange($6::date, NULL,
-/// '[)'), so only scalar params cross the Squirrel boundary. Run after
-/// engineer_contact_close has carved [$6, NULL) out of the covering row, so the
-/// WITHOUT OVERLAPS PK is satisfied. $1 = engineer_id, $2 = name, $3 = email,
-/// $4 = phone, $5 = postal_address, $6 = effective date.
+/// engineer_contact_open.sql — open an engineer's founding contact (carries the
+/// NAME; the anchor is id-only). Last param is the audit_id.
+/// $1 = engineer_id, $2 = name, $3 = email, $4 = phone, $5 = postal, $6 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -995,20 +939,16 @@ pub fn engineer_contact_open(
   arg_4: String,
   arg_5: String,
   arg_6: Date,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_contact_open.sql — step 2 of the contact Change (and the row Onboard
--- writes).
---
--- Insert the new full contact row over [$6, NULL): daterange($6::date, NULL,
--- '[)'), so only scalar params cross the Squirrel boundary. Run after
--- engineer_contact_close has carved [$6, NULL) out of the covering row, so the
--- WITHOUT OVERLAPS PK is satisfied. $1 = engineer_id, $2 = name, $3 = email,
--- $4 = phone, $5 = postal_address, $6 = effective date.
+  "-- engineer_contact_open.sql — open an engineer's founding contact (carries the
+-- NAME; the anchor is id-only). Last param is the audit_id.
+-- $1 = engineer_id, $2 = name, $3 = email, $4 = phone, $5 = postal, $6 = from.
 INSERT INTO engineer_contact
-  (engineer_id, name, email, phone, postal_address, recorded_during)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+  (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
@@ -1017,15 +957,16 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// engineer_contact_revise.sql — record new contact details from $2 onward in ONE
-/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
-/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
-/// $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal.
+/// engineer_contact_revise.sql — record new contact details from $2 onward (the
+/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+/// portion of the covering row; PG carves off the unchanged [start, $2) remainder
+/// keeping its original audit_id. $1 = engineer_id, $2 = effective, $3 = name,
+/// $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1037,18 +978,19 @@ pub fn engineer_contact_revise(
   arg_3: String,
   arg_4: String,
   arg_5: String,
-  postal_address: String,
+  arg_6: String,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_contact_revise.sql — record new contact details from $2 onward in ONE
--- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
--- values on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
--- $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal.
+  "-- engineer_contact_revise.sql — record new contact details from $2 onward (the
+-- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+-- portion of the covering row; PG carves off the unchanged [start, $2) remainder
+-- keeping its original audit_id. $1 = engineer_id, $2 = effective, $3 = name,
+-- $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
 UPDATE engineer_contact
    FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET name = $3, email = $4, phone = $5, postal_address = $6
+   SET name = $3, email = $4, phone = $5, postal_address = $6, audit_id = $7
  WHERE engineer_id = $1
    AND recorded_during @> $2::date;
 "
@@ -1058,7 +1000,8 @@ UPDATE engineer_contact
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.text(postal_address))
+  |> pog.parameter(pog.text(arg_6))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1158,11 +1101,9 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_emergency_open.sql — step 2 of the emergency Change.
-///
-/// Insert the new full emergency row over [$6, NULL). Only scalar params cross the
-/// boundary; the range is built in SQL. $1 = engineer_id, $2 = relation,
-/// $3 = name, $4 = phone, $5 = email, $6 = effective date.
+/// engineer_emergency_open.sql — open an engineer's emergency contact. Last param is
+/// the audit_id. $1 = engineer_id, $2 = relation, $3 = name, $4 = phone, $5 = email,
+/// $6 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1175,17 +1116,16 @@ pub fn engineer_emergency_open(
   arg_4: String,
   arg_5: String,
   arg_6: Date,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_emergency_open.sql — step 2 of the emergency Change.
---
--- Insert the new full emergency row over [$6, NULL). Only scalar params cross the
--- boundary; the range is built in SQL. $1 = engineer_id, $2 = relation,
--- $3 = name, $4 = phone, $5 = email, $6 = effective date.
+  "-- engineer_emergency_open.sql — open an engineer's emergency contact. Last param is
+-- the audit_id. $1 = engineer_id, $2 = relation, $3 = name, $4 = phone, $5 = email,
+-- $6 = from.
 INSERT INTO engineer_emergency
-  (engineer_id, relation, name, phone, email, recorded_during)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
+  (engineer_id, relation, name, phone, email, recorded_during, audit_id)
+VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
@@ -1194,15 +1134,16 @@ VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'));
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.calendar_date(arg_6))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// engineer_emergency_revise.sql — record a new emergency contact from $2 onward in
-/// ONE statement (the Change pattern, like salary_revise). FOR PORTION OF sets the
-/// new values on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
-/// $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email.
+/// engineer_emergency_revise.sql — record a new emergency contact from $2 onward (the
+/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
+/// audit_id. $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone,
+/// $6 = email, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1214,18 +1155,19 @@ pub fn engineer_emergency_revise(
   arg_3: String,
   arg_4: String,
   arg_5: String,
-  email: String,
+  arg_6: String,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_emergency_revise.sql — record a new emergency contact from $2 onward in
--- ONE statement (the Change pattern, like salary_revise). FOR PORTION OF sets the
--- new values on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
--- $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email.
+  "-- engineer_emergency_revise.sql — record a new emergency contact from $2 onward (the
+-- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+-- portion; PG carves off the unchanged [start, $2) remainder keeping its original
+-- audit_id. $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone,
+-- $6 = email, $7 = audit_id.
 UPDATE engineer_emergency
    FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET relation = $3, name = $4, phone = $5, email = $6
+   SET relation = $3, name = $4, phone = $5, email = $6, audit_id = $7
  WHERE engineer_id = $1
    AND recorded_during @> $2::date;
 "
@@ -1235,7 +1177,8 @@ UPDATE engineer_emergency
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.text(email))
+  |> pog.parameter(pog.text(arg_6))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1281,13 +1224,12 @@ SELECT nextval('engineer_id_seq')::int AS id;
 
 /// engineer_role_change.sql — promote/change an engineer's level from a date onward.
 ///
-/// Change pattern (one statement, no read). FOR PORTION OF intersects [effective,
-/// ∞) with the role version in effect, so the new level lands on [effective,
-/// row.upper) and PG re-inserts the [row.lower, effective) leftover at the old
-/// level. The `held_during @> $3::date` filter confines the edit to the version
-/// in effect at `effective`; a separately scheduled future version doesn't
-/// contain `effective`, so WHERE excludes it and TO NULL cannot clobber it.
-/// $1 = engineer_id, $2 = new level, $3 = effective date.
+/// Change pattern (one statement, no read). FOR PORTION OF intersects [effective, ∞)
+/// with the role version in effect, so the new level + audit_id land on [effective,
+/// row.upper) and PG re-inserts the [row.lower, effective) leftover at the OLD level
+/// AND its original audit_id (per-version provenance). The `@> $3` filter confines
+/// the edit to the version in effect; a scheduled future version is untouched.
+/// $1 = engineer_id, $2 = new level, $3 = effective, $4 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1295,29 +1237,30 @@ SELECT nextval('engineer_id_seq')::int AS id;
 pub fn engineer_role_change(
   db: pog.Connection,
   engineer_id: Int,
-  level: Int,
+  arg_2: Int,
   arg_3: Date,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
   "-- engineer_role_change.sql — promote/change an engineer's level from a date onward.
 --
--- Change pattern (one statement, no read). FOR PORTION OF intersects [effective,
--- ∞) with the role version in effect, so the new level lands on [effective,
--- row.upper) and PG re-inserts the [row.lower, effective) leftover at the old
--- level. The `held_during @> $3::date` filter confines the edit to the version
--- in effect at `effective`; a separately scheduled future version doesn't
--- contain `effective`, so WHERE excludes it and TO NULL cannot clobber it.
--- $1 = engineer_id, $2 = new level, $3 = effective date.
+-- Change pattern (one statement, no read). FOR PORTION OF intersects [effective, ∞)
+-- with the role version in effect, so the new level + audit_id land on [effective,
+-- row.upper) and PG re-inserts the [row.lower, effective) leftover at the OLD level
+-- AND its original audit_id (per-version provenance). The `@> $3` filter confines
+-- the edit to the version in effect; a scheduled future version is untouched.
+-- $1 = engineer_id, $2 = new level, $3 = effective, $4 = audit_id.
 UPDATE engineer_role
    FOR PORTION OF held_during FROM $3::date TO NULL
-   SET level = $2
+   SET level = $2, audit_id = $4
  WHERE engineer_id = $1 AND held_during @> $3::date;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
-  |> pog.parameter(pog.int(level))
+  |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1358,13 +1301,9 @@ DELETE FROM engineer_role
   |> pog.execute(db)
 }
 
-/// engineer_role_open.sql — assert an ongoing engineer role (open-ended).
-///
-/// Step 3 of onboarding. `held_during` runs from the start date to NULL. The
-/// PERIOD FK engineer_role_within_employment is the backstop: the role can only
-/// be held while the engineer is employed. The range is built in SQL so only
-/// scalar params cross the boundary.
-/// $1 = engineer_id, $2 = level, $3 = start date.
+/// engineer_role_open.sql — assert an ongoing engineer role (open-ended), contained
+/// by employment via the engineer_role_within_employment PERIOD FK. Last param is
+/// the audit_id. $1 = engineer_id, $2 = level, $3 = start date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1374,23 +1313,21 @@ pub fn engineer_role_open(
   arg_1: Int,
   arg_2: Int,
   arg_3: Date,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_role_open.sql — assert an ongoing engineer role (open-ended).
---
--- Step 3 of onboarding. `held_during` runs from the start date to NULL. The
--- PERIOD FK engineer_role_within_employment is the backstop: the role can only
--- be held while the engineer is employed. The range is built in SQL so only
--- scalar params cross the boundary.
--- $1 = engineer_id, $2 = level, $3 = start date.
-INSERT INTO engineer_role (engineer_id, level, held_during)
-VALUES ($1, $2, daterange($3::date, NULL, '[)'));
+  "-- engineer_role_open.sql — assert an ongoing engineer role (open-ended), contained
+-- by employment via the engineer_role_within_employment PERIOD FK. Last param is
+-- the audit_id. $1 = engineer_id, $2 = level, $3 = start date.
+INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+VALUES ($1, $2, daterange($3::date, NULL, '[)'), $4);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1908,12 +1845,9 @@ WHERE invoice.id = $1;
   |> pog.execute(db)
 }
 
-/// invoice_line_insert.sql — append one billed line to an invoice.
-///
-/// A plain INSERT (write pattern 1). The line is pre-computed by the command: the
-/// day_rate is resolved from rate_card for the engineer's level AS OF the
-/// contract term's lower bound (FR-F2), not the invoice month. $1 = invoice_id,
-/// $2 = engineer_id, $3 = level, $4 = day_rate, $5 = days, $6 = amount.
+/// invoice_line_insert.sql — one snapshotted billing line. Last param is the
+/// audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate,
+/// $5 = days, $6 = amount.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1926,17 +1860,15 @@ pub fn invoice_line_insert(
   arg_4: Float,
   arg_5: Float,
   arg_6: Float,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- invoice_line_insert.sql — append one billed line to an invoice.
---
--- A plain INSERT (write pattern 1). The line is pre-computed by the command: the
--- day_rate is resolved from rate_card for the engineer's level AS OF the
--- contract term's lower bound (FR-F2), not the invoice month. $1 = invoice_id,
--- $2 = engineer_id, $3 = level, $4 = day_rate, $5 = days, $6 = amount.
-INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount)
-VALUES ($1, $2, $3, $4, $5, $6);
+  "-- invoice_line_insert.sql — one snapshotted billing line. Last param is the
+-- audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate,
+-- $5 = days, $6 = amount.
+INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount, audit_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
@@ -1945,6 +1877,7 @@ VALUES ($1, $2, $3, $4, $5, $6);
   |> pog.parameter(pog.float(arg_4))
   |> pog.parameter(pog.float(arg_5))
   |> pog.parameter(pog.float(arg_6))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2258,12 +2191,8 @@ SELECT status
   |> pog.execute(db)
 }
 
-/// invoice_status_open.sql — open a status span for an invoice from $3 onward.
-///
-/// A plain INSERT (write pattern 1) starting an open-ended [$3, ∞) status
-/// period. Used both to seed the initial status and, after invoice_status_close
-/// caps the prior one, to open the new status during a transition. $1 is the
-/// invoice_id, $2 the status, $3 the effective date.
+/// invoice_status_open.sql — open a status span for an invoice from $3 onward. Last
+/// param is the audit_id. $1 = invoice_id, $2 = status, $3 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -2273,33 +2202,27 @@ pub fn invoice_status_open(
   arg_1: Int,
   arg_2: String,
   arg_3: Date,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- invoice_status_open.sql — open a status span for an invoice from $3 onward.
---
--- A plain INSERT (write pattern 1) starting an open-ended [$3, ∞) status
--- period. Used both to seed the initial status and, after invoice_status_close
--- caps the prior one, to open the new status during a transition. $1 is the
--- invoice_id, $2 the status, $3 the effective date.
-INSERT INTO invoice_status (invoice_id, status, status_during)
-VALUES ($1, $2, daterange($3::date, NULL, '[)'));
+  "-- invoice_status_open.sql — open a status span for an invoice from $3 onward. Last
+-- param is the audit_id. $1 = invoice_id, $2 = status, $3 = from.
+INSERT INTO invoice_status (invoice_id, status, status_during, audit_id)
+VALUES ($1, $2, daterange($3::date, NULL, '[)'), $4);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// invoice_subject_insert.sql — record an invoice's immutable subject (1:1 fact).
-///
-/// A plain INSERT (write pattern 1) into the 1:1 invoice_subject fact, keyed by the
-/// minted invoice anchor id. The subject is set once at draft and never changed:
-/// $1 = invoice_id, $2/$3 = the half-open [from, to) billing-month bounds, built
-/// into a daterange in SQL. The invoice_subject_within_project PERIOD FK enforces
-/// the billing month ⊂ the project's active run.
+/// invoice_subject_insert.sql — the immutable 1:1 invoice subject (project + billing
+/// month), contained by the project run. Last param is the audit_id. $1 = invoice_id,
+/// $2 = project_id, $3 = billing_from, $4 = billing_to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -2310,24 +2233,22 @@ pub fn invoice_subject_insert(
   arg_2: Int,
   arg_3: Date,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- invoice_subject_insert.sql — record an invoice's immutable subject (1:1 fact).
---
--- A plain INSERT (write pattern 1) into the 1:1 invoice_subject fact, keyed by the
--- minted invoice anchor id. The subject is set once at draft and never changed:
--- $1 = invoice_id, $2/$3 = the half-open [from, to) billing-month bounds, built
--- into a daterange in SQL. The invoice_subject_within_project PERIOD FK enforces
--- the billing month ⊂ the project's active run.
-INSERT INTO invoice_subject (invoice_id, project_id, billing_period)
-VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
+  "-- invoice_subject_insert.sql — the immutable 1:1 invoice subject (project + billing
+-- month), contained by the project run. Last param is the audit_id. $1 = invoice_id,
+-- $2 = project_id, $3 = billing_from, $4 = billing_to.
+INSERT INTO invoice_subject (invoice_id, project_id, billing_period, audit_id)
+VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2368,12 +2289,8 @@ DELETE FROM leave
   |> pog.execute(db)
 }
 
-/// leave_take.sql — assert an engineer's leave (§5a, pattern 1: Assert).
-///
-/// Plain INSERT of a bounded leave fact. The `on_leave_during` range is built in
-/// SQL as `daterange($3::date, $4::date, '[)')` so only scalar `date` params cross
-/// the Squirrel boundary. The PERIOD FK to `employment` (leave_within_employment)
-/// backstops it: leave outside the engineer's employment is rejected.
+/// leave_take.sql — assert an engineer on leave over a bounded period, contained by
+/// employment (leave_within_employment PERIOD FK). Last param is the audit_id.
 /// $1 = engineer_id, $2 = kind, $3 = from, $4 = to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -2385,24 +2302,22 @@ pub fn leave_take(
   arg_2: String,
   arg_3: Date,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- leave_take.sql — assert an engineer's leave (§5a, pattern 1: Assert).
---
--- Plain INSERT of a bounded leave fact. The `on_leave_during` range is built in
--- SQL as `daterange($3::date, $4::date, '[)')` so only scalar `date` params cross
--- the Squirrel boundary. The PERIOD FK to `employment` (leave_within_employment)
--- backstops it: leave outside the engineer's employment is rejected.
+  "-- leave_take.sql — assert an engineer on leave over a bounded period, contained by
+-- employment (leave_within_employment PERIOD FK). Last param is the audit_id.
 -- $1 = engineer_id, $2 = kind, $3 = from, $4 = to.
-INSERT INTO leave (engineer_id, kind, on_leave_during)
-VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
+INSERT INTO leave (engineer_id, kind, on_leave_during, audit_id)
+VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2548,10 +2463,7 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// payroll_line_insert.sql — append one engineer's line to a payroll run.
-///
-/// A plain INSERT (write pattern 1). The amount and days are pre-computed by the
-/// command from salary and the engineer's worked/employed days in the run period.
+/// payroll_line_insert.sql — one prorated payroll line. Last param is the audit_id.
 /// $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -2563,22 +2475,21 @@ pub fn payroll_line_insert(
   arg_2: Int,
   arg_3: Float,
   arg_4: Float,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- payroll_line_insert.sql — append one engineer's line to a payroll run.
---
--- A plain INSERT (write pattern 1). The amount and days are pre-computed by the
--- command from salary and the engineer's worked/employed days in the run period.
+  "-- payroll_line_insert.sql — one prorated payroll line. Last param is the audit_id.
 -- $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
-INSERT INTO payroll_line (run_id, engineer_id, amount, days)
-VALUES ($1, $2, $3, $4);
+INSERT INTO payroll_line (run_id, engineer_id, amount, days, audit_id)
+VALUES ($1, $2, $3, $4, $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.float(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2653,13 +2564,8 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// payroll_period_insert.sql — record a payroll run's immutable period (1:1 fact).
-///
-/// A plain INSERT (write pattern 1) into the 1:1 payroll_period fact, keyed by the
-/// minted payroll_run anchor id. The period is set once at run and never changed:
-/// $1 = run_id, $2/$3 = the half-open [from, to) month bounds, built into a daterange
-/// in SQL. The payroll_period_no_overlap GiST exclusion forbids two runs whose
-/// periods overlap.
+/// payroll_period_insert.sql — the immutable 1:1 payroll period (one run per month).
+/// Last param is the audit_id. $1 = run_id, $2 = from, $3 = to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -2669,23 +2575,20 @@ pub fn payroll_period_insert(
   arg_1: Int,
   arg_2: Date,
   arg_3: Date,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- payroll_period_insert.sql — record a payroll run's immutable period (1:1 fact).
---
--- A plain INSERT (write pattern 1) into the 1:1 payroll_period fact, keyed by the
--- minted payroll_run anchor id. The period is set once at run and never changed:
--- $1 = run_id, $2/$3 = the half-open [from, to) month bounds, built into a daterange
--- in SQL. The payroll_period_no_overlap GiST exclusion forbids two runs whose
--- periods overlap.
-INSERT INTO payroll_period (run_id, period)
-VALUES ($1, daterange($2::date, $3::date, '[)'));
+  "-- payroll_period_insert.sql — the immutable 1:1 payroll period (one run per month).
+-- Last param is the audit_id. $1 = run_id, $2 = from, $3 = to.
+INSERT INTO payroll_period (run_id, period, audit_id)
+VALUES ($1, daterange($2::date, $3::date, '[)'), $4);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3102,14 +3005,8 @@ ORDER BY project_id, lower(planned_during) DESC;
   |> pog.execute(db)
 }
 
-/// project_plan_open.sql — step 2 of the plan Change (and the row StartProject
-/// writes).
-///
-/// Insert the new full plan row over [$4, NULL): daterange($4::date, NULL, '[)'), so
-/// only scalar params cross the Squirrel boundary. Run after project_plan_close has
-/// carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
-/// satisfied. $1 = project_id, $2 = budget, $3 = target_completion date, $4 =
-/// effective date.
+/// project_plan_open.sql — open a project's founding plan (budget/target). Last param
+/// is the audit_id. $1 = project_id, $2 = budget, $3 = target_completion, $4 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3120,35 +3017,30 @@ pub fn project_plan_open(
   arg_2: Float,
   arg_3: Date,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_plan_open.sql — step 2 of the plan Change (and the row StartProject
--- writes).
---
--- Insert the new full plan row over [$4, NULL): daterange($4::date, NULL, '[)'), so
--- only scalar params cross the Squirrel boundary. Run after project_plan_close has
--- carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
--- satisfied. $1 = project_id, $2 = budget, $3 = target_completion date, $4 =
--- effective date.
+  "-- project_plan_open.sql — open a project's founding plan (budget/target). Last param
+-- is the audit_id. $1 = project_id, $2 = budget, $3 = target_completion, $4 = from.
 INSERT INTO project_plan
-  (project_id, budget, target_completion, planned_during)
-VALUES ($1, $2, $3::date, daterange($4::date, NULL, '[)'));
+  (project_id, budget, target_completion, planned_during, audit_id)
+VALUES ($1, $2, $3::date, daterange($4::date, NULL, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.float(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// project_plan_revise.sql — record a new project plan from $2 onward in ONE
-/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
-/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
-/// $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion.
+/// project_plan_revise.sql — record a new project plan from $2 onward (the Change
+/// pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL) portion;
+/// PG carves off the unchanged [start, $2) remainder keeping its original audit_id.
+/// $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3159,17 +3051,17 @@ pub fn project_plan_revise(
   arg_2: Date,
   arg_3: Float,
   arg_4: Date,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_plan_revise.sql — record a new project plan from $2 onward in ONE
--- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
--- values on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
--- $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion.
+  "-- project_plan_revise.sql — record a new project plan from $2 onward (the Change
+-- pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL) portion;
+-- PG carves off the unchanged [start, $2) remainder keeping its original audit_id.
+-- $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
 UPDATE project_plan
    FOR PORTION OF planned_during FROM $2::date TO NULL
-   SET budget = $3, target_completion = $4::date
+   SET budget = $3, target_completion = $4::date, audit_id = $5
  WHERE project_id = $1
    AND planned_during @> $2::date;
 "
@@ -3178,6 +3070,7 @@ UPDATE project_plan
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3235,13 +3128,8 @@ ORDER BY project_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// project_profile_open.sql — step 2 of the profile Change (and the row StartProject
-/// writes).
-///
-/// Insert the new full profile row over [$4, NULL): daterange($4::date, NULL, '[)'),
-/// so only scalar params cross the Squirrel boundary. Run after project_profile_close
-/// has carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
-/// satisfied. $1 = project_id, $2 = title, $3 = summary, $4 = effective date.
+/// project_profile_open.sql — open a project's founding profile (title/summary).
+/// Last param is the audit_id. $1 = project_id, $2 = title, $3 = summary, $4 = from.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3252,34 +3140,30 @@ pub fn project_profile_open(
   arg_2: String,
   arg_3: String,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_profile_open.sql — step 2 of the profile Change (and the row StartProject
--- writes).
---
--- Insert the new full profile row over [$4, NULL): daterange($4::date, NULL, '[)'),
--- so only scalar params cross the Squirrel boundary. Run after project_profile_close
--- has carved [$4, NULL) out of the covering row, so the WITHOUT OVERLAPS PK is
--- satisfied. $1 = project_id, $2 = title, $3 = summary, $4 = effective date.
+  "-- project_profile_open.sql — open a project's founding profile (title/summary).
+-- Last param is the audit_id. $1 = project_id, $2 = title, $3 = summary, $4 = from.
 INSERT INTO project_profile
-  (project_id, title, summary, recorded_during)
-VALUES ($1, $2, $3, daterange($4::date, NULL, '[)'));
+  (project_id, title, summary, recorded_during, audit_id)
+VALUES ($1, $2, $3, daterange($4::date, NULL, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// project_profile_revise.sql — record a new project profile from $2 onward in ONE
-/// statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
-/// values on the [$2, NULL) portion of the row covering $2; PG carves off the
-/// unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
-/// $1 = project_id, $2 = effective, $3 = title, $4 = summary.
+/// project_profile_revise.sql — record a new project profile from $2 onward (the
+/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
+/// audit_id. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3289,18 +3173,18 @@ pub fn project_profile_revise(
   project_id: Int,
   arg_2: Date,
   arg_3: String,
-  summary: String,
+  arg_4: String,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_profile_revise.sql — record a new project profile from $2 onward in ONE
--- statement (the Change pattern, like salary_revise). FOR PORTION OF sets the new
--- values on the [$2, NULL) portion of the row covering $2; PG carves off the
--- unchanged [start, $2) remainder. The `@>` guard confines it to the covering row.
--- $1 = project_id, $2 = effective, $3 = title, $4 = summary.
+  "-- project_profile_revise.sql — record a new project profile from $2 onward (the
+-- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
+-- portion; PG carves off the unchanged [start, $2) remainder keeping its original
+-- audit_id. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
 UPDATE project_profile
    FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET title = $3, summary = $4
+   SET title = $3, summary = $4, audit_id = $5
  WHERE project_id = $1
    AND recorded_during @> $2::date;
 "
@@ -3308,18 +3192,15 @@ UPDATE project_profile
   |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(summary))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// project_run_open.sql — open a project's run (existence/contract window).
-///
-/// Step 2 of start_project: insert the project_run row over [$3, $4) under contract
-/// $2, contained by the contract's term via the project_within_contract PERIOD FK —
-/// a run whose active period falls outside the contract's term is rejected by the
-/// database. active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
-/// $1 = project_id, $2 = contract_id, $3 = valid_from, $4 = valid_to.
+/// project_run_open.sql — open a project's run (existence/contract window), contained
+/// by its contract via project_within_contract. Last param is the audit_id.
+/// $1 = project_id, $2 = contract_id, $3 = from, $4 = to.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3330,34 +3211,30 @@ pub fn project_run_open(
   arg_2: Int,
   arg_3: Date,
   arg_4: Date,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_run_open.sql — open a project's run (existence/contract window).
---
--- Step 2 of start_project: insert the project_run row over [$3, $4) under contract
--- $2, contained by the contract's term via the project_within_contract PERIOD FK —
--- a run whose active period falls outside the contract's term is rejected by the
--- database. active_during = daterange($3, $4, '[)'); $4 may be NULL for an open run.
--- $1 = project_id, $2 = contract_id, $3 = valid_from, $4 = valid_to.
-INSERT INTO project_run (project_id, contract_id, active_during)
-VALUES ($1, $2, daterange($3::date, $4::date, '[)'));
+  "-- project_run_open.sql — open a project's run (existence/contract window), contained
+-- by its contract via project_within_contract. Last param is the audit_id.
+-- $1 = project_id, $2 = contract_id, $3 = from, $4 = to.
+INSERT INTO project_run (project_id, contract_id, active_during, audit_id)
+VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// rate_card_for_portion_of.sql — surgical charge-rate edit.
-///
-/// Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
-/// the covering rate_card row, changing only the [$1, $2) sub-period and carving
-/// off the unchanged before/after remainder as their own rows. The boundaries are
-/// plain `date` params cast in SQL; $3 is the new rate, $4 the level.
+/// rate_card_for_portion_of.sql — surgical charge-rate edit. FOR PORTION OF splits the
+/// covering rate_card row, setting day_rate + audit_id only on [$1, $2) and carving
+/// off the unchanged before/after remainders keeping their original audit_id.
+/// $1 = from, $2 = to, $3 = new rate, $4 = level, $5 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 /// from the affected-row count — read the rows back instead.
@@ -3369,42 +3246,39 @@ pub fn rate_card_for_portion_of(
   db: pog.Connection,
   arg_1: Date,
   arg_2: Date,
-  day_rate: Float,
+  arg_3: Float,
   arg_4: Int,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- rate_card_for_portion_of.sql — surgical charge-rate edit.
---
--- Bump a level's day_rate for PART of its validity via FOR PORTION OF: PG splits
--- the covering rate_card row, changing only the [$1, $2) sub-period and carving
--- off the unchanged before/after remainder as their own rows. The boundaries are
--- plain `date` params cast in SQL; $3 is the new rate, $4 the level.
+  "-- rate_card_for_portion_of.sql — surgical charge-rate edit. FOR PORTION OF splits the
+-- covering rate_card row, setting day_rate + audit_id only on [$1, $2) and carving
+-- off the unchanged before/after remainders keeping their original audit_id.
+-- $1 = from, $2 = to, $3 = new rate, $4 = level, $5 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 -- from the affected-row count — read the rows back instead.
 UPDATE rate_card
    FOR PORTION OF effective_during FROM $1::date TO $2::date
-   SET day_rate = $3
+   SET day_rate = $3, audit_id = $5
  WHERE level = $4;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.parameter(pog.float(day_rate))
+  |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.int(arg_4))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// rate_card_revise.sql — change a level's day_rate from $1 onward.
-///
-/// CHANGE write: re-rate the version of a level in effect on $1 for the open
-/// span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
-/// single rate_card row covering $1, so a separately-scheduled future version of
-/// the same level stays untouched; PG carves off the unchanged [start, $1)
-/// remainder as its own row. $1 is the effective date, $2 the new rate, $3 the
-/// level.
+/// rate_card_revise.sql — change a level's day_rate from $1 onward (Change). FOR
+/// PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
+/// carves off the unchanged [start, $1) remainder keeping its original audit_id. The
+/// `@>` guard leaves a scheduled future version untouched. $1 = effective,
+/// $2 = new rate, $3 = level, $4 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 /// infer a split from the affected-row count — read the rows back instead.
@@ -3415,32 +3289,31 @@ UPDATE rate_card
 pub fn rate_card_revise(
   db: pog.Connection,
   arg_1: Date,
-  day_rate: Float,
+  arg_2: Float,
   level: Int,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- rate_card_revise.sql — change a level's day_rate from $1 onward.
---
--- CHANGE write: re-rate the version of a level in effect on $1 for the open
--- span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
--- single rate_card row covering $1, so a separately-scheduled future version of
--- the same level stays untouched; PG carves off the unchanged [start, $1)
--- remainder as its own row. $1 is the effective date, $2 the new rate, $3 the
--- level.
+  "-- rate_card_revise.sql — change a level's day_rate from $1 onward (Change). FOR
+-- PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
+-- carves off the unchanged [start, $1) remainder keeping its original audit_id. The
+-- `@>` guard leaves a scheduled future version untouched. $1 = effective,
+-- $2 = new rate, $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 -- infer a split from the affected-row count — read the rows back instead.
 UPDATE rate_card
    FOR PORTION OF effective_during FROM $1::date TO NULL
-   SET day_rate = $2
+   SET day_rate = $2, audit_id = $4
  WHERE level = $3
    AND effective_during @> $1::date;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
-  |> pog.parameter(pog.float(day_rate))
+  |> pog.parameter(pog.float(arg_2))
   |> pog.parameter(pog.int(level))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3625,14 +3498,11 @@ ORDER BY name;
   |> pog.execute(db)
 }
 
-/// salary_revise.sql — change a level's monthly_salary from $1 onward.
-///
-/// CHANGE write: re-rate the version of a level in effect on $1 for the open
-/// span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
-/// single salary row covering $1, so a separately-scheduled future version of
-/// the same level stays untouched; PG carves off the unchanged [start, $1)
-/// remainder as its own row. $1 is the effective date, $2 the new monthly
-/// salary, $3 the level.
+/// salary_revise.sql — change a level's monthly_salary from $1 onward (Change). FOR
+/// PORTION OF re-rates [$1, ∞) of the covering row, setting monthly_salary + audit_id;
+/// PG carves off the unchanged [start, $1) remainder keeping its original audit_id.
+/// The `@>` guard leaves a scheduled future version untouched. $1 = effective,
+/// $2 = new monthly salary, $3 = level, $4 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 /// infer a split from the affected-row count — read the rows back instead.
@@ -3643,32 +3513,31 @@ ORDER BY name;
 pub fn salary_revise(
   db: pog.Connection,
   arg_1: Date,
-  monthly_salary: Float,
+  arg_2: Float,
   level: Int,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- salary_revise.sql — change a level's monthly_salary from $1 onward.
---
--- CHANGE write: re-rate the version of a level in effect on $1 for the open
--- span [$1, ∞) via FOR PORTION OF. The `@>` guard confines the update to the
--- single salary row covering $1, so a separately-scheduled future version of
--- the same level stays untouched; PG carves off the unchanged [start, $1)
--- remainder as its own row. $1 is the effective date, $2 the new monthly
--- salary, $3 the level.
+  "-- salary_revise.sql — change a level's monthly_salary from $1 onward (Change). FOR
+-- PORTION OF re-rates [$1, ∞) of the covering row, setting monthly_salary + audit_id;
+-- PG carves off the unchanged [start, $1) remainder keeping its original audit_id.
+-- The `@>` guard leaves a scheduled future version untouched. $1 = effective,
+-- $2 = new monthly salary, $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 -- infer a split from the affected-row count — read the rows back instead.
 UPDATE salary
    FOR PORTION OF effective_during FROM $1::date TO NULL
-   SET monthly_salary = $2
+   SET monthly_salary = $2, audit_id = $4
  WHERE level = $3
    AND effective_during @> $1::date;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
-  |> pog.parameter(pog.float(monthly_salary))
+  |> pog.parameter(pog.float(arg_2))
   |> pog.parameter(pog.int(level))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3823,16 +3692,9 @@ ORDER BY week_projects.project, days.day;
   |> pog.execute(db)
 }
 
-/// timesheet_write.sql — step 2 of the temporal upsert.
-///
-/// Insert a single-day timesheet row. The `work_day` range is built in SQL as
-/// `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
-/// `date` params — no daterange type crosses the Squirrel boundary.
-///
-/// The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
-/// is rejected. The handler runs timesheet_delete.sql then this INSERT in one
-/// transaction, so a rejected insert rolls back the delete and the prior row
-/// survives intact. $1 = engineer_id, $2 = project_id, $3 = the day, $4 = hours.
+/// timesheet_write.sql — record hours for one (engineer, project, day), contained by
+/// an allocation via timesheet_within_allocation. The day is the [d, d+1) range. Last
+/// param is the audit_id. $1 = engineer_id, $2 = project_id, $3 = day, $4 = hours.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3843,27 +3705,22 @@ pub fn timesheet_write(
   arg_2: Int,
   arg_3: Date,
   arg_4: Float,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- timesheet_write.sql — step 2 of the temporal upsert.
---
--- Insert a single-day timesheet row. The `work_day` range is built in SQL as
--- `daterange($3::date, $3::date + 1, '[)')` so the function only ever sees scalar
--- `date` params — no daterange type crosses the Squirrel boundary.
---
--- The PERIOD FK to `allocation` is the backstop: a day with no covering allocation
--- is rejected. The handler runs timesheet_delete.sql then this INSERT in one
--- transaction, so a rejected insert rolls back the delete and the prior row
--- survives intact. $1 = engineer_id, $2 = project_id, $3 = the day, $4 = hours.
-INSERT INTO timesheet (engineer_id, project_id, work_day, hours)
-VALUES ($1, $2, daterange($3::date, $3::date + 1, '[)'), $4);
+  "-- timesheet_write.sql — record hours for one (engineer, project, day), contained by
+-- an allocation via timesheet_within_allocation. The day is the [d, d+1) range. Last
+-- param is the audit_id. $1 = engineer_id, $2 = project_id, $3 = day, $4 = hours.
+INSERT INTO timesheet (engineer_id, project_id, work_day, hours, audit_id)
+VALUES ($1, $2, daterange($3::date, $3::date + 1, '[)'), $4, $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.parameter(pog.float(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

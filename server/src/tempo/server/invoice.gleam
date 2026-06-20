@@ -19,18 +19,18 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{type Command, DraftInvoice, IssueInvoice, PayInvoice}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError, InvalidValue}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
 import tempo/server/sql
 
 /// Apply an invoice-aggregate command: route it to its named operation, which
-/// returns the facts it records. The dispatch `route` only ever sends invoice
-/// commands here, so any other variant is a routing bug — `panic`.
+/// returns the audit entry and facts it records. The dispatch `route` only ever
+/// sends invoice commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     DraftInvoice(..) -> draft_invoice(conn, command)
     IssueInvoice(..) -> issue_invoice(conn, command)
@@ -43,11 +43,11 @@ pub fn handle(
 /// Draft an invoice: reserve the id, compute the contract-agreed lines for the
 /// month, and record the anchor, subject, opening `draft` status (from
 /// `billing_from`, so an as-of query within or after the month reads `draft`,
-/// FR-F4), one line per row, plus the journal entry.
+/// FR-F4), and one line per row, with the journal entry.
 fn draft_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
   use invoice_id <- result.try(repository.next_id(conn, repository.Invoices))
   use lines <- operation.try(sql.invoice_billing_lines(
@@ -67,8 +67,18 @@ fn draft_invoice(
         amount: line.amount,
       )
     })
-  Ok(
-    list.flatten([
+  Ok(Recorded(
+    entry: Event(
+      operation: "draft_invoice",
+      summary: "Draft invoice for project "
+        <> int.to_string(project_id)
+        <> " (invoice "
+        <> int.to_string(invoice_id)
+        <> ") over "
+        <> operation.span(billing_from, billing_to),
+      payload: codecs.encode_command(command),
+    ),
+    facts: list.flatten([
       [
         fact.Invoice(id: invoice_id),
         fact.InvoiceSubject(
@@ -80,62 +90,54 @@ fn draft_invoice(
         fact.InvoiceInStatus(invoice_id:, status: "draft", from: billing_from),
       ],
       line_facts,
-      [
-        fact.CommandHandled(
-          operation: "draft_invoice",
-          summary: "Draft invoice for project "
-            <> int.to_string(project_id)
-            <> " (invoice "
-            <> int.to_string(invoice_id)
-            <> ") over "
-            <> operation.span(billing_from, billing_to),
-          payload: codecs.encode_command(command),
-        ),
-      ],
     ]),
-  )
+  ))
 }
 
 /// Issue an invoice: guard it is currently `draft` at `at`, then record `issued`
-/// from `at`, plus the journal entry.
+/// from `at`, with the journal entry.
 fn issue_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert IssueInvoice(invoice_id:, at:) = command
   use _ <- result.try(validate_invoice_status(conn, invoice_id, "draft", at))
-  Ok([
-    fact.InvoiceInStatus(invoice_id:, status: "issued", from: at),
-    fact.CommandHandled(
-      operation: "issue_invoice",
-      summary: "Issue invoice "
-        <> int.to_string(invoice_id)
-        <> " on "
-        <> operation.iso(at),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "issue_invoice",
+        summary: "Issue invoice "
+          <> int.to_string(invoice_id)
+          <> " on "
+          <> operation.iso(at),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [fact.InvoiceInStatus(invoice_id:, status: "issued", from: at)],
     ),
-  ])
+  )
 }
 
 /// Pay an invoice: guard it is currently `issued` at `at`, then record `paid` from
-/// `at`, plus the journal entry.
+/// `at`, with the journal entry.
 fn pay_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert PayInvoice(invoice_id:, at:) = command
   use _ <- result.try(validate_invoice_status(conn, invoice_id, "issued", at))
-  Ok([
-    fact.InvoiceInStatus(invoice_id:, status: "paid", from: at),
-    fact.CommandHandled(
-      operation: "pay_invoice",
-      summary: "Pay invoice "
-        <> int.to_string(invoice_id)
-        <> " on "
-        <> operation.iso(at),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "pay_invoice",
+        summary: "Pay invoice "
+          <> int.to_string(invoice_id)
+          <> " on "
+          <> operation.iso(at),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [fact.InvoiceInStatus(invoice_id:, status: "paid", from: at)],
     ),
-  ])
+  )
 }
 
 /// Guard that the invoice's status covering `at` is exactly `expected` — the

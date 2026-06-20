@@ -18,17 +18,17 @@ import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, SignContract, StartProject}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
 
 /// Apply an engagement-aggregate command: route it to its named operation, which
-/// returns the facts it records. The dispatch `route` only ever sends engagement
-/// commands here, so any other variant is a routing bug — `panic`.
+/// returns the audit entry and facts it records. The dispatch `route` only ever
+/// sends engagement commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     SignContract(..) -> sign_contract(conn, command)
     StartProject(..) -> start_project(conn, command)
@@ -38,60 +38,83 @@ pub fn handle(
 }
 
 /// Sign a contract for a client over a term: reserve the contract id, then record
-/// the anchor and its founding terms (resolving the client by name), plus the
+/// the anchor and its founding terms (resolving the client by name), with the
 /// journal entry.
 fn sign_contract(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert SignContract(client:, valid_from:, valid_to:) = command
   use contract_id <- result.try(repository.next_id(conn, repository.Contracts))
-  Ok([
-    fact.Contract(id: contract_id),
-    fact.ContractTerms(contract_id:, client:, from: valid_from, to: valid_to),
-    fact.CommandHandled(
-      operation: "sign_contract",
-      summary: "Sign contract for "
-        <> client
-        <> " (contract "
-        <> int.to_string(contract_id)
-        <> ") over "
-        <> operation.span(valid_from, valid_to),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "sign_contract",
+        summary: "Sign contract for "
+          <> client
+          <> " (contract "
+          <> int.to_string(contract_id)
+          <> ") over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.Contract(id: contract_id),
+        fact.ContractTerms(
+          contract_id:,
+          client:,
+          from: valid_from,
+          to: valid_to,
+        ),
+      ],
     ),
-  ])
+  )
 }
 
 /// Start a project under a contract over its active period: reserve the project id,
-/// then record the anchor, its run, and the founding profile and plan, plus the
+/// then record the anchor, its run, and the founding profile and plan, with the
 /// journal entry.
 fn start_project(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert StartProject(name:, contract_id:, valid_from:, valid_to:) = command
   use project_id <- result.try(repository.next_id(conn, repository.Projects))
-  Ok([
-    fact.Project(id: project_id),
-    fact.ProjectRun(project_id:, contract_id:, from: valid_from, to: valid_to),
-    fact.ProjectProfile(project_id:, title: name, summary: "", from: valid_from),
-    fact.ProjectPlan(
-      project_id:,
-      budget: 0.0,
-      target_completion: valid_to,
-      from: valid_from,
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "start_project",
+        summary: "Start project "
+          <> name
+          <> " under contract "
+          <> int.to_string(contract_id)
+          <> " (project "
+          <> int.to_string(project_id)
+          <> ") over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.Project(id: project_id),
+        fact.ProjectRun(
+          project_id:,
+          contract_id:,
+          from: valid_from,
+          to: valid_to,
+        ),
+        fact.ProjectProfile(
+          project_id:,
+          title: name,
+          summary: "",
+          from: valid_from,
+        ),
+        fact.ProjectPlan(
+          project_id:,
+          budget: 0.0,
+          target_completion: valid_to,
+          from: valid_from,
+        ),
+      ],
     ),
-    fact.CommandHandled(
-      operation: "start_project",
-      summary: "Start project "
-        <> name
-        <> " under contract "
-        <> int.to_string(contract_id)
-        <> " (project "
-        <> int.to_string(project_id)
-        <> ") over "
-        <> operation.span(valid_from, valid_to),
-      payload: codecs.encode_command(command),
-    ),
-  ])
+  )
 }

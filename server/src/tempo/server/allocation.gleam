@@ -17,16 +17,16 @@ import shared/codecs
 import shared/types.{
   type Command, AssignToProject, ChangeAllocationFraction, RollOff,
 }
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 
 /// Apply an allocation-aggregate command: route it to its named operation, which
-/// returns the facts it records. The dispatch `route` only ever sends allocation
-/// commands here, so any other variant is a routing bug — `panic`.
+/// returns the audit entry and facts it records. The dispatch `route` only ever
+/// sends allocation commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   _conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     AssignToProject(..) -> assign_to_project(command)
     ChangeAllocationFraction(..) -> change_allocation_fraction(command)
@@ -36,10 +36,10 @@ pub fn handle(
   }
 }
 
-/// Record a fresh bounded allocation over `[valid_from, valid_to)`, plus the journal
+/// Record a fresh bounded allocation over `[valid_from, valid_to)`, with the journal
 /// entry; the allocation is contained by both employment and the project via PERIOD
 /// FKs.
-fn assign_to_project(command: Command) -> Result(List(Fact), OperationError) {
+fn assign_to_project(command: Command) -> Result(Recorded, OperationError) {
   let assert AssignToProject(
     engineer_id:,
     project_id:,
@@ -47,77 +47,89 @@ fn assign_to_project(command: Command) -> Result(List(Fact), OperationError) {
     valid_from:,
     valid_to:,
   ) = command
-  Ok([
-    fact.EngineerAllocatedToProject(
-      engineer_id:,
-      project_id:,
-      fraction:,
-      from: valid_from,
-      to: Some(valid_to),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "assign_to_project",
+        summary: "Assign engineer "
+          <> int.to_string(engineer_id)
+          <> " to project "
+          <> int.to_string(project_id)
+          <> " at "
+          <> float.to_string(fraction)
+          <> " over "
+          <> operation.span(valid_from, valid_to),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.EngineerAllocatedToProject(
+          engineer_id:,
+          project_id:,
+          fraction:,
+          from: valid_from,
+          to: Some(valid_to),
+        ),
+      ],
     ),
-    fact.CommandHandled(
-      operation: "assign_to_project",
-      summary: "Assign engineer "
-        <> int.to_string(engineer_id)
-        <> " to project "
-        <> int.to_string(project_id)
-        <> " at "
-        <> float.to_string(fraction)
-        <> " over "
-        <> operation.span(valid_from, valid_to),
-      payload: codecs.encode_command(command),
-    ),
-  ])
+  )
 }
 
-/// Re-fraction an engineer's allocation from `effective` onward, plus the journal
+/// Re-fraction an engineer's allocation from `effective` onward, with the journal
 /// entry.
 fn change_allocation_fraction(
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   let assert ChangeAllocationFraction(
     engineer_id:,
     project_id:,
     fraction:,
     effective:,
   ) = command
-  Ok([
-    fact.EngineerAllocatedToProject(
-      engineer_id:,
-      project_id:,
-      fraction:,
-      from: effective,
-      to: None,
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "change_allocation_fraction",
+        summary: "Change engineer "
+          <> int.to_string(engineer_id)
+          <> " allocation on project "
+          <> int.to_string(project_id)
+          <> " to "
+          <> float.to_string(fraction)
+          <> " from "
+          <> operation.iso(effective),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.EngineerAllocatedToProject(
+          engineer_id:,
+          project_id:,
+          fraction:,
+          from: effective,
+          to: None,
+        ),
+      ],
     ),
-    fact.CommandHandled(
-      operation: "change_allocation_fraction",
-      summary: "Change engineer "
-        <> int.to_string(engineer_id)
-        <> " allocation on project "
-        <> int.to_string(project_id)
-        <> " to "
-        <> float.to_string(fraction)
-        <> " from "
-        <> operation.iso(effective),
-      payload: codecs.encode_command(command),
-    ),
-  ])
+  )
 }
 
-/// Roll an engineer off a project from `effective`, plus the journal entry.
-fn roll_off(command: Command) -> Result(List(Fact), OperationError) {
+/// Roll an engineer off a project from `effective`, with the journal entry.
+fn roll_off(command: Command) -> Result(Recorded, OperationError) {
   let assert RollOff(engineer_id:, project_id:, effective:) = command
-  Ok([
-    fact.EngineerOffProject(engineer_id:, project_id:, from: effective),
-    fact.CommandHandled(
-      operation: "roll_off",
-      summary: "Roll engineer "
-        <> int.to_string(engineer_id)
-        <> " off project "
-        <> int.to_string(project_id)
-        <> " from "
-        <> operation.iso(effective),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "roll_off",
+        summary: "Roll engineer "
+          <> int.to_string(engineer_id)
+          <> " off project "
+          <> int.to_string(project_id)
+          <> " from "
+          <> operation.iso(effective),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [
+        fact.EngineerOffProject(engineer_id:, project_id:, from: effective),
+      ],
     ),
-  ])
+  )
 }

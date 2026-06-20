@@ -12,16 +12,16 @@ import gleam/int
 import pog
 import shared/codecs
 import shared/types.{type Command, SetSalary}
-import tempo/server/fact.{type Fact}
-import tempo/server/operation.{type OperationError}
+import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/operation.{type OperationError, Event}
 
 /// Apply a salary-aggregate command: route it to its named operation, which returns
-/// the facts it records. The dispatch `route` only ever sends salary commands here,
-/// so any other variant is a routing bug — `panic`.
+/// the audit entry and facts it records. The dispatch `route` only ever sends salary
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   _conn: pog.Connection,
   command: Command,
-) -> Result(List(Fact), OperationError) {
+) -> Result(Recorded, OperationError) {
   case command {
     SetSalary(..) -> set_salary(command)
     _ ->
@@ -29,20 +29,22 @@ pub fn handle(
   }
 }
 
-/// Set a level's monthly salary from `effective` onward, plus the journal entry.
-fn set_salary(command: Command) -> Result(List(Fact), OperationError) {
+/// Set a level's monthly salary from `effective` onward, with the journal entry.
+fn set_salary(command: Command) -> Result(Recorded, OperationError) {
   let assert SetSalary(level:, monthly_salary:, effective:) = command
-  Ok([
-    fact.Salary(level:, monthly_salary:, from: effective),
-    fact.CommandHandled(
-      operation: "set_salary",
-      summary: "Set L"
-        <> int.to_string(level)
-        <> " salary to "
-        <> float.to_string(monthly_salary)
-        <> " from "
-        <> operation.iso(effective),
-      payload: codecs.encode_command(command),
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "set_salary",
+        summary: "Set L"
+          <> int.to_string(level)
+          <> " salary to "
+          <> float.to_string(monthly_salary)
+          <> " from "
+          <> operation.iso(effective),
+        payload: codecs.encode_command(command),
+      ),
+      facts: [fact.Salary(level:, monthly_salary:, from: effective)],
     ),
-  ])
+  )
 }

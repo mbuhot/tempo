@@ -181,8 +181,9 @@ type Journal {
   Journal(actor: String, operation: String, summary: String, payload: String)
 }
 
-/// Read the whole `event_log` (this transaction's rows only — the seed leaves it
-/// empty in test) newest-first, minus `occurred_at`.
+/// Read this transaction's `event_log` rows newest-first, minus `occurred_at`. The
+/// seed records its founding history under actor `seed`; these tests dispatch under
+/// `tester`, so the `actor <> 'seed'` filter isolates the rows this test wrote.
 fn read_journal(conn: pog.Connection) -> List(Journal) {
   let decoder = {
     use actor <- decode.field(0, decode.string)
@@ -193,7 +194,8 @@ fn read_journal(conn: pog.Connection) -> List(Journal) {
   }
   let assert Ok(returned) =
     pog.query(
-      "SELECT actor, operation, summary, payload::text FROM event_log ORDER BY id DESC",
+      "SELECT actor, operation, summary, payload::text FROM event_log"
+      <> " WHERE actor <> 'seed' ORDER BY id DESC",
     )
     |> pog.returning(decoder)
     |> pog.execute(on: conn)
