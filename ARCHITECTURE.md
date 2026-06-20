@@ -68,8 +68,10 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
           roster.gleam        #     GET /api/roster?as_of= handler (console directory)
           request.gleam       #     parse query params into a calendar.Date
           response.gleam      #     json/error response helpers (leaf; shared by router + handlers)
-        command.gleam         #   domain — Command dispatch seam: txn + route + persist
+        command.gleam         #   domain — Command dispatch seam: txn + route → record_facts
         operation.gleam       #   domain leaf — Event/OperationError, classify, try/run, date render
+        fact.gleam            #   domain leaf — the Fact union: the typed information schema (states over periods)
+        repository.gleam      #   domain — persistence seam: next_id + record_facts (the one place a fact's write semantic lives)
         engineer.gleam        #   domain — onboard_engineer (mint anchor + open founding facts) / promote / terminate_employment (cascade)
         engineer_details.gleam #  domain — UpdateContactDetails / UpdateBankingDetails / UpdateEmergencyContact (latest-read facts)
         client_details.gleam  #   domain — UpdateClientProfile (latest-read fact)
@@ -83,9 +85,9 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
         payroll.gleam         #   domain — run_payroll (prorated lines)
         finance_query.gleam   #   domain — invoices / payroll / pnl reads (shared types, no wisp)
         roster.gleam          #   domain — console directory (employed engineers, active projects, clients)
-        event.gleam           #   domain — append (used by dispatch) + list (journal read)
+        event.gleam           #   domain — append (used by repository) + list (journal read)
         board.gleam           #   domain — board.snapshot (no wisp)
-        timesheet.gleam       #   domain — form, log, WriteError (no wisp)
+        timesheet.gleam       #   domain — form_week, log_timesheet/log_week → EngineerWorkedHours facts (no wisp)
         context.gleam         #   pog connection pool
         sql/                  #   Squirrel .sql sources → generated sql.gleam; incl. the
                               #     *_open/*_close edit-fact writers, the *_current view
@@ -349,69 +351,78 @@ server decodes the same value), applied through one seam. Reading (§5) is a tri
 the modeling lives here.
 
 **`command.dispatch(context, actor, command)`** opens one `pog.transaction` and does *only* two
-things: **route** the command to its aggregate's `handle` (`engineer`, `engineer_details`,
-`client_details`, `project_details`, `allocation`, `rate_card`, `engagement`, `leave`, `timesheet`,
-`salary`, `invoice`, `payroll` — variants grouped per aggregate by alternative patterns), and
-**persist** each event the handler returns via `event.append` (a
-`list.try_map`, classifying any rejection). Facts and journal commit together or not at all.
-`dispatch` **returns the created events** (the persisted `List(Event)`, with their minted
-id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest round-trip.
-`dispatch_in` is the transaction-free core (route + persist on an already-open connection) so a test
-can drive it inside its own rolled-back transaction.
+things: **route** the command to its aggregate's `handle` for the **facts it records** (`engineer`,
+`engineer_details`, `client_details`, `project_details`, `allocation`, `rate_card`, `engagement`,
+`leave`, `timesheet`, `salary`, `invoice`, `payroll` — variants grouped per aggregate by alternative
+patterns), then hand the facts to **`repository.record_facts(conn, actor, facts)`**. Facts and journal
+commit together or not at all. `dispatch` **returns the persisted journal events** (`List(Event)`, with
+their minted id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest
+round-trip. `dispatch_in` is the transaction-free core (route + record on an already-open connection)
+so a test can drive it inside its own rolled-back transaction. There is no separate per-event
+`persist` step — recording the `CommandHandled` fact *is* the journal append.
 
 **Each aggregate's `handle(conn, command)` is a *pure dispatch*** (ADR-027): a `case` that routes each
 variant it owns to a **named per-operation function** (`onboard_engineer`, `promote`,
 `terminate_employment`; `assign_to_project`, `change_allocation_fraction`, `roll_off`;
 `revise_rate_card`, `adjust_rate_for_portion`; `sign_contract`, `start_project`; `take_leave`;
-`set_salary`; `log_timesheet`; `draft_invoice`, `issue_invoice`, `pay_invoice`; `run_payroll`;
-`update_contact_details`, `update_banking_details`, `update_emergency_contact`,
+`set_salary`; `log_timesheet`, `log_week`; `draft_invoice`, `issue_invoice`, `pay_invoice`;
+`run_payroll`; `update_contact_details`, `update_banking_details`, `update_emergency_contact`,
 `update_client_profile`, `update_project_profile`, `update_project_plan`) and
 **panics** on any other variant (`panic as "<aggregate>.handle: … (dispatch bug)"`) — an unrouted
-command is a routing bug, never a silent `Ok`. The standalone `events(command)` function is **gone**
-from every aggregate.
+command is a routing bug, never a silent `Ok`.
 
-**Each named op returns `Result(List(Event), OperationError)` and builds its own event(s)** (ADR-028):
-it does its temporal writes on the in-transaction connection, then **constructs** the journal
-`Event` — owning its `operation` tag, human `summary`, and the command re-encoded as `payload` (the
-flat journal `Event` = operation/summary/payload). Because the handler builds the event *after* the
-write, the five **create-ops** (`onboard_engineer`, `sign_contract`, `start_project`, `draft_invoice`,
-`run_payroll`) surface the database-minted `RETURNING` id in the summary. A single `INSERT … RETURNING`
-row is read with a **`let assert [row] = …`** on a one-element list (in the create-ops, `event.append`,
-and the connection smoke check) — an empty or multi result crashes as the SQL/driver bug it would be,
-never the fabricated id 0. `dispatch` only routes and persists; it never builds events.
+**Each named op returns `Result(List(Fact), OperationError)`** (ADR-032): it decides **WHICH facts** a
+command records — and in what order (identity anchors first, then the facts contained by them, ending
+with a **`CommandHandled`** audit fact carrying the operation tag, human summary, and the command
+re-encoded as payload). A handler builds no SQL and no journal row. The five **create-ops**
+(`onboard_engineer`, `sign_contract`, `start_project`, `draft_invoice`, `run_payroll`) **reserve the
+anchor id up-front** with `repository.next_id` (a `nextval`) and thread it into every fact they emit,
+so nothing is read back. The two **compute-ops** (`draft_invoice`, `run_payroll`) still read their
+lines on the connection (`invoice_billing_lines`, `payroll_amounts`) and map each row to a line fact;
+`issue_invoice`/`pay_invoice` read the current status to guard the transition.
+
+**`repository.record_facts(conn, actor, facts)` is the single persistence seam** — the one place a
+fact's write SEMANTIC lives (ADR-032). It folds the list in order, maps each fact to the SQL that
+records it, classifies any rejection into a typed `OperationError`, and short-circuits on the first
+failure (so the caller's transaction rolls them all back). Only **`CommandHandled`** yields a persisted
+`Event` — it appends the `event_log` row, stamped with the actor; the rest return no event. Its
+companion **`next_id(conn, sequence)`** reserves an anchor id (a `nextval`) before its facts are
+recorded.
 
 To break the `command` ↔ aggregate import cycle, the journal `Event` type, the `OperationError` type,
 the SQLSTATE/constraint `classify` helpers, and the ISO/period date helpers live in a leaf module
 **`operation.gleam`** (it imports only `pog`/`json`/`shared`, so it sits below the aggregates). It also
-exports two helpers that encapsulate the classify so a handler body reads as a flat sequence: **`try`**
-chains a write into the next step (`use _ <- operation.try(sql.…)`, mapping `pog.QueryError →
-OperationError`), and **`run`** runs a single terminal write or a `list.try_map` of writes. The
-insert loops (`insert_lines` in `invoice`/`payroll`) and `command.persist` both use `list.try_map` —
-no hand-rolled recursion. `command` is route + persist only.
+exports two helpers the repository uses so a write reads as a flat sequence: **`try`** chains a write
+into the next step (`use _ <- operation.try(sql.…)`, mapping `pog.QueryError → OperationError`), and
+**`run`** runs a single terminal write. The fold and the line-mapping use `list.try_map`/`list.map` —
+no hand-rolled recursion.
 
-The temporal writes fall into four patterns. PG19's `FOR PORTION OF` produces the before/after
+The temporal writes fall into the same four patterns as before — now selected by the **repository**
+from each fact's shape, not hand-coded in a handler. PG19's `FOR PORTION OF` produces the before/after
 "temporal leftovers" and drops a fully-covered row itself, so there is **no** hand-rolled
 cap-and-insert and no empty-period bookkeeping.
 
-**1. Assert** (`onboard_engineer`, `sign_contract`, `start_project`, `assign_to_project`,
-`take_leave`, `log_timesheet`) — plain `INSERT`, open-ended where the fact is ongoing
-(`employed_during = daterange($start, NULL, '[)')`). Under the anchor/fact split these create-ops now
-**mint the id-only anchor and open the founding fact rows** in one txn: `onboard_engineer` inserts the
-`engineer` anchor → `employment` → `engineer_role` → the `engineer_contact` founding row;
-`sign_contract` inserts the `contract` anchor → opens `contract_terms`; `start_project` inserts the
-`project` anchor → opens `project_run` → `project_profile` → `project_plan`. Each valid-time child is
-contained in the last by its `PERIOD` FK.
+**1. Assert** — plain `INSERT`, open-ended where the fact is ongoing
+(`employed_during = daterange($start, NULL, '[)')`). The identity anchors
+(`Engineer`/`Contract`/`Project`/`Invoice`/`PayrollRun`) and the bounded facts (`EngineerEmployed`,
+`EngineerAllocatedToProject` with `Some(to)`, `EngineerOnLeave`, `ContractTerms`, `ProjectRun`,
+`InvoiceSubject`, `InvoiceLine`, `PayrollPeriod`, `PayrollLine`) insert directly. A create-op emits the
+anchor then the founding facts contained by it, each contained in the last by its `PERIOD` FK:
+`onboard_engineer` → `Engineer` → `EngineerEmployed` → `EngineerAtLevel` → `EngineerContactDetails`;
+`sign_contract` → `Contract` → `ContractTerms`; `start_project` → `Project` → `ProjectRun` →
+`ProjectProfile` → `ProjectPlan`.
 
-**1b. Edit (latest-read Change)** (`update_contact_details`, `update_banking_details`,
-`update_emergency_contact`, `update_client_profile`, `update_project_profile`, `update_project_plan`)
-— the write to a `recorded_during` (or `planned_during`) fact is a Change in one statement, the same
-`FOR PORTION OF` shape as pattern 2: a `*_revise.sql` re-sets the `[effective, NULL)` portion of the row
-covering `effective`, and PG carves off the unchanged `[start, effective)` remainder, so the
-`*_current` view's most-recently-effective pick advances. The founding row is opened at the create-op
-(1a), so a covering row always exists. These do not appear on the board's valid-time reads; they feed
-the descriptive/contact detail and the engineer/client/project name reads.
+**1b. Edit (versioned-attribute change-or-open)** — `EngineerAtLevel`, the contact/banking/emergency
+details, `ProjectProfile`/`Plan`, `ClientProfile`. The repository runs the `FOR PORTION OF … TO NULL`
+change re-setting the `[from, NULL)` portion of the covering row; if it touches **no** row (no version
+yet exists — the founding write at onboard/start_project) it falls back to the open `INSERT`, keyed off
+the live row count. So the founding write and a later edit are the **same fact** — the repository, not
+the handler, picks insert vs change. The `*_current` view's most-recently-effective pick advances on
+each edit.
 
-**2. Change** (`promote`, `change_allocation_fraction`, `revise_rate_card`) — one statement, no read:
+**2. Change** (`EngineerAtLevel` from `promote`, `EngineerAllocatedToProject` with `None` from
+`change_allocation_fraction`, `RateCard`/`Salary` with open `to` from `revise_rate_card`/`set_salary`)
+— one statement, no read:
 
 ```sql
 UPDATE engineer_role
@@ -426,8 +437,8 @@ row.upper)` and Postgres re-inserts the `[row.lower, effective)` leftover at the
 separately **scheduled future** version doesn't contain `effective`, so `WHERE` excludes it and `TO
 NULL` cannot clobber it.
 
-**3. Surgical** (`adjust_rate_for_portion`) — the same statement shape with a concrete upper bound,
-splitting one `rate_card` row into before/during/after (PRD FR-6):
+**3. Surgical** (`RateCard` with `Some(to)`, from `adjust_rate_for_portion`) — the same statement shape
+with a concrete upper bound, splitting one `rate_card` row into before/during/after (PRD FR-6):
 
 ```sql
 UPDATE rate_card
@@ -439,7 +450,9 @@ UPDATE rate_card
 The only difference between "publish a new version from a date" (`revise_rate_card`, `TO NULL`) and
 "bump just this window" (`adjust_rate_for_portion`, concrete `TO`) is one argument.
 
-**4. Close / cascade** (`roll_off`, `terminate_employment`) — `DELETE … FOR PORTION OF`:
+**4. Close / cascade** (the retraction facts `EngineerOffProject` from `roll_off`, `EngineerDeparted`
+from `terminate_employment`) — these read as positive facts ("off project from X", "departed from X");
+the repository implements them as `DELETE … FOR PORTION OF`:
 
 ```sql
 DELETE FROM allocation
@@ -447,11 +460,13 @@ DELETE FROM allocation
   WHERE engineer_id = $eng;   -- no @> filter: intentionally broad
 ```
 
-`roll_off` caps one allocation. `terminate_employment` runs this against `allocation`, then `leave`,
-then `engineer_role`, then `employment` — children first. The omitted `@>` filter is deliberate:
-terminate wipes *all* future child facts (capping the spanning rows to `[lo, end)` and deleting the
-fully-future ones). The `PERIOD` FKs both force the child-first order and verify completeness — cap
-`employment` last and a missed child rejects the whole transaction (PRD FR-5).
+`EngineerOffProject` caps one allocation. `EngineerDeparted` runs this against `allocation`, then
+`leave`, then `engineer_role`, then `employment` — children first (the repository's `record_departure`
+sequence). The omitted `@>` filter is deliberate: departure wipes *all* future child facts (capping the
+spanning rows to `[lo, end)` and deleting the fully-future ones). The `PERIOD` FKs both force the
+child-first order and verify completeness — cap `employment` last and a missed child rejects the whole
+transaction (PRD FR-5). Invoice status (`InvoiceInStatus`) is a cap-then-open: the repository caps the
+prior status at `from` and opens the next where it begins, guarded by the handler's status read.
 
 **Correction** needs no special handling: a change whose range covers a fact's whole span yields zero
 leftovers, so Postgres deletes the prior assertion — a correction *is* a retroactive change
@@ -666,8 +681,10 @@ OVERLAPS` and `CHECK` constraints carry explicit names so a violation classifies
 immutable subject (`invoice_subject`), temporal status (`invoice_status`), and snapshot lines
 (`invoice_line`); and a payroll **anchor** (`payroll_run`) with its immutable period
 (`payroll_period`) and lines (`payroll_line`). The DDL below shows the original `012` shape; `017`
-later split the invoice subject and the payroll period into the immutable 1:1 facts (§4, §7) — see
-`SCHEMA.md` for the current shape.
+later split the invoice subject and the payroll period into the immutable 1:1 facts (§4, §7), and `018`
+replaced every `GENERATED ALWAYS AS IDENTITY` anchor (and the race-prone `coalesce(max(id),0)+1` mint on
+the `contract`/`project` anchors) with an explicit owned id sequence the app drives via
+`repository.next_id` — see `SCHEMA.md` for the current shape.
 
 ```sql
 -- Cost rate (the analogue of rate_card: what we PAY a level, vs what we CHARGE) --
