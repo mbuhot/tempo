@@ -1,9 +1,6 @@
--- payroll_run_create.sql — mint a new payroll run identity (ID-ONLY anchor).
+-- payroll_run_create.sql — insert the payroll run identity (ID-ONLY anchor) at a reserved id.
 --
--- Step 1 of run_payroll (anchor → period → lines). `payroll_run.id` is GENERATED
--- ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands back the
--- minted id to thread into the payroll_period and line inserts. The run's period is
--- written separately into the 1:1 immutable payroll_period fact by
--- payroll_period_insert.
-INSERT INTO payroll_run DEFAULT VALUES
-RETURNING id;
+-- Step 1 of run_payroll. The id is reserved up-front from payroll_run_id_seq
+-- (payroll_run_next_id) and supplied as $1, so this is a plain insert with no
+-- RETURNING. The period/lines are separate facts recorded alongside.
+INSERT INTO payroll_run (id) VALUES ($1);

@@ -1,15 +1,14 @@
 //// Domain: the payroll aggregate — a per-month run whose lines are the prorated
 //// salary owed each employed engineer. `handle` routes the payroll command to a
-//// named operation that does ONLY its temporal writes on the in-transaction
-//// connection and classifies any database rejection; `command.dispatch` owns the
-//// transaction and persists the journal event(s) `handle` returns. No HTTP — never
-//// imports `wisp`.
+//// named operation that returns the `Fact`s it records; `command.dispatch` records
+//// them (through `repository`) and persists the journal in ONE transaction. No HTTP
+//// — never imports `wisp`.
 ////
-//// `run_payroll` is an Assert that also computes its lines: mint the run identity,
-//// compute one prorated amount per employed engineer (`payroll_amounts` integrates
-//// `monthly_salary[level]` over `employment ∩ role-version ∩ salary-version ∩ month`,
-//// so a mid-month hire/termination is clipped, a promotion blends two salaries, and
-//// leave is paid in full — FR-F5/F6), then snapshot one `payroll_line` per engineer.
+//// `run_payroll` reserves the run id, computes one prorated amount per employed
+//// engineer (`payroll_amounts` integrates `monthly_salary[level]` over `employment ∩
+//// role-version ∩ salary-version ∩ month`, so a mid-month hire/termination is
+//// clipped, a promotion blends two salaries, and leave is paid in full — FR-F5/F6),
+//// and records the anchor, its period, and one line per row.
 
 import gleam/int
 import gleam/list
@@ -17,17 +16,18 @@ import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, RunPayroll}
-import tempo/server/operation.{type Event, type OperationError, Event}
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError}
+import tempo/server/repository
 import tempo/server/sql
 
-/// Apply a payroll-aggregate command: route it to its named operation, which does its
-/// temporal writes and returns the journal event(s) it produced. The dispatch `route`
-/// only ever sends payroll commands here, so any other variant is a routing bug —
-/// `panic`.
+/// Apply a payroll-aggregate command: route it to its named operation, which returns
+/// the facts it records. The dispatch `route` only ever sends payroll commands here,
+/// so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
     RunPayroll(..) -> run_payroll(conn, command)
     _ ->
@@ -35,54 +35,43 @@ pub fn handle(
   }
 }
 
-/// Run payroll for a month: mint the run identity, compute the prorated amount per
-/// employed engineer for the period, and insert each as a `payroll_line` — all
-/// threaded through the minted run id — then return its journal event carrying that
-/// run id.
+/// Run payroll for a month: reserve the run id, compute the prorated amount per
+/// employed engineer, and record the anchor, its period, one line per row, plus the
+/// journal entry.
 fn run_payroll(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert RunPayroll(period_from:, period_to:) = command
-  use created <- operation.try(sql.payroll_run_create(conn))
-  let assert [row] = created.rows
-  let run_id = row.id
-  use _ <- operation.try(sql.payroll_period_insert(
-    conn,
-    run_id,
-    period_from,
-    period_to,
-  ))
+  use run_id <- result.try(repository.next_id(conn, repository.PayrollRuns))
   use amounts <- operation.try(sql.payroll_amounts(conn, period_from, period_to))
-  use _ <- result.try(insert_lines(conn, run_id, amounts.rows))
-  Ok([
-    Event(
-      operation: "run_payroll",
-      summary: "Run payroll over "
-        <> operation.span(period_from, period_to)
-        <> " (run "
-        <> int.to_string(run_id)
-        <> ")",
-      payload: codecs.encode_command(command),
-    ),
-  ])
-}
-
-/// Insert each computed payroll amount as a line for the run: engineer, the prorated
-/// amount owed, and the employed days it covers (all from `payroll_amounts`).
-fn insert_lines(
-  conn: pog.Connection,
-  run_id: Int,
-  amounts: List(sql.PayrollAmountsRow),
-) -> Result(Nil, OperationError) {
-  list.try_map(amounts, fn(amount) {
-    sql.payroll_line_insert(
-      conn,
-      run_id,
-      amount.engineer_id,
-      amount.amount,
-      amount.days,
-    )
-  })
-  |> operation.run
+  let line_facts =
+    list.map(amounts.rows, fn(line) {
+      fact.PayrollLine(
+        run_id:,
+        engineer_id: line.engineer_id,
+        amount: line.amount,
+        days: line.days,
+      )
+    })
+  Ok(
+    list.flatten([
+      [
+        fact.PayrollRun(id: run_id),
+        fact.PayrollPeriod(run_id:, from: period_from, to: period_to),
+      ],
+      line_facts,
+      [
+        fact.CommandHandled(
+          operation: "run_payroll",
+          summary: "Run payroll over "
+            <> operation.span(period_from, period_to)
+            <> " (run "
+            <> int.to_string(run_id)
+            <> ")",
+          payload: codecs.encode_command(command),
+        ),
+      ],
+    ]),
+  )
 }

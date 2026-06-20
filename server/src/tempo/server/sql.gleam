@@ -574,43 +574,65 @@ UPDATE client_profile
   |> pog.execute(db)
 }
 
-/// A row you get from running the `contract_create` query
-/// defined in `./src/tempo/server/sql/contract_create.sql`.
+/// contract_create.sql — insert the contract identity (ID-ONLY anchor) at a reserved id.
 ///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type ContractCreateRow {
-  ContractCreateRow(id: Int)
-}
-
-/// contract_create.sql — mint a new contract identity (ID-ONLY anchor).
-///
-/// Step 1 of sign_contract (anchor → terms). The contract id is an entity id reused
-/// across the contract_terms period-rows; there is no IDENTITY on the anchor, so we
-/// mint a fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread
-/// into the terms insert.
+/// Step 1 of sign_contract. The id is reserved up-front from contract_id_seq
+/// (contract_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+/// The engagement term lives in a separate contract_terms fact recorded alongside.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn contract_create(
   db: pog.Connection,
-) -> Result(pog.Returned(ContractCreateRow), pog.QueryError) {
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- contract_create.sql — insert the contract identity (ID-ONLY anchor) at a reserved id.
+--
+-- Step 1 of sign_contract. The id is reserved up-front from contract_id_seq
+-- (contract_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+-- The engagement term lives in a separate contract_terms fact recorded alongside.
+INSERT INTO contract (id) VALUES ($1);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `contract_next_id` query
+/// defined in `./src/tempo/server/sql/contract_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ContractNextIdRow {
+  ContractNextIdRow(id: Int)
+}
+
+/// contract_next_id.sql — reserve the next contract id from its sequence.
+///
+/// Called before sign_contract records any contract fact: the handler threads this id
+/// into the Contract anchor and its terms in one transaction, so nothing is read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn contract_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(ContractNextIdRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
-    decode.success(ContractCreateRow(id:))
+    decode.success(ContractNextIdRow(id:))
   }
 
-  "-- contract_create.sql — mint a new contract identity (ID-ONLY anchor).
+  "-- contract_next_id.sql — reserve the next contract id from its sequence.
 --
--- Step 1 of sign_contract (anchor → terms). The contract id is an entity id reused
--- across the contract_terms period-rows; there is no IDENTITY on the anchor, so we
--- mint a fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread
--- into the terms insert.
-INSERT INTO contract (id)
-VALUES ((SELECT coalesce(max(id), 0) + 1 FROM contract))
-RETURNING id;
+-- Called before sign_contract records any contract fact: the handler threads this id
+-- into the Contract anchor and its terms in one transaction, so nothing is read back.
+SELECT nextval('contract_id_seq')::int AS id;
 "
   |> pog.query
   |> pog.returning(decoder)
@@ -1041,46 +1063,32 @@ UPDATE engineer_contact
   |> pog.execute(db)
 }
 
-/// A row you get from running the `engineer_create` query
-/// defined in `./src/tempo/server/sql/engineer_create.sql`.
+/// engineer_create.sql — insert the engineer identity (ID-ONLY anchor) at a reserved id.
 ///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type EngineerCreateRow {
-  EngineerCreateRow(id: Int)
-}
-
-/// engineer_create.sql — mint a new engineer identity (ID-ONLY anchor).
-///
-/// Step 1 of onboarding (identity → employment → role, each contained in the last
-/// by its PERIOD FK; the engineer's NAME is now a separate engineer_contact fact,
-/// written alongside, NOT a column here). `engineer.id` is GENERATED ALWAYS AS
-/// IDENTITY, so the caller supplies nothing; RETURNING hands back the minted id to
-/// thread into the employment, role, and contact inserts.
+/// Step 1 of onboarding. The id is reserved up-front from engineer_id_seq
+/// (engineer_next_id) and supplied as $1, so this is a plain insert with no
+/// RETURNING. The engineer's NAME lives in a separate engineer_contact fact recorded
+/// alongside, NOT a column here.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn engineer_create(
   db: pog.Connection,
-) -> Result(pog.Returned(EngineerCreateRow), pog.QueryError) {
-  let decoder = {
-    use id <- decode.field(0, decode.int)
-    decode.success(EngineerCreateRow(id:))
-  }
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_create.sql — mint a new engineer identity (ID-ONLY anchor).
+  "-- engineer_create.sql — insert the engineer identity (ID-ONLY anchor) at a reserved id.
 --
--- Step 1 of onboarding (identity → employment → role, each contained in the last
--- by its PERIOD FK; the engineer's NAME is now a separate engineer_contact fact,
--- written alongside, NOT a column here). `engineer.id` is GENERATED ALWAYS AS
--- IDENTITY, so the caller supplies nothing; RETURNING hands back the minted id to
--- thread into the employment, role, and contact inserts.
-INSERT INTO engineer DEFAULT VALUES
-RETURNING id;
+-- Step 1 of onboarding. The id is reserved up-front from engineer_id_seq
+-- (engineer_next_id) and supplied as $1, so this is a plain insert with no
+-- RETURNING. The engineer's NAME lives in a separate engineer_contact fact recorded
+-- alongside, NOT a column here.
+INSERT INTO engineer (id) VALUES ($1);
 "
   |> pog.query
+  |> pog.parameter(pog.int(arg_1))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1228,6 +1236,45 @@ UPDATE engineer_emergency
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.text(email))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_next_id` query
+/// defined in `./src/tempo/server/sql/engineer_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerNextIdRow {
+  EngineerNextIdRow(id: Int)
+}
+
+/// engineer_next_id.sql — reserve the next engineer id from its sequence.
+///
+/// Called before onboard records any engineer fact: the handler threads this id into
+/// the Engineer anchor and every fact contained by it (employment, role, contact) in
+/// one transaction, so nothing is read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(EngineerNextIdRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(EngineerNextIdRow(id:))
+  }
+
+  "-- engineer_next_id.sql — reserve the next engineer id from its sequence.
+--
+-- Called before onboard records any engineer fact: the handler threads this id into
+-- the Engineer anchor and every fact contained by it (employment, role, contact) in
+-- one transaction, so nothing is read back.
+SELECT nextval('engineer_id_seq')::int AS id;
+"
+  |> pog.query
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1729,46 +1776,30 @@ ORDER BY engineer.name, sub.level;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `invoice_create` query
-/// defined in `./src/tempo/server/sql/invoice_create.sql`.
+/// invoice_create.sql — insert the invoice identity (ID-ONLY anchor) at a reserved id.
 ///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type InvoiceCreateRow {
-  InvoiceCreateRow(id: Int)
-}
-
-/// invoice_create.sql — mint a new invoice identity (ID-ONLY anchor).
-///
-/// Step 1 of draft_invoice (anchor → subject → status → lines). `invoice.id` is
-/// GENERATED ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands
-/// back the minted id to thread into the invoice_subject, status, and line inserts.
-/// The durable subject (project_id, billing_period) is written separately into the
-/// 1:1 immutable invoice_subject fact by invoice_subject_insert.
+/// Step 1 of draft_invoice. The id is reserved up-front from invoice_id_seq
+/// (invoice_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+/// The subject/status/lines are separate facts recorded alongside.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn invoice_create(
   db: pog.Connection,
-) -> Result(pog.Returned(InvoiceCreateRow), pog.QueryError) {
-  let decoder = {
-    use id <- decode.field(0, decode.int)
-    decode.success(InvoiceCreateRow(id:))
-  }
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- invoice_create.sql — mint a new invoice identity (ID-ONLY anchor).
+  "-- invoice_create.sql — insert the invoice identity (ID-ONLY anchor) at a reserved id.
 --
--- Step 1 of draft_invoice (anchor → subject → status → lines). `invoice.id` is
--- GENERATED ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands
--- back the minted id to thread into the invoice_subject, status, and line inserts.
--- The durable subject (project_id, billing_period) is written separately into the
--- 1:1 immutable invoice_subject fact by invoice_subject_insert.
-INSERT INTO invoice DEFAULT VALUES
-RETURNING id;
+-- Step 1 of draft_invoice. The id is reserved up-front from invoice_id_seq
+-- (invoice_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+-- The subject/status/lines are separate facts recorded alongside.
+INSERT INTO invoice (id) VALUES ($1);
 "
   |> pog.query
+  |> pog.parameter(pog.int(arg_1))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2098,6 +2129,45 @@ ORDER BY lower(invoice_subject.billing_period), invoice.id;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_next_id` query
+/// defined in `./src/tempo/server/sql/invoice_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceNextIdRow {
+  InvoiceNextIdRow(id: Int)
+}
+
+/// invoice_next_id.sql — reserve the next invoice id from its sequence.
+///
+/// Called before draft_invoice records any invoice fact: the handler threads this id
+/// into the Invoice anchor, its subject, status, and lines in one transaction, so
+/// nothing is read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(InvoiceNextIdRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(InvoiceNextIdRow(id:))
+  }
+
+  "-- invoice_next_id.sql — reserve the next invoice id from its sequence.
+--
+-- Called before draft_invoice records any invoice fact: the handler threads this id
+-- into the Invoice anchor, its subject, status, and lines in one transaction, so
+-- nothing is read back.
+SELECT nextval('invoice_id_seq')::int AS id;
+"
+  |> pog.query
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2620,44 +2690,67 @@ VALUES ($1, daterange($2::date, $3::date, '[)'));
   |> pog.execute(db)
 }
 
-/// A row you get from running the `payroll_run_create` query
-/// defined in `./src/tempo/server/sql/payroll_run_create.sql`.
+/// payroll_run_create.sql — insert the payroll run identity (ID-ONLY anchor) at a reserved id.
 ///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type PayrollRunCreateRow {
-  PayrollRunCreateRow(id: Int)
-}
-
-/// payroll_run_create.sql — mint a new payroll run identity (ID-ONLY anchor).
-///
-/// Step 1 of run_payroll (anchor → period → lines). `payroll_run.id` is GENERATED
-/// ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands back the
-/// minted id to thread into the payroll_period and line inserts. The run's period is
-/// written separately into the 1:1 immutable payroll_period fact by
-/// payroll_period_insert.
+/// Step 1 of run_payroll. The id is reserved up-front from payroll_run_id_seq
+/// (payroll_run_next_id) and supplied as $1, so this is a plain insert with no
+/// RETURNING. The period/lines are separate facts recorded alongside.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn payroll_run_create(
   db: pog.Connection,
-) -> Result(pog.Returned(PayrollRunCreateRow), pog.QueryError) {
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- payroll_run_create.sql — insert the payroll run identity (ID-ONLY anchor) at a reserved id.
+--
+-- Step 1 of run_payroll. The id is reserved up-front from payroll_run_id_seq
+-- (payroll_run_next_id) and supplied as $1, so this is a plain insert with no
+-- RETURNING. The period/lines are separate facts recorded alongside.
+INSERT INTO payroll_run (id) VALUES ($1);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `payroll_run_next_id` query
+/// defined in `./src/tempo/server/sql/payroll_run_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollRunNextIdRow {
+  PayrollRunNextIdRow(id: Int)
+}
+
+/// payroll_run_next_id.sql — reserve the next payroll run id from its sequence.
+///
+/// Called before run_payroll records any payroll fact: the handler threads this id
+/// into the PayrollRun anchor, its period, and lines in one transaction, so nothing is
+/// read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_run_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(PayrollRunNextIdRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
-    decode.success(PayrollRunCreateRow(id:))
+    decode.success(PayrollRunNextIdRow(id:))
   }
 
-  "-- payroll_run_create.sql — mint a new payroll run identity (ID-ONLY anchor).
+  "-- payroll_run_next_id.sql — reserve the next payroll run id from its sequence.
 --
--- Step 1 of run_payroll (anchor → period → lines). `payroll_run.id` is GENERATED
--- ALWAYS AS IDENTITY, so the caller supplies nothing; RETURNING hands back the
--- minted id to thread into the payroll_period and line inserts. The run's period is
--- written separately into the 1:1 immutable payroll_period fact by
--- payroll_period_insert.
-INSERT INTO payroll_run DEFAULT VALUES
-RETURNING id;
+-- Called before run_payroll records any payroll fact: the handler threads this id
+-- into the PayrollRun anchor, its period, and lines in one transaction, so nothing is
+-- read back.
+SELECT nextval('payroll_run_id_seq')::int AS id;
 "
   |> pog.query
   |> pog.returning(decoder)
@@ -2885,49 +2978,67 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `project_create` query
-/// defined in `./src/tempo/server/sql/project_create.sql`.
+/// project_create.sql — insert the project identity (ID-ONLY anchor) at a reserved id.
 ///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type ProjectCreateRow {
-  ProjectCreateRow(id: Int)
-}
-
-/// project_create.sql — mint a new project identity (ID-ONLY anchor).
-///
-/// Step 1 of start_project (anchor → run → profile → plan, the run contained in its
-/// contract by the project_within_contract PERIOD FK; the project's NAME is now a
-/// project_profile fact and its budget/target a project_plan fact, both written
-/// alongside, NOT columns here). The project id is an entity id reused across the
-/// run/profile/plan period-rows; there is no IDENTITY on the anchor, so we mint a
-/// fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread into
-/// the run, profile, and plan inserts.
+/// Step 1 of start_project. The id is reserved up-front from project_id_seq
+/// (project_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+/// The run/profile/plan are separate facts recorded alongside.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn project_create(
   db: pog.Connection,
-) -> Result(pog.Returned(ProjectCreateRow), pog.QueryError) {
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_create.sql — insert the project identity (ID-ONLY anchor) at a reserved id.
+--
+-- Step 1 of start_project. The id is reserved up-front from project_id_seq
+-- (project_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+-- The run/profile/plan are separate facts recorded alongside.
+INSERT INTO project (id) VALUES ($1);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_next_id` query
+/// defined in `./src/tempo/server/sql/project_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectNextIdRow {
+  ProjectNextIdRow(id: Int)
+}
+
+/// project_next_id.sql — reserve the next project id from its sequence.
+///
+/// Called before start_project records any project fact: the handler threads this id
+/// into the Project anchor, its run, profile, and plan in one transaction, so nothing
+/// is read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(ProjectNextIdRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
-    decode.success(ProjectCreateRow(id:))
+    decode.success(ProjectNextIdRow(id:))
   }
 
-  "-- project_create.sql — mint a new project identity (ID-ONLY anchor).
+  "-- project_next_id.sql — reserve the next project id from its sequence.
 --
--- Step 1 of start_project (anchor → run → profile → plan, the run contained in its
--- contract by the project_within_contract PERIOD FK; the project's NAME is now a
--- project_profile fact and its budget/target a project_plan fact, both written
--- alongside, NOT columns here). The project id is an entity id reused across the
--- run/profile/plan period-rows; there is no IDENTITY on the anchor, so we mint a
--- fresh one with coalesce(max(id),0)+1 and RETURNING hands it back to thread into
--- the run, profile, and plan inserts.
-INSERT INTO project (id)
-VALUES ((SELECT coalesce(max(id), 0) + 1 FROM project))
-RETURNING id;
+-- Called before start_project records any project fact: the handler threads this id
+-- into the Project anchor, its run, profile, and plan in one transaction, so nothing
+-- is read back.
+SELECT nextval('project_id_seq')::int AS id;
 "
   |> pog.query
   |> pog.returning(decoder)

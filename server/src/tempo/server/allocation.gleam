@@ -1,49 +1,45 @@
 //// Domain: the allocation aggregate — an engineer's fractional assignment to a
 //// project over time. `handle` routes each allocation command to a named operation
-//// that does ONLY its temporal write on the in-transaction connection and classifies
-//// any database rejection; `command.dispatch` owns the transaction and persists the
-//// journal event(s) `handle` returns. No HTTP — never imports `wisp`.
+//// that returns the `Fact`s it records; `command.dispatch` records them (through
+//// `repository`) and persists the journal in ONE transaction. No HTTP — never
+//// imports `wisp`.
 ////
-//// The operations span three of the four write patterns: `assign_to_project` is an
-//// Assert over [valid_from, valid_to) (contained by both employment and project via
-//// PERIOD FKs); `change_allocation_fraction` is a Change (FOR PORTION OF … TO NULL,
-//// re-fraction from a date onward, scheduled-future versions untouched); `roll_off`
-//// is a Close (DELETE … FOR PORTION OF, capping one allocation from a date).
+//// `assign_to_project` records a fresh bounded allocation (`to: Some`);
+//// `change_allocation_fraction` re-fractions the version in effect (`to: None`, the
+//// repository's change); `roll_off` records `EngineerOffProject`, which the
+//// repository implements as the cap.
 
 import gleam/float
 import gleam/int
+import gleam/option.{None, Some}
 import pog
 import shared/codecs
 import shared/types.{
   type Command, AssignToProject, ChangeAllocationFraction, RollOff,
 }
-import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError}
 
-/// Apply an allocation-aggregate command: route it to its named operation, which does
-/// its temporal write and returns the journal event(s) it produced. The dispatch
-/// `route` only ever sends allocation commands here, so any other variant is a routing
-/// bug — `panic`.
+/// Apply an allocation-aggregate command: route it to its named operation, which
+/// returns the facts it records. The dispatch `route` only ever sends allocation
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
-  conn: pog.Connection,
+  _conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
-    AssignToProject(..) -> assign_to_project(conn, command)
-    ChangeAllocationFraction(..) -> change_allocation_fraction(conn, command)
-    RollOff(..) -> roll_off(conn, command)
+    AssignToProject(..) -> assign_to_project(command)
+    ChangeAllocationFraction(..) -> change_allocation_fraction(command)
+    RollOff(..) -> roll_off(command)
     _ ->
       panic as "allocation.handle: command not owned by this aggregate (dispatch bug)"
   }
 }
 
-/// Assign an engineer to a project at a fraction over [valid_from, valid_to)
-/// (Assert), then return its journal event; the allocation is contained by both
-/// employment and the project via PERIOD FKs.
-fn assign_to_project(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(List(Event), OperationError) {
+/// Record a fresh bounded allocation over `[valid_from, valid_to)`, plus the journal
+/// entry; the allocation is contained by both employment and the project via PERIOD
+/// FKs.
+fn assign_to_project(command: Command) -> Result(List(Fact), OperationError) {
   let assert AssignToProject(
     engineer_id:,
     project_id:,
@@ -51,16 +47,15 @@ fn assign_to_project(
     valid_from:,
     valid_to:,
   ) = command
-  use _ <- operation.try(sql.allocation_assign(
-    conn,
-    engineer_id,
-    project_id,
-    valid_from,
-    fraction,
-    valid_to,
-  ))
   Ok([
-    Event(
+    fact.EngineerAllocatedToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      from: valid_from,
+      to: Some(valid_to),
+    ),
+    fact.CommandHandled(
       operation: "assign_to_project",
       summary: "Assign engineer "
         <> int.to_string(engineer_id)
@@ -75,28 +70,26 @@ fn assign_to_project(
   ])
 }
 
-/// Re-fraction an engineer's allocation on a project from `effective` onward
-/// (Change, FOR PORTION OF … TO NULL), then return its journal event; the `@>` guard
-/// leaves a scheduled-future version untouched.
+/// Re-fraction an engineer's allocation from `effective` onward, plus the journal
+/// entry.
 fn change_allocation_fraction(
-  conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert ChangeAllocationFraction(
     engineer_id:,
     project_id:,
     fraction:,
     effective:,
   ) = command
-  use _ <- operation.try(sql.allocation_change_fraction(
-    conn,
-    engineer_id,
-    project_id,
-    effective,
-    fraction,
-  ))
   Ok([
-    Event(
+    fact.EngineerAllocatedToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      from: effective,
+      to: None,
+    ),
+    fact.CommandHandled(
       operation: "change_allocation_fraction",
       summary: "Change engineer "
         <> int.to_string(engineer_id)
@@ -111,21 +104,12 @@ fn change_allocation_fraction(
   ])
 }
 
-/// Roll an engineer off a project from `effective` (Close, DELETE … FOR PORTION OF),
-/// capping that one allocation, then return its journal event.
-fn roll_off(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(List(Event), OperationError) {
+/// Roll an engineer off a project from `effective`, plus the journal entry.
+fn roll_off(command: Command) -> Result(List(Fact), OperationError) {
   let assert RollOff(engineer_id:, project_id:, effective:) = command
-  use _ <- operation.try(sql.allocation_close(
-    conn,
-    engineer_id,
-    project_id,
-    effective,
-  ))
   Ok([
-    Event(
+    fact.EngineerOffProject(engineer_id:, project_id:, from: effective),
+    fact.CommandHandled(
       operation: "roll_off",
       summary: "Roll engineer "
         <> int.to_string(engineer_id)

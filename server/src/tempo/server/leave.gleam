@@ -1,52 +1,41 @@
 //// Domain: the leave aggregate — an engineer on leave of a kind over a period,
 //// contained by their employment. `handle` routes the leave command to a named
-//// operation that does ONLY its temporal write on the in-transaction connection and
-//// classifies any database rejection; `command.dispatch` owns the transaction and
-//// persists the journal event(s) `handle` returns. No HTTP — never imports `wisp`.
+//// operation that returns the `Fact`s it records; `command.dispatch` records them
+//// (through `repository`) and persists the journal in ONE transaction. No HTTP —
+//// never imports `wisp`.
 ////
-//// `take_leave` is an Assert (write pattern 1): a plain insert of a bounded leave
-//// fact. The `leave_within_employment` PERIOD FK is the backstop — leave outside
-//// the engineer's employment is rejected by the database.
+//// `take_leave` records a bounded `EngineerOnLeave` fact. The
+//// `leave_within_employment` PERIOD FK is the backstop — leave outside the
+//// engineer's employment is rejected by the database.
 
 import gleam/int
 import pog
 import shared/codecs
 import shared/types.{type Command, TakeLeave}
-import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError}
 
-/// Apply a leave-aggregate command: route it to its named operation, which does its
-/// temporal write and returns the journal event(s) it produced. The dispatch `route`
-/// only ever sends leave commands here, so any other variant is a routing bug —
-/// `panic`.
+/// Apply a leave-aggregate command: route it to its named operation, which returns
+/// the facts it records. The dispatch `route` only ever sends leave commands here,
+/// so any other variant is a routing bug — `panic`.
 pub fn handle(
-  conn: pog.Connection,
+  _conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
-    TakeLeave(..) -> take_leave(conn, command)
+    TakeLeave(..) -> take_leave(command)
     _ ->
       panic as "leave.handle: command not owned by this aggregate (dispatch bug)"
   }
 }
 
-/// Record an engineer on leave of a kind over a bounded period (Assert), then return
-/// its journal event. The `leave_within_employment` PERIOD FK rejects leave outside
-/// their employment.
-fn take_leave(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(List(Event), OperationError) {
+/// Record an engineer on leave of a kind over `[valid_from, valid_to)`, plus the
+/// journal entry.
+fn take_leave(command: Command) -> Result(List(Fact), OperationError) {
   let assert TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) = command
-  use _ <- operation.try(sql.leave_take(
-    conn,
-    engineer_id,
-    kind,
-    valid_from,
-    valid_to,
-  ))
   Ok([
-    Event(
+    fact.EngineerOnLeave(engineer_id:, kind:, from: valid_from, to: valid_to),
+    fact.CommandHandled(
       operation: "take_leave",
       summary: "Engineer "
         <> int.to_string(engineer_id)

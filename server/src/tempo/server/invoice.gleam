@@ -1,19 +1,16 @@
 //// Domain: the invoice aggregate — a per-project, per-month invoice whose lines are
 //// snapshotted at draft and whose status (draft → issued → paid) is a temporal fact.
-//// `handle` routes each invoice command to a named operation that does ONLY its
-//// temporal writes on the in-transaction connection and classifies any database
-//// rejection; `command.dispatch` owns the transaction and persists the journal
-//// event(s) `handle` returns. No HTTP — never imports `wisp`.
+//// `handle` routes each invoice command to a named operation that returns the
+//// `Fact`s it records; `command.dispatch` records them (through `repository`) and
+//// persists the journal in ONE transaction. No HTTP — never imports `wisp`.
 ////
-//// `draft_invoice` is an Assert that also computes its lines: mint the invoice
-//// identity, open `draft` status, then snapshot one `invoice_line` per (engineer,
-//// level) who worked the project that month, at the CONTRACT-agreed rate
-//// (`invoice_billing_lines` resolves `rate_card` as of the contract's signing date,
-//// FR-F2 — not the billing month). `transition` (Issue/Pay) is a temporal status
-//// Change carrying real domain logic: `validate_invoice_status` guards that the
-//// status covering `at` is the expected predecessor (else `InvalidValue`), then it
-//// caps the current status and opens the next; the `invoice_status_no_overlap`
-//// exclusion is the database backstop.
+//// `draft_invoice` reserves the invoice id, computes its lines (one per (engineer,
+//// level) who worked the project that month, at the CONTRACT-agreed rate —
+//// `invoice_billing_lines` resolves `rate_card` as of the contract's signing date,
+//// FR-F2), and records the anchor, subject, opening `draft` status, and one line per
+//// row. `issue_invoice`/`pay_invoice` guard that the status in effect at `at` is the
+//// expected predecessor (else `InvalidValue`) then record the next `InvoiceInStatus`
+//// (the repository caps the prior status where the next begins).
 
 import gleam/int
 import gleam/list
@@ -22,19 +19,18 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{type Command, DraftInvoice, IssueInvoice, PayInvoice}
-import tempo/server/operation.{
-  type Event, type OperationError, Event, InvalidValue,
-}
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError, InvalidValue}
+import tempo/server/repository
 import tempo/server/sql
 
-/// Apply an invoice-aggregate command: route it to its named operation, which does
-/// its temporal writes and returns the journal event(s) it produced. The dispatch
-/// `route` only ever sends invoice commands here, so any other variant is a routing
-/// bug — `panic`.
+/// Apply an invoice-aggregate command: route it to its named operation, which
+/// returns the facts it records. The dispatch `route` only ever sends invoice
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
     DraftInvoice(..) -> draft_invoice(conn, command)
     IssueInvoice(..) -> issue_invoice(conn, command)
@@ -44,69 +40,73 @@ pub fn handle(
   }
 }
 
-/// Draft an invoice: mint the identity, open its `draft` status from the start of
-/// the billing month, compute the contract-agreed lines for the month, and insert
-/// each — threaded through the minted id — then return its journal event carrying
-/// that id. The status opens at `billing_from` so an as-of query within or after the
-/// month reads `draft` (FR-F4).
+/// Draft an invoice: reserve the id, compute the contract-agreed lines for the
+/// month, and record the anchor, subject, opening `draft` status (from
+/// `billing_from`, so an as-of query within or after the month reads `draft`,
+/// FR-F4), one line per row, plus the journal entry.
 fn draft_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
-  use created <- operation.try(sql.invoice_create(conn))
-  let assert [row] = created.rows
-  let invoice_id = row.id
-  use _ <- operation.try(sql.invoice_subject_insert(
-    conn,
-    invoice_id,
-    project_id,
-    billing_from,
-    billing_to,
-  ))
-  use _ <- operation.try(sql.invoice_status_open(
-    conn,
-    invoice_id,
-    "draft",
-    billing_from,
-  ))
+  use invoice_id <- result.try(repository.next_id(conn, repository.Invoices))
   use lines <- operation.try(sql.invoice_billing_lines(
     conn,
     project_id,
     billing_from,
     billing_to,
   ))
-  use _ <- result.try(insert_lines(conn, invoice_id, lines.rows))
-  Ok([
-    Event(
-      operation: "draft_invoice",
-      summary: "Draft invoice for project "
-        <> int.to_string(project_id)
-        <> " (invoice "
-        <> int.to_string(invoice_id)
-        <> ") over "
-        <> operation.span(billing_from, billing_to),
-      payload: codecs.encode_command(command),
-    ),
-  ])
+  let line_facts =
+    list.map(lines.rows, fn(line) {
+      fact.InvoiceLine(
+        invoice_id:,
+        engineer_id: line.engineer_id,
+        level: line.level,
+        day_rate: line.day_rate,
+        days: line.days,
+        amount: line.amount,
+      )
+    })
+  Ok(
+    list.flatten([
+      [
+        fact.Invoice(id: invoice_id),
+        fact.InvoiceSubject(
+          invoice_id:,
+          project_id:,
+          from: billing_from,
+          to: billing_to,
+        ),
+        fact.InvoiceInStatus(invoice_id:, status: "draft", from: billing_from),
+      ],
+      line_facts,
+      [
+        fact.CommandHandled(
+          operation: "draft_invoice",
+          summary: "Draft invoice for project "
+            <> int.to_string(project_id)
+            <> " (invoice "
+            <> int.to_string(invoice_id)
+            <> ") over "
+            <> operation.span(billing_from, billing_to),
+          payload: codecs.encode_command(command),
+        ),
+      ],
+    ]),
+  )
 }
 
-/// Issue an invoice: move its status draft → issued at `at`, then return its journal
-/// event.
+/// Issue an invoice: guard it is currently `draft` at `at`, then record `issued`
+/// from `at`, plus the journal entry.
 fn issue_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert IssueInvoice(invoice_id:, at:) = command
-  use _ <- result.try(transition(
-    conn,
-    invoice_id,
-    from: "draft",
-    to: "issued",
-    at: at,
-  ))
+  use _ <- result.try(validate_invoice_status(conn, invoice_id, "draft", at))
   Ok([
-    Event(
+    fact.InvoiceInStatus(invoice_id:, status: "issued", from: at),
+    fact.CommandHandled(
       operation: "issue_invoice",
       summary: "Issue invoice "
         <> int.to_string(invoice_id)
@@ -117,22 +117,17 @@ fn issue_invoice(
   ])
 }
 
-/// Pay an invoice: move its status issued → paid at `at`, then return its journal
-/// event.
+/// Pay an invoice: guard it is currently `issued` at `at`, then record `paid` from
+/// `at`, plus the journal entry.
 fn pay_invoice(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert PayInvoice(invoice_id:, at:) = command
-  use _ <- result.try(transition(
-    conn,
-    invoice_id,
-    from: "issued",
-    to: "paid",
-    at: at,
-  ))
+  use _ <- result.try(validate_invoice_status(conn, invoice_id, "issued", at))
   Ok([
-    Event(
+    fact.InvoiceInStatus(invoice_id:, status: "paid", from: at),
+    fact.CommandHandled(
       operation: "pay_invoice",
       summary: "Pay invoice "
         <> int.to_string(invoice_id)
@@ -141,45 +136,6 @@ fn pay_invoice(
       payload: codecs.encode_command(command),
     ),
   ])
-}
-
-/// Insert each computed billing line for the drafted invoice: engineer, level, the
-/// contract-agreed day_rate, the allocation-weighted days, and amount = days ×
-/// day_rate (all from `invoice_billing_lines`).
-fn insert_lines(
-  conn: pog.Connection,
-  invoice_id: Int,
-  lines: List(sql.InvoiceBillingLinesRow),
-) -> Result(Nil, OperationError) {
-  list.try_map(lines, fn(line) {
-    sql.invoice_line_insert(
-      conn,
-      invoice_id,
-      line.engineer_id,
-      line.level,
-      line.day_rate,
-      line.days,
-      line.amount,
-    )
-  })
-  |> operation.run
-}
-
-/// Move an invoice's status `from → to` at `at` (the Change pattern, with a guard):
-/// validate the current status is the expected predecessor, then cap it and open the
-/// next. An out-of-order transition is rejected as `InvalidValue`; the
-/// `invoice_status_no_overlap` exclusion is the database backstop.
-fn transition(
-  conn: pog.Connection,
-  invoice_id: Int,
-  from from: String,
-  to to: String,
-  at at: Date,
-) -> Result(Nil, OperationError) {
-  use _ <- result.try(validate_invoice_status(conn, invoice_id, from, at))
-  use _ <- operation.try(sql.invoice_status_close(conn, invoice_id, at))
-  use _ <- operation.try(sql.invoice_status_open(conn, invoice_id, to, at))
-  Ok(Nil)
 }
 
 /// Guard that the invoice's status covering `at` is exactly `expected` — the

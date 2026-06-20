@@ -1,9 +1,7 @@
--- engineer_create.sql — mint a new engineer identity (ID-ONLY anchor).
+-- engineer_create.sql — insert the engineer identity (ID-ONLY anchor) at a reserved id.
 --
--- Step 1 of onboarding (identity → employment → role, each contained in the last
--- by its PERIOD FK; the engineer's NAME is now a separate engineer_contact fact,
--- written alongside, NOT a column here). `engineer.id` is GENERATED ALWAYS AS
--- IDENTITY, so the caller supplies nothing; RETURNING hands back the minted id to
--- thread into the employment, role, and contact inserts.
-INSERT INTO engineer DEFAULT VALUES
-RETURNING id;
+-- Step 1 of onboarding. The id is reserved up-front from engineer_id_seq
+-- (engineer_next_id) and supplied as $1, so this is a plain insert with no
+-- RETURNING. The engineer's NAME lives in a separate engineer_contact fact recorded
+-- alongside, NOT a column here.
+INSERT INTO engineer (id) VALUES ($1);

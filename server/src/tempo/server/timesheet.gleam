@@ -1,9 +1,9 @@
 //// Domain: the timesheet aggregate — read (the weekly grid) and write. `handle`
-//// routes `LogTimesheet` (one day) and `LogWeek` (a whole week, atomically) to their
-//// named operations, which record `EngineerWorkedHours` facts through `repository`
-//// (a per-day delete-then-insert upsert; 0 hours clears the day) and return the
-//// journal event `command.dispatch` persists in the same transaction. No HTTP —
-//// never imports `wisp`.
+//// routes `LogTimesheet` (one day) and `LogWeek` (a whole week, atomically) to
+//// named operations that return the `EngineerWorkedHours` facts they record;
+//// `command.dispatch` records them (through `repository`, a per-day delete-then-
+//// insert upsert; 0 hours clears the day) and persists the journal in ONE
+//// transaction. No HTTP — never imports `wisp`.
 ////
 //// `form_week` maps `timesheet_week` rows into the shared `TimesheetWeek` grid: one
 //// `TimesheetWeekRow` per project (cells Mon..Sun), dropping a project with no
@@ -23,44 +23,35 @@ import shared/types.{
   TimesheetCell, TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
-import tempo/server/fact
-import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/repository
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError}
 import tempo/server/sql
 
 // --- dispatch ---------------------------------------------------------------
 
-/// Apply a timesheet-aggregate command: route it to its named operation, which does
-/// its temporal write and returns the journal event(s) it produced. The dispatch
-/// `route` only ever sends timesheet commands here, so any other variant is a routing
-/// bug — `panic`.
+/// Apply a timesheet-aggregate command: route it to its named operation, which
+/// returns the facts it records. The dispatch `route` only ever sends timesheet
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
-  conn: pog.Connection,
+  _conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
-    LogTimesheet(..) -> log_timesheet(conn, command)
-    LogWeek(..) -> log_week(conn, command)
+    LogTimesheet(..) -> log_timesheet(command)
+    LogWeek(..) -> log_week(command)
     _ ->
       panic as "timesheet.handle: command not owned by this aggregate (dispatch bug)"
   }
 }
 
-/// Record one `EngineerWorkedHours` fact (via `repository`) and return its journal
-/// event. A day not covered by an allocation trips the timesheet PERIOD FK, which
-/// `repository` classifies as the unified `ContainmentViolated`.
-fn log_timesheet(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(List(Event), OperationError) {
+/// Record one `EngineerWorkedHours` fact, plus the journal entry. A day not covered
+/// by an allocation trips the timesheet PERIOD FK, which `repository` classifies as
+/// the unified `ContainmentViolated`.
+fn log_timesheet(command: Command) -> Result(List(Fact), OperationError) {
   let assert LogTimesheet(engineer_id:, project_id:, day:, hours:) = command
-  use _ <- result.try(
-    repository.record_facts(conn, [
-      fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:),
-    ]),
-  )
   Ok([
-    Event(
+    fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:),
+    fact.CommandHandled(
       operation: "log_timesheet",
       summary: "Log "
         <> float.to_string(hours)
@@ -75,32 +66,29 @@ fn log_timesheet(
   ])
 }
 
-/// Log a whole week atomically: map every entry to an `EngineerWorkedHours` fact
-/// and record them through `repository` in the caller's single transaction (it
-/// short-circuits on the first rejection, so every entry commits or none). On
-/// success a single `log_week` journal event carries the whole command.
-fn log_week(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(List(Event), OperationError) {
+/// Record a whole week's worked-hours facts, plus one `log_week` journal entry.
+/// `command.dispatch` records them in its single transaction (short-circuiting on
+/// the first rejection), so every entry commits or none.
+fn log_week(command: Command) -> Result(List(Fact), OperationError) {
   let assert LogWeek(engineer_id:, entries:) = command
-  let facts =
+  let worked_hours =
     list.map(entries, fn(entry) {
       let TimesheetEntry(project_id:, day:, hours:) = entry
       fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:)
     })
-  use _ <- result.try(repository.record_facts(conn, facts))
-  Ok([
-    Event(
-      operation: "log_week",
-      summary: "Log timesheet week for engineer "
-        <> int.to_string(engineer_id)
-        <> " ("
-        <> int.to_string(list.length(entries))
-        <> " entries)",
-      payload: codecs.encode_command(command),
-    ),
-  ])
+  Ok(
+    list.append(worked_hours, [
+      fact.CommandHandled(
+        operation: "log_week",
+        summary: "Log timesheet week for engineer "
+          <> int.to_string(engineer_id)
+          <> " ("
+          <> int.to_string(list.length(entries))
+          <> " entries)",
+        payload: codecs.encode_command(command),
+      ),
+    ]),
+  )
 }
 
 // --- read -------------------------------------------------------------------

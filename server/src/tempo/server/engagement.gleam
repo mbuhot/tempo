@@ -1,36 +1,34 @@
 //// Domain: the engagement aggregate — the client engagements (contracts) and the
 //// projects contained by them. `handle` routes each engagement command to a named
-//// operation that does ONLY its temporal writes on the in-transaction connection
-//// and classifies any database rejection; `command.dispatch` owns the transaction
-//// and persists the journal event(s) `handle` returns. No HTTP — never imports
-//// `wisp`.
+//// operation that returns the `Fact`s it records; `command.dispatch` records them
+//// (through `repository`) and persists the journal in ONE transaction. No HTTP —
+//// never imports `wisp`.
 ////
-//// Both operations are Asserts (write pattern 1). Contract and project are now
-//// ID-ONLY anchors with their attributes in period-keyed facts, so each "create"
-//// mints the anchor then opens its founding facts:
-//// `sign_contract` mints the `contract` anchor then opens a `contract_terms` row
-//// (resolving the client by name);
-//// `start_project` mints the `project` anchor then opens a `project_run` row
-//// (contained in its contract by the `project_within_contract` PERIOD FK — a run
-//// whose active period falls outside the contract's term is rejected by the
-//// database), the founding `project_profile` (title = name, summary ''), and the
-//// founding `project_plan` (budget 0, target_completion = valid_to).
+//// Contract and project are ID-ONLY anchors with their attributes in period-keyed
+//// facts, so each operation reserves the id then records the anchor and its founding
+//// facts. `sign_contract` records the contract anchor and its terms (resolving the
+//// client by name). `start_project` records the project anchor, its run (contained
+//// in its contract by the `project_within_contract` PERIOD FK), the founding profile
+//// (title = name, summary ''), and the founding plan (budget 0, target = valid_to);
+//// the profile/plan are recorded from `valid_from` so the latest read picks them up
+//// over the whole run, and are editable later via UpdateProjectProfile / …Plan.
 
 import gleam/int
+import gleam/result
 import pog
 import shared/codecs
 import shared/types.{type Command, SignContract, StartProject}
-import tempo/server/operation.{type Event, type OperationError, Event}
-import tempo/server/sql
+import tempo/server/fact.{type Fact}
+import tempo/server/operation.{type OperationError}
+import tempo/server/repository
 
-/// Apply an engagement-aggregate command: route it to its named operation, which does
-/// its temporal writes and returns the journal event(s) it produced. The dispatch
-/// `route` only ever sends engagement commands here, so any other variant is a routing
-/// bug — `panic`.
+/// Apply an engagement-aggregate command: route it to its named operation, which
+/// returns the facts it records. The dispatch `route` only ever sends engagement
+/// commands here, so any other variant is a routing bug — `panic`.
 pub fn handle(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   case command {
     SignContract(..) -> sign_contract(conn, command)
     StartProject(..) -> start_project(conn, command)
@@ -39,26 +37,19 @@ pub fn handle(
   }
 }
 
-/// Sign a contract for a client over a term: mint the contract anchor (its id in
-/// SQL), then open its founding contract_terms row resolving the client by name to
-/// its id (Assert), then return its journal event carrying that minted id.
+/// Sign a contract for a client over a term: reserve the contract id, then record
+/// the anchor and its founding terms (resolving the client by name), plus the
+/// journal entry.
 fn sign_contract(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert SignContract(client:, valid_from:, valid_to:) = command
-  use created <- operation.try(sql.contract_create(conn))
-  let assert [row] = created.rows
-  let contract_id = row.id
-  use _ <- operation.try(sql.contract_terms_open(
-    conn,
-    contract_id,
-    client,
-    valid_from,
-    valid_to,
-  ))
+  use contract_id <- result.try(repository.next_id(conn, repository.Contracts))
   Ok([
-    Event(
+    fact.Contract(id: contract_id),
+    fact.ContractTerms(contract_id:, client:, from: valid_from, to: valid_to),
+    fact.CommandHandled(
       operation: "sign_contract",
       summary: "Sign contract for "
         <> client
@@ -71,45 +62,26 @@ fn sign_contract(
   ])
 }
 
-/// Start a project under a contract over its active period: mint the project anchor
-/// (its id in SQL), open its project_run contained by the contract via the
-/// `project_within_contract` PERIOD FK (Assert), then seed its founding facts — a
-/// project_profile (title = name, summary '') and a project_plan (budget 0,
-/// target_completion = valid_to) — then return its journal event carrying the minted
-/// project id. The profile/plan are seeded from `valid_from` so the latest read
-/// picks them up over the whole run; they are editable later via
-/// UpdateProjectProfile / UpdateProjectPlan.
+/// Start a project under a contract over its active period: reserve the project id,
+/// then record the anchor, its run, and the founding profile and plan, plus the
+/// journal entry.
 fn start_project(
   conn: pog.Connection,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(List(Fact), OperationError) {
   let assert StartProject(name:, contract_id:, valid_from:, valid_to:) = command
-  use created <- operation.try(sql.project_create(conn))
-  let assert [row] = created.rows
-  let project_id = row.id
-  use _ <- operation.try(sql.project_run_open(
-    conn,
-    project_id,
-    contract_id,
-    valid_from,
-    valid_to,
-  ))
-  use _ <- operation.try(sql.project_profile_open(
-    conn,
-    project_id,
-    name,
-    "",
-    valid_from,
-  ))
-  use _ <- operation.try(sql.project_plan_open(
-    conn,
-    project_id,
-    0.0,
-    valid_to,
-    valid_from,
-  ))
+  use project_id <- result.try(repository.next_id(conn, repository.Projects))
   Ok([
-    Event(
+    fact.Project(id: project_id),
+    fact.ProjectRun(project_id:, contract_id:, from: valid_from, to: valid_to),
+    fact.ProjectProfile(project_id:, title: name, summary: "", from: valid_from),
+    fact.ProjectPlan(
+      project_id:,
+      budget: 0.0,
+      target_completion: valid_to,
+      from: valid_from,
+    ),
+    fact.CommandHandled(
       operation: "start_project",
       summary: "Start project "
         <> name
