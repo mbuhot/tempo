@@ -1,36 +1,31 @@
-/* Tempo — legibility-only styling (legibility over polish).
- *
- * Goals: large, high-contrast type readable from the back of a room; a clear
- * column layout for the org board; a prominent slider with a big "As of <date>"
- * heading; and visually distinct on-leave and unassigned rows. No decorative
- * polish — every rule serves readability on a projector.
- *
- * This file styles by class only and never alters the page's visible text, so
- * the behaviour-driven Playwright suite (which asserts text and ARIA labels,
- * never CSS) is unaffected. Theme constants live in theme.css. */
+/* Tempo base — the reset, element defaults, and the universal text utilities
+ * (.mono / .muted / .eyebrow) reused on every page. Shared view atoms (buttons,
+ * panels, tables, pills, …) live in components.css; page-specific rules live in
+ * their owner file. Token-only per ADR-038: every value is a var(--token). */
 
-html {
-  font-size: var(--font-root);
-}
-
+* { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
   margin: 0;
+  font-family: var(--sans);
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  font-size: var(--text-base);
   line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
 }
+button { font-family: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+::selection { background: var(--color-accent-soft); }
+:focus-visible { outline: var(--border) solid var(--color-accent); outline-offset: var(--border); }
 
-.page {
-  max-width: var(--size-page);
-  margin: 0 auto;
-  padding: var(--space-l) var(--space-xl) var(--space-xl);
-}
-
-.page > h1 {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tighter);
-  margin: 0 0 var(--space-m);
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+.muted { color: var(--color-faint); }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-faint);
+  font-weight: var(--weight-semibold);
 }

@@ -1,0 +1,9 @@
+/* Finance — the three-tab subpage (Invoices / Payroll / P&L) reuses the shared
+ * tabs/subpage, tables, pills, and stats atoms from components.css. The
+ * profit/loss sign colours (.pnl__profit--positive / .pnl__profit--negative)
+ * and the P&L total note are finance-specific and live here. Token-only per
+ * ADR-038. */
+
+.pnl__profit--positive { color: var(--color-ok); }
+.pnl__profit--negative { color: var(--color-leave); }
+.finance__total-note { font-family: var(--mono); font-weight: var(--weight-semibold); }

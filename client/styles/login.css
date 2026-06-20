@@ -1,0 +1,40 @@
+/* Login — the sign-in gate (ADR-035): a centred card over a soft radial wash,
+ * the identity picker, and the role shortcut row. Token-only per ADR-038, with
+ * the single documented exception: the #login radial-gradient stops carry
+ * literal rgba/px values (a layered backdrop has no meaningful token form). */
+
+#login {
+  position: fixed; inset: 0; z-index: 100;
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(139,127,240,.22), transparent 55%),
+    radial-gradient(900px 600px at 10% 110%, rgba(91,91,214,.16), transparent 55%),
+    var(--color-bg);
+  display: grid; place-items: center; padding: var(--space-xl);
+}
+#login.hidden { display: none; }
+.login__card {
+  width: 100%; max-width: var(--size-login-max); background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
+}
+.login__card .brand { padding: 0 0 var(--space-sm); }
+.login__card h1 { font-size: var(--text-xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); margin: var(--space-md) 0 var(--space-xs); }
+.login__sub { color: var(--color-muted); margin: 0 0 var(--space-lg); font-size: var(--text-sm); }
+.login__card .eyebrow { margin-bottom: var(--space-sm); }
+.login__eyebrow--spaced { margin-top: var(--space-lg); }
+.login__identities { display: flex; flex-direction: column; gap: var(--space-sm); }
+.identity {
+  display: flex; align-items: center; gap: var(--space-md); padding: var(--space-sm) var(--space-md); width: 100%;
+  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); text-align: left;
+  transition: border-color var(--ease), box-shadow var(--ease), transform .08s;
+}
+.identity:hover { border-color: var(--color-accent); box-shadow: 0 0 0 var(--space-xs) var(--color-accent-soft); }
+.identity:active { transform: scale(.995); }
+.identity__meta { flex: 1; }
+.identity__name { font-weight: var(--weight-bold); }
+.identity__role { color: var(--color-faint); font-size: var(--text-xs); }
+.identity__arrow { color: var(--color-faint); font-family: var(--mono); }
+.login__roles { display: flex; gap: var(--space-sm); margin-top: var(--space-sm); }
+.login__roles .identity { flex: 1; justify-content: center; text-align: center; }
+.login__roles .identity__meta { flex: none; }
+.login__foot { margin-top: var(--space-lg); font-size: var(--text-xs); color: var(--color-faint); text-align: center; font-family: var(--mono); }

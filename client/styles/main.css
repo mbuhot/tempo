@@ -2,14 +2,20 @@
  * copied to server/priv/static/styles/ as a build step (see bin/build); the
  * browser resolves these relative @import paths from the served main.css.
  *
- * Order follows the page top-to-bottom: design tokens first (so every component
- * can resolve var(--token)), then shared base, then each UI area. */
+ * Order follows the cascade: design tokens first (so everything can resolve
+ * var(--token)), then the base reset + text utilities, then the shared
+ * cross-page components, then the shell (app grid, sidebar, time rail), then
+ * one file per UI area (ADR-038). */
 
 @import "./theme.css";
 @import "./base.css";
-@import "./slider.css";
+@import "./components.css";
+@import "./app-shell.css";
+@import "./sidebar.css";
+@import "./time-rail.css";
 @import "./board.css";
-@import "./timesheet.css";
-@import "./console.css";
-@import "./event-log.css";
-@import "./financials.css";
+@import "./people.css";
+@import "./finance.css";
+@import "./activity.css";
+@import "./settings.css";
+@import "./login.css";
