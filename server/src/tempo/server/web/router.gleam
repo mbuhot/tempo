@@ -20,12 +20,17 @@ import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
 import tempo/server/web/board
+import tempo/server/web/clients
+import tempo/server/web/engineers
 import tempo/server/web/events
 import tempo/server/web/invoices
 import tempo/server/web/operations
 import tempo/server/web/payroll
+import tempo/server/web/people
 import tempo/server/web/pnl
+import tempo/server/web/projects
 import tempo/server/web/roster
+import tempo/server/web/settings
 import tempo/server/web/timesheet
 import wisp
 
@@ -50,8 +55,20 @@ pub fn handle_request(
     ["api", "payroll"] -> payroll.handle(request, context)
     ["api", "pnl"] -> pnl.handle(request, context)
     ["api", "roster"] -> roster.handle(request, context)
-    [] -> serve_index()
-    _ -> wisp.not_found()
+    ["api", "people"] -> people.handle(request, context)
+    ["api", "engineers", id] -> engineers.handle_detail(request, context, id)
+    ["api", "clients"] -> clients.handle_list(request, context)
+    ["api", "clients", id] -> clients.handle_detail(request, context, id)
+    ["api", "projects"] -> projects.handle_list(request, context)
+    ["api", "projects", id] -> projects.handle_detail(request, context, id)
+    ["api", "settings"] -> settings.handle(request, context)
+    // An unmatched /api/* path is a genuine 404; every other path serves the SPA
+    // shell so the client-side router (lustre/modem) can resolve it — the
+    // history-API fallback that makes deep links like /people/5 work on a cold
+    // load or reload (PRD-frontend FR-U4). Static assets are handled by the
+    // serve_static middleware above and never reach here.
+    ["api", ..] -> wisp.not_found()
+    _ -> serve_index()
   }
 }
 

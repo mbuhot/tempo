@@ -1,13 +1,14 @@
--- event_log_list.sql — the provenance journal up to an as-of date, newest first
--- (§5a; GET /api/events; the operations console feed).
+-- event_log_list.sql — the provenance journal as a filterable, half-open window
+-- (§5a; GET /api/events?from=&to=&operation=&actor=; the Activity feed). All four
+-- params are OPTIONAL — a NULL param drops its filter, so no params returns the
+-- whole journal newest-first.
 --
--- Param: $1 = the as-of date (the slider). `occurred_at` is SYSTEM time — when the
--- operation was recorded. The demo seed stamps each operation with the date it
--- would naturally have been entered (timesheets at the end of their week, invoices
--- and payroll at month end; see tempo/seed_financials), so the journal reads as a
--- realistic timeline and scrubbing the slider shows only what had been recorded by
--- that date — anything recorded after $1 is hidden, rewinding the feed with the
--- rest of the UI.
+-- This is SYSTEM time (occurred_at), NOT the valid-time as-of rail. The window is
+-- half-open [from, to): $1 = from (inclusive lower, occurred_at::date >= $1),
+-- $2 = to (exclusive upper, occurred_at::date < $2); $3 = operation, $4 = actor are
+-- exact-match filters. Each param is guarded ($n IS NULL OR …) so an absent filter
+-- matches every row. The explicit ::date / ::text casts let Squirrel infer the
+-- nullable param types (Option(Date)/Option(String)).
 --
 -- `occurred_at` and `payload` are rendered to `text` at the boundary (timestamptz /
 -- jsonb don't need a Squirrel type mapping); the client parses `payload` back
@@ -21,5 +22,8 @@ SELECT
   summary,
   payload::text
 FROM event_log
-WHERE occurred_at::date <= $1::date
+WHERE ($1::date IS NULL OR occurred_at::date >= $1)
+  AND ($2::date IS NULL OR occurred_at::date < $2)
+  AND ($3::text IS NULL OR operation = $3)
+  AND ($4::text IS NULL OR actor = $4)
 ORDER BY id DESC;

@@ -9,6 +9,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
@@ -27,6 +28,39 @@ pub fn date_from_query(
       |> result.replace_error(
         "invalid date '" <> text <> "' for '" <> name <> "' (want YYYY-MM-DD)",
       )
+  }
+}
+
+/// Read an OPTIONAL "YYYY-MM-DD" query parameter as a `calendar.Date`. An absent
+/// parameter is `Ok(None)` (the filter is simply dropped); a present parameter that
+/// fails to parse is `Error(detail)` for a 400. So only a present-but-malformed
+/// value is rejected.
+pub fn optional_date_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Result(Option(Date), String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> Ok(None)
+    Ok(text) ->
+      parse_iso(text)
+      |> result.map(Some)
+      |> result.replace_error(
+        "invalid date '" <> text <> "' for '" <> name <> "' (want YYYY-MM-DD)",
+      )
+  }
+}
+
+/// Read an OPTIONAL query parameter as a raw string. An absent parameter is `None`;
+/// an empty string is also treated as absent (so a cleared filter drops, never
+/// matches the empty string).
+pub fn optional_string_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Option(String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> None
+    Ok("") -> None
+    Ok(text) -> Some(text)
   }
 }
 

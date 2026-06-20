@@ -16,7 +16,6 @@
 //// test-local literals well clear of the seed range.
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/int
 import gleam/json
 import gleam/list
@@ -28,27 +27,15 @@ import shared/types.{
   RunPayroll, SetSalary,
 }
 import tempo/server/command
-import tempo/server/context
 import tempo/server/operation
-
-// --- connection -------------------------------------------------------------
-
-/// A single-connection pool per test (each test owns its rolled-back transaction).
-fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_financials_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
-}
+import test_pool
 
 // --- rollback harness -------------------------------------------------------
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out
 /// through `TransactionRolledBack` so the seed is never mutated.
 fn rolling_back(body: fn(pog.Connection) -> a) -> a {
-  let outcome = pog.transaction(db(), fn(conn) { Error(body(conn)) })
+  let outcome = pog.transaction(test_pool.db(), fn(conn) { Error(body(conn)) })
   let assert Error(pog.TransactionRolledBack(value)) = outcome
   value
 }

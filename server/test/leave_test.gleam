@@ -11,27 +11,17 @@
 //// (id 3) is L6 employed [2025-01-01, 2027-01-01) with annual leave 2026-06-08..22
 //// (14 days). Policy: annual 20/yr (L1-5), 25/yr (L6-7); sick 10/yr (all).
 
-import gleam/erlang/process
 import gleam/time/calendar.{type Date, Date, January, March, September}
 import pog
 import shared/types.{Promote, TakeLeave}
 import tempo/server/command
-import tempo/server/context
 import tempo/server/operation.{InsufficientLeaveBalance}
 import tempo/server/sql
-
-fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_leave_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
-}
+import test_pool
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out.
 fn rolling_back(body: fn(pog.Connection) -> a) -> a {
-  let outcome = pog.transaction(db(), fn(conn) { Error(body(conn)) })
+  let outcome = pog.transaction(test_pool.db(), fn(conn) { Error(body(conn)) })
   let assert Error(pog.TransactionRolledBack(value)) = outcome
   value
 }

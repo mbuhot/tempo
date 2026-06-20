@@ -10,34 +10,31 @@
 //// transaction back, so it mutates nothing.
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/http
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option
 import gleam/time/calendar
 import pog
 import shared/codecs
 import shared/types.{
-  type BoardSnapshot, type Event, type TimesheetWeek, BoardRow, OnLeave,
-  OnProject, Promote, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
+  type BoardSnapshot, type ClientDetail, type ClientList, type EngineerDetail,
+  type Event, type PeopleList, type ProjectDetail, type ProjectList,
+  type Settings, type TimesheetWeek, BoardRow, OnLeave, OnProject, Promote,
+  RosterOnProjects, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 }
-import tempo/server/context.{type Context, Context}
+import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/web/router
+import test_pool
 import wisp/simulate
 
 // --- context ----------------------------------------------------------------
 
-/// A single-connection context per test, mirroring the sql_test pool sizing so
-/// the suite does not exhaust PG's max_connections under the concurrent runner.
+/// A `Context` over the suite's shared pool.
 fn ctx() -> Context {
-  let pool_name = process.new_name(prefix: "tempo_api_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  Context(db: started.data)
+  test_pool.ctx()
 }
 
 // --- GET /api/board ---------------------------------------------------------
@@ -401,14 +398,13 @@ pub fn operation_bad_body_is_bad_request_test() {
 
 // --- GET /api/events --------------------------------------------------------
 
-// GET /api/events?date= returns the journal newest-first, filtered to operations
-// recorded (occurred_at) on or before the as-of date — so the feed scrubs with the
-// slider. The hand-written seed leaves the journal empty, so this applies a Promote
-// and backdates its journal row to a fixed date (as the demo seed records each
-// operation at its natural entry time), then asserts it shows as of that date but is
-// hidden the day before. The role split and journal row are undone afterwards so the
-// shared seed is left pristine.
-pub fn events_journal_scrubs_with_the_as_of_date_test() {
+// GET /api/events?from=&to= returns the journal newest-first over a half-open
+// `[from, to)` system-time window (occurred_at). The hand-written seed leaves the
+// journal empty, so this applies a Promote and backdates its journal row to a fixed
+// date, then asserts it falls inside a window that contains its date but outside a
+// window that ends before it. The role split and journal row are undone afterwards
+// so the shared seed is left pristine.
+pub fn events_window_filters_by_occurred_at_test() {
   let context = ctx()
 
   let post =
@@ -425,9 +421,8 @@ pub fn events_journal_scrubs_with_the_as_of_date_test() {
     )
     |> router.handle_request(context)
   let assert [created] = decode_events(post)
-  // Record it as entered on 2026-02-10 (the same backdating the demo seed does), so
-  // the assertion is independent of the wall clock that stamped occurred_at on the
-  // write.
+  // Record it as entered on 2026-02-10, so the assertion is independent of the wall
+  // clock that stamped occurred_at on the write.
   let assert Ok(Nil) =
     event.set_occurred_at(
       context,
@@ -435,11 +430,13 @@ pub fn events_journal_scrubs_with_the_as_of_date_test() {
       calendar.Date(2026, calendar.February, 10),
     )
 
+  // 2026-02-10 falls in [2026-02-10, 2026-02-11) ...
   let visible =
-    simulate.request(http.Get, "/api/events?date=2026-02-10")
+    simulate.request(http.Get, "/api/events?from=2026-02-10&to=2026-02-11")
     |> router.handle_request(context)
+  // ... but is excluded by a window ending at 2026-02-10 (the upper bound is open).
   let hidden =
-    simulate.request(http.Get, "/api/events?date=2026-02-09")
+    simulate.request(http.Get, "/api/events?from=2026-02-01&to=2026-02-10")
     |> router.handle_request(context)
 
   // Restore the seed regardless of the assertion outcome.
@@ -453,17 +450,238 @@ pub fn events_journal_scrubs_with_the_as_of_date_test() {
   let assert [newest, ..] = events
   assert newest.id == created.id
 
-  // Recorded after the as-of date, it is hidden.
+  // Outside the half-open window, it is absent.
   assert hidden.status == 200
   assert list.all(decode_events(hidden), fn(journal_event) {
     journal_event.id != created.id
   })
 }
 
-// A missing date param is a 400.
-pub fn events_without_date_is_bad_request_test() {
+// GET /api/events with no params returns the whole journal (all filters optional).
+pub fn events_without_params_returns_the_whole_journal_test() {
+  let context = ctx()
+
+  let post =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(types.OperationRequest(
+        actor: "mike@alembic.com.au",
+        command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        ),
+      )),
+    )
+    |> router.handle_request(context)
+  let assert [created] = decode_events(post)
+
   let response =
     simulate.request(http.Get, "/api/events")
+    |> router.handle_request(context)
+
+  restore_engineer_2_roles(context)
+  delete_event(context, created.id)
+
+  assert response.status == 200
+  assert list.any(decode_events(response), fn(journal_event) {
+    journal_event.id == created.id
+  })
+}
+
+// A present-but-malformed date param is a 400.
+pub fn events_with_malformed_from_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/events?from=not-a-date")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
+// --- GET /api/people --------------------------------------------------------
+
+// The people roster as of the seed "now" carries one row per employed engineer,
+// each with the engineer_id and resolved day_rate the board cannot supply. Priya
+// (engineer 1, L5) is allocated to her two projects, so her row is on-projects.
+pub fn people_roster_now_returns_rows_test() {
+  let response =
+    simulate.request(http.Get, "/api/people?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let list = decode_people(response)
+  assert list.date == calendar.Date(2026, calendar.June, 15)
+
+  let assert Ok(priya) =
+    list.people
+    |> list.find(fn(person) { person.engineer_id == 1 })
+  assert priya.name == "Priya Sharma"
+  assert priya.level == 5
+  assert priya.status
+    == RosterOnProjects(["Inventory Sync", "Ledger Migration"])
+}
+
+// A missing/malformed as_of is a 400.
+pub fn people_without_as_of_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/people")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
+// --- GET /api/engineers/:id -------------------------------------------------
+
+// Marcus Chen (engineer 2) resolves to his current contact and as-of employment.
+pub fn engineer_detail_returns_bundle_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/2?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let detail = decode_engineer_detail(response)
+  assert detail.engineer_id == 2
+  assert detail.name == "Marcus Chen"
+  assert detail.level == 4
+  assert detail.contact.email == "marcus.chen@alembic.com.au"
+  assert detail.balance.engineer == "Marcus Chen"
+}
+
+// An unknown engineer id is a 404.
+pub fn engineer_detail_unknown_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/999?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 404
+}
+
+// A non-integer engineer id is a 400.
+pub fn engineer_detail_bad_id_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/abc?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
+// --- GET /api/clients -------------------------------------------------------
+
+// The clients list as of "now" carries both seed clients with their active flag.
+pub fn clients_list_now_returns_rows_test() {
+  let response =
+    simulate.request(http.Get, "/api/clients?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let list = decode_client_list(response)
+  assert list.date == calendar.Date(2026, calendar.June, 15)
+
+  let assert Ok(northwind) =
+    list.clients
+    |> list.find(fn(client) { client.client_id == 1 })
+  assert northwind.name == "Northwind Trading"
+  assert northwind.active
+}
+
+// --- GET /api/clients/:id ---------------------------------------------------
+
+// Northwind (client 1) resolves to its profile with its contract since-date.
+pub fn client_detail_returns_bundle_test() {
+  let response =
+    simulate.request(http.Get, "/api/clients/1?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let detail = decode_client_detail(response)
+  assert detail.profile.client_id == 1
+  assert detail.profile.name == "Northwind Trading"
+  assert detail.since == option.Some(calendar.Date(2024, calendar.January, 1))
+}
+
+// An unknown client id is a 404.
+pub fn client_detail_unknown_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/clients/999?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 404
+}
+
+// --- GET /api/projects ------------------------------------------------------
+
+// The projects list as of "now" carries Ledger Migration (project 100) active,
+// with its client and budget.
+pub fn projects_list_now_returns_rows_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let list = decode_project_list(response)
+  assert list.date == calendar.Date(2026, calendar.June, 15)
+
+  let assert Ok(ledger) =
+    list.projects
+    |> list.find(fn(project) { project.project_id == 100 })
+  assert ledger.title == "Ledger Migration"
+  assert ledger.client == "Northwind Trading"
+  assert ledger.budget == 500_000.0
+  assert ledger.active
+}
+
+// --- GET /api/projects/:id --------------------------------------------------
+
+// Ledger Migration (project 100) resolves to its profile, plan, client, and run.
+pub fn project_detail_returns_bundle_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/100?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let detail = decode_project_detail(response)
+  assert detail.profile.project_id == 100
+  assert detail.profile.title == "Ledger Migration"
+  assert detail.client == "Northwind Trading"
+  assert detail.plan.budget == 500_000.0
+  assert detail.active
+}
+
+// An unknown project id is a 404.
+pub fn project_detail_unknown_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/999?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 404
+}
+
+// --- GET /api/settings ------------------------------------------------------
+
+// The settings read as of "now" carries the rate card, salaries, and leave policy.
+pub fn settings_now_returns_tables_test() {
+  let response =
+    simulate.request(http.Get, "/api/settings?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let settings = decode_settings(response)
+  assert settings.date == calendar.Date(2026, calendar.June, 15)
+  assert settings.rate_card != []
+  assert settings.salaries != []
+}
+
+// A missing/malformed as_of is a 400.
+pub fn settings_without_as_of_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/settings")
     |> router.handle_request(ctx())
 
   assert response.status == 400
@@ -471,10 +689,20 @@ pub fn events_without_date_is_bad_request_test() {
 
 // --- static / fallthrough ---------------------------------------------------
 
-// An unknown path is a 404 (the static fallthrough finds no file).
-pub fn unknown_path_is_not_found_test() {
+// An unknown NON-API path serves the SPA shell (200), so client routes like
+// /people/5 resolve on a cold load — the history-API fallback (FR-U4).
+pub fn unknown_client_path_serves_the_spa_shell_test() {
   let response =
     simulate.request(http.Get, "/no/such/route")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+}
+
+// An unmatched /api/* path is still a genuine 404, not the SPA shell.
+pub fn unknown_api_path_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/no-such-endpoint")
     |> router.handle_request(ctx())
 
   assert response.status == 404
@@ -494,6 +722,55 @@ fn decode_timesheet(response) -> TimesheetWeek {
     simulate.read_body(response)
     |> json.parse(codecs.timesheet_week_decoder())
   week
+}
+
+fn decode_people(response) -> PeopleList {
+  let assert Ok(list) =
+    simulate.read_body(response)
+    |> json.parse(codecs.people_list_decoder())
+  list
+}
+
+fn decode_engineer_detail(response) -> EngineerDetail {
+  let assert Ok(detail) =
+    simulate.read_body(response)
+    |> json.parse(codecs.engineer_detail_decoder())
+  detail
+}
+
+fn decode_client_list(response) -> ClientList {
+  let assert Ok(list) =
+    simulate.read_body(response)
+    |> json.parse(codecs.client_list_decoder())
+  list
+}
+
+fn decode_client_detail(response) -> ClientDetail {
+  let assert Ok(detail) =
+    simulate.read_body(response)
+    |> json.parse(codecs.client_detail_decoder())
+  detail
+}
+
+fn decode_project_list(response) -> ProjectList {
+  let assert Ok(list) =
+    simulate.read_body(response)
+    |> json.parse(codecs.project_list_decoder())
+  list
+}
+
+fn decode_project_detail(response) -> ProjectDetail {
+  let assert Ok(detail) =
+    simulate.read_body(response)
+    |> json.parse(codecs.project_detail_decoder())
+  detail
+}
+
+fn decode_settings(response) -> Settings {
+  let assert Ok(settings) =
+    simulate.read_body(response)
+    |> json.parse(codecs.settings_decoder())
+  settings
 }
 
 fn decode_error_code(response) -> String {

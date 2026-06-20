@@ -8,6 +8,7 @@
 //// the wire (and back on the client) without a boundary conversion. The codecs
 //// still serialise them as ISO-8601 "YYYY-MM-DD" strings, unchanged on the wire.
 
+import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 
 /// An engineer's situation on the org board for a date. Leave takes precedence
@@ -427,5 +428,234 @@ pub type Pnl {
     ytd_cost: Float,
     ytd_profit: Float,
     rows: List(PnlRow),
+  )
+}
+
+/// An engineer's roster situation collapsed to a single cell for the people list
+/// (distinct from `Engagement`, which is one row per project). Several allocations
+/// fold into one `RosterOnProjects` carrying the project titles; a covering leave
+/// fact wins as `RosterOnLeave`; an employed engineer with neither is
+/// `RosterUnassigned`. Band is NOT a wire field — it is a client-side label
+/// derived from `level`.
+pub type RosterStatus {
+  RosterOnLeave(kind: String)
+  RosterOnProjects(projects: List(String))
+  RosterUnassigned
+}
+
+/// One row of the people list (`GET /api/people?as_of=`): an employed engineer
+/// with their `level`, roster `status`, summed `allocated_fraction` as-of (0.0 on
+/// bench/leave), `annual_balance` (annual leave days), and the level's resolved
+/// `day_rate` (charge rate). Present for ALL employed engineers, not just
+/// allocated ones. Band is derived client-side from `level`.
+pub type PersonRow {
+  PersonRow(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    level: Int,
+    status: RosterStatus,
+    allocated_fraction: Float,
+    annual_balance: Float,
+    day_rate: Float,
+  )
+}
+
+/// The people list for a single date: every employed engineer's `PersonRow`
+/// as-of the `date` (mirrors `BoardSnapshot`'s date + rows shape).
+pub type PeopleList {
+  PeopleList(date: Date, people: List(PersonRow))
+}
+
+/// An engineer's employment fact as-of a date: when they `started`, their `level`,
+/// and their `monthly_salary` (a cost figure). Assembled from the range-only
+/// employment row joined to `engineer_role` (level) and `salary` (monthly_salary)
+/// as-of. Band is derived client-side from `level`.
+pub type Employment {
+  Employment(engineer_id: Int, started: Date, level: Int, monthly_salary: Float)
+}
+
+/// One version of an engineer's role history (a `engineer_role` period decomposed
+/// to plain dates): the `level` held over `[valid_from, valid_to)`. Band is
+/// derived client-side from `level`.
+pub type RoleVersion {
+  RoleVersion(level: Int, valid_from: Date, valid_to: Date)
+}
+
+/// One row of an engineer's allocation history: the project they were allocated to
+/// at a `fraction` over `[valid_from, valid_to)`, with `active` true when the
+/// period covers the detail's as-of date (the date marks rows active/ended, it
+/// does not hide them).
+pub type AllocationRow {
+  AllocationRow(
+    project_id: Int,
+    project: String,
+    fraction: Float,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+  )
+}
+
+/// One row of an engineer's leave history: a leave `kind` over the leave window
+/// `[valid_from, valid_to)`.
+pub type LeaveRecord {
+  LeaveRecord(kind: String, valid_from: Date, valid_to: Date)
+}
+
+/// The engineer-detail read model (`GET /api/engineers/:id?as_of=`): the engineer's
+/// `name`/`level`, their current contact/banking/emergency facts, the as-of
+/// `employment`, their full `roles`/`allocations`/`leave_history`, and their
+/// leave `balance` (annual + sick). The timesheet is a separate fetch. Band is
+/// derived client-side from `level`.
+pub type EngineerDetail {
+  EngineerDetail(
+    engineer_id: Int,
+    name: String,
+    level: Int,
+    contact: EngineerContact,
+    banking: EngineerBanking,
+    emergency: EngineerEmergency,
+    employment: Employment,
+    roles: List(RoleVersion),
+    allocations: List(AllocationRow),
+    balance: LeaveBalance,
+    leave_history: List(LeaveRecord),
+  )
+}
+
+/// One contract term on the client-detail read model: the `contract_id` and its
+/// term `[valid_from, valid_to)`, with `active` true when the term covers the
+/// detail's as-of date (active/ended derived as of the date).
+pub type ContractRow {
+  ContractRow(contract_id: Int, valid_from: Date, valid_to: Date, active: Bool)
+}
+
+/// One project of a client on the client-detail read model: the project's `title`,
+/// `budget`, `target_completion`, its run period `[valid_from, valid_to)`, with
+/// `active` true when the run covers the detail's as-of date.
+pub type ClientProjectRow {
+  ClientProjectRow(
+    project_id: Int,
+    title: String,
+    budget: Float,
+    target_completion: Date,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+  )
+}
+
+/// The client-detail read model (`GET /api/clients/:id?as_of=`): the client's
+/// `profile`, their `since` date (the earliest contract's start, `None` when the
+/// client has no contracts), and their `contracts`/`projects` with active/ended
+/// flags computed as-of. The profile name is durable (latest-read), as-of only
+/// drives the per-row `active` flags.
+pub type ClientDetail {
+  ClientDetail(
+    profile: ClientProfile,
+    since: Option(Date),
+    contracts: List(ContractRow),
+    projects: List(ClientProjectRow),
+  )
+}
+
+/// One row of the clients list (`GET /api/clients?as_of=`): a client's `name`,
+/// `since` (earliest contract start, `None` when contractless), `project_count`,
+/// and `active` (true when any contract covers the as-of date).
+pub type ClientListRow {
+  ClientListRow(
+    client_id: Int,
+    name: String,
+    since: Option(Date),
+    project_count: Int,
+    active: Bool,
+  )
+}
+
+/// The clients list for a single date (mirrors `PeopleList`): the `date` and one
+/// `ClientListRow` per client.
+pub type ClientList {
+  ClientList(date: Date, clients: List(ClientListRow))
+}
+
+/// One row of the projects list (`GET /api/projects?as_of=`): a project's `title`,
+/// `client` name, `budget`, `target_completion`, `team_size` (allocations covering
+/// the as-of date), and `active` (true when its run covers the as-of date).
+pub type ProjectListRow {
+  ProjectListRow(
+    project_id: Int,
+    title: String,
+    client: String,
+    budget: Float,
+    target_completion: Date,
+    team_size: Int,
+    active: Bool,
+  )
+}
+
+/// The projects list for a single date (mirrors `PeopleList`): the `date` and one
+/// `ProjectListRow` per project.
+pub type ProjectList {
+  ProjectList(date: Date, projects: List(ProjectListRow))
+}
+
+/// One member of a project's team on the project-detail read model: the engineer's
+/// `name`, `level`, allocation `fraction`, and resolved `day_rate`. Carries
+/// `engineer_id` so the team card can click through to the engineer detail. Band
+/// is derived client-side from `level`.
+pub type TeamMember {
+  TeamMember(
+    engineer_id: Int,
+    name: String,
+    level: Int,
+    fraction: Float,
+    day_rate: Float,
+  )
+}
+
+/// The project-detail read model (`GET /api/projects/:id?as_of=`): the project's
+/// `profile` and `plan`, its `client` name, its run period `[valid_from, valid_to)`
+/// with `active` (covers the as-of date), its `team` as-of, and its `invoices`.
+pub type ProjectDetail {
+  ProjectDetail(
+    profile: ProjectProfile,
+    client: String,
+    plan: ProjectPlan,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+    team: List(TeamMember),
+    invoices: List(Invoice),
+  )
+}
+
+/// One row of the rate card on the settings read model: the current `day_rate`
+/// (charge rate) for a `level` as-of the date.
+pub type RateCardRow {
+  RateCardRow(level: Int, day_rate: Float)
+}
+
+/// One row of the salary table on the settings read model: the current
+/// `monthly_salary` (cost) for a `level` as-of the date.
+pub type SalaryRow {
+  SalaryRow(level: Int, monthly_salary: Float)
+}
+
+/// One row of the leave policy on the settings read model: the `days_per_year`
+/// allowance for a `(kind, level)` pair as-of the date. A `(kind, level)` with no
+/// policy row is unlimited (absent from the list).
+pub type LeavePolicyRow {
+  LeavePolicyRow(kind: String, level: Int, days_per_year: Float)
+}
+
+/// The settings read model (`GET /api/settings?as_of=`): the `date` and the
+/// current `rate_card`, `salaries`, and `leave_policy` lists as-of that date.
+pub type Settings {
+  Settings(
+    date: Date,
+    rate_card: List(RateCardRow),
+    salaries: List(SalaryRow),
+    leave_policy: List(LeavePolicyRow),
   )
 }

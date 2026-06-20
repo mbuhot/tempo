@@ -6,28 +6,38 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type ClientProfile, type Command,
-  type Engagement, type EngineerBanking, type EngineerContact,
+  type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
+  type ClientList, type ClientListRow, type ClientProfile, type ClientProjectRow,
+  type Command, type ContractRow, type Employment, type Engagement,
+  type EngineerBanking, type EngineerContact, type EngineerDetail,
   type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
-  type InvoiceLine, type LeaveBalance, type OperationRequest, type Payroll,
-  type PayrollLine, type Pnl, type PnlRow, type ProjectPlan, type ProjectProfile,
-  type Ref, type Roster, type TimesheetCell, type TimesheetEntry,
+  type InvoiceLine, type LeaveBalance, type LeavePolicyRow, type LeaveRecord,
+  type OperationRequest, type Payroll, type PayrollLine, type PeopleList,
+  type PersonRow, type Pnl, type PnlRow, type ProjectDetail, type ProjectList,
+  type ProjectListRow, type ProjectPlan, type ProjectProfile, type RateCardRow,
+  type Ref, type RoleVersion, type Roster, type RosterStatus, type SalaryRow,
+  type Settings, type TeamMember, type TimesheetCell, type TimesheetEntry,
   type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
-  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
-  EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
-  PnlRow, ProjectPlan, ProjectProfile, Promote, Ref, ReviseRateCard, RollOff,
-  Roster, RunPayroll, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
-  UpdateProjectProfile, WriteRequest,
+  AdjustRateForPortion, AllocationRow, AssignToProject, BoardRow, BoardSnapshot,
+  ChangeAllocationFraction, ClientDetail, ClientList, ClientListRow,
+  ClientProfile, ClientProjectRow, ContractRow, DraftInvoice, Employment,
+  EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency, Event,
+  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
+  LeavePolicyRow, LeaveRecord, LogTimesheet, LogWeek, OnLeave, OnProject,
+  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
+  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
+  ProjectPlan, ProjectProfile, Promote, RateCardRow, Ref, ReviseRateCard,
+  RoleVersion, RollOff, Roster, RosterOnLeave, RosterOnProjects,
+  RosterUnassigned, RunPayroll, SalaryRow, SetSalary, Settings, SignContract,
+  StartProject, TakeLeave, TeamMember, TerminateEmployment, TimesheetCell,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -1265,4 +1275,666 @@ pub fn pnl_decoder() -> Decoder(Pnl) {
     ytd_profit:,
     rows:,
   ))
+}
+
+// --- Option(Date) ------------------------------------------------------------
+// A nullable date on the wire: `null` for `None`, an ISO string for `Some`.
+// `client_detail.since` / `client_list_row.since` use these (a contractless
+// client has no earliest-contract date).
+
+/// Encode an `Option(Date)` as `null` (None) or an ISO-8601 string (Some).
+pub fn encode_option_date(date: Option(Date)) -> Json {
+  json.nullable(date, encode_date)
+}
+
+/// Decode an `Option(Date)` from `null` (None) or an ISO-8601 string (Some).
+pub fn option_date_decoder() -> Decoder(Option(Date)) {
+  decode.optional(date_decoder())
+}
+
+// --- RosterStatus ------------------------------------------------------------
+// A tagged object: `status` discriminates the three situations; the remaining
+// fields belong to the active variant (mirrors `Engagement`).
+
+/// Encode a `RosterStatus` as a tagged JSON object keyed by `status`.
+pub fn encode_roster_status(status: RosterStatus) -> Json {
+  case status {
+    RosterOnLeave(kind:) ->
+      json.object([
+        #("status", json.string("on_leave")),
+        #("kind", json.string(kind)),
+      ])
+    RosterOnProjects(projects:) ->
+      json.object([
+        #("status", json.string("on_projects")),
+        #("projects", json.array(projects, json.string)),
+      ])
+    RosterUnassigned -> json.object([#("status", json.string("unassigned"))])
+  }
+}
+
+/// Decode a `RosterStatus` from its tagged JSON object.
+pub fn roster_status_decoder() -> Decoder(RosterStatus) {
+  use status <- decode.field("status", decode.string)
+  case status {
+    "on_leave" -> {
+      use kind <- decode.field("kind", decode.string)
+      decode.success(RosterOnLeave(kind:))
+    }
+    "on_projects" -> {
+      use projects <- decode.field("projects", decode.list(decode.string))
+      decode.success(RosterOnProjects(projects:))
+    }
+    "unassigned" -> decode.success(RosterUnassigned)
+    _ -> decode.failure(RosterUnassigned, "RosterStatus")
+  }
+}
+
+// --- PersonRow ---------------------------------------------------------------
+
+/// Encode a `PersonRow` (one people-list row) as a JSON object.
+pub fn encode_person_row(person: PersonRow) -> Json {
+  let PersonRow(
+    engineer_id:,
+    name:,
+    email:,
+    level:,
+    status:,
+    allocated_fraction:,
+    annual_balance:,
+    day_rate:,
+  ) = person
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("name", json.string(name)),
+    #("email", json.string(email)),
+    #("level", json.int(level)),
+    #("status", encode_roster_status(status)),
+    #("allocated_fraction", json.float(allocated_fraction)),
+    #("annual_balance", json.float(annual_balance)),
+    #("day_rate", json.float(day_rate)),
+  ])
+}
+
+/// Decode a `PersonRow` from a JSON object.
+pub fn person_row_decoder() -> Decoder(PersonRow) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use email <- decode.field("email", decode.string)
+  use level <- decode.field("level", decode.int)
+  use status <- decode.field("status", roster_status_decoder())
+  use allocated_fraction <- decode.field(
+    "allocated_fraction",
+    lenient_float_decoder(),
+  )
+  use annual_balance <- decode.field("annual_balance", lenient_float_decoder())
+  use day_rate <- decode.field("day_rate", lenient_float_decoder())
+  decode.success(PersonRow(
+    engineer_id:,
+    name:,
+    email:,
+    level:,
+    status:,
+    allocated_fraction:,
+    annual_balance:,
+    day_rate:,
+  ))
+}
+
+// --- PeopleList --------------------------------------------------------------
+
+/// Encode a `PeopleList` (the people list for a date) to JSON.
+pub fn encode_people_list(list: PeopleList) -> Json {
+  let PeopleList(date:, people:) = list
+  json.object([
+    #("date", encode_date(date)),
+    #("people", json.array(people, encode_person_row)),
+  ])
+}
+
+/// Decode a `PeopleList` from JSON.
+pub fn people_list_decoder() -> Decoder(PeopleList) {
+  use date <- decode.field("date", date_decoder())
+  use people <- decode.field("people", decode.list(person_row_decoder()))
+  decode.success(PeopleList(date:, people:))
+}
+
+// --- Employment --------------------------------------------------------------
+
+/// Encode an `Employment` (an engineer's as-of employment fact) as a JSON object.
+pub fn encode_employment(employment: Employment) -> Json {
+  let Employment(engineer_id:, started:, level:, monthly_salary:) = employment
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("started", encode_date(started)),
+    #("level", json.int(level)),
+    #("monthly_salary", json.float(monthly_salary)),
+  ])
+}
+
+/// Decode an `Employment` from a JSON object.
+pub fn employment_decoder() -> Decoder(Employment) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use started <- decode.field("started", date_decoder())
+  use level <- decode.field("level", decode.int)
+  use monthly_salary <- decode.field("monthly_salary", lenient_float_decoder())
+  decode.success(Employment(engineer_id:, started:, level:, monthly_salary:))
+}
+
+// --- RoleVersion -------------------------------------------------------------
+
+/// Encode a `RoleVersion` (one role-history version) as a JSON object.
+pub fn encode_role_version(role: RoleVersion) -> Json {
+  let RoleVersion(level:, valid_from:, valid_to:) = role
+  json.object([
+    #("level", json.int(level)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+  ])
+}
+
+/// Decode a `RoleVersion` from a JSON object.
+pub fn role_version_decoder() -> Decoder(RoleVersion) {
+  use level <- decode.field("level", decode.int)
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  decode.success(RoleVersion(level:, valid_from:, valid_to:))
+}
+
+// --- AllocationRow -----------------------------------------------------------
+
+/// Encode an `AllocationRow` (one allocation-history row) as a JSON object.
+pub fn encode_allocation_row(allocation: AllocationRow) -> Json {
+  let AllocationRow(
+    project_id:,
+    project:,
+    fraction:,
+    valid_from:,
+    valid_to:,
+    active:,
+  ) = allocation
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("project", json.string(project)),
+    #("fraction", json.float(fraction)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+    #("active", json.bool(active)),
+  ])
+}
+
+/// Decode an `AllocationRow` from a JSON object.
+pub fn allocation_row_decoder() -> Decoder(AllocationRow) {
+  use project_id <- decode.field("project_id", decode.int)
+  use project <- decode.field("project", decode.string)
+  use fraction <- decode.field("fraction", lenient_float_decoder())
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  use active <- decode.field("active", decode.bool)
+  decode.success(AllocationRow(
+    project_id:,
+    project:,
+    fraction:,
+    valid_from:,
+    valid_to:,
+    active:,
+  ))
+}
+
+// --- LeaveRecord -------------------------------------------------------------
+
+/// Encode a `LeaveRecord` (one leave-history row) as a JSON object.
+pub fn encode_leave_record(record: LeaveRecord) -> Json {
+  let LeaveRecord(kind:, valid_from:, valid_to:) = record
+  json.object([
+    #("kind", json.string(kind)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+  ])
+}
+
+/// Decode a `LeaveRecord` from a JSON object.
+pub fn leave_record_decoder() -> Decoder(LeaveRecord) {
+  use kind <- decode.field("kind", decode.string)
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  decode.success(LeaveRecord(kind:, valid_from:, valid_to:))
+}
+
+// --- EngineerDetail ----------------------------------------------------------
+// A bundle codec (like `InvoiceDetail`): each field delegates to its component
+// codec; the date-decomposed history lists go through the lenient list decoders.
+
+/// Encode an `EngineerDetail` (the engineer-detail read model) to JSON.
+pub fn encode_engineer_detail(detail: EngineerDetail) -> Json {
+  let EngineerDetail(
+    engineer_id:,
+    name:,
+    level:,
+    contact:,
+    banking:,
+    emergency:,
+    employment:,
+    roles:,
+    allocations:,
+    balance:,
+    leave_history:,
+  ) = detail
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("name", json.string(name)),
+    #("level", json.int(level)),
+    #("contact", encode_engineer_contact(contact)),
+    #("banking", encode_engineer_banking(banking)),
+    #("emergency", encode_engineer_emergency(emergency)),
+    #("employment", encode_employment(employment)),
+    #("roles", json.array(roles, encode_role_version)),
+    #("allocations", json.array(allocations, encode_allocation_row)),
+    #("balance", encode_leave_balance(balance)),
+    #("leave_history", json.array(leave_history, encode_leave_record)),
+  ])
+}
+
+/// Decode an `EngineerDetail` from JSON.
+pub fn engineer_detail_decoder() -> Decoder(EngineerDetail) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use level <- decode.field("level", decode.int)
+  use contact <- decode.field("contact", engineer_contact_decoder())
+  use banking <- decode.field("banking", engineer_banking_decoder())
+  use emergency <- decode.field("emergency", engineer_emergency_decoder())
+  use employment <- decode.field("employment", employment_decoder())
+  use roles <- decode.field("roles", decode.list(role_version_decoder()))
+  use allocations <- decode.field(
+    "allocations",
+    decode.list(allocation_row_decoder()),
+  )
+  use balance <- decode.field("balance", leave_balance_decoder())
+  use leave_history <- decode.field(
+    "leave_history",
+    decode.list(leave_record_decoder()),
+  )
+  decode.success(EngineerDetail(
+    engineer_id:,
+    name:,
+    level:,
+    contact:,
+    banking:,
+    emergency:,
+    employment:,
+    roles:,
+    allocations:,
+    balance:,
+    leave_history:,
+  ))
+}
+
+// --- ContractRow -------------------------------------------------------------
+
+/// Encode a `ContractRow` (one client contract term) as a JSON object.
+pub fn encode_contract_row(contract: ContractRow) -> Json {
+  let ContractRow(contract_id:, valid_from:, valid_to:, active:) = contract
+  json.object([
+    #("contract_id", json.int(contract_id)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+    #("active", json.bool(active)),
+  ])
+}
+
+/// Decode a `ContractRow` from a JSON object.
+pub fn contract_row_decoder() -> Decoder(ContractRow) {
+  use contract_id <- decode.field("contract_id", decode.int)
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  use active <- decode.field("active", decode.bool)
+  decode.success(ContractRow(contract_id:, valid_from:, valid_to:, active:))
+}
+
+// --- ClientProjectRow --------------------------------------------------------
+
+/// Encode a `ClientProjectRow` (one of a client's projects) as a JSON object.
+pub fn encode_client_project_row(project: ClientProjectRow) -> Json {
+  let ClientProjectRow(
+    project_id:,
+    title:,
+    budget:,
+    target_completion:,
+    valid_from:,
+    valid_to:,
+    active:,
+  ) = project
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("title", json.string(title)),
+    #("budget", json.float(budget)),
+    #("target_completion", encode_date(target_completion)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+    #("active", json.bool(active)),
+  ])
+}
+
+/// Decode a `ClientProjectRow` from a JSON object.
+pub fn client_project_row_decoder() -> Decoder(ClientProjectRow) {
+  use project_id <- decode.field("project_id", decode.int)
+  use title <- decode.field("title", decode.string)
+  use budget <- decode.field("budget", lenient_float_decoder())
+  use target_completion <- decode.field("target_completion", date_decoder())
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  use active <- decode.field("active", decode.bool)
+  decode.success(ClientProjectRow(
+    project_id:,
+    title:,
+    budget:,
+    target_completion:,
+    valid_from:,
+    valid_to:,
+    active:,
+  ))
+}
+
+// --- ClientDetail ------------------------------------------------------------
+// A bundle codec: `profile` delegates to the client-profile codec, `since` is a
+// nullable date, and the contract/project lists go through their row codecs.
+
+/// Encode a `ClientDetail` (the client-detail read model) to JSON.
+pub fn encode_client_detail(detail: ClientDetail) -> Json {
+  let ClientDetail(profile:, since:, contracts:, projects:) = detail
+  json.object([
+    #("profile", encode_client_profile(profile)),
+    #("since", encode_option_date(since)),
+    #("contracts", json.array(contracts, encode_contract_row)),
+    #("projects", json.array(projects, encode_client_project_row)),
+  ])
+}
+
+/// Decode a `ClientDetail` from JSON.
+pub fn client_detail_decoder() -> Decoder(ClientDetail) {
+  use profile <- decode.field("profile", client_profile_decoder())
+  use since <- decode.field("since", option_date_decoder())
+  use contracts <- decode.field(
+    "contracts",
+    decode.list(contract_row_decoder()),
+  )
+  use projects <- decode.field(
+    "projects",
+    decode.list(client_project_row_decoder()),
+  )
+  decode.success(ClientDetail(profile:, since:, contracts:, projects:))
+}
+
+// --- ClientListRow -----------------------------------------------------------
+
+/// Encode a `ClientListRow` (one clients-list row) as a JSON object.
+pub fn encode_client_list_row(client: ClientListRow) -> Json {
+  let ClientListRow(client_id:, name:, since:, project_count:, active:) = client
+  json.object([
+    #("client_id", json.int(client_id)),
+    #("name", json.string(name)),
+    #("since", encode_option_date(since)),
+    #("project_count", json.int(project_count)),
+    #("active", json.bool(active)),
+  ])
+}
+
+/// Decode a `ClientListRow` from a JSON object.
+pub fn client_list_row_decoder() -> Decoder(ClientListRow) {
+  use client_id <- decode.field("client_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use since <- decode.field("since", option_date_decoder())
+  use project_count <- decode.field("project_count", decode.int)
+  use active <- decode.field("active", decode.bool)
+  decode.success(ClientListRow(
+    client_id:,
+    name:,
+    since:,
+    project_count:,
+    active:,
+  ))
+}
+
+// --- ClientList --------------------------------------------------------------
+
+/// Encode a `ClientList` (the clients list for a date) to JSON.
+pub fn encode_client_list(list: ClientList) -> Json {
+  let ClientList(date:, clients:) = list
+  json.object([
+    #("date", encode_date(date)),
+    #("clients", json.array(clients, encode_client_list_row)),
+  ])
+}
+
+/// Decode a `ClientList` from JSON.
+pub fn client_list_decoder() -> Decoder(ClientList) {
+  use date <- decode.field("date", date_decoder())
+  use clients <- decode.field("clients", decode.list(client_list_row_decoder()))
+  decode.success(ClientList(date:, clients:))
+}
+
+// --- ProjectListRow ----------------------------------------------------------
+
+/// Encode a `ProjectListRow` (one projects-list row) as a JSON object.
+pub fn encode_project_list_row(project: ProjectListRow) -> Json {
+  let ProjectListRow(
+    project_id:,
+    title:,
+    client:,
+    budget:,
+    target_completion:,
+    team_size:,
+    active:,
+  ) = project
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("title", json.string(title)),
+    #("client", json.string(client)),
+    #("budget", json.float(budget)),
+    #("target_completion", encode_date(target_completion)),
+    #("team_size", json.int(team_size)),
+    #("active", json.bool(active)),
+  ])
+}
+
+/// Decode a `ProjectListRow` from a JSON object.
+pub fn project_list_row_decoder() -> Decoder(ProjectListRow) {
+  use project_id <- decode.field("project_id", decode.int)
+  use title <- decode.field("title", decode.string)
+  use client <- decode.field("client", decode.string)
+  use budget <- decode.field("budget", lenient_float_decoder())
+  use target_completion <- decode.field("target_completion", date_decoder())
+  use team_size <- decode.field("team_size", decode.int)
+  use active <- decode.field("active", decode.bool)
+  decode.success(ProjectListRow(
+    project_id:,
+    title:,
+    client:,
+    budget:,
+    target_completion:,
+    team_size:,
+    active:,
+  ))
+}
+
+// --- ProjectList -------------------------------------------------------------
+
+/// Encode a `ProjectList` (the projects list for a date) to JSON.
+pub fn encode_project_list(list: ProjectList) -> Json {
+  let ProjectList(date:, projects:) = list
+  json.object([
+    #("date", encode_date(date)),
+    #("projects", json.array(projects, encode_project_list_row)),
+  ])
+}
+
+/// Decode a `ProjectList` from JSON.
+pub fn project_list_decoder() -> Decoder(ProjectList) {
+  use date <- decode.field("date", date_decoder())
+  use projects <- decode.field(
+    "projects",
+    decode.list(project_list_row_decoder()),
+  )
+  decode.success(ProjectList(date:, projects:))
+}
+
+// --- TeamMember --------------------------------------------------------------
+
+/// Encode a `TeamMember` (one project-team member) as a JSON object.
+pub fn encode_team_member(member: TeamMember) -> Json {
+  let TeamMember(engineer_id:, name:, level:, fraction:, day_rate:) = member
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("name", json.string(name)),
+    #("level", json.int(level)),
+    #("fraction", json.float(fraction)),
+    #("day_rate", json.float(day_rate)),
+  ])
+}
+
+/// Decode a `TeamMember` from a JSON object.
+pub fn team_member_decoder() -> Decoder(TeamMember) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use level <- decode.field("level", decode.int)
+  use fraction <- decode.field("fraction", lenient_float_decoder())
+  use day_rate <- decode.field("day_rate", lenient_float_decoder())
+  decode.success(TeamMember(engineer_id:, name:, level:, fraction:, day_rate:))
+}
+
+// --- ProjectDetail -----------------------------------------------------------
+// A bundle codec: `profile`/`plan` delegate to their component codecs, the run
+// period decomposes to plain dates + an `active` flag, and `team`/`invoices` go
+// through their row codecs.
+
+/// Encode a `ProjectDetail` (the project-detail read model) to JSON.
+pub fn encode_project_detail(detail: ProjectDetail) -> Json {
+  let ProjectDetail(
+    profile:,
+    client:,
+    plan:,
+    valid_from:,
+    valid_to:,
+    active:,
+    team:,
+    invoices:,
+  ) = detail
+  json.object([
+    #("profile", encode_project_profile(profile)),
+    #("client", json.string(client)),
+    #("plan", encode_project_plan(plan)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+    #("active", json.bool(active)),
+    #("team", json.array(team, encode_team_member)),
+    #("invoices", json.array(invoices, encode_invoice)),
+  ])
+}
+
+/// Decode a `ProjectDetail` from JSON.
+pub fn project_detail_decoder() -> Decoder(ProjectDetail) {
+  use profile <- decode.field("profile", project_profile_decoder())
+  use client <- decode.field("client", decode.string)
+  use plan <- decode.field("plan", project_plan_decoder())
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  use active <- decode.field("active", decode.bool)
+  use team <- decode.field("team", decode.list(team_member_decoder()))
+  use invoices <- decode.field("invoices", decode.list(invoice_decoder()))
+  decode.success(ProjectDetail(
+    profile:,
+    client:,
+    plan:,
+    valid_from:,
+    valid_to:,
+    active:,
+    team:,
+    invoices:,
+  ))
+}
+
+// --- RateCardRow -------------------------------------------------------------
+
+/// Encode a `RateCardRow` (one rate-card row) as a JSON object.
+pub fn encode_rate_card_row(rate: RateCardRow) -> Json {
+  let RateCardRow(level:, day_rate:) = rate
+  json.object([
+    #("level", json.int(level)),
+    #("day_rate", json.float(day_rate)),
+  ])
+}
+
+/// Decode a `RateCardRow` from a JSON object.
+pub fn rate_card_row_decoder() -> Decoder(RateCardRow) {
+  use level <- decode.field("level", decode.int)
+  use day_rate <- decode.field("day_rate", lenient_float_decoder())
+  decode.success(RateCardRow(level:, day_rate:))
+}
+
+// --- SalaryRow ---------------------------------------------------------------
+
+/// Encode a `SalaryRow` (one salary-table row) as a JSON object.
+pub fn encode_salary_row(salary: SalaryRow) -> Json {
+  let SalaryRow(level:, monthly_salary:) = salary
+  json.object([
+    #("level", json.int(level)),
+    #("monthly_salary", json.float(monthly_salary)),
+  ])
+}
+
+/// Decode a `SalaryRow` from a JSON object.
+pub fn salary_row_decoder() -> Decoder(SalaryRow) {
+  use level <- decode.field("level", decode.int)
+  use monthly_salary <- decode.field("monthly_salary", lenient_float_decoder())
+  decode.success(SalaryRow(level:, monthly_salary:))
+}
+
+// --- LeavePolicyRow ----------------------------------------------------------
+
+/// Encode a `LeavePolicyRow` (one leave-policy row) as a JSON object.
+pub fn encode_leave_policy_row(policy: LeavePolicyRow) -> Json {
+  let LeavePolicyRow(kind:, level:, days_per_year:) = policy
+  json.object([
+    #("kind", json.string(kind)),
+    #("level", json.int(level)),
+    #("days_per_year", json.float(days_per_year)),
+  ])
+}
+
+/// Decode a `LeavePolicyRow` from a JSON object.
+pub fn leave_policy_row_decoder() -> Decoder(LeavePolicyRow) {
+  use kind <- decode.field("kind", decode.string)
+  use level <- decode.field("level", decode.int)
+  use days_per_year <- decode.field("days_per_year", lenient_float_decoder())
+  decode.success(LeavePolicyRow(kind:, level:, days_per_year:))
+}
+
+// --- Settings ----------------------------------------------------------------
+// A bundle codec: the `date` plus the three policy lists, each through its row
+// codec.
+
+/// Encode a `Settings` (the settings read model) to JSON.
+pub fn encode_settings(settings: Settings) -> Json {
+  let Settings(date:, rate_card:, salaries:, leave_policy:) = settings
+  json.object([
+    #("date", encode_date(date)),
+    #("rate_card", json.array(rate_card, encode_rate_card_row)),
+    #("salaries", json.array(salaries, encode_salary_row)),
+    #("leave_policy", json.array(leave_policy, encode_leave_policy_row)),
+  ])
+}
+
+/// Decode a `Settings` from JSON.
+pub fn settings_decoder() -> Decoder(Settings) {
+  use date <- decode.field("date", date_decoder())
+  use rate_card <- decode.field(
+    "rate_card",
+    decode.list(rate_card_row_decoder()),
+  )
+  use salaries <- decode.field("salaries", decode.list(salary_row_decoder()))
+  use leave_policy <- decode.field(
+    "leave_policy",
+    decode.list(leave_policy_row_decoder()),
+  )
+  decode.success(Settings(date:, rate_card:, salaries:, leave_policy:))
 }

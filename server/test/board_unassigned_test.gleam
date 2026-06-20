@@ -6,31 +6,18 @@
 //// could not represent, so GET /api/board returned 500 (e.g. Marcus Chen across
 //// mid-2024). This pins both the query and the fully-assembled snapshot.
 
-import gleam/erlang/process
 import gleam/time/calendar
-import pog
 import shared/types
 import tempo/server/board
-import tempo/server/context
 import tempo/server/sql
-
-/// Single-connection pool per test (mirrors sql_test); these are read-only
-/// against the shared seed.
-fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_unassigned_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
-}
+import test_pool
 
 // The board_unassigned query: at 2024-06-01 exactly Marcus is employed,
 // not allocated, and not on leave — returned with his level (L4). Priya is
 // allocated (Ledger) and so is absent here; she belongs to board_engaged.
 pub fn board_unassigned_query_test() {
   let assert Ok(returned) =
-    sql.board_unassigned(db(), calendar.Date(2024, calendar.June, 1))
+    sql.board_unassigned(test_pool.db(), calendar.Date(2024, calendar.June, 1))
 
   assert returned.rows == [sql.BoardUnassignedRow("Marcus Chen", 4)]
 }
@@ -46,10 +33,7 @@ pub fn board_unassigned_query_test() {
 // ignored with `..`.
 pub fn snapshot_includes_unassigned_test() {
   let assert Ok(snapshot) =
-    board.snapshot(
-      context.Context(db: db()),
-      calendar.Date(2024, calendar.June, 1),
-    )
+    board.snapshot(test_pool.ctx(), calendar.Date(2024, calendar.June, 1))
 
   let assert [marcus, priya] = snapshot.rows
   assert marcus == types.BoardRow("Marcus Chen", 4, types.Unassigned)

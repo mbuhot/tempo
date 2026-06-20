@@ -1,6 +1,6 @@
 import gleam/list
-import tempo/server/context
 import tempo/server/migrate
+import test_pool
 
 // --- split_statements (pure; no DB) -----------------------------------------
 
@@ -50,7 +50,7 @@ pub fn split_ignores_semicolon_in_line_comment_test() {
 // Re-running an up-to-date migration set applies nothing: the second run reports
 // the same versions as already-applied and an empty applied list.
 pub fn run_is_idempotent_test() {
-  let assert Ok(ctx) = context.start()
+  let ctx = test_pool.ctx()
 
   let assert Ok(first) = migrate.run(ctx)
   let assert Ok(second) = migrate.run(ctx)

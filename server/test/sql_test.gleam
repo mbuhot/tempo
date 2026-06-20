@@ -10,13 +10,12 @@
 //// out-via-Error pattern as constraint_test) so the shared seed is undisturbed.
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/list
 import gleam/option.{Some}
 import gleam/time/calendar.{April, August, Date, January, June, March, May}
 import pog
-import tempo/server/context
 import tempo/server/sql
+import test_pool
 
 /// A seeded event_log id to satisfy the audit_id FK on the write fixtures below
 /// (these test the SQL mechanics, not provenance). The seed always has entry 1.
@@ -24,16 +23,10 @@ const seed_audit_id = 1
 
 // --- connection -------------------------------------------------------------
 
-/// A single-connection pool per test. Each mutating test rolls back its own
-/// transaction; the read-only tests touch only the seed. A tiny pool avoids
-/// exhausting PG's max_connections across the concurrent gleeunit runner.
+/// A connection to the suite's shared pool. Each mutating test rolls back its
+/// own transaction; the read-only tests touch only the seed.
 fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_sql_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
+  test_pool.db()
 }
 
 // --- board_engaged (PRD FR-1, FR-2, FR-3, FR-4) -----------------------------

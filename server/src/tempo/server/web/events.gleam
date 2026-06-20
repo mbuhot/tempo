@@ -1,9 +1,10 @@
-//// Web: GET /api/events handler. Parses the request, calls the domain, encodes
-//// the result. Imports `wisp` (it owns the HTTP shape) but never `sql` — it talks
-//// to the domain `event` module, which already speaks shared types.
+//// Web: GET /api/events handler. Parses the optional filter params, calls the
+//// domain, encodes the result. Imports `wisp` (it owns the HTTP shape) but never
+//// `sql` — it talks to the domain `event` module, which already speaks shared types.
 
 import gleam/http
 import gleam/json
+import gleam/result
 import shared/codecs
 import tempo/server/context.{type Context}
 import tempo/server/event
@@ -11,19 +12,27 @@ import tempo/server/web/request
 import tempo/server/web/response
 import wisp
 
-/// Handle GET /api/events?date=YYYY-MM-DD — the provenance journal newest-first,
-/// as of the slider date: only operations effective on or before that date are
-/// returned, so the feed scrubs with the rest of the UI.
+/// Handle GET /api/events?from=&to=&operation=&actor= — the provenance journal
+/// newest-first over a half-open `[from, to)` window with optional operation/actor
+/// filters. This is SYSTEM time (`occurred_at`), independent of the valid-time
+/// rail; all four params are optional, so no params returns the whole journal.
 ///
-/// Thin handler (task spec Notes): parse the as-of date, run the domain query,
-/// encode each `Event` to a JSON array. A missing/malformed date is a 400; a
-/// database failure is a 500.
+/// Thin handler: parse the optional params, run the domain query, encode each
+/// `Event` to a JSON array. A present-but-malformed date param is a 400; missing
+/// params are NOT an error; a database failure is a 500.
 pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.require_method(req, http.Get)
-  case request.date_from_query(req, "date") {
+  let parsed = {
+    use from <- result.try(request.optional_date_from_query(req, "from"))
+    use to <- result.map(request.optional_date_from_query(req, "to"))
+    let operation = request.optional_string_from_query(req, "operation")
+    let actor = request.optional_string_from_query(req, "actor")
+    #(from, to, operation, actor)
+  }
+  case parsed {
     Error(detail) -> wisp.bad_request(detail)
-    Ok(as_of) ->
-      case event.list(ctx, as_of) {
+    Ok(#(from, to, operation, actor)) ->
+      case event.list(ctx, from, to, operation, actor) {
         Ok(events) ->
           response.json_response(json.array(events, codecs.encode_event))
         Error(_) -> wisp.internal_server_error()

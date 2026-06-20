@@ -21,7 +21,6 @@
 //// collide with seeded facts.
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/int
 import gleam/json
 import gleam/list
@@ -36,29 +35,15 @@ import shared/types.{
   StartProject, TerminateEmployment,
 }
 import tempo/server/command
-import tempo/server/context
 import tempo/server/operation
-
-// --- connection -------------------------------------------------------------
-
-/// A single-connection pool per test. Each test owns its rolled-back transaction,
-/// so one connection suffices; a tiny pool avoids exhausting PG's max_connections
-/// across the concurrent gleeunit runner.
-fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_operations_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
-}
+import test_pool
 
 // --- rollback harness -------------------------------------------------------
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value
 /// out through `TransactionRolledBack` so the seed is never mutated.
 fn rolling_back(body: fn(pog.Connection) -> a) -> a {
-  let outcome = pog.transaction(db(), fn(conn) { Error(body(conn)) })
+  let outcome = pog.transaction(test_pool.db(), fn(conn) { Error(body(conn)) })
   let assert Error(pog.TransactionRolledBack(value)) = outcome
   value
 }

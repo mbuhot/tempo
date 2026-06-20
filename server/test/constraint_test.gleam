@@ -20,12 +20,11 @@
 //// test-local literals well clear of any seed range.
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/string
 import pog
-import tempo/server/context
+import test_pool
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -125,17 +124,10 @@ fn unexpected_success() -> pog.QueryError {
   )
 }
 
-/// A small connection pool for a single test. Each test manages its own
-/// rollback so one connection suffices; keeping the pool tiny avoids exhausting
-/// PG's `max_connections` across the suite (which otherwise surfaces as decode
-/// timeouts under gleeunit's concurrent runner).
+/// A connection to the suite's shared pool. Each test manages its own rollback,
+/// so the seed is never mutated.
 fn context_db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_constraint_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
+  test_pool.db()
 }
 
 // --- WITHOUT OVERLAPS -------------------------------------------------------

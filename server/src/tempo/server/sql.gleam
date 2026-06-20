@@ -423,6 +423,175 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `client_contracts` query
+/// defined in `./src/tempo/server/sql/client_contracts.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientContractsRow {
+  ClientContractsRow(
+    contract_id: Int,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+  )
+}
+
+/// client_contracts.sql — one client's contract terms for the detail read model
+/// (GET /api/clients/:id; the ContractRow list). Params: $1 = client_id,
+/// $2 = as-of (for the active flag only).
+///
+/// Every contract_terms period-row for the client, decomposed to plain dates:
+/// contract_id, lower(term) AS valid_from, upper(term) AS valid_to (non-null for
+/// every seed row — all bounded at 2027-01-01). `active` is (term @> $2): the as-of
+/// marks each contract active/ended per FR-CP1 without hiding it, so the whole list
+/// is returned regardless of $2. Ordered oldest-first then by contract_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_contracts(
+  db: pog.Connection,
+  contract_terms_client_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ClientContractsRow), pog.QueryError) {
+  let decoder = {
+    use contract_id <- decode.field(0, decode.int)
+    use valid_from <- decode.field(1, pog.calendar_date_decoder())
+    use valid_to <- decode.field(2, pog.calendar_date_decoder())
+    use active <- decode.field(3, decode.bool)
+    decode.success(ClientContractsRow(
+      contract_id:,
+      valid_from:,
+      valid_to:,
+      active:,
+    ))
+  }
+
+  "-- client_contracts.sql — one client's contract terms for the detail read model
+-- (GET /api/clients/:id; the ContractRow list). Params: $1 = client_id,
+-- $2 = as-of (for the active flag only).
+--
+-- Every contract_terms period-row for the client, decomposed to plain dates:
+-- contract_id, lower(term) AS valid_from, upper(term) AS valid_to (non-null for
+-- every seed row — all bounded at 2027-01-01). `active` is (term @> $2): the as-of
+-- marks each contract active/ended per FR-CP1 without hiding it, so the whole list
+-- is returned regardless of $2. Ordered oldest-first then by contract_id.
+SELECT
+  contract_terms.contract_id,
+  lower(contract_terms.term) AS valid_from,
+  upper(contract_terms.term) AS valid_to,
+  (contract_terms.term @> $2::date) AS active
+FROM contract_terms
+WHERE contract_terms.client_id = $1
+ORDER BY lower(contract_terms.term), contract_terms.contract_id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(contract_terms_client_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `client_list` query
+/// defined in `./src/tempo/server/sql/client_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientListRow {
+  ClientListRow(
+    client_id: Int,
+    name: String,
+    since: Option(Date),
+    project_count: Int,
+    active: Bool,
+  )
+}
+
+/// client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1).
+/// One row per client: name, the earliest contract start (since), the count of
+/// distinct projects ever run for the client, and whether any contract covers $1
+/// (active). Param: $1 = the as-of date (drives the active flag only; the identity
+/// is durable).
+///
+/// name from the client_current latest-read view (INNER join — every seeded client
+/// has a profile). `since` is min(lower(term)) over the client's contracts — NULL for
+/// a contractless client (the schema does not guarantee >=1). The seed has no
+/// contractless client, so Squirrel would infer a non-null Date off the road and
+/// decode-fail the first contractless client; the `"since?"` alias forces the
+/// generated column to Option(Date), matching the shared ClientListRow.since. `active`
+/// is a correlated bool_or(term @> $1) coalesced to false (contractless or no covering
+/// term). The project count is a correlated count of distinct project ids reachable
+/// through the client's contracts' runs. Ordered by name for a stable directory.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(ClientListRow), pog.QueryError) {
+  let decoder = {
+    use client_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use since <- decode.field(2, decode.optional(pog.calendar_date_decoder()))
+    use project_count <- decode.field(3, decode.int)
+    use active <- decode.field(4, decode.bool)
+    decode.success(ClientListRow(
+      client_id:,
+      name:,
+      since:,
+      project_count:,
+      active:,
+    ))
+  }
+
+  "-- client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1).
+-- One row per client: name, the earliest contract start (since), the count of
+-- distinct projects ever run for the client, and whether any contract covers $1
+-- (active). Param: $1 = the as-of date (drives the active flag only; the identity
+-- is durable).
+--
+-- name from the client_current latest-read view (INNER join — every seeded client
+-- has a profile). `since` is min(lower(term)) over the client's contracts — NULL for
+-- a contractless client (the schema does not guarantee >=1). The seed has no
+-- contractless client, so Squirrel would infer a non-null Date off the road and
+-- decode-fail the first contractless client; the `\"since?\"` alias forces the
+-- generated column to Option(Date), matching the shared ClientListRow.since. `active`
+-- is a correlated bool_or(term @> $1) coalesced to false (contractless or no covering
+-- term). The project count is a correlated count of distinct project ids reachable
+-- through the client's contracts' runs. Ordered by name for a stable directory.
+SELECT
+  client.id AS client_id,
+  coalesce(client_current.name, '') AS name,
+  (
+    SELECT min(lower(contract_terms.term))
+      FROM contract_terms
+     WHERE contract_terms.client_id = client.id
+  ) AS \"since?\",
+  (
+    SELECT count(DISTINCT project_run.project_id)
+      FROM contract_terms
+      JOIN project_run ON project_run.contract_id = contract_terms.contract_id
+     WHERE contract_terms.client_id = client.id
+  )::int AS project_count,
+  coalesce((
+    SELECT bool_or(contract_terms.term @> $1::date)
+      FROM contract_terms
+     WHERE contract_terms.client_id = client.id
+  ), false) AS active
+FROM client
+JOIN client_current ON client_current.id = client.id
+ORDER BY name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// client_profile_open.sql — open a client's founding profile (the NAME). Last param
 /// is the audit_id. $1 = client_id, $2 = name, $3 = from.
 ///
@@ -485,6 +654,110 @@ UPDATE client_profile
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.int(audit_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `client_projects` query
+/// defined in `./src/tempo/server/sql/client_projects.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientProjectsRow {
+  ClientProjectsRow(
+    project_id: Int,
+    title: String,
+    budget: Float,
+    target_completion: Date,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+  )
+}
+
+/// client_projects.sql — one client's projects for the detail read model (GET
+/// /api/clients/:id; the ClientProjectRow list; FR-CP1). Params: $1 = client_id,
+/// $2 = as-of (for the active flag only).
+///
+/// A multi-hop temporal join from the client's contracts out to its projects:
+/// contract_terms (the client's contracts) → project_run (each contract's project
+/// runs) → project_current for the title and a LATERAL latest-read project_plan for
+/// the budget/target. The run window is decomposed to plain dates: lower/upper
+/// active_during AS valid_from/valid_to (non-null for every seed run, bounded at
+/// 2027-01-01). `active` is (active_during @> $2) — the as-of marks each project
+/// active/ended without hiding it, so the whole list is returned regardless of $2.
+/// The plan is the most-recently-effective project_plan row (DISTINCT ON by start
+/// desc, like project_plan_current) so budget/target are scalar; a project with no
+/// plan yet coalesces budget to 0 and falls back to the run end for target. Ordered
+/// by run start then title.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_projects(
+  db: pog.Connection,
+  contract_terms_client_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ClientProjectsRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use title <- decode.field(1, decode.string)
+    use budget <- decode.field(2, pog.numeric_decoder())
+    use target_completion <- decode.field(3, pog.calendar_date_decoder())
+    use valid_from <- decode.field(4, pog.calendar_date_decoder())
+    use valid_to <- decode.field(5, pog.calendar_date_decoder())
+    use active <- decode.field(6, decode.bool)
+    decode.success(ClientProjectsRow(
+      project_id:,
+      title:,
+      budget:,
+      target_completion:,
+      valid_from:,
+      valid_to:,
+      active:,
+    ))
+  }
+
+  "-- client_projects.sql — one client's projects for the detail read model (GET
+-- /api/clients/:id; the ClientProjectRow list; FR-CP1). Params: $1 = client_id,
+-- $2 = as-of (for the active flag only).
+--
+-- A multi-hop temporal join from the client's contracts out to its projects:
+-- contract_terms (the client's contracts) → project_run (each contract's project
+-- runs) → project_current for the title and a LATERAL latest-read project_plan for
+-- the budget/target. The run window is decomposed to plain dates: lower/upper
+-- active_during AS valid_from/valid_to (non-null for every seed run, bounded at
+-- 2027-01-01). `active` is (active_during @> $2) — the as-of marks each project
+-- active/ended without hiding it, so the whole list is returned regardless of $2.
+-- The plan is the most-recently-effective project_plan row (DISTINCT ON by start
+-- desc, like project_plan_current) so budget/target are scalar; a project with no
+-- plan yet coalesces budget to 0 and falls back to the run end for target. Ordered
+-- by run start then title.
+SELECT
+  project_run.project_id,
+  coalesce(project_current.title, '') AS title,
+  coalesce(plan.budget, 0)::numeric AS budget,
+  coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
+  lower(project_run.active_during) AS valid_from,
+  upper(project_run.active_during) AS valid_to,
+  (project_run.active_during @> $2::date) AS active
+FROM contract_terms
+JOIN project_run ON project_run.contract_id = contract_terms.contract_id
+JOIN project_current ON project_current.id = project_run.project_id
+LEFT JOIN LATERAL (
+  SELECT project_plan.budget, project_plan.target_completion
+    FROM project_plan
+   WHERE project_plan.project_id = project_run.project_id
+   ORDER BY lower(project_plan.planned_during) DESC
+   LIMIT 1
+) plan ON true
+WHERE contract_terms.client_id = $1
+ORDER BY lower(project_run.active_during), title;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(contract_terms_client_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -653,6 +926,90 @@ VALUES ($1, daterange($2::date, NULL, '[)'), $3);
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.int(arg_3))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_allocations` query
+/// defined in `./src/tempo/server/sql/engineer_allocations.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerAllocationsRow {
+  EngineerAllocationsRow(
+    project_id: Int,
+    project: String,
+    fraction: Float,
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+  )
+}
+
+/// engineer_allocations.sql — one engineer's full allocation timeline for the detail
+/// read model (GET /api/engineers/:id; the AllocationRow list). Params:
+/// $1 = engineer_id, $2 = as-of (for the active flag only).
+///
+/// Every allocation period-row for the engineer joined to project_current for the
+/// title (and to the project anchor for the clickable project_id). Range columns are
+/// decomposed to plain dates: lower(allocated_during) AS valid_from,
+/// upper(allocated_during) AS valid_to (non-null for every seed row). `active` is
+/// (allocated_during @> $2) — the as-of marks each row active/ended per FR-PE4
+/// without hiding it, so the whole history is returned regardless of $2. Ordered
+/// oldest-first then by title for a stable list.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_allocations(
+  db: pog.Connection,
+  allocation_engineer_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(EngineerAllocationsRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use project <- decode.field(1, decode.string)
+    use fraction <- decode.field(2, pog.numeric_decoder())
+    use valid_from <- decode.field(3, pog.calendar_date_decoder())
+    use valid_to <- decode.field(4, pog.calendar_date_decoder())
+    use active <- decode.field(5, decode.bool)
+    decode.success(EngineerAllocationsRow(
+      project_id:,
+      project:,
+      fraction:,
+      valid_from:,
+      valid_to:,
+      active:,
+    ))
+  }
+
+  "-- engineer_allocations.sql — one engineer's full allocation timeline for the detail
+-- read model (GET /api/engineers/:id; the AllocationRow list). Params:
+-- $1 = engineer_id, $2 = as-of (for the active flag only).
+--
+-- Every allocation period-row for the engineer joined to project_current for the
+-- title (and to the project anchor for the clickable project_id). Range columns are
+-- decomposed to plain dates: lower(allocated_during) AS valid_from,
+-- upper(allocated_during) AS valid_to (non-null for every seed row). `active` is
+-- (allocated_during @> $2) — the as-of marks each row active/ended per FR-PE4
+-- without hiding it, so the whole history is returned regardless of $2. Ordered
+-- oldest-first then by title for a stable list.
+SELECT
+  allocation.project_id,
+  coalesce(project_current.title, '') AS project,
+  allocation.fraction,
+  lower(allocation.allocated_during) AS valid_from,
+  upper(allocation.allocated_during) AS valid_to,
+  (allocation.allocated_during @> $2::date) AS active
+FROM allocation
+JOIN project_current ON project_current.id = allocation.project_id
+WHERE allocation.engineer_id = $1
+ORDER BY lower(allocation.allocated_during), project;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(allocation_engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1063,6 +1420,83 @@ UPDATE engineer_emergency
   |> pog.execute(db)
 }
 
+/// A row you get from running the `engineer_employment_asof` query
+/// defined in `./src/tempo/server/sql/engineer_employment_asof.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerEmploymentAsofRow {
+  EngineerEmploymentAsofRow(
+    engineer_id: Int,
+    started: Date,
+    level: Int,
+    monthly_salary: Float,
+  )
+}
+
+/// engineer_employment_asof.sql — one engineer's as-of employment snapshot for the
+/// detail read model (GET /api/engineers/:id). Params: $1 = engineer_id, $2 = as-of.
+///
+/// The employment table is range-only (engineer_id, employed_during) — it carries
+/// NEITHER level NOR salary. The as-of Employment row is assembled by a 3-way as-of
+/// join: employment(@>$2) for the started date (lower(employed_during)), engineer_role
+/// (@>$2) for the current level, and salary(level, effective_during @>$2) for the
+/// monthly cost figure. All INNER joins — a row is returned only when the engineer is
+/// employed AND has a role AND that level has a salary as of $2 (the seed guarantees
+/// all three for every employed engineer); no row => the detail endpoint 404s.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_employment_asof(
+  db: pog.Connection,
+  employment_engineer_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(EngineerEmploymentAsofRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use started <- decode.field(1, pog.calendar_date_decoder())
+    use level <- decode.field(2, decode.int)
+    use monthly_salary <- decode.field(3, pog.numeric_decoder())
+    decode.success(EngineerEmploymentAsofRow(
+      engineer_id:,
+      started:,
+      level:,
+      monthly_salary:,
+    ))
+  }
+
+  "-- engineer_employment_asof.sql — one engineer's as-of employment snapshot for the
+-- detail read model (GET /api/engineers/:id). Params: $1 = engineer_id, $2 = as-of.
+--
+-- The employment table is range-only (engineer_id, employed_during) — it carries
+-- NEITHER level NOR salary. The as-of Employment row is assembled by a 3-way as-of
+-- join: employment(@>$2) for the started date (lower(employed_during)), engineer_role
+-- (@>$2) for the current level, and salary(level, effective_during @>$2) for the
+-- monthly cost figure. All INNER joins — a row is returned only when the engineer is
+-- employed AND has a role AND that level has a salary as of $2 (the seed guarantees
+-- all three for every employed engineer); no row => the detail endpoint 404s.
+SELECT
+  employment.engineer_id,
+  lower(employment.employed_during) AS started,
+  engineer_role.level,
+  salary.monthly_salary
+FROM employment
+JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
+                  AND engineer_role.held_during @> $2::date
+JOIN salary ON salary.level = engineer_role.level
+           AND salary.effective_during @> $2::date
+WHERE employment.engineer_id = $1
+  AND employment.employed_during @> $2::date;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(employment_engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `engineer_next_id` query
 /// defined in `./src/tempo/server/sql/engineer_next_id.sql`.
 ///
@@ -1177,6 +1611,63 @@ DELETE FROM engineer_role
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_role_history` query
+/// defined in `./src/tempo/server/sql/engineer_role_history.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerRoleHistoryRow {
+  EngineerRoleHistoryRow(level: Int, valid_from: Date, valid_to: Date)
+}
+
+/// engineer_role_history.sql — one engineer's full role timeline for the detail read
+/// model (GET /api/engineers/:id; the RoleVersion list). Param: $1 = engineer_id.
+///
+/// Every engineer_role period-row for the engineer, decomposed to plain dates at the
+/// boundary (ADR-011): level, lower(held_during) AS valid_from,
+/// upper(held_during) AS valid_to. Ordered oldest-first by the period start. This is
+/// not as-of filtered — the detail page shows the whole promotion history (including
+/// future-dated rows like Marcus's L5 from 2026-07-01). upper(held_during) is
+/// non-null for every seed role row (all bounded at 2027-01-01).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_role_history(
+  db: pog.Connection,
+  engineer_role_engineer_id: Int,
+) -> Result(pog.Returned(EngineerRoleHistoryRow), pog.QueryError) {
+  let decoder = {
+    use level <- decode.field(0, decode.int)
+    use valid_from <- decode.field(1, pog.calendar_date_decoder())
+    use valid_to <- decode.field(2, pog.calendar_date_decoder())
+    decode.success(EngineerRoleHistoryRow(level:, valid_from:, valid_to:))
+  }
+
+  "-- engineer_role_history.sql — one engineer's full role timeline for the detail read
+-- model (GET /api/engineers/:id; the RoleVersion list). Param: $1 = engineer_id.
+--
+-- Every engineer_role period-row for the engineer, decomposed to plain dates at the
+-- boundary (ADR-011): level, lower(held_during) AS valid_from,
+-- upper(held_during) AS valid_to. Ordered oldest-first by the period start. This is
+-- not as-of filtered — the detail page shows the whole promotion history (including
+-- future-dated rows like Marcus's L5 from 2026-07-01). upper(held_during) is
+-- non-null for every seed role row (all bounded at 2027-01-01).
+SELECT
+  engineer_role.level,
+  lower(engineer_role.held_during) AS valid_from,
+  upper(engineer_role.held_during) AS valid_to
+FROM engineer_role
+WHERE engineer_role.engineer_id = $1
+ORDER BY lower(engineer_role.held_during);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_role_engineer_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1307,16 +1798,17 @@ pub type EventLogListRow {
   )
 }
 
-/// event_log_list.sql — the provenance journal up to an as-of date, newest first
-/// (§5a; GET /api/events; the operations console feed).
+/// event_log_list.sql — the provenance journal as a filterable, half-open window
+/// (§5a; GET /api/events?from=&to=&operation=&actor=; the Activity feed). All four
+/// params are OPTIONAL — a NULL param drops its filter, so no params returns the
+/// whole journal newest-first.
 ///
-/// Param: $1 = the as-of date (the slider). `occurred_at` is SYSTEM time — when the
-/// operation was recorded. The demo seed stamps each operation with the date it
-/// would naturally have been entered (timesheets at the end of their week, invoices
-/// and payroll at month end; see tempo/seed_financials), so the journal reads as a
-/// realistic timeline and scrubbing the slider shows only what had been recorded by
-/// that date — anything recorded after $1 is hidden, rewinding the feed with the
-/// rest of the UI.
+/// This is SYSTEM time (occurred_at), NOT the valid-time as-of rail. The window is
+/// half-open [from, to): $1 = from (inclusive lower, occurred_at::date >= $1),
+/// $2 = to (exclusive upper, occurred_at::date < $2); $3 = operation, $4 = actor are
+/// exact-match filters. Each param is guarded ($n IS NULL OR …) so an absent filter
+/// matches every row. The explicit ::date / ::text casts let Squirrel infer the
+/// nullable param types (Option(Date)/Option(String)).
 ///
 /// `occurred_at` and `payload` are rendered to `text` at the boundary (timestamptz /
 /// jsonb don't need a Squirrel type mapping); the client parses `payload` back
@@ -1329,6 +1821,9 @@ pub type EventLogListRow {
 pub fn event_log_list(
   db: pog.Connection,
   arg_1: Date,
+  arg_2: Date,
+  arg_3: String,
+  arg_4: String,
 ) -> Result(pog.Returned(EventLogListRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
@@ -1347,16 +1842,17 @@ pub fn event_log_list(
     ))
   }
 
-  "-- event_log_list.sql — the provenance journal up to an as-of date, newest first
--- (§5a; GET /api/events; the operations console feed).
+  "-- event_log_list.sql — the provenance journal as a filterable, half-open window
+-- (§5a; GET /api/events?from=&to=&operation=&actor=; the Activity feed). All four
+-- params are OPTIONAL — a NULL param drops its filter, so no params returns the
+-- whole journal newest-first.
 --
--- Param: $1 = the as-of date (the slider). `occurred_at` is SYSTEM time — when the
--- operation was recorded. The demo seed stamps each operation with the date it
--- would naturally have been entered (timesheets at the end of their week, invoices
--- and payroll at month end; see tempo/seed_financials), so the journal reads as a
--- realistic timeline and scrubbing the slider shows only what had been recorded by
--- that date — anything recorded after $1 is hidden, rewinding the feed with the
--- rest of the UI.
+-- This is SYSTEM time (occurred_at), NOT the valid-time as-of rail. The window is
+-- half-open [from, to): $1 = from (inclusive lower, occurred_at::date >= $1),
+-- $2 = to (exclusive upper, occurred_at::date < $2); $3 = operation, $4 = actor are
+-- exact-match filters. Each param is guarded ($n IS NULL OR …) so an absent filter
+-- matches every row. The explicit ::date / ::text casts let Squirrel infer the
+-- nullable param types (Option(Date)/Option(String)).
 --
 -- `occurred_at` and `payload` are rendered to `text` at the boundary (timestamptz /
 -- jsonb don't need a Squirrel type mapping); the client parses `payload` back
@@ -1370,11 +1866,17 @@ SELECT
   summary,
   payload::text
 FROM event_log
-WHERE occurred_at::date <= $1::date
+WHERE ($1::date IS NULL OR occurred_at::date >= $1)
+  AND ($2::date IS NULL OR occurred_at::date < $2)
+  AND ($3::text IS NULL OR operation = $3)
+  AND ($4::text IS NULL OR actor = $4)
 ORDER BY id DESC;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2190,12 +2692,21 @@ SELECT
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type LeaveBalancesRow {
-  LeaveBalancesRow(engineer: String, annual: Float, sick: Float)
+  LeaveBalancesRow(
+    engineer_id: Int,
+    engineer: String,
+    annual: Float,
+    sick: Float,
+  )
 }
 
 /// leave_balances.sql — each engineer employed as of $1 with their annual and sick
 /// leave balance (accrued − taken, rounded to one day) on that date, for the board
 /// readout; it recomputes as the board's date moves. $1 = the as-of date.
+///
+/// engineer_id is emitted alongside the name so the people-roster read model can
+/// join the annual balance to people_list.sql rows by id (the board readout keys by
+/// name; /api/people keys by id).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -2205,16 +2716,22 @@ pub fn leave_balances(
   arg_1: Date,
 ) -> Result(pog.Returned(LeaveBalancesRow), pog.QueryError) {
   let decoder = {
-    use engineer <- decode.field(0, decode.string)
-    use annual <- decode.field(1, pog.numeric_decoder())
-    use sick <- decode.field(2, pog.numeric_decoder())
-    decode.success(LeaveBalancesRow(engineer:, annual:, sick:))
+    use engineer_id <- decode.field(0, decode.int)
+    use engineer <- decode.field(1, decode.string)
+    use annual <- decode.field(2, pog.numeric_decoder())
+    use sick <- decode.field(3, pog.numeric_decoder())
+    decode.success(LeaveBalancesRow(engineer_id:, engineer:, annual:, sick:))
   }
 
   "-- leave_balances.sql — each engineer employed as of $1 with their annual and sick
 -- leave balance (accrued − taken, rounded to one day) on that date, for the board
 -- readout; it recomputes as the board's date moves. $1 = the as-of date.
+--
+-- engineer_id is emitted alongside the name so the people-roster read model can
+-- join the annual balance to people_list.sql rows by id (the board readout keys by
+-- name; /api/people keys by id).
 SELECT
+  engineer.id AS engineer_id,
   coalesce(engineer_current.name, '') AS engineer,
   round(accrued_leave(engineer.id, 'annual', $1::date)
         - taken_leave(engineer.id, 'annual', $1::date), 1)::numeric AS annual,
@@ -2321,6 +2838,110 @@ DELETE FROM leave
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `leave_history` query
+/// defined in `./src/tempo/server/sql/leave_history.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type LeaveHistoryRow {
+  LeaveHistoryRow(kind: String, valid_from: Date, valid_to: Date)
+}
+
+/// leave_history.sql — one engineer's full leave timeline for the detail read model
+/// (GET /api/engineers/:id; the LeaveRecord list). Param: $1 = engineer_id.
+///
+/// Every leave period-row for the engineer, decomposed to plain dates: kind,
+/// lower(on_leave_during) AS valid_from, upper(on_leave_during) AS valid_to. A leave
+/// window always has an end, so upper(on_leave_during) is non-null for every seed
+/// row. Not as-of filtered — the detail page lists all leave. Ordered oldest-first.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn leave_history(
+  db: pog.Connection,
+  leave_engineer_id: Int,
+) -> Result(pog.Returned(LeaveHistoryRow), pog.QueryError) {
+  let decoder = {
+    use kind <- decode.field(0, decode.string)
+    use valid_from <- decode.field(1, pog.calendar_date_decoder())
+    use valid_to <- decode.field(2, pog.calendar_date_decoder())
+    decode.success(LeaveHistoryRow(kind:, valid_from:, valid_to:))
+  }
+
+  "-- leave_history.sql — one engineer's full leave timeline for the detail read model
+-- (GET /api/engineers/:id; the LeaveRecord list). Param: $1 = engineer_id.
+--
+-- Every leave period-row for the engineer, decomposed to plain dates: kind,
+-- lower(on_leave_during) AS valid_from, upper(on_leave_during) AS valid_to. A leave
+-- window always has an end, so upper(on_leave_during) is non-null for every seed
+-- row. Not as-of filtered — the detail page lists all leave. Ordered oldest-first.
+SELECT
+  leave.kind,
+  lower(leave.on_leave_during) AS valid_from,
+  upper(leave.on_leave_during) AS valid_to
+FROM leave
+WHERE leave.engineer_id = $1
+ORDER BY lower(leave.on_leave_during);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(leave_engineer_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `leave_policy_list` query
+/// defined in `./src/tempo/server/sql/leave_policy_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type LeavePolicyListRow {
+  LeavePolicyListRow(kind: String, level: Int, days_per_year: Float)
+}
+
+/// leave_policy_list.sql — the leave-accrual policy in force as of $1 (GET
+/// /api/settings?as_of=$1; the leave-policy table on the Settings page; FR-ST3). One
+/// row per (kind, level) whose policy span covers $1: kind + level + days_per_year,
+/// ordered by kind then level. A (kind, level) with no policy row covering $1 is
+/// absent from the list and is treated as unlimited (the take_leave guard does not
+/// fire for it). Param: $1 = the as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn leave_policy_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(LeavePolicyListRow), pog.QueryError) {
+  let decoder = {
+    use kind <- decode.field(0, decode.string)
+    use level <- decode.field(1, decode.int)
+    use days_per_year <- decode.field(2, pog.numeric_decoder())
+    decode.success(LeavePolicyListRow(kind:, level:, days_per_year:))
+  }
+
+  "-- leave_policy_list.sql — the leave-accrual policy in force as of $1 (GET
+-- /api/settings?as_of=$1; the leave-policy table on the Settings page; FR-ST3). One
+-- row per (kind, level) whose policy span covers $1: kind + level + days_per_year,
+-- ordered by kind then level. A (kind, level) with no policy row covering $1 is
+-- absent from the list and is treated as unlimited (the take_leave guard does not
+-- fire for it). Param: $1 = the as-of date.
+SELECT
+  leave_policy.kind,
+  leave_policy.level,
+  leave_policy.days_per_year
+FROM leave_policy
+WHERE leave_policy.effective_during @> $1::date
+ORDER BY leave_policy.kind, leave_policy.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -2696,6 +3317,156 @@ SELECT nextval('payroll_run_id_seq')::int AS id;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `people_list` query
+/// defined in `./src/tempo/server/sql/people_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PeopleListRow {
+  PeopleListRow(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    level: Int,
+    day_rate: Float,
+    allocated_fraction: Float,
+    projects: String,
+    leave_kind: Option(String),
+  )
+}
+
+/// people_list.sql — the people-roster read model (GET /api/people?as_of=$1). One
+/// row per EMPLOYED engineer as of $1, carrying everything the roster table needs
+/// that the org board cannot supply: the engineer_id and email (BoardRow has
+/// neither), the as-of level and resolved day_rate (present for EVERY employed
+/// engineer, not just allocated ones — board day_rate lives only on engaged rows),
+/// the summed allocation fraction across all the engineer's projects, the covering
+/// leave kind if any, and a comma-joined list of the project titles the engineer is
+/// allocated to on the date.
+///
+/// Param: $1 = the as-of date.
+///
+/// Identity + level + rate. employment(@>$1) anchors the employed set; the name and
+/// email come from the engineer_current latest-read view; the as-of level from
+/// engineer_role(@>$1); the charge rate from rate_card(level, effective_during @>$1)
+/// (the same two-hop role x rate_card join the board uses). These are INNER joins —
+/// an employed engineer always has a role and a rate, so day_rate is non-null.
+///
+/// Allocation rollup. A correlated LATERAL aggregates the engineer's allocations
+/// covering $1 (joined to project_current for the titles): SUM(fraction) coalesced
+/// to 0 for a bench/leave engineer, and string_agg of distinct project titles. The
+/// titles are joined in one comma-separated string (the domain layer splits it back
+/// into a list); an engineer with no covering allocation gets '' which the domain
+/// reads as the empty project list.
+///
+/// Leave. A LEFT JOIN LATERAL returns the covering leave fact's kind (NULL when not
+/// on leave — the lateral join makes Squirrel infer leave_kind as Option(String)
+/// rather than a non-null String that would decode-fail off the road); the domain
+/// layer collapses status to RosterOnLeave(kind) when present, else
+/// RosterOnProjects(titles) when allocated, else RosterUnassigned. The annual leave
+/// balance is NOT joined here — the domain joins leave_balances.sql by engineer_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn people_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(PeopleListRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use email <- decode.field(2, decode.string)
+    use level <- decode.field(3, decode.int)
+    use day_rate <- decode.field(4, pog.numeric_decoder())
+    use allocated_fraction <- decode.field(5, pog.numeric_decoder())
+    use projects <- decode.field(6, decode.string)
+    use leave_kind <- decode.field(7, decode.optional(decode.string))
+    decode.success(PeopleListRow(
+      engineer_id:,
+      name:,
+      email:,
+      level:,
+      day_rate:,
+      allocated_fraction:,
+      projects:,
+      leave_kind:,
+    ))
+  }
+
+  "-- people_list.sql — the people-roster read model (GET /api/people?as_of=$1). One
+-- row per EMPLOYED engineer as of $1, carrying everything the roster table needs
+-- that the org board cannot supply: the engineer_id and email (BoardRow has
+-- neither), the as-of level and resolved day_rate (present for EVERY employed
+-- engineer, not just allocated ones — board day_rate lives only on engaged rows),
+-- the summed allocation fraction across all the engineer's projects, the covering
+-- leave kind if any, and a comma-joined list of the project titles the engineer is
+-- allocated to on the date.
+--
+-- Param: $1 = the as-of date.
+--
+-- Identity + level + rate. employment(@>$1) anchors the employed set; the name and
+-- email come from the engineer_current latest-read view; the as-of level from
+-- engineer_role(@>$1); the charge rate from rate_card(level, effective_during @>$1)
+-- (the same two-hop role x rate_card join the board uses). These are INNER joins —
+-- an employed engineer always has a role and a rate, so day_rate is non-null.
+--
+-- Allocation rollup. A correlated LATERAL aggregates the engineer's allocations
+-- covering $1 (joined to project_current for the titles): SUM(fraction) coalesced
+-- to 0 for a bench/leave engineer, and string_agg of distinct project titles. The
+-- titles are joined in one comma-separated string (the domain layer splits it back
+-- into a list); an engineer with no covering allocation gets '' which the domain
+-- reads as the empty project list.
+--
+-- Leave. A LEFT JOIN LATERAL returns the covering leave fact's kind (NULL when not
+-- on leave — the lateral join makes Squirrel infer leave_kind as Option(String)
+-- rather than a non-null String that would decode-fail off the road); the domain
+-- layer collapses status to RosterOnLeave(kind) when present, else
+-- RosterOnProjects(titles) when allocated, else RosterUnassigned. The annual leave
+-- balance is NOT joined here — the domain joins leave_balances.sql by engineer_id.
+SELECT
+  engineer.id AS engineer_id,
+  coalesce(engineer_current.name, '') AS name,
+  coalesce(engineer_current.email, '') AS email,
+  engineer_role.level,
+  rate_card.day_rate,
+  coalesce(alloc.allocated_fraction, 0)::numeric AS allocated_fraction,
+  coalesce(alloc.projects, '') AS projects,
+  on_leave.kind AS leave_kind
+FROM employment
+JOIN engineer ON engineer.id = employment.engineer_id
+JOIN engineer_current ON engineer_current.id = engineer.id
+JOIN engineer_role ON engineer_role.engineer_id = engineer.id
+                  AND engineer_role.held_during @> $1::date
+JOIN rate_card ON rate_card.level = engineer_role.level
+              AND rate_card.effective_during @> $1::date
+LEFT JOIN LATERAL (
+  SELECT leave.kind FROM leave
+   WHERE leave.engineer_id = engineer.id
+     AND leave.on_leave_during @> $1::date
+   LIMIT 1
+) on_leave ON true
+LEFT JOIN LATERAL (
+  SELECT sum(allocation.fraction) AS allocated_fraction,
+         string_agg(DISTINCT coalesce(project_current.title, ''), ', '
+                    ORDER BY coalesce(project_current.title, '')) AS projects
+    FROM allocation
+    JOIN project_run ON project_run.project_id = allocation.project_id
+                    AND project_run.active_during @> $1::date
+    JOIN project_current ON project_current.id = allocation.project_id
+   WHERE allocation.engineer_id = engineer.id
+     AND allocation.allocated_during @> $1::date
+) alloc ON true
+WHERE employment.employed_during @> $1::date
+ORDER BY name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `pnl_rows` query
 /// defined in `./src/tempo/server/sql/pnl_rows.sql`.
 ///
@@ -2941,6 +3712,224 @@ INSERT INTO project (id) VALUES ($1);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_invoices` query
+/// defined in `./src/tempo/server/sql/project_invoices.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectInvoicesRow {
+  ProjectInvoicesRow(
+    id: Int,
+    project: String,
+    client: String,
+    billing_from: Date,
+    billing_to: Date,
+    status: String,
+    total: Float,
+  )
+}
+
+/// project_invoices.sql — one project's invoices for the detail read model (GET
+/// /api/projects/:id; FR-CP7). Params: $1 = project_id, $2 = as-of.
+///
+/// invoice_list scoped to a single project: same columns and shape as invoice_list
+/// (so it decodes through the reused Invoice codec) but filtered to
+/// invoice_subject.project_id = $1. The status shown is the row covering $2 via `@>`,
+/// so scrubbing the rail back shows a draft before its issue date (FR-F4); an invoice
+/// with no status covering $2 is dropped (the status JOIN is INNER). The project name
+/// is THIS project's title; the client name is reached through the project's run to
+/// its contract's client (correlated LIMIT-1 so a multi-period project does not
+/// multiply rows). Total is coalesce(Σ amount, 0) over the snapshot lines. Ordered by
+/// billing month then id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_invoices(
+  db: pog.Connection,
+  invoice_subject_project_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ProjectInvoicesRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use project <- decode.field(1, decode.string)
+    use client <- decode.field(2, decode.string)
+    use billing_from <- decode.field(3, pog.calendar_date_decoder())
+    use billing_to <- decode.field(4, pog.calendar_date_decoder())
+    use status <- decode.field(5, decode.string)
+    use total <- decode.field(6, pog.numeric_decoder())
+    decode.success(ProjectInvoicesRow(
+      id:,
+      project:,
+      client:,
+      billing_from:,
+      billing_to:,
+      status:,
+      total:,
+    ))
+  }
+
+  "-- project_invoices.sql — one project's invoices for the detail read model (GET
+-- /api/projects/:id; FR-CP7). Params: $1 = project_id, $2 = as-of.
+--
+-- invoice_list scoped to a single project: same columns and shape as invoice_list
+-- (so it decodes through the reused Invoice codec) but filtered to
+-- invoice_subject.project_id = $1. The status shown is the row covering $2 via `@>`,
+-- so scrubbing the rail back shows a draft before its issue date (FR-F4); an invoice
+-- with no status covering $2 is dropped (the status JOIN is INNER). The project name
+-- is THIS project's title; the client name is reached through the project's run to
+-- its contract's client (correlated LIMIT-1 so a multi-period project does not
+-- multiply rows). Total is coalesce(Σ amount, 0) over the snapshot lines. Ordered by
+-- billing month then id.
+SELECT
+  invoice.id,
+  coalesce((
+    SELECT project.title FROM project_current project
+     WHERE project.id = invoice_subject.project_id
+     LIMIT 1
+  ), '') AS project,
+  coalesce((
+    SELECT client.name
+      FROM project_run
+      JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+      JOIN client_current client ON client.id = contract_terms.client_id
+     WHERE project_run.project_id = invoice_subject.project_id
+     LIMIT 1
+  ), '') AS client,
+  lower(invoice_subject.billing_period) AS billing_from,
+  upper(invoice_subject.billing_period) AS billing_to,
+  invoice_status.status,
+  coalesce((
+    SELECT sum(invoice_line.amount)
+      FROM invoice_line
+     WHERE invoice_line.invoice_id = invoice.id
+  ), 0)::numeric AS total
+FROM invoice
+JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
+                    AND invoice_subject.project_id = $1
+JOIN invoice_status ON invoice_status.invoice_id = invoice.id
+                   AND invoice_status.status_during @> $2::date
+ORDER BY lower(invoice_subject.billing_period), invoice.id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(invoice_subject_project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_list` query
+/// defined in `./src/tempo/server/sql/project_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectListRow {
+  ProjectListRow(
+    project_id: Int,
+    title: String,
+    client: String,
+    budget: Float,
+    target_completion: Date,
+    team_size: Int,
+    active: Bool,
+  )
+}
+
+/// project_list.sql — the projects-directory read model (GET /api/projects?as_of=$1;
+/// FR-CP5). One row per project that has a run: title, owning client, budget, target,
+/// the team size on $1, and whether the run covers $1 (active). Param: $1 = as-of.
+///
+/// project_run anchors the project (every listed project has a run). A project may
+/// have several historical runs, so DISTINCT ON (project_id) keeps the run covering
+/// $1 (sorted first), falling back to the latest-started run for an ended project so
+/// it still lists with active=false — projects are marked active/ended, never hidden.
+/// The title comes from project_current, the client name through the run's contract
+/// to client_current, and budget/target from a LATERAL latest-read project_plan
+/// (DISTINCT ON by start desc, like project_plan_current; coalesced for a planless
+/// project). team_size is a correlated count of DISTINCT engineers whose allocation
+/// to this project covers $1 (0 for a dormant project). The inner DISTINCT ON picks
+/// one run per project; the outer query orders the directory by title.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(ProjectListRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use title <- decode.field(1, decode.string)
+    use client <- decode.field(2, decode.string)
+    use budget <- decode.field(3, pog.numeric_decoder())
+    use target_completion <- decode.field(4, pog.calendar_date_decoder())
+    use team_size <- decode.field(5, decode.int)
+    use active <- decode.field(6, decode.bool)
+    decode.success(ProjectListRow(
+      project_id:,
+      title:,
+      client:,
+      budget:,
+      target_completion:,
+      team_size:,
+      active:,
+    ))
+  }
+
+  "-- project_list.sql — the projects-directory read model (GET /api/projects?as_of=$1;
+-- FR-CP5). One row per project that has a run: title, owning client, budget, target,
+-- the team size on $1, and whether the run covers $1 (active). Param: $1 = as-of.
+--
+-- project_run anchors the project (every listed project has a run). A project may
+-- have several historical runs, so DISTINCT ON (project_id) keeps the run covering
+-- $1 (sorted first), falling back to the latest-started run for an ended project so
+-- it still lists with active=false — projects are marked active/ended, never hidden.
+-- The title comes from project_current, the client name through the run's contract
+-- to client_current, and budget/target from a LATERAL latest-read project_plan
+-- (DISTINCT ON by start desc, like project_plan_current; coalesced for a planless
+-- project). team_size is a correlated count of DISTINCT engineers whose allocation
+-- to this project covers $1 (0 for a dormant project). The inner DISTINCT ON picks
+-- one run per project; the outer query orders the directory by title.
+SELECT project_id, title, client, budget, target_completion, team_size, active
+FROM (
+  SELECT DISTINCT ON (project_run.project_id)
+    project_run.project_id,
+    coalesce(project_current.title, '') AS title,
+    coalesce(client_current.name, '') AS client,
+    coalesce(plan.budget, 0)::numeric AS budget,
+    coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
+    (
+      SELECT count(DISTINCT allocation.engineer_id)
+        FROM allocation
+       WHERE allocation.project_id = project_run.project_id
+         AND allocation.allocated_during @> $1::date
+    )::int AS team_size,
+    (project_run.active_during @> $1::date) AS active
+  FROM project_run
+  JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+  JOIN client_current ON client_current.id = contract_terms.client_id
+  JOIN project_current ON project_current.id = project_run.project_id
+  LEFT JOIN LATERAL (
+    SELECT project_plan.budget, project_plan.target_completion
+      FROM project_plan
+     WHERE project_plan.project_id = project_run.project_id
+     ORDER BY lower(project_plan.planned_during) DESC
+     LIMIT 1
+  ) plan ON true
+  ORDER BY project_run.project_id,
+           (project_run.active_during @> $1::date) DESC,
+           lower(project_run.active_during) DESC
+) ranked
+ORDER BY title;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3214,6 +4203,185 @@ VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5);
   |> pog.execute(db)
 }
 
+/// A row you get from running the `project_run_period` query
+/// defined in `./src/tempo/server/sql/project_run_period.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectRunPeriodRow {
+  ProjectRunPeriodRow(
+    valid_from: Date,
+    valid_to: Date,
+    active: Bool,
+    client: String,
+  )
+}
+
+/// project_run_period.sql — one project's run window and owning client for the
+/// detail read model (GET /api/projects/:id). Params: $1 = project_id, $2 = as-of
+/// (for the active flag only).
+///
+/// The run is the project's existence/contract window (project_run). Its bounds are
+/// decomposed to plain dates: lower(active_during) AS valid_from,
+/// upper(active_during) AS valid_to (non-null for every seed run — all bounded at
+/// 2027-01-01). `active` is (active_during @> $2): the as-of marks the run
+/// active/ended without hiding it. The client name is reached through the run's
+/// contract (contract_terms) to the client_current latest-read view; the contract is
+/// joined on the same as-of so the name read matches the run window. A project may
+/// have multiple historical runs — DISTINCT ON keeps the one whose window covers $2
+/// (ordered so a covering run sorts first), falling back to the latest-started run
+/// when none covers $2 so the detail page still renders an ended project. No row =>
+/// the detail endpoint 404s.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_run_period(
+  db: pog.Connection,
+  project_run_project_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ProjectRunPeriodRow), pog.QueryError) {
+  let decoder = {
+    use valid_from <- decode.field(0, pog.calendar_date_decoder())
+    use valid_to <- decode.field(1, pog.calendar_date_decoder())
+    use active <- decode.field(2, decode.bool)
+    use client <- decode.field(3, decode.string)
+    decode.success(ProjectRunPeriodRow(valid_from:, valid_to:, active:, client:))
+  }
+
+  "-- project_run_period.sql — one project's run window and owning client for the
+-- detail read model (GET /api/projects/:id). Params: $1 = project_id, $2 = as-of
+-- (for the active flag only).
+--
+-- The run is the project's existence/contract window (project_run). Its bounds are
+-- decomposed to plain dates: lower(active_during) AS valid_from,
+-- upper(active_during) AS valid_to (non-null for every seed run — all bounded at
+-- 2027-01-01). `active` is (active_during @> $2): the as-of marks the run
+-- active/ended without hiding it. The client name is reached through the run's
+-- contract (contract_terms) to the client_current latest-read view; the contract is
+-- joined on the same as-of so the name read matches the run window. A project may
+-- have multiple historical runs — DISTINCT ON keeps the one whose window covers $2
+-- (ordered so a covering run sorts first), falling back to the latest-started run
+-- when none covers $2 so the detail page still renders an ended project. No row =>
+-- the detail endpoint 404s.
+SELECT DISTINCT ON (project_run.project_id)
+  lower(project_run.active_during) AS valid_from,
+  upper(project_run.active_during) AS valid_to,
+  (project_run.active_during @> $2::date) AS active,
+  coalesce(client_current.name, '') AS client
+FROM project_run
+JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
+JOIN client_current ON client_current.id = contract_terms.client_id
+WHERE project_run.project_id = $1
+ORDER BY project_run.project_id,
+         (project_run.active_during @> $2::date) DESC,
+         lower(project_run.active_during) DESC;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_run_project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_team` query
+/// defined in `./src/tempo/server/sql/project_team.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectTeamRow {
+  ProjectTeamRow(
+    engineer_id: Int,
+    name: String,
+    level: Int,
+    fraction: Float,
+    day_rate: Float,
+  )
+}
+
+/// project_team.sql — the engineers engaged on one project as of $2, for the project
+/// detail team card (GET /api/projects/:id; FR-CP6). Params: $1 = project_id,
+/// $2 = as-of.
+///
+/// The board_engaged temporal join scoped to a single project: employment(@>$2)
+/// anchors the employed engineer, engineer_role(@>$2) gives the as-of level,
+/// rate_card(level, @>$2) the charge rate (the two-hop role × rate_card join), and
+/// allocation(@>$2) ties the engineer to THIS project on the date. All INNER joins,
+/// so every column is non-null. Unlike the board, the team card carries engineer_id
+/// (so a card can click through to /people/:id) and omits the project/client/period
+/// columns the board needs. An engineer covered by a leave fact on $2 is suppressed
+/// (NOT EXISTS) exactly as on the board — the team is who is actually working the
+/// project on the date. Ordered by name for a stable card list.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_team(
+  db: pog.Connection,
+  allocation_project_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ProjectTeamRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use level <- decode.field(2, decode.int)
+    use fraction <- decode.field(3, pog.numeric_decoder())
+    use day_rate <- decode.field(4, pog.numeric_decoder())
+    decode.success(ProjectTeamRow(
+      engineer_id:,
+      name:,
+      level:,
+      fraction:,
+      day_rate:,
+    ))
+  }
+
+  "-- project_team.sql — the engineers engaged on one project as of $2, for the project
+-- detail team card (GET /api/projects/:id; FR-CP6). Params: $1 = project_id,
+-- $2 = as-of.
+--
+-- The board_engaged temporal join scoped to a single project: employment(@>$2)
+-- anchors the employed engineer, engineer_role(@>$2) gives the as-of level,
+-- rate_card(level, @>$2) the charge rate (the two-hop role × rate_card join), and
+-- allocation(@>$2) ties the engineer to THIS project on the date. All INNER joins,
+-- so every column is non-null. Unlike the board, the team card carries engineer_id
+-- (so a card can click through to /people/:id) and omits the project/client/period
+-- columns the board needs. An engineer covered by a leave fact on $2 is suppressed
+-- (NOT EXISTS) exactly as on the board — the team is who is actually working the
+-- project on the date. Ordered by name for a stable card list.
+SELECT
+  engineer.id AS engineer_id,
+  coalesce(engineer_current.name, '') AS name,
+  engineer_role.level,
+  allocation.fraction,
+  rate_card.day_rate
+FROM employment
+JOIN engineer ON engineer.id = employment.engineer_id
+JOIN engineer_current ON engineer_current.id = engineer.id
+JOIN engineer_role ON engineer_role.engineer_id = engineer.id
+                  AND engineer_role.held_during @> $2::date
+JOIN rate_card ON rate_card.level = engineer_role.level
+              AND rate_card.effective_during @> $2::date
+JOIN allocation ON allocation.engineer_id = engineer.id
+               AND allocation.project_id = $1
+               AND allocation.allocated_during @> $2::date
+WHERE employment.employed_during @> $2::date
+  AND NOT EXISTS (
+    SELECT 1 FROM leave
+     WHERE leave.engineer_id = engineer.id
+       AND leave.on_leave_during @> $2::date
+  )
+ORDER BY name;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(allocation_project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// rate_card_for_portion_of.sql — surgical charge-rate edit. FOR PORTION OF splits the
 /// covering rate_card row, setting day_rate + audit_id only on [$1, $2) and carving
 /// off the unchanged before/after remainders keeping their original audit_id.
@@ -3253,6 +4421,51 @@ UPDATE rate_card
   |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.int(arg_4))
   |> pog.parameter(pog.int(audit_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `rate_card_list` query
+/// defined in `./src/tempo/server/sql/rate_card_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type RateCardListRow {
+  RateCardListRow(level: Int, day_rate: Float)
+}
+
+/// rate_card_list.sql — the current charge rate per level as of $1 (GET
+/// /api/settings?as_of=$1; the rate-card table on the Settings page; FR-ST1). One
+/// row per level whose rate_card span covers $1: level + day_rate, ordered by level.
+/// A level with no rate covering $1 is simply absent. Param: $1 = the as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn rate_card_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(RateCardListRow), pog.QueryError) {
+  let decoder = {
+    use level <- decode.field(0, decode.int)
+    use day_rate <- decode.field(1, pog.numeric_decoder())
+    decode.success(RateCardListRow(level:, day_rate:))
+  }
+
+  "-- rate_card_list.sql — the current charge rate per level as of $1 (GET
+-- /api/settings?as_of=$1; the rate-card table on the Settings page; FR-ST1). One
+-- row per level whose rate_card span covers $1: level + day_rate, ordered by level.
+-- A level with no rate covering $1 is simply absent. Param: $1 = the as-of date.
+SELECT
+  rate_card.level,
+  rate_card.day_rate
+FROM rate_card
+WHERE rate_card.effective_during @> $1::date
+ORDER BY rate_card.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3474,6 +4687,51 @@ FROM project_run
 JOIN project_current ON project_current.id = project_run.project_id
 WHERE project_run.active_during @> $1::date
 ORDER BY name;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `salary_list` query
+/// defined in `./src/tempo/server/sql/salary_list.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type SalaryListRow {
+  SalaryListRow(level: Int, monthly_salary: Float)
+}
+
+/// salary_list.sql — the current monthly salary per level as of $1 (GET
+/// /api/settings?as_of=$1; the salaries table on the Settings page; FR-ST2). One row
+/// per level whose salary span covers $1: level + monthly_salary, ordered by level. A
+/// level with no salary covering $1 is simply absent. Param: $1 = the as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn salary_list(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(SalaryListRow), pog.QueryError) {
+  let decoder = {
+    use level <- decode.field(0, decode.int)
+    use monthly_salary <- decode.field(1, pog.numeric_decoder())
+    decode.success(SalaryListRow(level:, monthly_salary:))
+  }
+
+  "-- salary_list.sql — the current monthly salary per level as of $1 (GET
+-- /api/settings?as_of=$1; the salaries table on the Settings page; FR-ST2). One row
+-- per level whose salary span covers $1: level + monthly_salary, ordered by level. A
+-- level with no salary covering $1 is simply absent. Param: $1 = the as-of date.
+SELECT
+  salary.level,
+  salary.monthly_salary
+FROM salary
+WHERE salary.effective_during @> $1::date
+ORDER BY salary.level;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))

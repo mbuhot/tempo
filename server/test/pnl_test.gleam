@@ -22,7 +22,6 @@
 //// (total revenue 120000); everyone is 100% utilized (full-month allocation).
 
 import gleam/dynamic/decode
-import gleam/erlang/process
 import gleam/list
 import gleam/time/calendar.{type Date, Date, July, June}
 import pog
@@ -33,25 +32,14 @@ import shared/types.{
 import tempo/server/command
 import tempo/server/context.{Context}
 import tempo/server/finance_query
-
-// --- connection -------------------------------------------------------------
-
-/// A single-connection pool per test (each test owns its rolled-back transaction).
-fn db() -> pog.Connection {
-  let pool_name = process.new_name(prefix: "tempo_pnl_test_db")
-  let config =
-    context.pool_config(context.settings_from_env(), pool_name)
-    |> pog.pool_size(1)
-  let assert Ok(started) = pog.start(config)
-  started.data
-}
+import test_pool
 
 // --- rollback harness -------------------------------------------------------
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out
 /// through `TransactionRolledBack` so the seed is never mutated.
 fn rolling_back(body: fn(pog.Connection) -> a) -> a {
-  let outcome = pog.transaction(db(), fn(conn) { Error(body(conn)) })
+  let outcome = pog.transaction(test_pool.db(), fn(conn) { Error(body(conn)) })
   let assert Error(pog.TransactionRolledBack(value)) = outcome
   value
 }

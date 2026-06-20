@@ -9,7 +9,9 @@
 //// `occurred_at` is the one real-clock column (system time); everything else is
 //// the applied command's identity (operation tag, human summary, JSON payload).
 
+import gleam/dynamic/decode
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -55,19 +57,67 @@ fn append_row_to_event(row: sql.EventLogAppendRow) -> Event {
   )
 }
 
-/// List the provenance journal newest-first for the operations console, up to
-/// `as_of`: only operations recorded (`occurred_at`) on or before `as_of` are
-/// returned, so the feed scrubs with the slider (the seed records each operation at
-/// its natural entry date — see `set_occurred_at`). Maps each generated row to the
-/// shared `Event`; `payload` is carried as a raw JSON string so the journal view
-/// shows it verbatim.
+/// List the provenance journal newest-first for the Activity feed, filtered by an
+/// optional half-open `[from, to)` window plus optional `operation`/`actor`
+/// (`event_log_list.sql`). `occurred_at` is SYSTEM time, so this feed is independent
+/// of the valid-time as-of rail. Maps each row to the shared `Event`; `payload` is
+/// carried as a raw JSON string so the journal view shows it verbatim.
+///
+/// `event_log_list.sql` guards each filter with `$n IS NULL OR …`, so a `None` drops
+/// that filter — no params returns the whole journal. Squirrel emits the generated
+/// wrapper (`sql.event_log_list`) with non-`Option` parameters — it never infers
+/// nullable parameters, only result columns — so it cannot send SQL NULL. The
+/// optional params are therefore bound here directly via `pog.nullable`, reusing the
+/// exact SQL text.
 pub fn list(
   context: Context,
-  as_of: Date,
+  from: option.Option(Date),
+  to: option.Option(Date),
+  operation: option.Option(String),
+  actor: option.Option(String),
 ) -> Result(List(Event), pog.QueryError) {
-  use returned <- result.map(sql.event_log_list(context.db, as_of))
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    use occurred_at <- decode.field(1, decode.string)
+    use actor <- decode.field(2, decode.string)
+    use operation <- decode.field(3, decode.string)
+    use summary <- decode.field(4, decode.string)
+    use payload <- decode.field(5, decode.string)
+    decode.success(sql.EventLogListRow(
+      id:,
+      occurred_at:,
+      actor:,
+      operation:,
+      summary:,
+      payload:,
+    ))
+  }
+  use returned <- result.map(
+    event_log_list_sql
+    |> pog.query
+    |> pog.parameter(pog.nullable(pog.calendar_date, from))
+    |> pog.parameter(pog.nullable(pog.calendar_date, to))
+    |> pog.parameter(pog.nullable(pog.text, operation))
+    |> pog.parameter(pog.nullable(pog.text, actor))
+    |> pog.returning(decoder)
+    |> pog.execute(context.db),
+  )
   list.map(returned.rows, list_row_to_event)
 }
+
+const event_log_list_sql = "SELECT
+  id,
+  occurred_at::text,
+  actor,
+  operation,
+  summary,
+  payload::text
+FROM event_log
+WHERE ($1::date IS NULL OR occurred_at::date >= $1)
+  AND ($2::date IS NULL OR occurred_at::date < $2)
+  AND ($3::text IS NULL OR operation = $3)
+  AND ($4::text IS NULL OR actor = $4)
+ORDER BY id DESC;"
 
 /// Backdate one journal row's `occurred_at` to `occurred_on` (midnight that day).
 /// The demo seed (`tempo/seed_financials`) uses this to record each operation at
