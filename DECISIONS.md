@@ -775,6 +775,41 @@ baseline (rejected — loses the documented intent the hand-written DDL carries)
 
 ---
 
+## ADR-034 — Leave balances as a temporal calculation: versioned per-level policy, accrued − taken, take_leave guard
+**Status:** Accepted
+
+**Context.** Leave was an unconstrained `leave` fact (an engineer on leave over a period, contained by
+employment). There was no notion of entitlement or balance, so nothing stopped recording more leave
+than an engineer had accrued, and "how much leave does X have on date D?" was unanswerable.
+
+**Decision.** Model entitlement as a temporal **`leave_policy(kind, level, days_per_year,
+effective_during)`** (versioned, `WITHOUT OVERLAPS` per `(kind, level)`, like `rate_card`/`salary`), and
+compute the balance as a **pure as-of query** — never a stored counter. `accrued_leave(eng, kind,
+as_of)` integrates `days_per_year` over each `employment ∩ engineer_role ∩ leave_policy[kind, level] ∩
+(−∞, as_of)` sub-period (the same shape as `payroll_amounts`, so a promotion blends the rate across its
+date); `taken_leave` sums calendar days taken; the balance is their difference. Accrual is **leap-aware**
+via a `year_fraction(d)` coordinate (`year + day-of-year/year-length`), so a full leap year accrues
+exactly the annual grant. `take_leave` guards on the balance **on return** (accrued − taken as of
+`valid_to` ≥ days requested), rejecting a shortfall as `InsufficientLeaveBalance` (→ 422); a kind with no
+policy is unlimited.
+
+**Rationale.** The balance falls straight out of the temporal model the system already uses — it is the
+leave analogue of payroll's salary integration — so it is correct at any past or future date by
+construction, and a policy change ("25 days from 2027") is just another `FOR PORTION OF` versioned row
+with no change to the calculation. Per-level keying makes a promotion visibly affect entitlement.
+Computing rather than storing the balance means it can never drift from the facts (employment, role,
+policy, leave) it derives from. Guarding on the balance *on return* matches the intent (never negative
+when the engineer comes back) and lets future-dated leave draw on accrual it will have by then.
+
+**Alternatives.** A stored running balance updated on each leave (rejected — denormalised state that can
+drift from the facts and must be recomputed on any back-dated correction); a flat company-wide
+entitlement ignoring level (rejected — senior levels should accrue more, and per-level is no harder given
+the role-version integration); `÷ 365` accrual (rejected — drifts across leap years; the `year_fraction`
+coordinate is exact). A runtime `SetLeavePolicy` command + console UI is deferred — policies are seeded
+versioned data for now.
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

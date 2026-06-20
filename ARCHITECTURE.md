@@ -820,3 +820,28 @@ rate after a later `ReviseRateCard`, the mid-month hire/termination/promotion pr
 pay, and the rejected out-of-order transition), `pnl_test.gleam` (the read layer — exact
 month/YTD/per-engineer figures), codec round-trips for the new `Command`/read types, and the
 behaviour-driven `e2e/financials.spec.js` (draft → issue → revenue appears; scrub back → `draft`).
+
+## 13. Leave balances (`leave_policy` + `leave_balance.sql`, a read calculation)
+
+Leave entitlement is a temporal, per-`(kind, level)` **`leave_policy`** (`days_per_year` versioned over
+`effective_during`, like `rate_card`/`salary`). A balance is never stored — it is a pure as-of query
+(ADR-034), the same temporal integration the payroll layer does:
+
+- **accrued** = Σ over each `employment ∩ engineer_role ∩ leave_policy[kind, level] ∩ (−∞, as_of)`
+  sub-period of `days_per_year × (year_fraction(hi) − year_fraction(lo))`. `year_fraction(d)` is a
+  **leap-aware** year coordinate — `year + day-of-year / that-year's-length` — so a day in a 366-day
+  year is worth `1/366` of the grant and a full year is exactly `1.0`, with no drift across leap
+  boundaries. Because the integration splits on the `engineer_role` version, a **promotion blends the
+  accrual rate** across its date exactly as it blends salary in `payroll_amounts` (L6+ accrue more).
+- **taken** = Σ calendar days of the engineer's `leave` of that kind up to `as_of`.
+- **balance** = accrued − taken. `leave_balance(engineer, kind, as_of)` returns it for any past or
+  future date; a future policy change (e.g. "25 days from 2027-01-01") is a `FOR PORTION OF` revise and
+  the calculation is unchanged — it simply integrates whichever version covers each slice.
+
+`take_leave` guards on this: `leave_check` returns the balance on return (accrued − taken as of
+`valid_to`) and the days requested (`valid_to − valid_from`); the handler rejects when the kind is
+policied and the balance is short, as `InsufficientLeaveBalance` (→ 422). A kind with **no** policy
+(e.g. unpaid) is unlimited — no guard fires. `accrued_leave`/`taken_leave` are `STABLE` SQL functions so
+both the balance query and the guard share one definition. Tests: `leave_test.gleam` (per-level
+accrual, leap-exactness, taken subtraction, promotion blend, automatic policy-change pickup, and the
+guard's allow/reject/unlimited paths).
