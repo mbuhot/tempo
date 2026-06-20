@@ -250,6 +250,10 @@ CREATE VIEW project_current AS
     FROM project_profile ORDER BY project_id, lower(recorded_during) DESC;
 
 -- Leave-balance calculation ----------------------------------------------------
+-- These three functions exist to be called by the leave_balance.sql / leave_check.sql
+-- queries (in sql/) — they keep the leap-aware accrual defined once rather than
+-- duplicated across both queries.
+--
 -- `year_fraction(d)` is a leap-aware "year coordinate": the year plus the fraction
 -- of that year elapsed, scaled by the year's own length (365 or 366). So accrual
 -- over [lo, hi) is days_per_year × (year_fraction(hi) − year_fraction(lo)): a day in
