@@ -423,57 +423,6 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `client_profile_current` query
-/// defined in `./src/tempo/server/sql/client_profile_current.sql`.
-///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type ClientProfileCurrentRow {
-  ClientProfileCurrentRow(client_id: Int, name: String)
-}
-
-/// client_profile_current.sql — a client's CURRENT profile (latest read).
-///
-/// The most-recently-effective client_profile row for one client: DISTINCT ON
-/// ordered by the start of recorded_during descending. Append-only + WITHOUT
-/// OVERLAPS means the row with the greatest start is the one whose [effective,
-/// NULL) span is in force. Scalar columns only — recorded_during bounds are not
-/// exposed (the read record is scalar-only). $1 = client_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn client_profile_current(
-  db: pog.Connection,
-  client_id: Int,
-) -> Result(pog.Returned(ClientProfileCurrentRow), pog.QueryError) {
-  let decoder = {
-    use client_id <- decode.field(0, decode.int)
-    use name <- decode.field(1, decode.string)
-    decode.success(ClientProfileCurrentRow(client_id:, name:))
-  }
-
-  "-- client_profile_current.sql — a client's CURRENT profile (latest read).
---
--- The most-recently-effective client_profile row for one client: DISTINCT ON
--- ordered by the start of recorded_during descending. Append-only + WITHOUT
--- OVERLAPS means the row with the greatest start is the one whose [effective,
--- NULL) span is in force. Scalar columns only — recorded_during bounds are not
--- exposed (the read record is scalar-only). $1 = client_id.
-SELECT DISTINCT ON (client_id)
-  client_id,
-  name
-FROM client_profile
-WHERE client_id = $1
-ORDER BY client_id, lower(recorded_during) DESC;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(client_id))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
 /// client_profile_open.sql — open a client's founding profile (the NAME). Last param
 /// is the audit_id. $1 = client_id, $2 = name, $3 = from.
 ///
@@ -851,75 +800,6 @@ UPDATE engineer_banking
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.text(arg_6))
   |> pog.parameter(pog.int(audit_id))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// A row you get from running the `engineer_contact_current` query
-/// defined in `./src/tempo/server/sql/engineer_contact_current.sql`.
-///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type EngineerContactCurrentRow {
-  EngineerContactCurrentRow(
-    engineer_id: Int,
-    name: String,
-    email: String,
-    phone: String,
-    postal_address: String,
-  )
-}
-
-/// engineer_contact_current.sql — an engineer's CURRENT contact (latest read).
-///
-/// The most-recently-effective engineer_contact row for one engineer: DISTINCT ON
-/// ordered by the start of recorded_during descending. Append-only + WITHOUT
-/// OVERLAPS means the row with the greatest start is the one whose [effective,
-/// NULL) span is in force. Scalar columns only — recorded_during bounds are not
-/// exposed (the read record is scalar-only). $1 = engineer_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_contact_current(
-  db: pog.Connection,
-  engineer_id: Int,
-) -> Result(pog.Returned(EngineerContactCurrentRow), pog.QueryError) {
-  let decoder = {
-    use engineer_id <- decode.field(0, decode.int)
-    use name <- decode.field(1, decode.string)
-    use email <- decode.field(2, decode.string)
-    use phone <- decode.field(3, decode.string)
-    use postal_address <- decode.field(4, decode.string)
-    decode.success(EngineerContactCurrentRow(
-      engineer_id:,
-      name:,
-      email:,
-      phone:,
-      postal_address:,
-    ))
-  }
-
-  "-- engineer_contact_current.sql — an engineer's CURRENT contact (latest read).
---
--- The most-recently-effective engineer_contact row for one engineer: DISTINCT ON
--- ordered by the start of recorded_during descending. Append-only + WITHOUT
--- OVERLAPS means the row with the greatest start is the one whose [effective,
--- NULL) span is in force. Scalar columns only — recorded_during bounds are not
--- exposed (the read record is scalar-only). $1 = engineer_id.
-SELECT DISTINCT ON (engineer_id)
-  engineer_id,
-  name,
-  email,
-  phone,
-  postal_address
-FROM engineer_contact
-WHERE engineer_id = $1
-ORDER BY engineer_id, lower(recorded_during) DESC;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(engineer_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -3227,59 +3107,6 @@ UPDATE project_plan
   |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.parameter(pog.int(audit_id))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// A row you get from running the `project_profile_current` query
-/// defined in `./src/tempo/server/sql/project_profile_current.sql`.
-///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type ProjectProfileCurrentRow {
-  ProjectProfileCurrentRow(project_id: Int, title: String, summary: String)
-}
-
-/// project_profile_current.sql — a project's CURRENT profile (latest read).
-///
-/// The most-recently-effective project_profile row for one project: DISTINCT ON
-/// ordered by the start of recorded_during descending. Append-only + WITHOUT
-/// OVERLAPS means the row with the greatest start is the one whose [effective, NULL)
-/// span is in force. Scalar columns only — recorded_during bounds are not exposed
-/// (the read record is scalar-only). $1 = project_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn project_profile_current(
-  db: pog.Connection,
-  project_id: Int,
-) -> Result(pog.Returned(ProjectProfileCurrentRow), pog.QueryError) {
-  let decoder = {
-    use project_id <- decode.field(0, decode.int)
-    use title <- decode.field(1, decode.string)
-    use summary <- decode.field(2, decode.string)
-    decode.success(ProjectProfileCurrentRow(project_id:, title:, summary:))
-  }
-
-  "-- project_profile_current.sql — a project's CURRENT profile (latest read).
---
--- The most-recently-effective project_profile row for one project: DISTINCT ON
--- ordered by the start of recorded_during descending. Append-only + WITHOUT
--- OVERLAPS means the row with the greatest start is the one whose [effective, NULL)
--- span is in force. Scalar columns only — recorded_during bounds are not exposed
--- (the read record is scalar-only). $1 = project_id.
-SELECT DISTINCT ON (project_id)
-  project_id,
-  title,
-  summary
-FROM project_profile
-WHERE project_id = $1
-ORDER BY project_id, lower(recorded_during) DESC;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(project_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
