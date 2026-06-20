@@ -134,7 +134,6 @@ pub fn view(as_of: calendar.Date) -> Element(Msg) {
 /// "Jul" label at each Jul 1 within bounds, positioned by their fraction of the
 /// rail. Mirrors the prototype's `buildTicks`.
 fn view_ticks() -> List(Element(Msg)) {
-  let total = date_to_day_index(range_end)
   list.flat_map([2024, 2025, 2026], fn(year) {
     [
       #(
@@ -145,15 +144,14 @@ fn view_ticks() -> List(Element(Msg)) {
     ]
     |> list.filter(fn(entry) {
       let index = date_to_day_index(entry.0)
-      index >= date_to_day_index(range_start) && index <= total
+      index >= date_to_day_index(range_start)
+      && index <= date_to_day_index(range_end)
     })
     |> list.map(fn(entry) {
-      let left =
-        int.to_float(date_to_day_index(entry.0)) /. int.to_float(total) *. 100.0
       html.div(
         [
           attribute.class("time-rail__tick"),
-          attribute.style("left", float.to_string(left) <> "%"),
+          attribute.style("left", float.to_string(range_pct(entry.0)) <> "%"),
         ],
         [html.text(entry.1)],
       )
@@ -161,12 +159,19 @@ fn view_ticks() -> List(Element(Msg)) {
   })
 }
 
-/// The rail-fill width as a percentage of the full range, mirroring the
-/// prototype's `idx / dayIndex(RANGE_END) * 100`.
+/// A date's position along the rail as a percentage of the [range_start,
+/// range_end] span — NOT of the absolute unix-day index, which is epoch-relative
+/// and would bunch every position near the right. Matches the native slider's own
+/// (value − min) / (max − min) placement so ticks and fill line up with the thumb.
+fn range_pct(date: calendar.Date) -> Float {
+  let start = date_to_day_index(range_start)
+  let span = date_to_day_index(range_end) - start
+  int.to_float(date_to_day_index(date) - start) /. int.to_float(span) *. 100.0
+}
+
+/// The rail-fill width as a percentage of the rail span.
 fn fill_pct(day_index: Int) -> String {
-  let total = date_to_day_index(range_end)
-  let pct = int.to_float(day_index) /. int.to_float(total) *. 100.0
-  float.to_string(pct) <> "%"
+  float.to_string(range_pct(day_index_to_date(day_index))) <> "%"
 }
 
 /// Parse the range input's string value into an `AsOfChanged`, clamping to the

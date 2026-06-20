@@ -131,16 +131,3 @@
   /* motion */
   --ease: 0.12s ease;
 }
-
-/* Narrow-viewport collapse. The breakpoint lives here because a CSS media
- * query value cannot be a var(--token) — this is the one place the breakpoint
- * constant is spent, kept in the token file so no other stylesheet carries a
- * size literal (ADR-038/FR-U6). */
-@media (max-width: 900px) {
-  #app { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .stats, .stats--cols-3 { grid-template-columns: repeat(2, 1fr); }
-  .detail-grid, .settings-grid { grid-template-columns: 1fr; }
-  .time-rail { grid-template-columns: 1fr; gap: var(--space-md); }
-  .activity__row { grid-template-columns: 1fr; gap: var(--space-xs); }
-}

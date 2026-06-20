@@ -926,7 +926,11 @@ The standing rules, to be upheld by every future change:
   specific rules live in their owner file.
 - **Class naming:** BEM (`block__element--modifier`); no terse collision-prone names.
 - **Enforced** by three greps that must print nothing: literal hex / literal `px|rem|em` / any `--` decl,
-  each outside `theme.css` (hex also allows `login.css`'s gradient stops).
+  each outside `theme.css` (hex also allows `login.css`'s gradient stops, and the `px` grep allows
+  `responsive.css`'s media-query breakpoint — a `@media` condition cannot reference a `var(--token)`).
+- **Responsive** overrides live in `responsive.css`, imported LAST so they win the cascade over the
+  component base rules they relax (a media block earlier in the cascade silently loses to later
+  same-specificity component rules).
 
 **Rationale.** A single token source means re-tuning spacing or shifting the palette is a one-file edit
 that propagates everywhere, and categorical colours stop being scattered literals. Extending ADR-029

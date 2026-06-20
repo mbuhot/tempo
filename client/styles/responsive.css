@@ -1,0 +1,32 @@
+/* Narrow-viewport collapse. Imported LAST in main.css so these overrides win the
+ * cascade over the component base rules they relax (a media block earlier in the
+ * cascade would lose to the later same-specificity component rules — which is why
+ * the breakpoint did nothing while it lived in theme.css).
+ *
+ * The 900px breakpoint is a raw length: a CSS media-query condition cannot
+ * reference a var(--token), so this is the one allowed size literal outside
+ * theme.css (alongside login.css's gradient stops) per ADR-038. */
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    display: none;
+  }
+  .stats,
+  .stats--cols-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .detail-grid,
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .time-rail {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+  .activity__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+}
