@@ -9,7 +9,7 @@ Status legend: **Accepted** · Superseded · Proposed
 ---
 
 ## ADR-001 — Purpose: conference talk / live demo
-**Status:** Accepted
+**Status:** Accepted; **superseded by ADR-017** — re-baselined so model fidelity leads; the talk-first goal is dropped (PRD archived).
 
 **Context.** The artifact could be a tutorial repo, a reusable template, or a talk demo.
 **Decision.** Optimize for a **conference talk / live demo**.
@@ -40,7 +40,7 @@ business rule (see ADR-008/009/010).
 **Alternatives.** Hotel rates+availability; SaaS subscriptions; generic org chart.
 
 ## ADR-004 — Model facts, not state (6NF narrow fact relations)
-**Status:** Accepted
+**Status:** Accepted; **amended by ADR-018** (predicate-named periods) and **ADR-030** (id-only anchors + edit-grouped facts).
 
 **Context.** How to shape the schema.
 **Decision.** Two durable identity tables; everything time-varying is a **narrow fact** with its own
@@ -54,7 +54,7 @@ are directly queryable across time with no projections.
 facts-not-state frame is deepened (decomposition by rate-of-change; correction = retroactive change).
 
 ## ADR-005 — Architecture: Lustre SPA + Wisp JSON API + shared types
-**Status:** Accepted
+**Status:** Accepted; **amended by ADR-014** — the single package became three path-wired packages (the contract is unchanged; only the packaging moved).
 
 **Context.** How to wire Wisp and Lustre; the slider's as-of fetch is the core interaction.
 **Decision.** Lustre SPA in the browser; Wisp serves a JSON API + static assets; a **`shared` Gleam
@@ -72,7 +72,7 @@ type-checks the Erlang-only server modules and fails. The contract is unchanged;
 moved — `shared` and `client` are now separate packages wired by path dependencies (ADR-014).
 
 ## ADR-006 — Schema evolution demonstrated via git tags, not a live in-app migration
-**Status:** Accepted
+**Status:** Accepted; **amended by ADR-031** — the migration-oracle equivalence gate is removed; the git tags + numbered migrations stand.
 
 **Context.** How to show a structural redesign on stage.
 **Decision.** Encode each schema generation as a **git tag** (`v1-wide`, `v2-split`); the presenter
@@ -86,7 +86,7 @@ oracle that proved the `v1→v2` transform correct is removed; correctness is no
 migration text and the constraints, not a CI gate.
 
 ## ADR-007 — Migration shape: decompose + temporally coalesce (range algebra)
-**Status:** Accepted
+**Status:** Accepted; **amended by ADR-024** (no longer the centerpiece) and **superseded in part by ADR-031** — the oracle that validated the transform is removed; the split-migration text remains.
 
 **Context.** What structural change makes the strongest "ORM can't do this" beat.
 **Decision.** A **split with temporal coalescing** using `range_agg` / multiranges — the v1 cached
@@ -130,7 +130,7 @@ activates on its own; level *and* rate step up) and the natural **`FOR PORTION O
 L5 rate for H2). `contract` correspondingly slims to `(id, client_id, valid_at)`.
 
 ## ADR-010 — Timesheet is an interactive write path (two views)
-**Status:** Accepted (supersedes "seeded integrity demo only")
+**Status:** Accepted (supersedes "seeded integrity demo only"); **superseded by ADR-025** — logging hours is now the `LogTimesheet` command on `POST /api/operations`; the timesheet route is read-only.
 
 **Context.** The timesheet could be seeded data purely for the FK demo.
 **Decision.** Make it **interactive**: an engineer scrubs to a day, sees their allocations as of that
@@ -155,7 +155,7 @@ ranges built in SQL (`daterange($from,$to,'[)')`); shared types carry `valid_fro
 **Status note.** Backed by a planning spike (`ARCHITECTURE.md` §10).
 
 ## ADR-012 — Accept valid-time-only (no system-time / bitemporality)
-**Status:** Accepted
+**Status:** Accepted; **amended by ADR-021** — an append-only `event_log` now records system-time provenance beside the facts.
 
 **Context.** PG19 provides application-time (valid time) only.
 **Decision.** Do **not** implement system-time. Treat its absence as a deliberate talking point:
@@ -167,7 +167,7 @@ choice where never-losing-original-facts matters, at the cost of projection mach
 *provenance* beside the facts (who/when/what), and back-dating-erases-belief is explicitly accepted.
 
 ## ADR-013 — Layered testing; Playwright for end-to-end
-**Status:** Accepted
+**Status:** Accepted; **partly superseded by ADR-031** — the automated migration-oracle property test is removed; the other test layers stand.
 
 **Context.** The demo must be provably correct *and* must not break live on stage; how to test both
 the temporal behaviour and the browser experience.
@@ -309,7 +309,7 @@ historical commits and stay untouched.
 the `lower()/upper() AS valid_from/valid_to` aliases are unchanged, so the `shared` types are untouched.
 
 ## ADR-019 — Domain operations layer: typed Command API + HTTP/UI
-**Status:** Accepted (amends ADR-010)
+**Status:** Accepted (amends ADR-010); **amended by ADR-025 and ADR-027/028** — event emission, dispatch, and handler responsibilities refined.
 
 **Context.** The write side was implicit (the seed) or single-purpose (`timesheet.log`). The system
 should model the *business processes* by which data accumulates — onboarding, promotion, allocation,
@@ -391,7 +391,7 @@ Stable names make the classifier readable and tests robust against regeneration.
 and races them); matching autogenerated names (rejected — brittle).
 
 ## ADR-023 — The seed is a replayed sequence of operations
-**Status:** Accepted
+**Status:** **Superseded by ADR-031** — the operations-replay seeder and its equivalence test are removed; a SQL seed is canonical again (`002_seed.sql` since ADR-033).
 
 **Context.** The clean-schema app needs founding data, and the operations layer (ADR-019) should be
 exercised by the most realistic possible path.
@@ -409,7 +409,7 @@ are removed; `003_seed.sql` is again the canonical running-app seed, with `bin/s
 on-demand financial seed.
 
 ## ADR-024 — Operations target the clean schema; `v1→v2` kept as a historical artifact
-**Status:** Accepted (amends ADR-007)
+**Status:** Accepted (amends ADR-007); **amended by ADR-031** — the retained oracle is removed; the `010` split-migration text stays, unguarded.
 
 **Context.** v1-wide caches `day_rate` on `allocation`; the `v1→v2` `range_agg` coalescing (ADR-007),
 validated by the oracle (ADR-013), was the talk's centerpiece. An operations layer interacts with that
@@ -462,7 +462,7 @@ is read with `let assert [row]`, so the created-record id flows into the event s
 being fabricated.
 
 ## ADR-026 — Financials: temporal invoice lifecycle, agreed-rate billing, proration, P&L as a query
-**Status:** Accepted (extends ADR-004, ADR-009, ADR-019/025; see `PRD-financials.md`)
+**Status:** Accepted (extends ADR-004, ADR-009, ADR-019/025; see `PRD-financials.md`); **amended by ADR-030** — invoice/payroll periods are now immutable 1:1 facts on id-only anchors.
 
 **Context.** Invoicing, payroll, and a P&L turn the staffing model into money, and money is where
 temporal correctness bites hardest. Three questions had to be answered consistently with the existing
@@ -810,10 +810,191 @@ versioned data for now.
 
 ---
 
+## ADR-035 — Demo identity gate, not real authentication
+**Status:** Accepted
+
+**Context.** The frontend overhaul (PRD-frontend.md) needs a login screen and a sense of "who is using
+the app." Every operation already carries a nominal `actor` string (PRD FR-11) that lands in the
+`event_log`; the question was whether to build real auth (users, password hashes, sessions, role
+guards — new tables and middleware) or a lighter identity mechanism.
+
+**Decision.** Ship a **demo identity gate**: a "sign in as" screen lists the seeded engineers and two
+roles (Admin, Ops); choosing one sets the `actor` and enters the app, "sign out" returns to the gate.
+No password, session token, or access control — identity only stamps the activity log. It is a client
+view-state plus the existing `actor`, with **zero backend additions**.
+
+**Rationale.** Tempo is a temporal-modelling showcase, not a security product; real auth would add
+schema, middleware, and threat surface that teach nothing about the bitemporal thesis. The gate gives
+the app the *feel* of multi-user accountability (named actors in the journal) for almost no cost, and
+nothing about it blocks adding real auth later — it would slot in behind the same gate.
+
+**Alternatives.** Full auth with RBAC (rejected for v1 — large, off-thesis, defer<-able); no login at
+all / a free-text actor box (rejected — loses the product feel and lets the journal be stamped with
+junk).
+
+---
+
+## ADR-036 — One global as-of date as the application's spine
+**Status:** Accepted
+
+**Context.** The old client had a slider bound to the board and timesheet only. The overhaul spans
+seven pages, and the distinctive idea is *viewing the company as of a chosen instant*. Each page could
+own its own date control, or one date could be shared by all.
+
+**Decision.** A **single application-wide as-of date**, owned by a **time rail** in the top bar and
+mirrored in the URL (`?date=YYYY-MM-DD`). Every page reads from it; changing it re-renders the active
+page's as-of-bound views. It is **application (valid) time** — the axis the board, finance, balances,
+and entity details resolve against. The **Activity** journal is **system time** (when changes were
+recorded), a different axis (PRD §5), so the rail explicitly does **not** filter it; that page documents
+the distinction rather than pretending the rail applies.
+
+**Rationale.** A single shared date makes the temporal model the app's point of view rather than a
+per-screen widget, and keeps deep links/reloads landing on the same instant. Modelling the rail as
+valid-time (and carving Activity out as system-time) keeps the two axes honest instead of conflating
+them under one slider.
+
+**Alternatives.** Per-page date controls (rejected — fragments the thesis, lets pages disagree on
+"when"); binding the rail to system time too and filtering the journal by it (rejected — conflates the
+two temporal axes the project exists to distinguish).
+
+---
+
+## ADR-037 — Contextual operations, not one monolithic console
+**Status:** Accepted
+
+**Context.** The write model is a typed `Command` vocabulary dispatched through `POST /api/operations`
+(PRD FR-9). The old client exposed it as one operations console: a `<select>` of command kinds over a
+shared bag of input fields. In a multi-page app that console is both out of place and discoverable only
+as a power-user screen.
+
+**Decision.** Surface each command as a **contextual action on the page the subject lives on** —
+Assign / Draft invoice on a project, Promote / Take leave / Roll off on a person, Issue / Mark paid on
+an invoice, Onboard on People, Sign contract on Clients, Revise rate on Settings. Each opens a small
+form pre-scoped to its subject, composes the same `Command`, and posts it to the unchanged
+`/api/operations` endpoint as the signed-in actor; a refused operation shows its typed domain error
+(PRD FR-5) inline. The wire contract and domain dispatch are untouched — this is purely how the writes
+are presented.
+
+**Rationale.** Actions belong next to the thing they act on; pre-scoping the form (the project/engineer
+is known from context) removes the console's free-form id-typing and its main source of error. Reusing
+the exact command envelope means no backend change and the Activity journal still records one row per
+operation.
+
+**Alternatives.** Keep the monolithic console as the only write surface (rejected — poor fit for a
+real app, error-prone id entry); contextual actions *and* a parallel console (rejected for v1 as
+redundant; a generic admin console can return later if a power-user need appears).
+
+---
+
+## ADR-038 — Token-only, modular CSS for the app (extends ADR-029)
+**Status:** Accepted
+
+**Context.** ADR-029 established plain-CSS sources in `client/styles/` (a `theme.css` token file plus
+per-area component files wired by `main.css`, copied to `priv/static/styles` by the build). The
+overhaul is much larger (shell, seven pages) and the user requires that the theme system be honoured
+strictly: no hard-coded colour or size constants in any rule.
+
+**Decision.** Keep the modular `@import` structure and extend `theme.css` into a fuller token system —
+t-shirt **spacing / font-size / weight / radius** scales, semantic **colour** names, layout **sizes**,
+and a **`--cat-*` categorical palette** for data-indexed colours (avatars, project swatches). **Every
+rule references `var(--token)`; no rule carries a literal colour, size, weight, or radius**, and even
+script-emitted inline styles reference tokens (data-driven values like a computed width % or a
+`--cat-N` pick are the only inline exceptions). New per-area files (app-shell, sidebar, time-rail,
+login, board, people, clients-projects, finance, activity, settings) join the `main.css` manifest in
+page order.
+
+**Amended (CSS v2 — strict consistency, enforced).** The first cut centralised too much and too finely.
+The standing rules, to be upheld by every future change:
+- **Small scales, not many.** Spacing is **5** steps (`--space-xs/sm/md/lg/xl`), font-size **≤6**, letter-
+  spacing **3** (`tight/normal/wide`). Don't grow them; map a new need to the nearest step.
+- **One shared size scale.** Component dimensions reference a shared scale step or a named layout token.
+  A value that doesn't fit **snaps to the nearest step** or is achieved by layout (flex / `minmax`+`fr` /
+  the spacing scale) — never a bespoke number. Viewport-relative units (`clamp()`/`%`) belong only on
+  layout regions (sidebar, content width), never on atoms (icons, avatars, inputs).
+- **No per-component constants.** There are **zero** CSS custom-property declarations outside `theme.css`
+  and **zero** literal colours/sizes/type in component files — every value is `var(--shared-token)`. A
+  new constant is allowed only as a **named, semantic, shared** token in `theme.css`, and only when it is
+  a genuinely reusable decision (used, or plausibly reusable, in more than one place). "This component
+  needs a number" is not a justification — snap to the scale. This bar exists specifically to stop the
+  token system rotting into a pile of locally-justified one-offs.
+- **Colours:** a neutral+accent palette with intent-revealing names (`--color-surface` raised vs
+  `--color-surface-sunken` inset; one `--color-border`; `--color-accent` + `--color-accent-hover`; the
+  brand gradient is a single `--gradient-brand` token), followed by a separate **Domain & status colours**
+  section (`leave*`, invoice-lifecycle `ok`/`warn`) so domain meaning is not mixed into the base palette.
+- **File split:** `base.css` is reset + element defaults + universal text utilities only; shared cross-
+  page atoms (`btn`, `pill`, `panel`, `stat`, table, tabs, `kv`, op-form) live in `components.css`; page-
+  specific rules live in their owner file.
+- **Class naming:** BEM (`block__element--modifier`); no terse collision-prone names.
+- **Enforced** by three greps that must print nothing: literal hex / literal `px|rem|em` / any `--` decl,
+  each outside `theme.css` (hex also allows `login.css`'s gradient stops).
+
+**Rationale.** A single token source means re-tuning spacing or shifting the palette is a one-file edit
+that propagates everywhere, and categorical colours stop being scattered literals. Extending ADR-029
+rather than replacing it keeps the existing build copy-step and the styling-by-class discipline that
+keeps the Playwright suite (which asserts text/ARIA, never CSS) unaffected.
+
+**Alternatives.** A CSS framework / utility classes (rejected — drags in literals and a build
+dependency, and fights the token discipline); inline styles in Lustre views (rejected — scatters
+constants and defeats theming).
+
+---
+
+## ADR-039 — Client module split: shell + page modules
+**Status:** Accepted
+
+**Context.** `client/src/client/app.gleam` is one ~2400-line module holding model, update, view, the
+slider, and every panel. The overhaul adds routing, a login gate, a global date, and seven pages —
+untenable in one file, and hard to reason about or edit reliably.
+
+**Decision.** Split the client into a **shell** plus **page modules** (ADR-014's single JS package is
+unchanged — this is internal module structure). `app.gleam` keeps the top-level model, the global
+as-of date, the login gate, the sidebar, and the `modem` router; routing dispatches to one module per
+page under `client/page/` (`board`, `people`, `clients`, `projects`, `finance`, `activity`,
+`settings`), with shared view helpers (avatar, pill, stat, panel, table, kv) in `client/ui/` and the
+time rail in `client/time`. Pages import `shared/*` (the contract types/codecs) and the fetch helpers,
+never each other's internals.
+
+**Rationale.** One purpose per module makes each page independently understandable and testable, keeps
+files small enough to edit reliably, and mirrors the server's web-handler-per-endpoint layout (§3).
+The split is mechanical given the page boundaries the PRDs already draw.
+
+**Alternatives.** Keep one growing module (rejected — already too large, gets far worse); split into
+many JS packages (rejected — needless; ADR-014's single client package builds fine, the problem is
+intra-package organisation).
+
+---
+
+## ADR-040 — Frontend spec: prototype-first, decomposed into umbrella + per-page PRDs
+**Status:** Accepted
+
+**Context.** "Beautiful UI" was the goal, and the overhaul is large (a shell plus seven pages). A single
+combined spec would be unwieldy, and visual direction is hard to settle in prose.
+
+**Decision.** Two structural choices. (1) **Prototype-first**: build a self-contained static HTML
+prototype (rendered as an Artifact, token-only CSS, real seed-shaped data and a working as-of rail) to
+settle visuals, IA, and the time-rail interaction *before* porting to Lustre. (2) **Decomposed spec**:
+an umbrella `PRD-frontend.md` (login, nav, global as-of, routing, CSS/theme, visual identity, new
+backend reads) plus six page PRDs (`-board`, `-people`, `-clients-projects`, `-finance`, `-activity`,
+`-settings`), each carrying its own functional requirements and acceptance, built in order (shell
+first). This follows the established three-doc convention (below) extended per-page for size.
+
+**Rationale.** The prototype turns a subjective "is it beautiful" conversation into something
+clickable, and its token-only CSS lifts straight into the modular files (ADR-038). Per-page PRDs keep
+each spec small enough to drive one focused plan → implementation cycle, and let pages be specified and
+built incrementally without one monolithic document drifting out of date.
+
+**Alternatives.** One combined frontend spec (rejected — too large to review or implement in one pass);
+porting straight to Lustre with no prototype (acceptable to the user, but rejected as the lead since
+visuals were the explicit goal and are cheaper to iterate in HTML).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 
 Design captured as `PRD.md` (product/requirements), `ARCHITECTURE.md` (technical design), and
-`DECISIONS.md` (this log) at the repo root — per user request, in place of a single combined spec.
-Superseded generations are archived under `docs/archive/` (e.g. the original talk-first
-`PRD-v1-conference-talk.md`, superseded by ADR-017) rather than deleted.
+`DECISIONS.md` (this log) — per user request, in place of a single combined spec. These and the other
+design/run docs live under `docs/` (only `README.md` stays at the repo root); superseded generations
+are archived under `docs/archive/` (e.g. the original talk-first `PRD-v1-conference-talk.md`,
+superseded by ADR-017) rather than deleted. Large feature areas get a companion PRD
+(`PRD-financials.md`; the frontend overhaul adds `PRD-frontend.md` plus per-page PRDs — ADR-040).

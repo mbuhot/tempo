@@ -14,7 +14,7 @@ only what the user sees), so you do **not** switch versions except where beat 6
 says to.
 
 > Operational detail (env vars, the Playwright harness, the package layout) lives
-> in `README.md`.
+> in `../README.md`.
 
 ---
 

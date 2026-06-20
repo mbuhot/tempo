@@ -39,7 +39,8 @@ A schema change that breaks a query is caught at **codegen/compile time**; a con
 The repo is a **four-package layout** (ADR-014): three sibling Gleam packages — `server/`, `shared/`,
 and `client/` — wired by path dependencies (no symlinks — portable on any clone and in CI), plus the
 `e2e/` Playwright (Node) harness. The repo root holds only orchestration: `bin/` task wrappers,
-`docker-compose.yml` (the PG19 container), `plan/` (the build plan), and the design docs.
+`docker-compose.yml` (the PG19 container), `plan/` (the build plan), `README.md`, and the design and
+run docs under `docs/`.
 
 ```
 bin/                          # thin task wrappers run from the repo root; each cd's
@@ -48,7 +49,10 @@ bin/                          # thin task wrappers run from the repo root; each 
                               #   seed-invoices (on-demand demo financials seed)
 docker-compose.yml            # PG19 (tempo-db) on host port 5434
 plan/                         # phased build plan
-PRD.md ARCHITECTURE.md DECISIONS.md README.md RUNBOOK.md   # design + run docs
+README.md                     # repo intro (the only doc kept at the root)
+docs/                         # design + run docs: PRD.md, PRD-financials.md,
+                              #   PRD-frontend*.md, ARCHITECTURE.md, DECISIONS.md,
+                              #   RUNBOOK.md, SCHEMA.md; archive/ holds superseded docs
 
 server/                       # package `tempo` — the Wisp server (Erlang target)
   gleam.toml                  #   depends on shared = { path = "../shared" }
@@ -845,3 +849,79 @@ policied and the balance is short, as `InsufficientLeaveBalance` (→ 422). A ki
 both the balance query and the guard share one definition. Tests: `leave_test.gleam` (per-level
 accrual, leap-exactness, taken subtraction, promotion blend, automatic policy-change pickup, and the
 guard's allow/reject/unlimited paths).
+
+## 14. Frontend application (the overhaul — PRD-frontend.md)
+
+The client becomes a real application: a login gate, a persistent shell, client-side routing, and one
+global as-of date every page resolves against. ADR-014's single JS `client` package is unchanged; this
+is internal structure plus a few new read endpoints. The write path (`POST /api/operations`, the
+`Command` vocabulary) is untouched.
+
+**Module split (ADR-039).** `app.gleam` shrinks from one ~2400-line module to a shell that owns the
+top-level model, the global as-of date, the login gate, the sidebar, and the `modem` router. Routing
+dispatches to one module per page; shared view atoms and the time rail are their own modules.
+
+```
+client/src/client/
+  app.gleam            # shell: model/update/view, login gate, sidebar, modem router, global as-of
+  route.gleam          # Route type + parse/to_uri (path + ?date=); modem on_url_change → Msg
+  time.gleam           # the time rail: slider/date-input/step/Today over the seed range
+  ui.gleam             # shared view helpers: avatar, pill, stat, panel, table, kv (no page logic)
+  page/
+    board.gleam        # GET /api/board
+    people.gleam       # GET /api/people, /api/engineers/:id, /api/timesheet
+    clients.gleam      # GET /api/clients/:id (+ roster)
+    projects.gleam     # GET /api/projects/:id (+ roster)
+    finance.gleam      # invoices(+:id) / payroll / pnl (three tabs)
+    activity.gleam     # GET /api/events
+    settings.gleam     # rate card / salary / leave_policy reads
+```
+
+Pages import `shared/*` (the contract types + codecs) and the fetch helpers (`rsvp`), never each
+other's internals — the same one-purpose-per-module discipline as the server's web handlers (§3).
+
+**Global as-of (ADR-036).** The shell model holds one `as_of: calendar.Date`. The time rail emits a
+`AsOfChanged(Date)` message; the shell updates the date, writes it to the URL (`?date=`, via `modem`),
+and re-issues the active page's fetch. As-of is **application (valid) time** — the axis board, finance,
+balances, and detail pages resolve against. The **Activity** journal is **system time** and is *not*
+filtered by the rail (PRD §5; the Activity PRD documents this). The seed-range bounds and the
+`seed_now` anchor that the current slider uses carry over unchanged.
+
+**Routing (ADR-036/039).** `route.gleam` defines the `Route` union (`Board`, `People(Option(Int))`,
+`Clients(Option(Int))`, `Projects(Option(Int))`, `Finance(Tab)`, `Activity`, `Settings`) and maps it
+to/from a URL, with the as-of date as a query param carried across navigation. `lustre/modem` (already
+a `client` dependency) drives `init` (parse the initial URL) and `on_url_change`; the sidebar links and
+in-page drill-ins are plain `<a href>`s modem intercepts. Routes are deep-linkable and honour
+back/forward.
+
+**Login gate (ADR-035).** Identity is client view-state: an `actor: Option(String)` in the model. The
+gate lists the seeded engineers (from the roster) and the Admin/Ops roles; selecting one sets `actor`
+and reveals the shell, "sign out" clears it. `actor` is sent in each `OperationRequest` (the existing
+field). No backend, no session.
+
+**New read endpoints (PRD-frontend §5).** All are as-of queries over the existing `*_current` views and
+fact tables — no schema change — added as thin web handlers beside the current ones (§3), each calling
+the domain and encoding a shared type:
+
+| Route | Returns | Built from |
+|---|---|---|
+| `GET /api/people?as_of=` | roster list (level, status, allocation, leave balance per engineer) | board snapshot + `leave_balance` (superset of today's board) |
+| `GET /api/engineers/:id?as_of=` | detail bundle: contact/banking/emergency, employment + role history, allocations, leave balance + history | `engineer_*_current` views + `engineer_role`/`employment`/`allocation`/`leave` |
+| `GET /api/clients/:id` | profile, contracts, projects | `client_profile_current` + contracts/projects |
+| `GET /api/projects/:id?as_of=` | profile, plan, team as-of, invoices | `project_profile_current`/`project_plan_current` + allocation + invoices |
+| settings reads | current rate card / salary / leave policy rows | `rate_card`/`salary`/`leave_policy` |
+
+New shared types back these bundles (e.g. an engineer-detail record aggregating the existing
+`EngineerContact`/`EngineerBanking`/`EngineerEmergency` with history lists); contextual-action writes
+reuse the existing `Command` variants unchanged.
+
+**CSS (ADR-038).** `client/styles/theme.css` grows into the full token system (spacing/type/weight/
+radius scales, semantic colours, layout sizes, the `--cat-*` categorical palette); new per-area files
+(`app-shell`, `sidebar`, `time-rail`, `login`, plus one per page) join the `main.css` `@import`
+manifest in page order and are copied to `priv/static/styles` by `bin/build` (ADR-029). Every rule
+references `var(--token)`; no rule carries a literal colour or size.
+
+**Testing.** The existing Playwright beats (board/slider, timesheet, operations, financials) move
+behind the shell — selectors updated to the new layout and navigation, behaviour-driven assertions
+(text/ARIA) unchanged. New beats cover sign-in → land on board, navigating between pages with the as-of
+date preserved, and a contextual action appearing in the Activity journal.

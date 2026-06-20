@@ -2,7 +2,7 @@
 
 A live-demo app showcasing **PostgreSQL 19 native temporal tables** (SQL:2011
 application-time periods) through a consultancy staffing model, built with
-Gleam, Squirrel, Wisp, and Lustre. See `PRD.md` and `ARCHITECTURE.md`.
+Gleam, Squirrel, Wisp, and Lustre. See `docs/PRD.md` and `docs/ARCHITECTURE.md`.
 
 ## Run-book
 
@@ -99,7 +99,7 @@ The new fact tables are `engineer_contact` / `engineer_banking` /
 rows. The temporal containment chain is now
 `contract_terms → project_run → allocation → timesheet` and
 `employment → {engineer_role, leave, allocation}`, with `invoice_subject ⊂
-project_run`. See `SCHEMA.md` (regenerated from the live DB by `bin/erd`) for the
+project_run`. See `docs/SCHEMA.md` (regenerated from the live DB by `bin/erd`) for the
 full table/relationship map.
 
 ### Client (Lustre SPA)

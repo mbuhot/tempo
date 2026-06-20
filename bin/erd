@@ -100,7 +100,7 @@ if [[ -z "${diagram//[$'\n ']/}" ]]; then
   exit 1
 fi
 
-doc="SCHEMA.md"
+doc="docs/SCHEMA.md"
 begin='<!-- BEGIN GENERATED ERD (bin/erd) -->'
 end='<!-- END GENERATED ERD -->'
 start_line="$(grep -n -F "$begin" "$doc" | head -1 | cut -d: -f1)"
