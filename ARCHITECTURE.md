@@ -96,10 +96,9 @@ server/                       # package `tempo` — the Wisp server (Erlang targ
       seed_financials.gleam   #   on-demand demo financials seed (gleam run -m tempo/seed_financials)
   test/                       #   constraint, operation, as-of, codec, financials, pnl, api, sql
   priv/
-    migrations/               #   001_init.sql, 002_facts.sql, 003_seed.sql, 010_split_allocation.sql,
-                              #     011_event_log.sql, 012_financials.sql, 013_financial_fks.sql,
-                              #     014_engineer_facts.sql, 015_client_facts.sql,
-                              #     016_contract_project_anchors.sql, 017_invoice_payroll_subjects.sql
+    migrations/               #   001_schema.sql (whole schema; each fact has an
+                              #     audit_id FK to event_log), 002_seed.sql (the
+                              #     deterministic demo seed + its event_log history)
     static/                   #   compiled client bundle (app.js) + index.html + styles/ (copied; gitignored)
 
 shared/                       # package `shared` — BOTH targets, target-agnostic
@@ -190,17 +189,16 @@ A third, degenerate flavour: `invoice_subject(invoice_id, project_id, billing_pe
 row per anchor (keyed by the anchor PK, not a period PK), with no `*_current` view. Reads `INNER JOIN`
 the fact directly. `payroll_period` carries the no-overlap `EXCLUDE` that rejects overlapping runs.
 
-`engineer_role`, `rate_card`, `salary`, `invoice_line`, and `payroll_line` retain their pre-refactor
-shape; the structural change at 014–017 was confined to moving the anchors' own attributes out into
-the facts above. `event_log` is unchanged: an append-only journal, one row per applied operation,
-never referenced by the fact tables (no FKs in or out), so it constrains and contaminates nothing.
+`event_log` is the append-only journal, one row per applied command. Every fact table additionally
+carries a nullable **`audit_id`** FK to it — the entry of the command that recorded that row-version
+(ADR-032). This is a provenance pointer only: the as-of reads never consult `audit_id`, so the model
+stays valid-time-only (ADR-021, as amended) — the journal is read FROM (provenance) but does not
+constrain the temporal reads.
 
-The migrations build this incrementally: `014_engineer_facts` and `015_client_facts` shed the anchor's
-`name` column into latest-read facts; `016_contract_project_anchors` renames the live `contract`/
-`project` fact tables out from under their old names (so the dependent `PERIOD` FKs follow by rename)
-and mints fresh id-only anchors above them, adding `project_profile`/`project_plan`;
-`017_invoice_payroll_subjects` moves the invoice subject and the payroll period into immutable 1:1
-facts (re-adding the FKs that keyed against the moved columns).
+The whole schema and the deterministic seed are built by two consolidated migrations — `001_schema.sql`
+and `002_seed.sql` (ADR-033) — rather than the original incremental chain (see git history for the
+01-through-18 evolution: the allocation split, the anchor/fact refactors, the financial layer, and the
+id sequences).
 
 ### PERIOD-FK containment chain
 
@@ -354,12 +352,12 @@ the modeling lives here.
 things: **route** the command to its aggregate's `handle` for the **facts it records** (`engineer`,
 `engineer_details`, `client_details`, `project_details`, `allocation`, `rate_card`, `engagement`,
 `leave`, `timesheet`, `salary`, `invoice`, `payroll` — variants grouped per aggregate by alternative
-patterns), then hand the facts to **`repository.record_facts(conn, actor, facts)`**. Facts and journal
-commit together or not at all. `dispatch` **returns the persisted journal events** (`List(Event)`, with
-their minted id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest
-round-trip. `dispatch_in` is the transaction-free core (route + record on an already-open connection)
-so a test can drive it inside its own rolled-back transaction. There is no separate per-event
-`persist` step — recording the `CommandHandled` fact *is* the journal append.
+patterns) for the `fact.Recorded(entry, facts)` it produces, then hand both to
+**`repository.record_facts(conn, actor, entry, facts)`**. Facts and journal commit together or not at
+all. `dispatch` **returns the persisted journal event** (`List(Event)`, with its minted
+id/occurred_at), so the web layer echoes exactly what was written — no fetch-newest round-trip.
+`dispatch_in` is the transaction-free core (route + record on an already-open connection) so a test can
+drive it inside its own rolled-back transaction.
 
 **Each aggregate's `handle(conn, command)` is a *pure dispatch*** (ADR-027): a `case` that routes each
 variant it owns to a **named per-operation function** (`onboard_engineer`, `promote`,
@@ -371,22 +369,23 @@ variant it owns to a **named per-operation function** (`onboard_engineer`, `prom
 **panics** on any other variant (`panic as "<aggregate>.handle: … (dispatch bug)"`) — an unrouted
 command is a routing bug, never a silent `Ok`.
 
-**Each named op returns `Result(List(Fact), OperationError)`** (ADR-032): it decides **WHICH facts** a
-command records — and in what order (identity anchors first, then the facts contained by them, ending
-with a **`CommandHandled`** audit fact carrying the operation tag, human summary, and the command
-re-encoded as payload). A handler builds no SQL and no journal row. The five **create-ops**
+**Each named op returns `Result(fact.Recorded, OperationError)`** (ADR-032) — `Recorded(entry, facts)`,
+the command's audit `entry` (the journal row: operation tag, human summary, command re-encoded as
+payload) plus the **`facts`** it records, in write order (identity anchors first, then the facts
+contained by them). A handler builds no SQL and persists nothing. The five **create-ops**
 (`onboard_engineer`, `sign_contract`, `start_project`, `draft_invoice`, `run_payroll`) **reserve the
 anchor id up-front** with `repository.next_id` (a `nextval`) and thread it into every fact they emit,
 so nothing is read back. The two **compute-ops** (`draft_invoice`, `run_payroll`) still read their
 lines on the connection (`invoice_billing_lines`, `payroll_amounts`) and map each row to a line fact;
 `issue_invoice`/`pay_invoice` read the current status to guard the transition.
 
-**`repository.record_facts(conn, actor, facts)` is the single persistence seam** — the one place a
-fact's write SEMANTIC lives (ADR-032). It folds the list in order, maps each fact to the SQL that
+**`repository.record_facts(conn, actor, entry, facts)` is the single persistence seam** — the one place
+a fact's write SEMANTIC lives (ADR-032). It appends the `entry` to `event_log` (stamped with the actor;
+the DB mints id/occurred_at), then writes each fact in order, passing the appended id as the **`audit_id`**
+every fact carries (its FK back to the command that recorded it). It maps each fact to the SQL that
 records it, classifies any rejection into a typed `OperationError`, and short-circuits on the first
-failure (so the caller's transaction rolls them all back). Only **`CommandHandled`** yields a persisted
-`Event` — it appends the `event_log` row, stamped with the actor; the rest return no event. Its
-companion **`next_id(conn, sequence)`** reserves an anchor id (a `nextval`) before its facts are
+failure (so the caller's transaction rolls them all back). It returns the one persisted journal `Event`.
+Its companion **`next_id(conn, sequence)`** reserves an anchor id (a `nextval`) before its facts are
 recorded.
 
 To break the `command` ↔ aggregate import cycle, the journal `Event` type, the `OperationError` type,
@@ -548,11 +547,11 @@ is the on-stage correctness demonstration.
   currently `001`–`017` (`SCHEMA.md` is regenerated from the resulting live DB by `bin/erd`).
 - `server/src/tempo/server/migrate.gleam` runs pending files in a transaction and records them in a
   `schema_migrations(version text primary key, applied_at timestamptz)` table.
-- **Semantic period renames are done in place** in the existing migration files (`002`, `010`), *not*
-  as a new migration layered on top (ADR-018), so `main` uses one consistent naming throughout.
-- **Seed.** `003_seed.sql` is the canonical seed, run as part of the migration chain; the later
-  migrations (`014`–`017`) thread the founding facts off it as they reshape the schema (§7).
-  `bin/seed-invoices` is the separate on-demand financial seed (§9, §12.5).
+- **Periods are named for the predicate they assert** (ADR-018) directly in `001_schema.sql`, so `main`
+  uses one consistent naming throughout.
+- **Seed.** `002_seed.sql` is the canonical seed, run as the second migration: the demo facts plus the
+  realistic `event_log` history each fact's `audit_id` links to (ADR-032). `bin/seed-invoices` is the
+  separate on-demand financial seed (§9, §12.5).
 
 ## 9. Build & run
 
@@ -680,11 +679,11 @@ OVERLAPS` and `CHECK` constraints carry explicit names so a violation classifies
 `OperationError` (ADR-022). One **cost fact** (`salary`); an invoice **anchor** (`invoice`) with its
 immutable subject (`invoice_subject`), temporal status (`invoice_status`), and snapshot lines
 (`invoice_line`); and a payroll **anchor** (`payroll_run`) with its immutable period
-(`payroll_period`) and lines (`payroll_line`). The DDL below shows the original `012` shape; `017`
-later split the invoice subject and the payroll period into the immutable 1:1 facts (§4, §7), and `018`
-replaced every `GENERATED ALWAYS AS IDENTITY` anchor (and the race-prone `coalesce(max(id),0)+1` mint on
-the `contract`/`project` anchors) with an explicit owned id sequence the app drives via
-`repository.next_id` — see `SCHEMA.md` for the current shape.
+(`payroll_period`) and lines (`payroll_line`). The DDL below shows the original `012` shape for
+illustration; in the consolidated `001_schema.sql` the command-minted anchors are `int GENERATED BY
+DEFAULT AS IDENTITY` (so the app supplies an id reserved from the same `<anchor>_id_seq` via
+`repository.next_id`, and the seed can pin explicit ids), and every fact carries an `audit_id` FK to
+`event_log` — see `SCHEMA.md` for the current shape.
 
 ```sql
 -- Cost rate (the analogue of rate_card: what we PAY a level, vs what we CHARGE) --

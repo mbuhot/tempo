@@ -355,7 +355,9 @@ through it); fallback is hand-written `pog` for the write functions. The data la
 per-aggregate `insert` / `update_for_portion` / `delete_for_portion`.
 
 ## ADR-021 — Application-time only, with an `event_log` for system-time provenance
-**Status:** Accepted (amends ADR-012)
+**Status:** Accepted (amends ADR-012); **amended by ADR-032** — facts now carry an `audit_id` FK INTO
+`event_log` (a provenance pointer, set by the repository; the as-of reads never consult it), so the
+"no FKs in or out" below holds only for FKs OUT of event_log; the model stays valid-time-only.
 
 **Context.** ADR-012 accepted valid-time-only and named the absence of system-time as a talking point.
 But there is still value in recording *that* a change was made — by whom, when.
@@ -426,7 +428,7 @@ migration text stays but is no longer guarded by an automated equivalence check.
 
 ## ADR-025 — Command handlers own event emission; `dispatch` only routes and persists
 **Status:** Accepted (amends ADR-010, ADR-019); **amended by ADR-032** (handlers now return
-`List(Fact)`; `repository.record_facts` persists, and the journal entry is a `CommandHandled` fact)
+`fact.Recorded(entry, facts)`; `repository.record_facts` appends the entry then writes the facts)
 
 **Context.** Under ADR-019, `dispatch` did the routing *and* built the journal `event_log` row —
 deriving the `operation` tag, the human summary, and the re-encoded payload itself — while the
@@ -509,7 +511,7 @@ anchors, so the `invoice_subject.billing_period ⊂ project_run.active_during` P
 
 ## ADR-027 — Aggregate `handle` dispatches to named operations; `operation.try/run` encapsulate classification; an unrouted command panics
 **Status:** Accepted (refines ADR-019, ADR-025); **amended by ADR-032** (named ops now return
-`List(Fact)`; `operation.try/run` are used by `repository`, not the handlers)
+`fact.Recorded`; `operation.try/run` are used by `repository`, not the handlers)
 
 **Context.** Under ADR-025 each aggregate gained a `handle(conn, command)`, but the body was a single
 case that destructured the command's fields *and* did the writes *and* built the event inline, mixing
@@ -543,8 +545,8 @@ write).
 
 ## ADR-028 — Handlers build their own events (carrying created-record ids); single `RETURNING` rows are read with `let assert`, never fabricating id 0
 **Status:** Accepted (refines ADR-025); **superseded by ADR-032** — created-record ids now come from an
-explicit sequence reserved up-front (`repository.next_id`), so create-ops no longer read back a
-`RETURNING` id; the journal entry is a `CommandHandled` fact
+identity sequence reserved up-front (`repository.next_id`), so create-ops no longer read back a
+`RETURNING` id; the journal entry is the `Recorded` entry `record_facts` appends
 
 **Context.** ADR-025 moved event *ownership* to the aggregates, but a standalone `events(command)`
 function still derived the journal event from the *command alone*, separately from the writes. That
@@ -670,10 +672,10 @@ schema and the anchor/fact redesign (ADR-030).
 **Decision.** **Delete the oracle entirely** — `server/src/tempo/oracle.gleam`, `bin/oracle`, the
 operations-replay seeder `server/src/tempo/seed.gleam`, and `server/test/seed_equivalence_test.gleam`.
 The `v1→v2` board-equivalence verification and the seed-via-operations equivalence check are gone.
-`003_seed.sql` is again the **canonical running-app seed**; `bin/seed-invoices` remains the on-demand
-financial seed. `bin/` is now build, db, e2e, erd, migrate, seed-invoices, serve, squirrel, test, up
-(no `bin/oracle`). The suite is **129 Gleam tests + 14 Playwright specs**, with migrations running
-through `018` (ADR-032's id sequences).
+the SQL seed is again the **canonical running-app seed** (later consolidated to `002_seed.sql`, ADR-033);
+`bin/seed-invoices` remains the on-demand financial seed. `bin/` is now build, db, e2e, erd, migrate,
+seed-invoices, serve, squirrel, test, up (no `bin/oracle`). The suite is **129 Gleam tests + 14
+Playwright specs**.
 **Rationale.** The remaining test layers (DB-level temporal-constraint tests, as-of query tests,
 shared-codec round-trips, and the behaviour-driven Playwright suite) cover the live demo; the oracle's
 specific claim — that the lossy `range_agg` split preserves the board — is argued from the migration
@@ -687,49 +689,89 @@ SQL seed is simpler and deterministic).
 
 ---
 
-## ADR-032 — A typed `Fact` schema and a `repository` persistence seam; handlers return `List(Fact)`; anchor ids from explicit sequences
+## ADR-032 — A typed `Fact` schema + `repository` persistence seam; handlers return `Recorded`; per-fact `audit_id`; explicit id sequences
 **Status:** Accepted (amends ADR-025, ADR-027; supersedes ADR-028)
 
 **Context.** Under ADR-025/027/028 each aggregate's named op did its own `sql.*` temporal writes, then
 built the journal `Event` it returned, and `dispatch` persisted those events. The write SEMANTIC (which
 `FOR PORTION OF` shape, which cascade, the delete-then-insert upsert) was spread across thirteen
-aggregate modules, and the create-ops minted ids by reading back a single `INSERT … RETURNING` row
+aggregate modules, the create-ops minted ids by reading back a single `INSERT … RETURNING` row
 (`engineer`/`invoice`/`payroll_run` via `GENERATED ALWAYS AS IDENTITY`; `contract`/`project` via a
-race-prone `coalesce(max(id),0)+1`). The information the system records was implicit in those scattered
+race-prone `coalesce(max(id),0)+1`), and the event_log sat beside the facts with no link between a
+fact row and the command that wrote it. The information the system records was implicit in scattered
 writes rather than stated as a type.
 
 **Decision.** Introduce a **`Fact`** union — the typed information schema — whose variants are *states
 that hold over a period* (not events): identity anchors, `EngineerEmployed`/`AtLevel`/`OnLeave`/
 `AllocatedToProject`, the contact/banking/emergency/profile/plan/client details, `RateCard`, `Salary`,
-`ContractTerms`, `ProjectRun`, the invoice/payroll facts, `EngineerWorkedHours`, the retraction facts
-`EngineerOffProject`/`EngineerDeparted`, and the audit fact **`CommandHandled`**. Each aggregate's
-`handle(conn, command)` now returns **`Result(List(Fact), OperationError)`** — it decides *which* facts
-a command records (anchors first, then the facts contained by them, ending with `CommandHandled`) and
-nothing else. A single **`repository.record_facts(conn, actor, facts)`** is the one place a fact's write
-SEMANTIC lives: it folds the list, maps each fact to its SQL (a plain insert; a versioned-attribute
-*change-or-open* that falls back to an open when no version yet exists, keyed off the live row count, so
-the founding write and a later edit are the same fact; a cap-then-open status; a cap + cascade
-retraction; the worked-hours upsert), and classifies any rejection. `CommandHandled` is the only fact
-that appends an `event_log` row (stamped with the actor) and yields a persisted `Event`. Its companion
-**`repository.next_id(conn, sequence)`** reserves an anchor id from an **explicit owned sequence**
-(migration `018`, replacing both identity-generation strategies), so a create-op threads the id into
-every fact it emits with no read-back.
+`ContractTerms`, `ProjectRun`, the invoice/payroll facts, `EngineerWorkedHours`, and the retraction
+facts `EngineerOffProject`/`EngineerDeparted`. A handler returns **`fact.Recorded(entry, facts)`** — the
+command's audit `entry` (an `operation.Event`: tag, summary, payload) plus the facts it records (anchors
+first, then the facts contained by them). A single **`repository.record_facts(conn, actor, entry,
+facts)`** is the one place a fact's write SEMANTIC lives: it appends the `entry` to `event_log`, then
+writes each fact, **passing the appended entry's id as the `audit_id` every fact carries** — its FK back
+to the command that recorded that row-version. It maps each fact to its SQL (a plain insert; a
+versioned-attribute *change-or-open* that falls back to an open when no version yet exists, keyed off
+the live row count, so the founding write and a later edit are the same fact; a cap-then-open status; a
+cap + cascade retraction; the worked-hours upsert), and classifies any rejection. Its companion
+**`repository.next_id(conn, sequence)`** reserves an anchor id from a `GENERATED BY DEFAULT` identity
+sequence, so a create-op threads the id into every fact it emits with no read-back.
 
-**Rationale.** The Fact union makes the recorded information schema legible at a glance, and concentrating
-the write semantics in `repository` (SLAP, ADR-016) lets handlers read as declarative `Command → facts`
-mappings. Folding the journal into a `CommandHandled` fact unifies "the facts" and "the audit" under one
-persistence seam (recording is one fold), so `dispatch` no longer has a separate persist step. Explicit
+Per-fact provenance is set **explicitly** on each write — an insert supplies `audit_id` as a column; a
+revise SETs it on the changed `[from, NULL)` portion while PG copies the original onto the carved-off
+leftover; a delete (a retraction's cap) leaves no row, so a retraction's provenance lives only in
+event_log. `audit_id` is **nullable**: the application and the seed always set it, but the low-level
+constraint-test fixtures that insert facts directly need not fabricate an entry.
+
+**Rationale.** The Fact union makes the recorded information schema legible at a glance; concentrating
+the write semantics in `repository` (SLAP, ADR-016) lets handlers read as declarative `Command →
+Recorded` mappings. The audit `entry` is batch metadata, not a pretend fact, so there is no special
+journal variant in the repository — and the per-fact `audit_id` FK is a genuine capability gain: a row
+joins back to the command that wrote it, and "everything command X touched" is one query. Explicit
 sequences fix the `contract`/`project` mint race and let every create-op reserve its id up-front
-uniformly. This is the event-sourced shape (commands → facts) without an event-log+projection engine: the
-facts ARE the temporal rows; the bitemporal design preserves history, with `event_log` as the audit for
-the one lossy case (a back-dated overwrite).
+uniformly. This is the event-sourced shape (commands → facts) without an event-log+projection engine:
+the facts ARE the temporal rows; the bitemporal design preserves history, with event_log as the audit
+for the one lossy case (a back-dated overwrite).
 
-**Alternatives.** Keep per-aggregate `sql.*` writes and fold only `CommandHandled` into a repository
-(rejected — leaves the write semantics scattered and the handlers mixed sql/fact); model every `sql`
-write 1:1 as a Fact variant including opens/closes as separate events (rejected — reads as an event log,
-not a state schema, and balloons `Fact` into a mirror of `sql.gleam`); keep `GENERATED ALWAYS AS
-IDENTITY` and read back `RETURNING` (rejected — forbids supplying the id, and the `contract`/`project`
-`max(id)+1` mint races under concurrent writers).
+**Alternatives.** A `CommandHandled` audit *fact* in the returned list (rejected — the audit is
+batch metadata, not a state, and special-casing it in the repository read awkwardly); fill `audit_id`
+from a session GUC via a per-table trigger (rejected — implicit action-at-a-distance, where an explicit
+write param reads plainly and was the maintainer's call); model every `sql` write 1:1 as a Fact variant
+including opens/closes (rejected — reads as an event log, not a state schema, and mirrors `sql.gleam`);
+keep `GENERATED ALWAYS AS IDENTITY` + `RETURNING` (rejected — forbids supplying the id, and the
+`max(id)+1` mint races).
+
+---
+
+## ADR-033 — Consolidate the migration chain into one schema + one seed
+**Status:** Accepted (supersedes the 001–018 migration files)
+
+**Context.** The schema had been built by eighteen incremental migrations: the initial tables, the
+allocation split, the event_log, the financial layer, the engineer/client/contract/project anchor
+refactors, the invoice/payroll subject split, and the id sequences. Each step made sense as it landed,
+but the net effect was a schema spread across a dozen rename-and-reshape files (the live `allocation`
+no longer even had the `day_rate` the early files added and a later one dropped), and a seed whose
+fragmented-allocation rows + a `DO`-block invariant existed only for the long-removed `v1→v2` range_agg
+oracle (ADR-031). Reading "what is the schema" meant replaying the chain.
+
+**Decision.** Collapse the chain into two files that build the final state directly: **`001_schema.sql`**
+(every table, named constraint, PERIOD FK, `WITHOUT OVERLAPS` PK, `CHECK`, id sequence, the per-fact
+`audit_id` FK, and the `*_current` views, in one pass) and **`002_seed.sql`** (the deterministic demo
+seed with its realistic event_log history). The dead "narrow/wide" machinery is dropped: allocations
+are whole-engagement rows (the cost layer derives the charge rate live from `rate_card × engineer_role`),
+and the rate-cache seed invariant is gone. Verified behaviour-preserving: regenerating `sql.gleam` from
+the consolidated schema is byte-identical, and the full suite (129 + 14) stays green. The DB is dropped
+and recreated from the two files; there is no production database to migrate forward.
+
+**Rationale.** The project re-baselines freely (ADR-017/024) — migrations are a means to the schema, not
+a ledger to preserve. With no live database to migrate, the incremental history's only value is
+documentation, which git history and these ADRs already carry. One schema file is the readable source of
+truth; one seed file is the fixture. `bin/squirrel` regenerating identically is the proof the squash
+changed nothing.
+
+**Alternatives.** Keep appending migrations (rejected — the schema stays unreadable as a pile of
+reshapes, and new work like the `audit_id` column adds yet another layer); a tool-generated `pg_dump`
+baseline (rejected — loses the documented intent the hand-written DDL carries).
 
 ---
 
