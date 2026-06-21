@@ -6,6 +6,7 @@ const {
   rosterRow,
   clickContent,
   railReadout,
+  confirmOp,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the NEW application SHELL (PRD-frontend success
@@ -88,10 +89,10 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Priya Sharma/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Promote" }).dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Promote" })).toBeVisible();
+  await expect(page.getByLabel("New level")).toBeVisible();
   await page.getByLabel("New level").fill("6");
   await page.getByLabel("Effective").fill("2026-06-01");
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await confirmOp(page, "Promote");
   await expect(page.getByText("L6 · Distinguished").first()).toBeVisible();
 
   await navigateTo(page, "Activity");

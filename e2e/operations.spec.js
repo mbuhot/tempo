@@ -5,6 +5,8 @@ const {
   scrubTo,
   rosterRow,
   clickContent,
+  opModal,
+  confirmOp,
 } = require("./helpers");
 
 // Behaviour-driven coverage of CONTEXTUAL operations on the new shell: a write that
@@ -41,16 +43,19 @@ test("promoting an engineer re-renders their level and charge rate and is journa
   await signInAs(page, "Aisha Okafor");
   await openDetail(page, "Priya Sharma");
 
+  // The Promote form opens in the modal (its New-level / Effective fields appear),
+  // we set the new level, and confirm with the op-verb button "Promote" scoped to
+  // the dialog (the launcher behind the backdrop shares the verb).
   await page.getByRole("button", { name: "Promote" }).dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Promote" })).toBeVisible();
+  await expect(page.getByLabel("New level")).toBeVisible();
   await page.getByLabel("New level").fill("6");
   await page.getByLabel("Effective").fill("2026-06-01");
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await confirmOp(page, "Promote");
 
   // The detail re-renders at the new band (shown in the header and the employment
-  // panel), and the op panel closes on success.
+  // panel), and the modal closes on success.
   await expect(page.getByText("L6 · Distinguished").first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Promote" })).toHaveCount(0);
+  await expect(opModal(page)).toHaveCount(0);
 
   // The Board, as of the seed now, reads Priya's engagement at the L6 rate (she is
   // on two half-time projects, so her card appears on each — match the first).
@@ -89,7 +94,7 @@ test("a containment violation is refused with the reason and leaves the board un
   await page.getByLabel("Fraction").fill("0.5");
   await page.getByLabel("Valid from").fill("2024-01-01");
   await page.getByLabel("Valid to").fill("2024-06-01");
-  await page.getByRole("button", { name: "Assign", exact: true }).dispatchEvent("click");
+  await confirmOp(page, "Assign");
 
   // The user sees the containment rule that fired — not a crash, not a silent
   // success — and the board still shows Aisha on leave at the seed now (her
@@ -107,12 +112,14 @@ test("a leave request beyond the accrued balance is refused with the reason", as
   await signInAs(page, "Aisha Okafor");
   await openDetail(page, "Priya Sharma");
 
+  // Take leave opens in the modal; Kind is now a <select> (defaulting to Annual),
+  // From/To are dates, and the confirm verb is "Take leave" scoped to the dialog.
   await page.getByRole("button", { name: "Take leave" }).dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Take leave" })).toBeVisible();
-  await page.getByLabel("Kind").fill("annual");
+  await expect(page.getByLabel("Kind")).toBeVisible();
+  await page.getByLabel("Kind").selectOption({ label: "Annual" });
   await page.getByLabel("From").fill("2026-08-01");
   await page.getByLabel("To").fill("2026-12-01");
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await confirmOp(page, "Take leave");
 
   await expect(
     page.getByText(/insufficient annual leave balance/),

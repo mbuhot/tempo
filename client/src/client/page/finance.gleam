@@ -36,7 +36,7 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type Event, type Invoice, type InvoiceDetail, type InvoiceLine, type Payroll,
-  type PayrollLine, type Pnl, type PnlRow,
+  type PayrollLine, type Pnl, type PnlRow, type Ref, type Roster,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -70,6 +70,7 @@ pub type Data {
     invoices: Option(List(Invoice)),
     payroll: Option(Payroll),
     pnl: Option(Pnl),
+    roster: Option(Roster),
     selected: Option(Int),
     detail: Option(InvoiceDetail),
     op: Option(OpState),
@@ -91,6 +92,7 @@ pub type Msg {
   )
   GotPayroll(as_of: calendar.Date, result: Result(Payroll, rsvp.Error(String)))
   GotPnl(as_of: calendar.Date, result: Result(Pnl, rsvp.Error(String)))
+  GotRoster(as_of: calendar.Date, result: Result(Roster, rsvp.Error(String)))
   GotDetail(
     as_of: calendar.Date,
     id: Int,
@@ -160,6 +162,7 @@ pub fn refetch(
       invoices: None,
       payroll: None,
       pnl: None,
+      roster: None,
       selected:,
       detail: None,
       op:,
@@ -172,7 +175,12 @@ pub fn refetch(
 }
 
 fn fetch_all(as_of: calendar.Date) -> Effect(Msg) {
-  effect.batch([fetch_invoices(as_of), fetch_payroll(as_of), fetch_pnl(as_of)])
+  effect.batch([
+    fetch_invoices(as_of),
+    fetch_payroll(as_of),
+    fetch_pnl(as_of),
+    fetch_roster(as_of),
+  ])
 }
 
 fn fetch_invoices(as_of: calendar.Date) -> Effect(Msg) {
@@ -201,6 +209,14 @@ fn fetch_pnl(as_of: calendar.Date) -> Effect(Msg) {
   )
 }
 
+fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/roster?as_of=" <> time.iso_date(as_of),
+    codecs.roster_decoder(),
+    GotRoster(as_of, _),
+  )
+}
+
 fn fetch_detail(as_of: calendar.Date, id: Int) -> Effect(Msg) {
   api.get(
     "/api/invoices/" <> int.to_string(id) <> "?as_of=" <> time.iso_date(as_of),
@@ -220,6 +236,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     GotInvoices(as_of:, result:) -> on_invoices(model, as_of, result)
     GotPayroll(as_of:, result:) -> on_payroll(model, as_of, result)
     GotPnl(as_of:, result:) -> on_pnl(model, as_of, result)
+    GotRoster(as_of:, result:) -> on_roster(model, as_of, result)
     GotDetail(as_of:, id:, result:) -> on_detail(model, as_of, id, result)
     TabClicked(tab:) -> on_tab(model, tab)
     InvoiceClicked(id:) -> on_invoice_clicked(model, id)
@@ -283,6 +300,25 @@ fn on_pnl(
       case result {
         Ok(pnl) -> #(
           Loaded(Data(..data_for(model, as_of), pnl: Some(pnl))),
+          detail_catch_up(model, as_of),
+          [],
+        )
+        Error(error) -> on_load_error(model, error)
+      }
+  }
+}
+
+fn on_roster(
+  model: Model,
+  as_of: calendar.Date,
+  result: Result(Roster, rsvp.Error(String)),
+) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case answers_current(model, as_of) {
+    False -> #(model, effect.none(), [])
+    True ->
+      case result {
+        Ok(roster) -> #(
+          Loaded(Data(..data_for(model, as_of), roster: Some(roster))),
           detail_catch_up(model, as_of),
           [],
         )
@@ -376,10 +412,11 @@ fn on_op_opened(
   case model {
     Loaded(data) -> {
       let blank = ui.blank_op_form(kind:, default_date: data.as_of)
-      let form = case invoice_id {
+      let filled = case invoice_id {
         Some(id) -> ui.update_op_form(blank, ui.FInvoiceId, int.to_string(id))
         None -> blank
       }
+      let form = ui.reconcile_form(filled, [], project_refs(data))
       #(
         Loaded(Data(..data, op: Some(OpState(kind:, form:, error: None)))),
         effect.none(),
@@ -472,6 +509,7 @@ fn refetch_loaded(data: Data) -> #(Model, Effect(Msg)) {
         invoices: None,
         payroll: None,
         pnl: None,
+        roster: None,
         detail: None,
         op: None,
       ),
@@ -526,6 +564,7 @@ fn blank_data(
     invoices: None,
     payroll: None,
     pnl: None,
+    roster: None,
     selected:,
     detail: None,
     op: None,
@@ -592,7 +631,7 @@ fn op_panel(data: Data, tab: route.FinanceTab) -> Element(Msg) {
   case data.op {
     Some(op) ->
       case op_tab(op.kind) == Some(tab) {
-        True -> view_op_form(op)
+        True -> view_op_form(data, op)
         False -> element.none()
       }
     None -> element.none()
@@ -977,33 +1016,20 @@ fn pnl_row(row: PnlRow) -> Element(Msg) {
 
 // --- Op form sheet ----------------------------------------------------------
 
-fn view_op_form(op: OpState) -> Element(Msg) {
-  let fields = op_fields(op.kind, op.form)
-  let error = case op.error {
-    Some(message) -> html.div([attribute.class("note")], [html.text(message)])
-    None -> element.none()
-  }
-  ui.panel(title: op_title(op.kind), count: "", right: [], body: [
-    html.div([attribute.class("pad-detail")], [
-      html.div([], fields),
-      error,
-      html.div([attribute.class("action-row")], [
-        html.button(
-          [attribute.class("btn btn--sm"), event.on_click(OpSubmitted)],
-          [
-            html.text("Apply"),
-          ],
-        ),
-        html.button(
-          [
-            attribute.class("btn btn--ghost btn--sm"),
-            event.on_click(OpCancelled),
-          ],
-          [html.text("Cancel")],
-        ),
-      ]),
-    ]),
-  ])
+/// The open op as a centred modal over a dimmed backdrop. Renders the op's fields
+/// (the Draft project picker draws from the as-of roster; Issue/Mark-paid show the
+/// known invoice id as a locked read-only field; Run payroll is period dates), the
+/// last rejection line, and a Cancel / verb-labelled Confirm footer. Clicking the
+/// backdrop or Cancel raises `OpCancelled`; Confirm raises `OpSubmitted`.
+fn view_op_form(data: Data, op: OpState) -> Element(Msg) {
+  ui.modal(
+    title: op_title(op.kind),
+    error: option.unwrap(op.error, ""),
+    body: op_fields(data, op.kind, op.form),
+    on_cancel: OpCancelled,
+    on_confirm: OpSubmitted,
+    confirm_label: op_verb(op.kind),
+  )
 }
 
 fn op_title(kind: ui.OpKind) -> String {
@@ -1016,14 +1042,28 @@ fn op_title(kind: ui.OpKind) -> String {
   }
 }
 
-fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpDraftInvoice -> "Draft"
+    ui.OpIssueInvoice -> "Issue"
+    ui.OpPayInvoice -> "Mark paid"
+    ui.OpRunPayroll -> "Run payroll"
+    _ -> "Confirm"
+  }
+}
+
+fn op_fields(
+  data: Data,
+  kind: ui.OpKind,
+  form: ui.OpForm,
+) -> List(Element(Msg)) {
   case kind {
     ui.OpDraftInvoice -> [
-      ui.op_field(
-        label: "Project id",
+      ui.ref_select(
+        label: "Project",
         field: ui.FProjectId,
-        value: form.project_id,
-        input_type: "number",
+        refs: project_refs(data),
+        selected: form.project_id,
         to_msg: OpFieldChanged,
       ),
       ui.op_field(
@@ -1042,13 +1082,7 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       ),
     ]
     ui.OpIssueInvoice -> [
-      ui.op_field(
-        label: "Invoice id",
-        field: ui.FInvoiceId,
-        value: form.invoice_id,
-        input_type: "number",
-        to_msg: OpFieldChanged,
-      ),
+      locked_invoice_field(form.invoice_id),
       ui.op_field(
         label: "Date",
         field: ui.FEffective,
@@ -1058,13 +1092,7 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       ),
     ]
     ui.OpPayInvoice -> [
-      ui.op_field(
-        label: "Invoice id",
-        field: ui.FInvoiceId,
-        value: form.invoice_id,
-        input_type: "number",
-        to_msg: OpFieldChanged,
-      ),
+      locked_invoice_field(form.invoice_id),
       ui.op_field(
         label: "Date",
         field: ui.FEffective,
@@ -1090,6 +1118,35 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       ),
     ]
     _ -> []
+  }
+}
+
+/// The invoice-id field on Issue / Mark-paid: the id is already known from the
+/// launching row, so it shows as a disabled read-only `#<id>` rather than an
+/// editable input the presenter could break. No `event` binding, so it stays in
+/// the slot `OpOpenedForInvoice` pre-filled.
+fn locked_invoice_field(invoice_id: String) -> Element(Msg) {
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Invoice")]),
+    html.input([
+      attribute.type_("text"),
+      attribute.attribute("aria-label", "Invoice"),
+      attribute.value("#" <> invoice_id),
+      attribute.readonly(True),
+      attribute.disabled(True),
+    ]),
+  ])
+}
+
+// --- Directories (Ref lists for op selects) ---------------------------------
+
+/// The project directory for the Draft-invoice `<select>`, from the as-of roster
+/// (every active project, id + name). Empty until the roster loads, so the select
+/// renders an inert "Loading…" placeholder.
+fn project_refs(data: Data) -> List(Ref) {
+  case data.roster {
+    Some(roster) -> roster.projects
+    None -> []
   }
 }
 

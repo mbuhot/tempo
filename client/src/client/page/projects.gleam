@@ -6,10 +6,19 @@
 //// Navigate(route.People(Some(engineer_id))) — the id rides in the route, so no
 //// shell edit is needed.
 ////
-//// The model is a list-vs-detail sum, each arm Loading/Loaded/Failed. Every fetch
-//// result carries the as_of it answers; `update` drops a result whose as_of no
-//// longer matches the model's current as_of (stale-while-revalidate) so a fresh
-//// view or a half-typed op form is never clobbered.
+//// Each view fetches its read model AND the as-of `Roster` (the directory of
+//// employed engineers, active projects, and clients as `Ref`s — id + name) so the
+//// op forms select an engineer/project by NAME rather than a typed id. The op form
+//// opens in a centred modal (`ui.modal`); entity slots are `ui.ref_select`s sourced
+//// from the roster and snapped to valid options by `ui.reconcile_form`. The
+//// project select is locked to the project in view; an op launched from a team card
+//// pre-fills the engineer.
+////
+//// The model is a list-vs-detail sum, each arm Loading/Loaded/Failed for both its
+//// read model and the roster. Every fetch result carries the as_of it answers;
+//// `update` drops a result whose as_of no longer matches the model's current as_of
+//// (stale-while-revalidate) so a fresh view or a half-typed op form is never
+//// clobbered.
 ////
 //// `init` takes the route: `Projects(Some(id))` opens that project's detail (so a
 //// cold deep link to `/projects/:id` lands on it), any other route opens the list.
@@ -20,6 +29,7 @@
 import client/api
 import client/route
 import client/ui
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -33,22 +43,23 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type Event, type Invoice, type ProjectDetail, type ProjectList,
-  type ProjectListRow, type TeamMember,
+  type ProjectListRow, type Ref, type Roster, type TeamMember,
 }
 
 // --- Model ------------------------------------------------------------------
 
 /// The page renders one of two sub-views: the project list or a single project's
 /// detail. Each is independently loadable, so the model is a sum over the two with
-/// each arm carrying its own load state. The signed-in `actor` is threaded in
-/// (the frozen `update` signature omits it) so contextual writes can post on the
-/// presenter's behalf; the current `as_of` is held so a committed write can
-/// refetch the same instant.
+/// each arm carrying its own load state plus the as-of `Roster` the op selects
+/// draw from. The signed-in `actor` is threaded in (the frozen `update` signature
+/// omits it) so contextual writes can post on the presenter's behalf; the current
+/// `as_of` is held so a committed write can refetch the same instant.
 pub type Model {
   ListView(
     actor: String,
     as_of: calendar.Date,
     list: Load(ProjectList),
+    roster: Load(Roster),
     op: Option(OpState),
   )
   DetailView(
@@ -56,6 +67,7 @@ pub type Model {
     as_of: calendar.Date,
     project_id: Int,
     detail: Load(ProjectDetail),
+    roster: Load(Roster),
     op: Option(OpState),
   )
 }
@@ -78,7 +90,8 @@ pub type OpState {
 
 // --- Messages ---------------------------------------------------------------
 
-/// The page's messages, wrapped by the shell as `ProjectsMsg(projects.Msg)`.
+/// The page's messages, wrapped by the shell as `ProjectsMsg(projects.Msg)`. Each
+/// fetch result tags the `as_of` it answers for the staleness guard.
 pub type Msg {
   ListFetched(
     result: Result(ProjectList, rsvp.Error(String)),
@@ -89,11 +102,16 @@ pub type Msg {
     result: Result(ProjectDetail, rsvp.Error(String)),
     as_of: calendar.Date,
   )
+  RosterFetched(
+    result: Result(Roster, rsvp.Error(String)),
+    as_of: calendar.Date,
+  )
   ProjectRowClicked(project_id: Int)
   BackToListClicked
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
   OpStarted(kind: ui.OpKind)
+  OpStartedFor(kind: ui.OpKind, engineer_id: Int)
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -113,7 +131,7 @@ pub type OutMsg {
 /// Build the page's initial state for `route` at `as_of` on the signed-in
 /// `actor`'s behalf. `Projects(Some(id))` opens that project's detail (so a cold
 /// deep link to `/projects/:id` lands on the detail); any other route opens the
-/// project list.
+/// project list. Both arms kick off their read-model fetch AND the roster fetch.
 pub fn init(
   route: route.Route,
   as_of: calendar.Date,
@@ -121,15 +139,27 @@ pub fn init(
 ) -> #(Model, Effect(Msg)) {
   case route {
     route.Projects(id: Some(project_id)) -> #(
-      DetailView(actor:, as_of:, project_id:, detail: Loading, op: None),
-      fetch_detail(project_id, as_of),
+      DetailView(
+        actor:,
+        as_of:,
+        project_id:,
+        detail: Loading,
+        roster: Loading,
+        op: None,
+      ),
+      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
-    _ -> #(ListView(actor:, as_of:, list: Loading, op: None), fetch_list(as_of))
+    _ -> #(
+      ListView(actor:, as_of:, list: Loading, roster: Loading, op: None),
+      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
+    )
   }
 }
 
 /// Re-fetch the active view for a new `as_of` without dropping in-flight op-form
-/// state (stale-while-revalidate). The open form, if any, is preserved.
+/// state (stale-while-revalidate). The open form, if any, is preserved. Advancing
+/// `as_of` makes the staleness guard in `update` drop any in-flight responses for
+/// the previous date.
 pub fn refetch(
   model: Model,
   as_of: calendar.Date,
@@ -137,12 +167,19 @@ pub fn refetch(
 ) -> #(Model, Effect(Msg)) {
   case model {
     ListView(op:, ..) -> #(
-      ListView(actor:, as_of:, list: Loading, op:),
-      fetch_list(as_of),
+      ListView(actor:, as_of:, list: Loading, roster: Loading, op:),
+      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
     )
     DetailView(project_id:, op:, ..) -> #(
-      DetailView(actor:, as_of:, project_id:, detail: Loading, op:),
-      fetch_detail(project_id, as_of),
+      DetailView(
+        actor:,
+        as_of:,
+        project_id:,
+        detail: Loading,
+        roster: Loading,
+        op:,
+      ),
+      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
   }
 }
@@ -163,6 +200,14 @@ fn fetch_detail(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
       <> iso_date(as_of),
     codecs.project_detail_decoder(),
     fn(result) { DetailFetched(project_id:, result:, as_of:) },
+  )
+}
+
+fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/roster?as_of=" <> iso_date(as_of),
+    codecs.roster_decoder(),
+    fn(result) { RosterFetched(result:, as_of:) },
   )
 }
 
@@ -190,6 +235,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
+    RosterFetched(result:, as_of:) ->
+      case as_of == view_as_of(model) {
+        True -> #(set_roster(model, load_result(result)), effect.none(), [])
+        False -> #(model, effect.none(), [])
+      }
+
     ProjectRowClicked(project_id:) -> #(model, effect.none(), [
       Navigate(route.Projects(id: Some(project_id))),
     ])
@@ -207,7 +258,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     ])
 
     OpStarted(kind:) -> #(
-      set_op(model, Some(open_op(model, kind))),
+      set_op(model, Some(open_op(model, kind, None))),
+      effect.none(),
+      [],
+    )
+
+    OpStartedFor(kind:, engineer_id:) -> #(
+      set_op(model, Some(open_op(model, kind, Some(engineer_id)))),
       effect.none(),
       [],
     )
@@ -279,17 +336,24 @@ fn load_result(result: Result(a, rsvp.Error(String))) -> Load(a) {
   }
 }
 
-/// Re-fetch the active view at the as_of the current view answers, so a committed
-/// write is reflected immediately.
+/// Re-fetch the active view (read model and roster) at the as_of the current view
+/// answers, so a committed write is reflected immediately.
 fn reload(model: Model) -> #(Model, Effect(Msg)) {
   case model {
     ListView(actor:, as_of:, op:, ..) -> #(
-      ListView(actor:, as_of:, list: Loading, op:),
-      fetch_list(as_of),
+      ListView(actor:, as_of:, list: Loading, roster: Loading, op:),
+      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
     )
     DetailView(actor:, as_of:, project_id:, op:, ..) -> #(
-      DetailView(actor:, as_of:, project_id:, detail: Loading, op:),
-      fetch_detail(project_id, as_of),
+      DetailView(
+        actor:,
+        as_of:,
+        project_id:,
+        detail: Loading,
+        roster: Loading,
+        op:,
+      ),
+      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
   }
 }
@@ -317,37 +381,94 @@ fn current_op(model: Model) -> Option(OpState) {
 
 fn set_op(model: Model, op: Option(OpState)) -> Model {
   case model {
-    ListView(actor:, as_of:, list:, ..) -> ListView(actor:, as_of:, list:, op:)
-    DetailView(actor:, as_of:, project_id:, detail:, ..) ->
-      DetailView(actor:, as_of:, project_id:, detail:, op:)
+    ListView(..) -> ListView(..model, op:)
+    DetailView(..) -> DetailView(..model, op:)
   }
 }
 
 fn set_list(model: Model, list: Load(ProjectList)) -> Model {
   case model {
-    ListView(actor:, as_of:, op:, ..) -> ListView(actor:, as_of:, list:, op:)
+    ListView(..) -> ListView(..model, list:)
     _ -> model
   }
 }
 
 fn set_detail(model: Model, detail: Load(ProjectDetail)) -> Model {
   case model {
-    DetailView(actor:, as_of:, project_id:, op:, ..) ->
-      DetailView(actor:, as_of:, project_id:, detail:, op:)
+    DetailView(..) -> DetailView(..model, detail:)
     _ -> model
   }
 }
 
-/// A fresh op form for `kind`, seeding the project id from the detail view (so an
-/// op started on a project's page pre-targets it) and dates from the view's as_of.
-fn open_op(model: Model, kind: ui.OpKind) -> OpState {
+fn set_roster(model: Model, roster: Load(Roster)) -> Model {
+  case model {
+    ListView(..) -> ListView(..model, roster:)
+    DetailView(..) -> DetailView(..model, roster:)
+  }
+}
+
+// --- Op-form launch ----------------------------------------------------------
+
+/// A fresh op form for `kind`. The project select is pre-filled and locked from
+/// the detail view (so an op started on a project's page targets it); profile and
+/// plan edits are pre-filled from the loaded detail (title/summary, budget/target
+/// completion) rather than starting blank; an op launched from a team card
+/// pre-fills the engineer. Entity slots are then snapped to valid roster options.
+fn open_op(model: Model, kind: ui.OpKind, engineer_id: Option(Int)) -> OpState {
   let form = ui.blank_op_form(kind, view_as_of(model))
-  let form = case model {
+  let form = seed_project(model, form)
+  let form = seed_detail_fields(model, kind, form)
+  let form = case engineer_id {
+    Some(id) -> ui.update_op_form(form, ui.FEngineerId, int.to_string(id))
+    None -> form
+  }
+  let form = reconcile(model, form)
+  OpState(kind:, form:, error: None)
+}
+
+/// Seed the form's project slot from the detail view, so an op composed on a
+/// project's page pre-targets that project.
+fn seed_project(model: Model, form: ui.OpForm) -> ui.OpForm {
+  case model {
     DetailView(project_id:, ..) ->
       ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
     ListView(..) -> form
   }
-  OpState(kind:, form:, error: None)
+}
+
+/// Pre-fill the profile (title/summary) and plan (budget/target completion) slots
+/// from the loaded detail, so an edit form opens showing the project's current
+/// values rather than blank.
+fn seed_detail_fields(
+  model: Model,
+  kind: ui.OpKind,
+  form: ui.OpForm,
+) -> ui.OpForm {
+  case model {
+    DetailView(detail: Loaded(detail), ..) ->
+      case kind {
+        ui.OpUpdateProjectProfile ->
+          form
+          |> ui.update_op_form(ui.FTitle, detail.profile.title)
+          |> ui.update_op_form(ui.FSummary, detail.profile.summary)
+        ui.OpUpdateProjectPlan ->
+          form
+          |> ui.update_op_form(ui.FBudget, float_text(detail.plan.budget))
+          |> ui.update_op_form(
+            ui.FTargetCompletion,
+            iso_date(detail.plan.target_completion),
+          )
+        _ -> form
+      }
+    _ -> form
+  }
+}
+
+/// Snap the form's engineer and project slots to valid options from the as-of
+/// roster, so a freshly opened form names an engineer and project the directory
+/// actually carries.
+fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
+  ui.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
 // --- View -------------------------------------------------------------------
@@ -355,13 +476,15 @@ fn open_op(model: Model, kind: ui.OpKind) -> OpState {
 /// Render the page for `as_of`.
 pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
   case model {
-    ListView(list:, op:, ..) -> view_list(list, op, as_of)
-    DetailView(detail:, op:, ..) -> view_detail(detail, op, as_of)
+    ListView(list:, roster:, op:, ..) -> view_list(list, roster, op, as_of)
+    DetailView(detail:, roster:, op:, ..) ->
+      view_detail(detail, roster, op, as_of)
   }
 }
 
 fn view_list(
   list: Load(ProjectList),
+  roster: Load(Roster),
   op: Option(OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
@@ -381,7 +504,7 @@ fn view_list(
       ui.empty_state(message: "Could not load projects: " <> message)
     Loaded(value:) -> view_project_table(value.projects)
   }
-  html.div([], [head, op_form_panel(op), body])
+  html.div([], [head, body, op_modal(op, roster, None)])
 }
 
 fn view_project_table(rows: List(ProjectListRow)) -> Element(Msg) {
@@ -440,6 +563,7 @@ fn project_row(row: ProjectListRow, index: Int) -> Element(Msg) {
 
 fn view_detail(
   detail: Load(ProjectDetail),
+  roster: Load(Roster),
   op: Option(OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
@@ -451,13 +575,14 @@ fn view_detail(
     Loading -> ui.empty_state(message: "Loading project…")
     Failed(message:) ->
       ui.empty_state(message: "Could not load project: " <> message)
-    Loaded(value:) -> view_project_detail(value, op, as_of)
+    Loaded(value:) -> view_project_detail(value, roster, op, as_of)
   }
   html.div([], [back, body])
 }
 
 fn view_project_detail(
   detail: ProjectDetail,
+  roster: Load(Roster),
   op: Option(OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
@@ -530,7 +655,12 @@ fn view_project_detail(
       ]),
       html.div([], [plan_panel(detail)]),
     ])
-  html.div([], [head, op_form_panel(op), stats, grid])
+  html.div([], [
+    head,
+    stats,
+    grid,
+    op_modal(op, roster, Some(detail.profile.project_id)),
+  ])
 }
 
 fn team_panel(team: List(TeamMember), as_of: calendar.Date) -> Element(Msg) {
@@ -550,6 +680,10 @@ fn team_panel(team: List(TeamMember), as_of: calendar.Date) -> Element(Msg) {
   )
 }
 
+/// One project-team member card: clicking the card drills into the engineer's
+/// detail; the right-aligned "Adjust" action opens the ChangeAllocationFraction
+/// modal pre-filled with this engineer (and the locked project), without firing
+/// the card's drill-in via `stop_propagation`.
 fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
   html.div(
     [
@@ -569,6 +703,20 @@ fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
           ]),
           html.span([], [html.text(ui.money(member.day_rate) <> "/d")]),
         ]),
+      ]),
+      html.div([attribute.class("board-card__action")], [
+        html.button(
+          [
+            attribute.class("btn btn--ghost btn--sm"),
+            event.stop_propagation(
+              event.on_click(OpStartedFor(
+                kind: ui.OpChangeAllocationFraction,
+                engineer_id: member.engineer_id,
+              )),
+            ),
+          ],
+          [html.text("Adjust")],
+        ),
       ]),
     ],
   )
@@ -635,34 +783,61 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
   ])
 }
 
-// --- Op-form view -----------------------------------------------------------
+// --- Op-form modal -----------------------------------------------------------
 
-/// The contextual-operation form panel, shown only while a form is open. It
-/// renders the kind-specific fields, an error line (validation prompt or rejected
-/// server message), and Apply/Cancel buttons.
-fn op_form_panel(op: Option(OpState)) -> Element(Msg) {
+/// The contextual operation, shown as a centred modal over a dimmed backdrop when
+/// an op is open. Renders the kind-specific fields (engineer/project as `<select>`s
+/// from the as-of directory, the project locked to the project in view on the
+/// detail page), the last rejection message, and a Cancel / verb-labelled Confirm
+/// footer. `locked_project_id`, when present, pins the project select to that id.
+fn op_modal(
+  op: Option(OpState),
+  roster: Load(Roster),
+  locked_project_id: Option(Int),
+) -> Element(Msg) {
   case op {
     None -> element.none()
     Some(OpState(kind:, form:, error:)) ->
-      ui.panel(title: op_title(kind), count: "", right: [], body: [
-        html.div([attribute.class("op-form")], op_fields(kind, form)),
-        op_error(error),
-        html.div([attribute.class("action-row")], [
-          op_button("Apply", "btn", OpSubmitted),
-          op_button("Cancel", "btn btn--ghost", OpCancelled),
-        ]),
-      ])
+      ui.modal(
+        title: op_title(kind),
+        error: error_text(error),
+        body: op_fields(kind, form, roster, locked_project_id),
+        on_cancel: OpCancelled,
+        on_confirm: OpSubmitted,
+        confirm_label: op_verb(kind),
+      )
   }
 }
 
-fn op_error(error: Option(String)) -> Element(Msg) {
+fn error_text(error: Option(String)) -> String {
   case error {
-    None -> element.none()
-    Some(message) -> html.div([attribute.class("note")], [html.text(message)])
+    None -> ""
+    Some(message) -> message
   }
 }
 
-fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
+/// The form fields for the open op. Entity ids are `<select>`s over the as-of
+/// roster; the project is locked when a `locked_project_id` is in view; the
+/// engineer (AssignToProject / ChangeAllocationFraction) is a free select.
+/// StartProject keeps a typed numeric Contract id — the roster carries no contract
+/// directory to select over.
+fn op_fields(
+  kind: ui.OpKind,
+  form: ui.OpForm,
+  roster: Load(Roster),
+  locked_project_id: Option(Int),
+) -> List(Element(Msg)) {
+  let engineers = roster_engineers(roster)
+  let projects = roster_projects(roster)
+  let project_select = project_field(form, projects, locked_project_id)
+  let engineer_select =
+    ui.ref_select(
+      label: "Engineer",
+      field: ui.FEngineerId,
+      refs: engineers,
+      selected: form.engineer_id,
+      to_msg: edit,
+    )
   case kind {
     ui.OpStartProject -> [
       text_field("Title", ui.FName, form.name),
@@ -671,26 +846,26 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       date_field("Valid to", ui.FValidTo, form.valid_to),
     ]
     ui.OpAssignToProject -> [
-      number_field("Engineer id", ui.FEngineerId, form.engineer_id),
-      number_field("Project id", ui.FProjectId, form.project_id),
+      engineer_select,
+      project_select,
       number_field("Fraction", ui.FFraction, form.fraction),
       date_field("Valid from", ui.FValidFrom, form.valid_from),
       date_field("Valid to", ui.FValidTo, form.valid_to),
     ]
     ui.OpChangeAllocationFraction -> [
-      number_field("Engineer id", ui.FEngineerId, form.engineer_id),
-      number_field("Project id", ui.FProjectId, form.project_id),
+      engineer_select,
+      project_select,
       number_field("Fraction", ui.FFraction, form.fraction),
       date_field("Effective", ui.FEffective, form.effective),
     ]
     ui.OpUpdateProjectProfile -> [
-      number_field("Project id", ui.FProjectId, form.project_id),
+      project_select,
       text_field("Title", ui.FTitle, form.title),
       text_field("Summary", ui.FSummary, form.summary),
       date_field("Effective", ui.FEffective, form.effective),
     ]
     ui.OpUpdateProjectPlan -> [
-      number_field("Project id", ui.FProjectId, form.project_id),
+      project_select,
       number_field("Budget", ui.FBudget, form.budget),
       date_field(
         "Target completion",
@@ -700,13 +875,91 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       date_field("Effective", ui.FEffective, form.effective),
     ]
     ui.OpDraftInvoice -> [
-      number_field("Project id", ui.FProjectId, form.project_id),
+      project_select,
       date_field("Billing from", ui.FValidFrom, form.valid_from),
       date_field("Billing to", ui.FValidTo, form.valid_to),
     ]
     _ -> []
   }
 }
+
+/// The project select: a free `<select>` over the roster on the list page, or a
+/// locked single-option select pinned to the project in view on the detail page.
+fn project_field(
+  form: ui.OpForm,
+  projects: List(Ref),
+  locked_project_id: Option(Int),
+) -> Element(Msg) {
+  case locked_project_id {
+    Some(project_id) -> locked_project_select(project_id, projects)
+    None ->
+      ui.ref_select(
+        label: "Project",
+        field: ui.FProjectId,
+        refs: projects,
+        selected: form.project_id,
+        to_msg: edit,
+      )
+  }
+}
+
+/// A disabled project select pinned to the project in view: a single option named
+/// from the roster (or the bare id while the roster loads). It is inert so the
+/// presenter cannot retarget an op composed from a project's page, while the form
+/// still carries the pre-filled `FProjectId` for `build_command`.
+fn locked_project_select(project_id: Int, projects: List(Ref)) -> Element(Msg) {
+  let id = int.to_string(project_id)
+  let name =
+    projects
+    |> list.find(fn(reference) { reference.id == project_id })
+    |> option.from_result
+    |> option.map(fn(reference) { reference.name })
+    |> option.unwrap("Project #" <> id)
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Project")]),
+    html.select(
+      [attribute.attribute("aria-label", "Project"), attribute.disabled(True)],
+      [html.option([attribute.value(id), attribute.selected(True)], name)],
+    ),
+  ])
+}
+
+// --- Op-form directories -----------------------------------------------------
+
+/// The engineer directory for op selects on the open model, from the as-of roster.
+/// Empty until the roster loads.
+fn engineer_refs(model: Model) -> List(Ref) {
+  roster_engineers(roster_of(model))
+}
+
+/// The project directory for op selects on the open model, from the as-of roster.
+/// Empty until the roster loads.
+fn project_refs(model: Model) -> List(Ref) {
+  roster_projects(roster_of(model))
+}
+
+fn roster_of(model: Model) -> Load(Roster) {
+  case model {
+    ListView(roster:, ..) -> roster
+    DetailView(roster:, ..) -> roster
+  }
+}
+
+fn roster_engineers(roster: Load(Roster)) -> List(Ref) {
+  case roster {
+    Loaded(value:) -> value.engineers
+    _ -> []
+  }
+}
+
+fn roster_projects(roster: Load(Roster)) -> List(Ref) {
+  case roster {
+    Loaded(value:) -> value.projects
+    _ -> []
+  }
+}
+
+// --- Op-form field helpers ---------------------------------------------------
 
 fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
   ui.op_field(label:, field:, value:, input_type: "text", to_msg: edit)
@@ -740,6 +993,18 @@ fn op_title(kind: ui.OpKind) -> String {
   }
 }
 
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpStartProject -> "Start project"
+    ui.OpAssignToProject -> "Assign"
+    ui.OpChangeAllocationFraction -> "Adjust allocation"
+    ui.OpUpdateProjectProfile -> "Save profile"
+    ui.OpUpdateProjectPlan -> "Save plan"
+    ui.OpDraftInvoice -> "Draft invoice"
+    _ -> "Confirm"
+  }
+}
+
 // --- Small view helpers -----------------------------------------------------
 
 fn op_button(label: String, class: String, msg: Msg) -> Element(Msg) {
@@ -759,7 +1024,17 @@ fn run_rate_of(team: List(TeamMember)) -> Float {
   })
 }
 
-// --- Date formatting --------------------------------------------------------
+// --- Date / number formatting -----------------------------------------------
+
+/// Render a budget float for a pre-filled text input: a whole number when
+/// integral ("84000"), otherwise its decimal form, so the Edit-plan form opens on
+/// the project's current budget rather than blank.
+fn float_text(value: Float) -> String {
+  case value == int.to_float(float.truncate(value)) {
+    True -> int.to_string(float.truncate(value))
+    False -> float.to_string(value)
+  }
+}
 
 fn iso_date(date: calendar.Date) -> String {
   let calendar.Date(year:, month:, day:) = date

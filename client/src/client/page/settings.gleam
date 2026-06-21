@@ -8,14 +8,19 @@
 //// is presented as facts only, never a dead button.
 ////
 //// Revisions are temporal: they apply from an effective date forward, so each
-//// op-form defaults its date fields to the rail's current day. The three writes
-//// reuse the shared `ui` op-form engine; on a committed write the page raises
-//// `OperationCommitted` and refetches so the tables reflect the new version.
+//// op-form defaults its date fields to the rail's current day. The per-row Revise
+//// and Set-salary buttons pre-fill the launched form with that row's level and its
+//// current rate/salary, so a revision starts from the value on screen rather than
+//// an empty form. The three writes reuse the shared `ui` op-form engine and open in
+//// the shared `ui.modal`; on a committed write the page raises `OperationCommitted`
+//// and refetches so the tables reflect the new version.
 
 import client/api
 import client/route
 import client/time
 import client/ui
+import gleam/float
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar
@@ -61,6 +66,7 @@ pub type Msg {
     result: Result(Settings, rsvp.Error(String)),
   )
   OpStarted(kind: ui.OpKind)
+  OpStartedForLevel(kind: ui.OpKind, level: Int, amount: Float)
   OpDismissed
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
@@ -138,6 +144,27 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case model {
         Loaded(as_of:, settings:, ..) -> {
           let form = ui.blank_op_form(kind:, default_date: as_of)
+          #(
+            Loaded(
+              actor:,
+              as_of:,
+              settings:,
+              op: Some(OpState(kind:, form:, error: None)),
+            ),
+            effect.none(),
+            [],
+          )
+        }
+        _ -> #(model, effect.none(), [])
+      }
+
+    OpStartedForLevel(kind:, level:, amount:) ->
+      case model {
+        Loaded(as_of:, settings:, ..) -> {
+          let form =
+            ui.blank_op_form(kind:, default_date: as_of)
+            |> ui.update_op_form(ui.FLevel, int.to_string(level))
+            |> ui.update_op_form(amount_field(kind), number_value(amount))
           #(
             Loaded(
               actor:,
@@ -230,6 +257,26 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   }
 }
 
+/// The form slot the per-row amount pre-fills for a kind: the day rate for a
+/// rate-card revision, the monthly salary for a salary set. Other kinds carry no
+/// per-row amount, so the slot is irrelevant and defaults to the day rate.
+fn amount_field(kind: ui.OpKind) -> ui.OpField {
+  case kind {
+    ui.OpSetSalary -> ui.FMonthlySalary
+    _ -> ui.FDayRate
+  }
+}
+
+/// A money amount as a plain number string suitable for a number input (no "$" or
+/// thousands separators), so a pre-filled rate/salary round-trips through
+/// `build_command`. Whole amounts render without a trailing ".0".
+fn number_value(amount: Float) -> String {
+  case amount == int.to_float(float.round(amount)) {
+    True -> int.to_string(float.round(amount))
+    False -> float.to_string(amount)
+  }
+}
+
 /// The op form to keep across a refetch or a fresh read: the open form survives so
 /// a half-typed revision is never clobbered; a closed form stays closed.
 fn keep_op(model: Model) -> Option(OpState) {
@@ -284,8 +331,8 @@ fn head(actions: List(Element(Msg))) -> Element(Msg) {
 }
 
 /// The loaded view: the page head with the New rate / New salary actions, the
-/// optional open op-form, then the `.settings-grid` two-column layout of the rate-card &
-/// salary table and the read-only leave-policy table.
+/// `.settings-grid` two-column layout of the rate-card & salary table and the
+/// read-only leave-policy table, then the op-form modal overlaid when open.
 fn view_loaded(settings: Settings, op: Option(OpState)) -> Element(Msg) {
   let actions = [
     html.button(
@@ -312,17 +359,18 @@ fn view_loaded(settings: Settings, op: Option(OpState)) -> Element(Msg) {
   ]
   html.div([], [
     head(actions),
-    view_op(op),
     html.div([attribute.class("settings-grid")], [
       view_rate_card(settings),
       view_leave_policy(settings),
     ]),
+    view_op(settings, op),
   ])
 }
 
 /// The rate-card & salary-bands panel: one row per level present in the rate card,
 /// showing the level band, day rate, monthly salary (from the salaries list, "—"
-/// when absent), and a per-row Revise button.
+/// when absent), a per-row Revise button (pre-filling this level's day rate), and a
+/// per-row Set-salary button (pre-filling this level's monthly salary).
 fn view_rate_card(settings: Settings) -> Element(Msg) {
   let rows =
     list.map(settings.rate_card, fn(rate) {
@@ -339,9 +387,24 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
           html.button(
             [
               attribute.class("btn btn--ghost btn--sm"),
-              event.on_click(OpStarted(ui.OpReviseRateCard)),
+              event.on_click(OpStartedForLevel(
+                kind: ui.OpReviseRateCard,
+                level: rate.level,
+                amount: rate.day_rate,
+              )),
             ],
             [html.text("Revise")],
+          ),
+          html.button(
+            [
+              attribute.class("btn btn--ghost btn--sm"),
+              event.on_click(OpStartedForLevel(
+                kind: ui.OpSetSalary,
+                level: rate.level,
+                amount: salary_amount(settings.salaries, rate.level),
+              )),
+            ],
+            [html.text("Set salary")],
           ),
         ]),
       ])
@@ -365,6 +428,15 @@ fn salary_for(salaries: List(types.SalaryRow), level: Int) -> String {
   case list.find(salaries, fn(salary) { salary.level == level }) {
     Ok(salary) -> ui.money(salary.monthly_salary)
     Error(Nil) -> "—"
+  }
+}
+
+/// The raw monthly salary for a level, or 0.0 when no band covers it. Used to
+/// pre-fill the Set-salary form's amount from the row on screen.
+fn salary_amount(salaries: List(types.SalaryRow), level: Int) -> Float {
+  case list.find(salaries, fn(salary) { salary.level == level }) {
+    Ok(salary) -> salary.monthly_salary
+    Error(Nil) -> 0.0
   }
 }
 
@@ -401,37 +473,25 @@ fn view_leave_policy(settings: Settings) -> Element(Msg) {
   ui.panel(title: "Leave policy", count: "read-only", right: [], body: body)
 }
 
-/// The open op-form panel, or nothing when no op is open. Renders only the fields
-/// the open kind needs, a rejection sentence if the last attempt failed, and
-/// Apply/Cancel controls.
-fn view_op(op: Option(OpState)) -> Element(Msg) {
+// --- Op form modal -----------------------------------------------------------
+
+/// The open contextual operation, shown as a centred modal over a dimmed backdrop
+/// when an op is open. Renders the fields the op needs (level as a `<select>` over
+/// the levels present in the rate card, the rate/salary, and the temporal dates),
+/// the last rejection sentence, and the Cancel / Confirm footer. Clicking the
+/// backdrop or Cancel closes (`OpDismissed`); Confirm submits (`OpSubmitted`) under
+/// an op-appropriate verb.
+fn view_op(settings: Settings, op: Option(OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
     Some(state) ->
-      ui.panel(
+      ui.modal(
         title: op_title(state.kind),
-        count: "",
-        right: [
-          html.button(
-            [
-              attribute.class("btn btn--ghost btn--sm"),
-              event.on_click(OpDismissed),
-            ],
-            [html.text("Cancel")],
-          ),
-        ],
-        body: [
-          html.div([attribute.class("op-form")], [
-            html.div([attribute.class("op-form__fields")], op_fields(state)),
-            op_error(state.error),
-            html.div([attribute.class("action-row")], [
-              html.button(
-                [attribute.class("btn btn--sm"), event.on_click(OpSubmitted)],
-                [html.text("Apply")],
-              ),
-            ]),
-          ]),
-        ],
+        error: option.unwrap(state.error, ""),
+        body: op_fields(settings, state),
+        on_cancel: OpDismissed,
+        on_confirm: OpSubmitted,
+        confirm_label: op_verb(state.kind),
       )
   }
 }
@@ -446,9 +506,20 @@ fn op_title(kind: ui.OpKind) -> String {
   }
 }
 
-/// The input fields for the open op kind, each bound to its `OpForm` slot via
-/// `ui.op_field`. Only the settings writes are reachable here.
-fn op_fields(state: OpState) -> List(Element(Msg)) {
+/// The confirm-button verb for an op kind.
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpReviseRateCard -> "Revise"
+    ui.OpAdjustRateForPortion -> "Adjust"
+    ui.OpSetSalary -> "Set salary"
+    _ -> "Confirm"
+  }
+}
+
+/// The input fields for the open op kind, each bound to its `OpForm` slot. The
+/// level is a `<select>` over the levels present in the rate card; the amount and
+/// dates are text/number/date inputs. Only the settings writes are reachable here.
+fn op_fields(settings: Settings, state: OpState) -> List(Element(Msg)) {
   let field = fn(label, slot, input_type, value) {
     ui.op_field(
       label: label,
@@ -461,18 +532,18 @@ fn op_fields(state: OpState) -> List(Element(Msg)) {
   let form = state.form
   case state.kind {
     ui.OpReviseRateCard -> [
-      field("Level", ui.FLevel, "number", form.level),
+      level_select(settings, form.level),
       field("Day rate", ui.FDayRate, "number", form.day_rate),
       field("Effective", ui.FEffective, "date", form.effective),
     ]
     ui.OpAdjustRateForPortion -> [
-      field("Level", ui.FLevel, "number", form.level),
+      level_select(settings, form.level),
       field("Day rate", ui.FDayRate, "number", form.day_rate),
       field("Valid from", ui.FValidFrom, "date", form.valid_from),
       field("Valid to", ui.FValidTo, "date", form.valid_to),
     ]
     ui.OpSetSalary -> [
-      field("Level", ui.FLevel, "number", form.level),
+      level_select(settings, form.level),
       field("Monthly salary", ui.FMonthlySalary, "number", form.monthly_salary),
       field("Effective", ui.FEffective, "date", form.effective),
     ]
@@ -480,11 +551,27 @@ fn op_fields(state: OpState) -> List(Element(Msg)) {
   }
 }
 
-/// The rejection sentence for the last submit attempt, or nothing.
-fn op_error(error: Option(String)) -> Element(Msg) {
-  case error {
-    None -> element.none()
-    Some(message) ->
-      html.p([attribute.class("op-form__error")], [html.text(message)])
-  }
+/// A labelled `<select>` over the levels present in the rate card, bound to the
+/// `FLevel` slot. The option value is the level number as text, the label its band
+/// name; the form's current level is pre-selected so a per-row launch shows the row
+/// it came from. Built locally so `ui.gleam` stays frozen.
+fn level_select(settings: Settings, selected: String) -> Element(Msg) {
+  let options =
+    list.map(settings.rate_card, fn(rate) {
+      let level = int.to_string(rate.level)
+      html.option(
+        [attribute.value(level), attribute.selected(level == selected)],
+        ui.level_band(rate.level),
+      )
+    })
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Level")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Level"),
+        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+      ],
+      options,
+    ),
+  ])
 }

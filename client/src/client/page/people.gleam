@@ -38,12 +38,12 @@ import lustre/event
 import rsvp
 import shared/codecs
 import shared/types.{
-  type EngineerDetail, type PeopleList, type PersonRow, type TimesheetCell,
-  type TimesheetEntry, type TimesheetWeek, type TimesheetWeekRow, AllocationRow,
-  Employment, EngineerBanking, EngineerContact, EngineerDetail,
-  EngineerEmergency, LeaveBalance, LogWeek, PeopleList, PersonRow, RosterOnLeave,
-  RosterOnProjects, RosterUnassigned, TimesheetCell, TimesheetEntry,
-  TimesheetWeekRow,
+  type EngineerDetail, type PeopleList, type PersonRow, type Ref, type Roster,
+  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, AllocationRow, Employment, EngineerBanking,
+  EngineerContact, EngineerDetail, EngineerEmergency, LeaveBalance, LogWeek,
+  PeopleList, PersonRow, RosterOnLeave, RosterOnProjects, RosterUnassigned,
+  TimesheetCell, TimesheetEntry, TimesheetWeekRow,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -58,6 +58,7 @@ pub type Model {
     as_of: calendar.Date,
     actor: String,
     data: ListData,
+    roster: RosterData,
     op: Option(OpState),
   )
   DetailView(
@@ -66,6 +67,7 @@ pub type Model {
     engineer_id: Int,
     detail: DetailData,
     timesheet: TimesheetData,
+    roster: RosterData,
     op: Option(OpState),
   )
 }
@@ -95,6 +97,15 @@ pub type TimesheetData {
   TimesheetFailed(message: String)
 }
 
+/// The as-of operations directory (`GET /api/roster?as_of=`): the engineer,
+/// project, and client `Ref`s the op-form `<select>`s choose over. Fetched
+/// alongside the active sub-view and tracked so a stale response is dropped.
+pub type RosterData {
+  RosterLoading
+  RosterLoaded(roster: Roster)
+  RosterFailed(message: String)
+}
+
 /// An open contextual operation: its kind, the form being filled, and the most
 /// recent rejection prompt (an invalid field or a server refusal) to surface.
 pub type OpState {
@@ -120,6 +131,10 @@ pub type Msg {
     as_of: calendar.Date,
     engineer_id: Int,
     result: Result(TimesheetWeek, rsvp.Error(String)),
+  )
+  DirectoryFetched(
+    as_of: calendar.Date,
+    result: Result(Roster, rsvp.Error(String)),
   )
   RowClicked(engineer_id: Int)
   BackClicked
@@ -159,13 +174,20 @@ pub fn init(
         engineer_id:,
         detail: DetailLoading,
         timesheet: TimesheetLoading,
+        roster: RosterLoading,
         op: None,
       ),
-      fetch_detail(as_of, engineer_id),
+      effect.batch([fetch_detail(as_of, engineer_id), fetch_directory(as_of)]),
     )
     _ -> #(
-      ListView(as_of:, actor:, data: ListLoading, op: None),
-      fetch_roster(as_of),
+      ListView(
+        as_of:,
+        actor:,
+        data: ListLoading,
+        roster: RosterLoading,
+        op: None,
+      ),
+      effect.batch([fetch_roster(as_of), fetch_directory(as_of)]),
     )
   }
 }
@@ -179,20 +201,21 @@ pub fn refetch(
   actor: String,
 ) -> #(Model, Effect(Msg)) {
   case model {
-    ListView(op:, ..) -> #(
-      ListView(as_of:, actor:, data: ListLoading, op:),
-      fetch_roster(as_of),
+    ListView(roster:, op:, ..) -> #(
+      ListView(as_of:, actor:, data: ListLoading, roster:, op:),
+      effect.batch([fetch_roster(as_of), fetch_directory(as_of)]),
     )
-    DetailView(engineer_id:, op:, ..) -> #(
+    DetailView(engineer_id:, roster:, op:, ..) -> #(
       DetailView(
         as_of:,
         actor:,
         engineer_id:,
         detail: DetailLoading,
         timesheet: TimesheetLoading,
+        roster:,
         op:,
       ),
-      fetch_detail(as_of, engineer_id),
+      effect.batch([fetch_detail(as_of, engineer_id), fetch_directory(as_of)]),
     )
   }
 }
@@ -221,6 +244,14 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
   ])
 }
 
+fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/roster?as_of=" <> time.iso_date(as_of),
+    codecs.roster_decoder(),
+    fn(result) { DirectoryFetched(as_of:, result:) },
+  )
+}
+
 fn fetch_timesheet(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
   let week = time.week_start_of(as_of)
   api.get(
@@ -239,10 +270,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
     RosterFetched(as_of:, result:) ->
       case model {
-        ListView(as_of: current, actor:, op:, ..) if current == as_of ->
+        ListView(as_of: current, actor:, roster:, op:, ..)
+          if current == as_of
+        ->
           case result {
             Ok(PeopleList(people:, ..)) -> #(
-              ListView(as_of:, actor:, data: ListLoaded(people:), op:),
+              ListView(as_of:, actor:, data: ListLoaded(people:), roster:, op:),
               effect.none(),
               [],
             )
@@ -251,6 +284,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 as_of:,
                 actor:,
                 data: ListFailed(api.describe_error(error)),
+                roster:,
                 op:,
               ),
               effect.none(),
@@ -267,6 +301,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           actor:,
           engineer_id: shown,
           timesheet:,
+          roster:,
           op:,
           ..,
         )
@@ -277,7 +312,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(error) -> DetailFailed(api.describe_error(error))
           }
           #(
-            DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, op:),
+            DetailView(
+              as_of:,
+              actor:,
+              engineer_id:,
+              detail:,
+              timesheet:,
+              roster:,
+              op:,
+            ),
             effect.none(),
             [],
           )
@@ -287,7 +330,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     TimesheetFetched(as_of:, engineer_id:, result:) ->
       case model {
-        DetailView(as_of: current, actor:, engineer_id: shown, detail:, op:, ..)
+        DetailView(
+          as_of: current,
+          actor:,
+          engineer_id: shown,
+          detail:,
+          roster:,
+          op:,
+          ..,
+        )
           if current == as_of && shown == engineer_id
         -> {
           let timesheet = case result {
@@ -295,12 +346,32 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(error) -> TimesheetFailed(api.describe_error(error))
           }
           #(
-            DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, op:),
+            DetailView(
+              as_of:,
+              actor:,
+              engineer_id:,
+              detail:,
+              timesheet:,
+              roster:,
+              op:,
+            ),
             effect.none(),
             [],
           )
         }
         _ -> #(model, effect.none(), [])
+      }
+
+    DirectoryFetched(as_of:, result:) ->
+      case as_of == as_of_of(model) {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let roster = case result {
+            Ok(roster) -> RosterLoaded(roster:)
+            Error(error) -> RosterFailed(api.describe_error(error))
+          }
+          #(set_roster(model, roster), effect.none(), [])
+        }
       }
 
     RowClicked(engineer_id:) -> #(model, effect.none(), [
@@ -403,9 +474,52 @@ fn current_op(model: Model) -> Option(OpState) {
 /// Set (or clear) the open contextual operation, preserving the sub-view.
 fn set_op(model: Model, op: Option(OpState)) -> Model {
   case model {
-    ListView(as_of:, actor:, data:, ..) -> ListView(as_of:, actor:, data:, op:)
-    DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, ..) ->
-      DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, op:)
+    ListView(as_of:, actor:, data:, roster:, ..) ->
+      ListView(as_of:, actor:, data:, roster:, op:)
+    DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, roster:, ..) ->
+      DetailView(
+        as_of:,
+        actor:,
+        engineer_id:,
+        detail:,
+        timesheet:,
+        roster:,
+        op:,
+      )
+  }
+}
+
+/// Replace the as-of operations directory, preserving the sub-view.
+fn set_roster(model: Model, roster: RosterData) -> Model {
+  case model {
+    ListView(as_of:, actor:, data:, op:, ..) ->
+      ListView(as_of:, actor:, data:, roster:, op:)
+    DetailView(as_of:, actor:, engineer_id:, detail:, timesheet:, op:, ..) ->
+      DetailView(
+        as_of:,
+        actor:,
+        engineer_id:,
+        detail:,
+        timesheet:,
+        roster:,
+        op:,
+      )
+  }
+}
+
+/// The active project `Ref`s from the loaded directory, for the op-form
+/// `<select>`s. Empty until the directory loads.
+fn project_refs(model: Model) -> List(Ref) {
+  case roster_of(model) {
+    RosterLoaded(roster:) -> roster.projects
+    _ -> []
+  }
+}
+
+fn roster_of(model: Model) -> RosterData {
+  case model {
+    ListView(roster:, ..) -> roster
+    DetailView(roster:, ..) -> roster
   }
 }
 
@@ -418,16 +532,90 @@ fn set_op_error(model: Model, message: String) -> Model {
   }
 }
 
-/// A fresh op form seeded with the visible engineer's id where relevant (every
-/// detail op acts on the shown engineer), defaulting dates to the sub-view's
-/// as-of.
+/// A fresh op form seeded for `kind`: the visible engineer's id where relevant
+/// (every detail op acts on the shown engineer), the loaded
+/// contact/banking/emergency facts pre-filled into the matching edit form, the
+/// roll-off project pre-selected from the engineer's active allocation, and
+/// every entity slot snapped to a valid directory option. Dates default to the
+/// sub-view's as-of.
 fn blank_form(model: Model, kind: ui.OpKind) -> ui.OpForm {
   let form = ui.blank_op_form(kind, as_of_of(model))
-  case model {
-    DetailView(engineer_id:, ..) ->
-      ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
+  let form = case kind {
+    ui.OpTakeLeave -> ui.update_op_form(form, ui.FKind, "annual")
+    _ -> form
+  }
+  let form = case model {
+    DetailView(engineer_id:, detail:, ..) -> {
+      let form =
+        ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
+      prefill_from_detail(form, kind, detail)
+    }
     ListView(..) -> form
   }
+  ui.reconcile_form(form, [], project_refs(model))
+}
+
+/// Pre-fill the form's slots from the loaded engineer bundle for the kinds that
+/// edit existing facts: the contact/banking/emergency edit forms open showing
+/// the current values, and roll-off pre-selects the engineer's active
+/// allocation. Other kinds (and an unloaded bundle) leave the form untouched.
+fn prefill_from_detail(
+  form: ui.OpForm,
+  kind: ui.OpKind,
+  detail: DetailData,
+) -> ui.OpForm {
+  case detail {
+    DetailLoaded(detail:) ->
+      case kind {
+        ui.OpUpdateContact -> {
+          let EngineerContact(name:, email:, phone:, postal_address:, ..) =
+            detail.contact
+          form
+          |> ui.update_op_form(ui.FName, name)
+          |> ui.update_op_form(ui.FEmail, email)
+          |> ui.update_op_form(ui.FPhone, phone)
+          |> ui.update_op_form(ui.FPostalAddress, postal_address)
+        }
+        ui.OpUpdateBanking -> {
+          let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) =
+            detail.banking
+          form
+          |> ui.update_op_form(ui.FBank, bank)
+          |> ui.update_op_form(ui.FBranch, branch)
+          |> ui.update_op_form(ui.FAccountNo, account_no)
+          |> ui.update_op_form(ui.FAccountName, account_name)
+        }
+        ui.OpUpdateEmergency -> {
+          let EngineerEmergency(relation:, name:, phone:, email:, ..) =
+            detail.emergency
+          form
+          |> ui.update_op_form(ui.FRelation, relation)
+          |> ui.update_op_form(ui.FEmergencyName, name)
+          |> ui.update_op_form(ui.FEmergencyPhone, phone)
+          |> ui.update_op_form(ui.FEmergencyEmail, email)
+        }
+        ui.OpRollOff ->
+          case active_allocation(detail.allocations) {
+            Some(project_id) ->
+              ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+            None -> form
+          }
+        _ -> form
+      }
+    _ -> form
+  }
+}
+
+/// The project id of the engineer's first active allocation, if any — the
+/// natural roll-off target so the form opens pre-selected.
+fn active_allocation(allocations: List(types.AllocationRow)) -> Option(Int) {
+  list.find_map(allocations, fn(allocation) {
+    case allocation {
+      AllocationRow(project_id:, active: True, ..) -> Ok(project_id)
+      _ -> Error(Nil)
+    }
+  })
+  |> option.from_result
 }
 
 /// Record a typed timesheet cell value, keyed by `#(project_id, day_index)`, so
@@ -445,6 +633,7 @@ fn edit_cell(
       engineer_id:,
       detail:,
       timesheet: TimesheetLoaded(week:, edits:),
+      roster:,
       op:,
     ) -> {
       let key = #(project_id, time.date_to_day_index(day))
@@ -455,6 +644,7 @@ fn edit_cell(
         engineer_id:,
         detail:,
         timesheet: TimesheetLoaded(week:, edits:),
+        roster:,
         op:,
       )
     }
@@ -507,20 +697,21 @@ fn parse_hours(raw: String) -> Float {
 /// `refetch` but reads the sub-view's own as-of.
 fn refetch_active(model: Model) -> #(Model, Effect(Msg)) {
   case model {
-    ListView(as_of:, actor:, op:, ..) -> #(
-      ListView(as_of:, actor:, data: ListLoading, op:),
-      fetch_roster(as_of),
+    ListView(as_of:, actor:, roster:, op:, ..) -> #(
+      ListView(as_of:, actor:, data: ListLoading, roster:, op:),
+      effect.batch([fetch_roster(as_of), fetch_directory(as_of)]),
     )
-    DetailView(as_of:, actor:, engineer_id:, op:, ..) -> #(
+    DetailView(as_of:, actor:, engineer_id:, roster:, op:, ..) -> #(
       DetailView(
         as_of:,
         actor:,
         engineer_id:,
         detail: DetailLoading,
         timesheet: TimesheetLoading,
+        roster:,
         op:,
       ),
-      fetch_detail(as_of, engineer_id),
+      effect.batch([fetch_detail(as_of, engineer_id), fetch_directory(as_of)]),
     )
   }
 }
@@ -546,15 +737,16 @@ fn actor_of(model: Model) -> String {
 pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
   let _ = as_of
   case model {
-    ListView(data:, op:, ..) -> view_list(data, op, as_of_of(model))
+    ListView(data:, op:, ..) -> view_list(model, data, op, as_of_of(model))
     DetailView(detail:, timesheet:, op:, ..) ->
-      view_detail(detail, timesheet, op)
+      view_detail(model, detail, timesheet, op)
   }
 }
 
 // --- List view --------------------------------------------------------------
 
 fn view_list(
+  model: Model,
   data: ListData,
   op: Option(OpState),
   as_of: calendar.Date,
@@ -567,16 +759,16 @@ fn view_list(
         <> ". Open a person for their full record and history.",
       actions: [op_button("+ Onboard", ui.OpOnboardEngineer, False)],
     )
-  let op_panel = view_op_panel(op)
+  let op_modal = view_op_modal(model, op)
   case data {
-    ListLoading -> column([head, op_panel, ui.empty_state("Loading roster…")])
+    ListLoading -> column([head, op_modal, ui.empty_state("Loading roster…")])
     ListFailed(message:) ->
       column([
         head,
-        op_panel,
+        op_modal,
         ui.empty_state("Could not load the roster: " <> message),
       ])
-    ListLoaded(people:) -> column([head, op_panel, roster_panel(people)])
+    ListLoaded(people:) -> column([head, op_modal, roster_panel(people)])
   }
 }
 
@@ -670,6 +862,7 @@ fn join_titles(titles: List(String)) -> String {
 // --- Detail view ------------------------------------------------------------
 
 fn view_detail(
+  model: Model,
   detail: DetailData,
   timesheet: TimesheetData,
   op: Option(OpState),
@@ -686,7 +879,7 @@ fn view_detail(
       column([
         back,
         detail_head(detail),
-        view_op_panel(op),
+        view_op_modal(model, op),
         detail_grid(detail, timesheet),
       ])
   }
@@ -1025,46 +1218,35 @@ fn op_button(label: String, kind: ui.OpKind, ghost: Bool) -> Element(Msg) {
   ])
 }
 
-/// The inline operation form panel, shown only while an op is open. Renders the
-/// fields the chosen kind needs, the rejection prompt if any, and Apply/Cancel.
-fn view_op_panel(op: Option(OpState)) -> Element(Msg) {
+/// The contextual operation as a centred modal over a dimmed backdrop, shown only
+/// while an op is open. Renders the fields the chosen kind needs, the rejection
+/// prompt if any, and the Cancel / op-verb Confirm footer. Clicking the backdrop
+/// or Cancel closes (`OpCancelled`); Confirm submits (`OpSubmitted`).
+fn view_op_modal(model: Model, op: Option(OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
     Some(OpState(kind:, form:, error:)) ->
-      ui.panel(title: op_title(kind), count: "", right: [], body: [
-        html.div([attribute.class("pad-detail")], [
-          html.div([attribute.class("op-form")], op_fields(kind, form)),
-          op_error(error),
-          html.div([attribute.class("op-form__actions")], [
-            html.button(
-              [attribute.class("btn btn--sm"), event.on_click(OpSubmitted)],
-              [html.text("Apply")],
-            ),
-            html.button(
-              [
-                attribute.class("btn btn--ghost btn--sm"),
-                event.on_click(OpCancelled),
-              ],
-              [html.text("Cancel")],
-            ),
-          ]),
-        ]),
-      ])
+      ui.modal(
+        title: op_title(kind),
+        error: option.unwrap(error, ""),
+        body: op_fields(model, kind, form),
+        on_cancel: OpCancelled,
+        on_confirm: OpSubmitted,
+        confirm_label: op_verb(kind),
+      )
   }
 }
 
-fn op_error(error: Option(String)) -> Element(Msg) {
-  case error {
-    None -> element.none()
-    Some(message) ->
-      html.div([attribute.class("op-form__error")], [html.text(message)])
-  }
-}
-
-/// The form fields each operation kind reads, bound to the shared `OpForm`. Only
-/// the kinds this page raises have a populated arm; any other kind shows just its
-/// engineer-id field (a safe fallback the page never triggers).
-fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
+/// The form fields each operation kind reads, bound to the shared `OpForm`: the
+/// roll-off project is a `<select>` over the as-of directory, the leave kind a
+/// fixed `<select>`, and the contact/banking/emergency edits open pre-filled with
+/// the loaded values. Only the kinds this page raises have a populated arm; any
+/// other kind shows just its engineer-id field (a safe fallback never triggered).
+fn op_fields(
+  model: Model,
+  kind: ui.OpKind,
+  form: ui.OpForm,
+) -> List(Element(Msg)) {
   case kind {
     ui.OpOnboardEngineer -> [
       text_field("Name", ui.FName, form.name),
@@ -1076,12 +1258,18 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
       date_field("Effective", ui.FEffective, form.effective),
     ]
     ui.OpTakeLeave -> [
-      text_field("Kind", ui.FKind, form.kind),
+      leave_kind_field(form.kind),
       date_field("From", ui.FValidFrom, form.valid_from),
       date_field("To", ui.FValidTo, form.valid_to),
     ]
     ui.OpRollOff -> [
-      number_field("Project id", ui.FProjectId, form.project_id),
+      ui.ref_select(
+        label: "Project",
+        field: ui.FProjectId,
+        refs: project_refs(model),
+        selected: form.project_id,
+        to_msg: OpFieldEdited,
+      ),
       date_field("Effective", ui.FEffective, form.effective),
     ]
     ui.OpTerminateEmployment -> [
@@ -1110,6 +1298,33 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
     ]
     _ -> [number_field("Engineer id", ui.FEngineerId, form.engineer_id)]
   }
+}
+
+/// The leave-kind `<select>` for TakeLeave: a fixed list of leave kinds bound to
+/// the form's `kind` slot, so the wire value is always one the domain accepts
+/// rather than free text. Defaults to "annual" when the slot is blank.
+fn leave_kind_field(selected: String) -> Element(Msg) {
+  let selected = case selected {
+    "" -> "annual"
+    other -> other
+  }
+  let options =
+    list.map(["annual", "sick", "parental", "unpaid"], fn(kind) {
+      html.option(
+        [attribute.value(kind), attribute.selected(kind == selected)],
+        string.capitalise(kind),
+      )
+    })
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Kind")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Kind"),
+        event.on_change(fn(value) { OpFieldEdited(field: ui.FKind, value:) }),
+      ],
+      options,
+    ),
+  ])
 }
 
 fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
@@ -1157,6 +1372,22 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpUpdateBanking -> "Update banking details"
     ui.OpUpdateEmergency -> "Update emergency contact"
     _ -> "Operation"
+  }
+}
+
+/// The confirm-button verb for an operation kind — the action the presenter is
+/// committing, not a generic "Apply".
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpOnboardEngineer -> "Onboard"
+    ui.OpPromote -> "Promote"
+    ui.OpTakeLeave -> "Take leave"
+    ui.OpRollOff -> "Roll off"
+    ui.OpTerminateEmployment -> "Terminate"
+    ui.OpUpdateContact -> "Save contact"
+    ui.OpUpdateBanking -> "Save banking"
+    ui.OpUpdateEmergency -> "Save emergency"
+    _ -> "Confirm"
   }
 }
 

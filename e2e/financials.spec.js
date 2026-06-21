@@ -6,6 +6,7 @@ const {
   visibleInvoiceIds,
   invoiceRowById,
   clickContent,
+  confirmOp,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the Finance invoice lifecycle (PRD-financials §6) on
@@ -33,19 +34,22 @@ const MONTH = "Jun 2026";
 // invoice that draft created (the one absent before it).
 async function draftJuneInvoice(page) {
   // The invoice id is a monotonically increasing sequence, so the invoice this
-  // draft creates is the one with the greatest id — robust even when older
-  // invoices' visibility shifts as their as-of status resolves (the set of shown
-  // ids can otherwise flicker). Capture the current max, draft, then poll until a
-  // larger id appears and return THAT id — captured the moment it is observed, not
-  // re-read afterwards (a re-read can catch a transient Loading re-render that
-  // clears the table and yields 0).
-  const maxBefore = await maxInvoiceId(page);
+  // draft creates is the one with the greatest id. Capture the current max, draft,
+  // then poll until a larger id appears and return THAT id — captured the moment it
+  // is observed, not re-read afterwards.
+  //
+  // The before-read must be of the SETTLED table: a refetch (from sign-in/nav/scrub
+  // in beforeEach) momentarily clears the table to a Loading placeholder, which a
+  // single read would see as zero invoices. Were maxBefore 0 while an older paid
+  // invoice actually exists, the post-draft poll would lock onto THAT stale invoice.
+  // So we wait for the max to stabilise (two equal consecutive reads) before drafting.
+  const maxBefore = await settledMaxInvoiceId(page);
   await page.getByRole("button", { name: "+ Draft" }).dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Draft an invoice" })).toBeVisible();
-  await page.getByLabel("Project id").fill(String(PROJECT.id));
+  await expect(page.getByText("Draft an invoice")).toBeVisible();
+  await page.getByLabel("Project").selectOption({ label: PROJECT.name });
   await page.getByLabel("Billing from").fill("2026-06-01");
   await page.getByLabel("Billing to").fill("2026-07-01");
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await confirmOp(page, "Draft");
   let created = 0;
   await expect
     .poll(async () => {
@@ -60,6 +64,24 @@ async function draftJuneInvoice(page) {
 async function maxInvoiceId(page) {
   const ids = await visibleInvoiceIds(page);
   return ids.size === 0 ? 0 : Math.max(...ids);
+}
+
+// The greatest visible invoice id, read only once the invoices table has settled:
+// poll until two consecutive reads agree, so a transient Loading re-render (which
+// momentarily shows zero invoices) cannot be mistaken for an empty ledger.
+async function settledMaxInvoiceId(page) {
+  let previous = -1;
+  let settled = 0;
+  await expect
+    .poll(async () => {
+      const max = await maxInvoiceId(page);
+      const stable = max === previous;
+      previous = max;
+      if (stable) settled = max;
+      return stable;
+    })
+    .toBe(true);
+  return settled;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -87,17 +109,17 @@ test("drafting then issuing then paying walks an invoice through its lifecycle",
   // defaulted to the rail's 2026-06-15); Apply commits the draft -> issued
   // transition. The row now reads `issued` and offers "Mark paid".
   await clickContent(row().getByRole("button", { name: "Issue" }));
-  await expect(page.getByRole("heading", { name: "Issue invoice" })).toBeVisible();
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await expect(page.getByText("Issue invoice")).toBeVisible();
+  await confirmOp(page, "Issue");
   await expect(row()).toContainText("issued");
   await expect(row().getByRole("button", { name: "Mark paid" })).toBeVisible();
   await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
 
-  // Pay it: Mark paid opens the pay form; Apply commits issued -> paid. The row now
-  // reads `paid` and offers no further action.
+  // Pay it: Mark paid opens the pay form; the modal's Mark-paid confirm commits
+  // issued -> paid. The row now reads `paid` and offers no further action.
   await clickContent(row().getByRole("button", { name: "Mark paid" }));
-  await expect(page.getByRole("heading", { name: "Mark invoice paid" })).toBeVisible();
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await expect(page.getByText("Mark invoice paid")).toBeVisible();
+  await confirmOp(page, "Mark paid");
   await expect(row()).toContainText("paid");
   await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
 });
@@ -114,8 +136,8 @@ test("an invoice's status is temporal: scrubbing before its issue date shows it 
   await expect(row()).toContainText("draft");
 
   await clickContent(row().getByRole("button", { name: "Issue" }));
-  await expect(page.getByRole("heading", { name: "Issue invoice" })).toBeVisible();
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await expect(page.getByText("Issue invoice")).toBeVisible();
+  await confirmOp(page, "Issue");
   await expect(row()).toContainText("issued");
 
   await scrubTo(page, "2026-06-01");

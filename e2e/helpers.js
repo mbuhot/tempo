@@ -100,6 +100,24 @@ function rosterRow(page, name) {
   return page.getByRole("row", { name: new RegExp(escapeRegExp(name)) });
 }
 
+// --- The contextual-operation modal ------------------------------------------
+// Every page now composes its op forms in a centred modal overlaid on a dimmed
+// backdrop (ui.modal). The launcher that opened it (e.g. a "Promote" / "Assign"
+// button) stays in the page behind the backdrop, so its verb can collide with the
+// modal's own confirm verb. Scope confirm clicks and in-form controls through this
+// locator so they resolve only the open dialog. The dialog carries no ARIA role,
+// so it is reached by its overlay container.
+function opModal(page) {
+  return page.locator(".modal");
+}
+
+// Click the modal's footer confirm button by its op-verb label (e.g. "Promote",
+// "Assign", "Draft"), scoped to the open dialog so a same-named launcher behind
+// the backdrop never wins the match.
+async function confirmOp(page, verb) {
+  await opModal(page).getByRole("button", { name: verb, exact: true }).click();
+}
+
 // The invoices-table row for an invoice id ("#<id>" shown in its first cell).
 function invoiceRowById(page, id) {
   return page.getByRole("row", { name: new RegExp(`#${id}\\b`) });
@@ -129,4 +147,6 @@ module.exports = {
   invoiceRowById,
   visibleInvoiceIds,
   escapeRegExp,
+  opModal,
+  confirmOp,
 };
