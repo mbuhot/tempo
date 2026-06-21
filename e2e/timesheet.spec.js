@@ -24,7 +24,7 @@ const {
 // the detail's name heading is never the sidebar's signed-in-user name.)
 async function openDetail(page, name) {
   await navigateTo(page, "People");
-  await expect(page.getByRole("heading", { name: "Engineers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   await clickContent(rosterRow(page, name));
   await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
 }
@@ -84,7 +84,7 @@ test("logging a whole week persists across navigation", async ({ page }) => {
   // database (the server does not serve /people/:id on a cold reload, so we
   // re-navigate client-side rather than page.reload()).
   await navigateTo(page, "Board");
-  await expect(page.getByRole("heading", { name: "Who's doing what" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
   await openDetail(page, "Marcus Chen");
   await scrubTo(page, "2026-06-10");
   await expect(cell(page, "Data Platform", WEEKDAY.Mon)).toHaveValue("5");

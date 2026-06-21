@@ -65,7 +65,7 @@ async function maxInvoiceId(page) {
 test.beforeEach(async ({ page }) => {
   await signInAs(page, "Marcus Chen");
   await navigateTo(page, "Finance");
-  await expect(page.getByRole("heading", { name: "Money" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Finance" })).toBeVisible();
   await scrubTo(page, "2026-06-15");
 });
 
@@ -132,7 +132,7 @@ test("a drafted invoice is journalled in the Activity log", async ({ page }) => 
   const id = await draftJuneInvoice(page);
 
   await navigateTo(page, "Activity");
-  await expect(page.getByRole("heading", { name: "Activity log" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.getByLabel("Quick range").selectOption({ label: "All time" });
   await expect(
     page

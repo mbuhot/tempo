@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
   // Sign in as a person; the app lands on the Board at the seed "now".
   await signInAs(page, "Priya Sharma");
   await expect(
-    page.getByRole("heading", { name: "Who's doing what" }),
+    page.getByRole("heading", { name: "Board" }),
   ).toBeVisible();
   await expect(page.getByText("Data Platform").first()).toBeVisible();
 });
@@ -106,7 +106,7 @@ test("the selected date lives in the URL and is restored on load", async ({
   await page.getByRole("button", { name: "Priya Sharma" }).click();
   await expect(page.getByText("1 Jan 2025")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Who's doing what" }),
+    page.getByRole("heading", { name: "Board" }),
   ).toBeVisible();
 });
 

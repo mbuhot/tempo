@@ -26,7 +26,7 @@ const {
 // the detail's name heading never collides with the sidebar's signed-in-user name.
 async function openDetail(page, name) {
   await navigateTo(page, "People");
-  await expect(page.getByRole("heading", { name: "Engineers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   await clickContent(rosterRow(page, name));
   await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
 }
@@ -80,7 +80,7 @@ test("a containment violation is refused with the reason and leaves the board un
   // typed reason; the board is unchanged (read-only refusal, re-run safe).
   await signInAs(page, "Priya Sharma");
   await navigateTo(page, "Board");
-  await expect(page.getByRole("heading", { name: "Who's doing what" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
 
   await page.getByRole("button", { name: "+ Assign" }).dispatchEvent("click");
   await expect(page.getByText("Assign to a project")).toBeVisible();

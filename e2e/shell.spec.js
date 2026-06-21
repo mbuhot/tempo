@@ -25,7 +25,7 @@ test("signing in as a person lands on the Board", async ({ page }) => {
   await page.getByRole("button", { name: "Aisha Okafor" }).click();
 
   await expect(page.getByText(railReadout("2026-06-15"), { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Who's doing what" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
   // The gate is gone — the engineer identity is now the signed-in user.
   await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
 });
@@ -41,15 +41,15 @@ test("the global as-of is preserved as you navigate Board → People → Finance
   await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
 
   await navigateTo(page, "People");
-  await expect(page.getByRole("heading", { name: "Engineers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   await expect(page.getByText(railReadout("2026-07-15"), { exact: true })).toBeVisible();
 
   await navigateTo(page, "Finance");
-  await expect(page.getByRole("heading", { name: "Money" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Finance" })).toBeVisible();
   await expect(page.getByText(railReadout("2026-07-15"), { exact: true })).toBeVisible();
 
   await navigateTo(page, "Board");
-  await expect(page.getByRole("heading", { name: "Who's doing what" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
   await expect(page.getByText(railReadout("2026-07-15"), { exact: true })).toBeVisible();
 });
 
@@ -70,7 +70,7 @@ test("a cold deep link opens the engineer detail, not the roster", async ({
   await expect(page.getByText("Allocations")).toBeVisible();
   await expect(page.getByText("All engineers")).toBeVisible();
   // It is the detail, not the roster list.
-  await expect(page.getByRole("heading", { name: "Engineers" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "People" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/people\/2\b/);
 });
 
@@ -83,7 +83,7 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
   // Priya to L6 from a fixed past date is idempotent, so re-runs do not conflict.
   await signInAs(page, "Aisha Okafor");
   await navigateTo(page, "People");
-  await expect(page.getByRole("heading", { name: "Engineers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   await clickContent(rosterRow(page, "Priya Sharma"));
   await expect(page.getByRole("heading", { name: /Priya Sharma/ })).toBeVisible();
 
@@ -95,7 +95,7 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
   await expect(page.getByText("L6 · Distinguished").first()).toBeVisible();
 
   await navigateTo(page, "Activity");
-  await expect(page.getByRole("heading", { name: "Activity log" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.getByLabel("Quick range").selectOption({ label: "All time" });
   await expect(
     page.getByText("Promote engineer 1 to L6 from 2026-06-01").first(),
