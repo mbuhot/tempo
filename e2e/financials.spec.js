@@ -7,6 +7,7 @@ const {
   invoiceRowById,
   clickContent,
   confirmOp,
+  rosterRow,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the Finance invoice lifecycle (PRD-financials §6) on
@@ -144,6 +145,129 @@ test("an invoice's status is temporal: scrubbing before its issue date shows it 
   await expect(row()).toContainText("draft");
   await expect(row().getByRole("button", { name: "Issue" })).toBeVisible();
   await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
+});
+
+// Open the Payroll tab from the Finance page. The tab is a button labelled
+// "Payroll"; clicking it reveals the payroll panel. The panel's title flexes by
+// state ("Payroll preview · <month>" un-run, "Payroll run · <month>" once run), so
+// we wait for the state-agnostic month suffix rather than a fixed title.
+async function openPayrollTab(page) {
+  await page.getByRole("button", { name: "Payroll", exact: true }).click();
+  await expect(page.getByText(/Payroll (preview|run) ·/)).toBeVisible();
+}
+
+// The three employed engineers, by visible name. Self-contained: they exist on the
+// migrate-only e2e DB (base employment seed) with no financials seed.
+const EMPLOYED = ["Priya Sharma", "Marcus Chen", "Aisha Okafor"];
+
+// Run payroll for a month via the Run-payroll modal, if it has not been run yet.
+// ENSURE-THEN-ASSERT, re-run-safe against the append-only DB and the
+// payroll_period EXCLUDE-overlap constraint (a 2nd run of the same month is
+// refused): the "Run payroll" button is present ONLY in the un-run preview state,
+// so its presence is the signal a run is needed.
+async function ensurePayrollRun(page, monthFrom, monthTo) {
+  const runButton = page.getByRole("button", { name: "Run payroll", exact: true });
+  const needsRun = await runButton.isVisible().catch(() => false);
+  if (needsRun) {
+    await runButton.click();
+    await expect(page.getByText("Run payroll").first()).toBeVisible();
+    await page.getByLabel("Period from").fill(monthFrom);
+    await page.getByLabel("Period to").fill(monthTo);
+    await confirmOp(page, "Run payroll");
+  }
+}
+
+test("an un-run month previews the employed engineers as not-yet-run rather than zero-headcount", async ({
+  page,
+}) => {
+  // STATE 1 (NOT YET RUN): the Payroll tab reads a materialized run, written only
+  // by RunPayroll. October 2026 is never run in any test, so its panel must read
+  // as an honest live PREVIEW — the "<n> employed · not yet run" pill and a
+  // "<total> to pay" note — listing the three currently-employed engineers, NEVER
+  // "0 employed".
+  await openPayrollTab(page);
+  await scrubTo(page, "2026-10-15");
+
+  await expect(page.getByText("not yet run", { exact: false })).toBeVisible();
+  await expect(page.getByText("3 employed", { exact: false })).toBeVisible();
+  await expect(page.getByText("to pay", { exact: false })).toBeVisible();
+  await expect(page.getByText("0 employed")).toHaveCount(0);
+  for (const name of EMPLOYED) {
+    await expect(page.getByRole("row", { name: new RegExp(name) })).toBeVisible();
+  }
+});
+
+test("running payroll materializes the run and shows each engineer's paid amount", async ({
+  page,
+}) => {
+  // STATE 2 (RUN): scrub to a future month (August 2026), run its payroll once, and
+  // the panel flips from the live PREVIEW to a MATERIALIZED run — title "Payroll run
+  // · Aug 2026", the "Run payroll" button gone, the "not yet run" framing gone, and
+  // each employed engineer showing a PAID dollar amount. We assert the run/material-
+  // isation transition, not reconciled-vs-variance: on the shared append-only DB a
+  // concurrent spec's open-ended promotion (e.g. Priya → L6 from Jun 1) can back-date
+  // a variance over any later month after its run, so "reconciled" is not stable here
+  // — Beat 3 exercises the variance path deterministically instead.
+  await openPayrollTab(page);
+  await scrubTo(page, "2026-08-15");
+  await ensurePayrollRun(page, "2026-08-01", "2026-08-31");
+
+  await expect(page.getByText("Payroll run · Aug 2026", { exact: false })).toBeVisible();
+  await expect(page.getByText("not yet run")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Run payroll", exact: true }),
+  ).toHaveCount(0);
+  for (const name of EMPLOYED) {
+    const row = page.getByRole("row", { name: new RegExp(name) });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(/\$[\d,]+/);
+  }
+});
+
+test("back-dating a promotion into a run month surfaces the back-pay owed", async ({
+  page,
+}) => {
+  // STATE 3 (RUN + VARIANCE): the bitemporal payoff. September 2026 is its OWN
+  // run month — isolated from August's reconciled run so this promotion never
+  // back-dates a variance into August (Aug is before Sep 1, so it stays reconciled
+  // on re-runs). Run September's payroll (capturing Priya's then-current salary),
+  // then back-date a promotion for Priya to L7 effective September 1. The frozen
+  // paid line does not move, but the LIVE recompute rises to the L7 salary, so the
+  // September panel now warns "⚠ <owed> back-pay owed" and Priya's row shows
+  // "should be" > "paid" with a non-zero Δ.
+  //
+  // Re-run safe: ensurePayrollRun skips if September is already run; promoting
+  // Priya to L7 from the same fixed date is idempotent (FOR PORTION OF re-sets the
+  // same level — no overlap, no split). Promote to L7 (not L6) so the recompute
+  // rises above paid regardless of whether other specs have already lifted her to
+  // L6. Signed in as Marcus (the beforeEach actor), so Priya's detail heading never
+  // collides with the sidebar's signed-in-user name.
+  await openPayrollTab(page);
+  await scrubTo(page, "2026-09-15");
+  await ensurePayrollRun(page, "2026-09-01", "2026-09-30");
+
+  await navigateTo(page, "People");
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  await clickContent(rosterRow(page, "Priya Sharma"));
+  await expect(page.getByRole("heading", { name: /Priya Sharma/ })).toBeVisible();
+  await page.getByRole("button", { name: "Promote" }).dispatchEvent("click");
+  await expect(page.getByLabel("New level")).toBeVisible();
+  await page.getByLabel("New level").fill("7");
+  await page.getByLabel("Effective").fill("2026-09-01");
+  await confirmOp(page, "Promote");
+  await expect(page.getByText("L7 · Fellow").first()).toBeVisible();
+
+  await navigateTo(page, "Finance");
+  await openPayrollTab(page);
+  await scrubTo(page, "2026-09-15");
+
+  // The warning header carries a dollar owed amount, and Priya's row reads her L7
+  // "should be" ($20,000 — a full September at the L7 salary) — strictly above
+  // whatever was paid at her pre-promotion level, the visible back-pay correction.
+  await expect(page.getByText(/⚠ \$[\d,]+ back-pay owed/)).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /Priya Sharma/ }),
+  ).toContainText("$20,000");
 });
 
 test("a drafted invoice is journalled in the Activity log", async ({ page }) => {

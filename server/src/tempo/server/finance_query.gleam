@@ -14,12 +14,14 @@
 //// next month exclusive, first of the year).
 
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date, Date, January}
 import pog
 import shared/types.{
-  type Invoice, type InvoiceDetail, type Payroll, type PayrollLine, type Pnl,
-  type PnlRow, Invoice, InvoiceDetail, Payroll, PayrollLine, Pnl, PnlRow,
+  type Invoice, type InvoiceDetail, type Payroll, type PayrollLine,
+  type PayrollRunInfo, type Pnl, type PnlRow, Invoice, InvoiceDetail, Payroll,
+  PayrollLine, PayrollRunInfo, Pnl, PnlRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/sql
@@ -95,15 +97,19 @@ fn lines_row_to_invoice_line(row: sql.InvoiceLinesRow) -> types.InvoiceLine {
 
 // --- payroll -----------------------------------------------------------------
 
-/// The payroll run covering a period (`GET /api/payroll?from=&to=`): one
-/// `PayrollLine` per employed engineer, the persisted snapshot a `RunPayroll`
-/// produced for the month (FR-F5/FR-F6).
+/// The month's payroll panel (`GET /api/payroll?from=&to=`): one `PayrollLine`
+/// per engineer present on either side of the reconciliation — the LIVE recompute
+/// over current facts (`preview_*`, always present) and the MATERIALIZED snapshot
+/// a `RunPayroll` froze (`paid_*`, `None` until a run exists) (FR-F5/FR-F6). `run`
+/// is `Some` iff a materialized run covers the month (carried on every row by the
+/// query); the variance preview − paid surfaces back-pay owed after a back-dated
+/// fact moves the live slices.
 pub fn payroll(
   context: Context,
   period_from: Date,
   period_to: Date,
 ) -> Result(Payroll, pog.QueryError) {
-  use returned <- result.map(sql.payroll_lines(
+  use returned <- result.map(sql.payroll_reconciliation(
     context.db,
     period_from,
     period_to,
@@ -111,12 +117,34 @@ pub fn payroll(
   Payroll(
     period_from:,
     period_to:,
+    run: run_info(returned.rows),
     lines: list.map(returned.rows, payroll_row_to_line),
   )
 }
 
-fn payroll_row_to_line(row: sql.PayrollLinesRow) -> PayrollLine {
-  PayrollLine(engineer: row.engineer, amount: row.amount, days: row.days)
+/// The materialized run for the month, read off any row's `run_id` (the query
+/// carries the same value on every row); `None` when no run exists yet.
+fn run_info(
+  rows: List(sql.PayrollReconciliationRow),
+) -> Option(PayrollRunInfo) {
+  case rows {
+    [row, ..] ->
+      case row.run_id {
+        Some(run_id) -> Some(PayrollRunInfo(run_id:))
+        None -> None
+      }
+    [] -> None
+  }
+}
+
+fn payroll_row_to_line(row: sql.PayrollReconciliationRow) -> PayrollLine {
+  PayrollLine(
+    engineer: row.engineer,
+    preview_amount: row.preview_amount,
+    preview_days: row.preview_days,
+    paid_amount: row.paid_amount,
+    paid_days: row.paid_days,
+  )
 }
 
 // --- P&L ---------------------------------------------------------------------

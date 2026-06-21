@@ -890,51 +890,183 @@ fn invoice_line_row(line: InvoiceLine) -> Element(Msg) {
 
 // --- Payroll tab ------------------------------------------------------------
 
+/// The month's payroll panel, adaptive across three states off the `run` /
+/// preview-vs-paid reconciliation:
+///   * no materialized run  -> a live PREVIEW of what would be paid, with the run
+///     button;
+///   * a run whose paid lines equal the live recompute -> RECONCILED, no button
+///     (the DB refuses a re-run);
+///   * a run a back-dated fact has since outgrown -> VARIANCE, the per-line Δ and
+///     the total back-pay owed.
 fn view_payroll(data: Data) -> Element(Msg) {
   let body = case data.payroll {
     None -> ui.empty_state(message: "Loading payroll…")
-    Some(payroll) -> {
-      let month = format_month(payroll.period_from)
-      let count = list.length(payroll.lines)
-      let total =
-        list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.amount })
-      let rows = list.map(payroll.lines, payroll_row)
-      ui.panel(
-        title: "Payroll run · " <> month,
-        count: int.to_string(count) <> " employed",
-        right: [
-          html.span([attribute.class("finance__total-note")], [
-            html.text(ui.money(total) <> " total"),
-          ]),
-          html.button(
-            [
-              attribute.class("btn btn--sm"),
-              event.on_click(OpOpened(ui.OpRunPayroll)),
-            ],
-            [html.text("Run payroll")],
-          ),
-        ],
-        body: [
-          ui.data_table(
-            headers: [
-              #("Engineer", False),
-              #("Days", True),
-              #("Amount", True),
-            ],
-            rows: rows,
-          ),
-        ],
-      )
-    }
+    Some(payroll) ->
+      case payroll.run {
+        None -> view_payroll_preview(payroll)
+        Some(_) ->
+          case payroll_reconciled(payroll.lines) {
+            True -> view_payroll_reconciled(payroll)
+            False -> view_payroll_variance(payroll)
+          }
+      }
   }
   html.div([], [op_panel(data, route.Payroll), body])
 }
 
-fn payroll_row(line: PayrollLine) -> Element(Msg) {
+/// Whether every line's frozen paid amount still equals the live recompute (within
+/// a sub-cent epsilon) — i.e. nothing has been back-dated since the run. A line
+/// with no paid amount (employed-but-not-in-run) counts as a variance.
+fn payroll_reconciled(lines: List(PayrollLine)) -> Bool {
+  list.all(lines, fn(line) {
+    case line.paid_amount {
+      Some(paid) -> float.absolute_value(line.preview_amount -. paid) <. 0.005
+      None -> False
+    }
+  })
+}
+
+/// NOT YET RUN: the live recompute over current facts, the count of employed
+/// engineers, the total to pay, and the run button.
+fn view_payroll_preview(payroll: Payroll) -> Element(Msg) {
+  let month = format_month(payroll.period_from)
+  let count = list.length(payroll.lines)
+  let total =
+    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.preview_amount })
+  let run_button =
+    html.button(
+      [
+        attribute.class("btn btn--sm"),
+        event.on_click(OpOpened(ui.OpRunPayroll)),
+      ],
+      [html.text("Run payroll")],
+    )
+  ui.panel(
+    title: "Payroll preview · " <> month,
+    count: int.to_string(count) <> " employed · not yet run",
+    right: [
+      html.span([attribute.class("finance__total-note")], [
+        html.text(ui.money(total) <> " to pay"),
+      ]),
+      run_button,
+    ],
+    body: [
+      ui.data_table(
+        headers: [#("Engineer", False), #("Days", True), #("Preview", True)],
+        rows: list.map(payroll.lines, payroll_preview_row),
+      ),
+    ],
+  )
+}
+
+fn payroll_preview_row(line: PayrollLine) -> Element(Msg) {
   html.tr([], [
     html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [html.text(ui.days(line.days))]),
-    html.td([attribute.class("num")], [html.text(ui.money(line.amount))]),
+    html.td([attribute.class("num")], [html.text(ui.days(line.preview_days))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(line.preview_amount)),
+    ]),
+  ])
+}
+
+/// RUN, NO CHANGES: the frozen paid lines, reconciled against the live recompute.
+/// No run button — the DB refuses a second run for the same month.
+fn view_payroll_reconciled(payroll: Payroll) -> Element(Msg) {
+  let month = format_month(payroll.period_from)
+  let count = list.length(payroll.lines)
+  let total =
+    list.fold(payroll.lines, 0.0, fn(sum, line) {
+      sum +. option.unwrap(line.paid_amount, 0.0)
+    })
+  ui.panel(
+    title: "Payroll run · " <> month,
+    count: int.to_string(count) <> " employed · reconciled",
+    right: [
+      html.span([attribute.class("finance__total-note")], [
+        html.text(ui.money(total) <> " paid"),
+      ]),
+    ],
+    body: [
+      ui.data_table(
+        headers: [#("Engineer", False), #("Days", True), #("Paid", True)],
+        rows: list.map(payroll.lines, payroll_paid_row),
+      ),
+    ],
+  )
+}
+
+fn payroll_paid_row(line: PayrollLine) -> Element(Msg) {
+  html.tr([], [
+    html.td([], [html.text(line.engineer)]),
+    html.td([attribute.class("num")], [
+      html.text(ui.days(option.unwrap(line.paid_days, 0.0))),
+    ]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
+    ]),
+  ])
+}
+
+/// RUN + VARIANCE: a fact was back-dated into the month after the run, so the live
+/// recompute ("should be") no longer matches the frozen paid line for some
+/// engineer. The header warns of the total back-pay owed; the table shows paid vs
+/// should-be with the per-line Δ, the varying rows flagged.
+fn view_payroll_variance(payroll: Payroll) -> Element(Msg) {
+  let month = format_month(payroll.period_from)
+  let owed =
+    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line_delta(line) })
+  ui.panel(
+    title: "Payroll run · " <> month,
+    count: "",
+    right: [
+      html.span([attribute.class("finance__owed")], [
+        html.text("⚠ " <> ui.money(owed) <> " back-pay owed"),
+      ]),
+    ],
+    body: [
+      ui.data_table(
+        headers: [
+          #("Engineer", False),
+          #("Paid", True),
+          #("Should be", True),
+          #("Δ", True),
+        ],
+        rows: list.map(payroll.lines, payroll_variance_row),
+      ),
+    ],
+  )
+}
+
+/// The back-pay Δ for a line: the live recompute minus the frozen paid amount (a
+/// not-yet-paid line owes its full preview).
+fn line_delta(line: PayrollLine) -> Float {
+  line.preview_amount -. option.unwrap(line.paid_amount, 0.0)
+}
+
+fn payroll_variance_row(line: PayrollLine) -> Element(Msg) {
+  let delta = line_delta(line)
+  let varies = float.absolute_value(delta) >=. 0.005
+  let row_class = case varies {
+    True -> "finance__variance-row"
+    False -> ""
+  }
+  let delta_text = case varies {
+    True -> ui.money(delta)
+    False -> "—"
+  }
+  let delta_class = case varies {
+    True -> "num finance__owed"
+    False -> "num"
+  }
+  html.tr([attribute.class(row_class)], [
+    html.td([], [html.text(line.engineer)]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
+    ]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(line.preview_amount)),
+    ]),
+    html.td([attribute.class(delta_class)], [html.text(delta_text)]),
   ])
 }
 

@@ -23,11 +23,12 @@
 
 import gleam/dynamic/decode
 import gleam/list
+import gleam/option.{Some}
 import gleam/time/calendar.{type Date, Date, July, June}
 import pog
 import shared/types.{
   type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, Payroll, PayrollLine, PnlRow, RunPayroll,
+  IssueInvoice, Payroll, PayrollLine, PayrollRunInfo, PnlRow, RunPayroll,
 }
 import tempo/server/command
 import tempo/server/context.{Context}
@@ -200,10 +201,12 @@ pub fn invoice_detail_unknown_id_is_not_found_test() {
 
 // --- GET /api/payroll?from=&to= — FR-F5/FR-F6 -------------------------------
 
-// After running June payroll, the read returns one line per employed engineer with
-// the prorated amount and days: Priya L5 10000, Marcus L4 8000, Aisha L6 14000,
-// each over the full 30-day month (no part-periods in the seed for June).
-pub fn payroll_run_lists_prorated_amounts_test() {
+// After running June payroll, the read reconciles each employed engineer's LIVE
+// preview against the MATERIALIZED paid line. With no fact back-dated, paid equals
+// preview for every engineer: Priya L5 10000, Marcus L4 8000, Aisha L6 14000, each
+// over the full 30-day month (no part-periods in the seed for June). The run is
+// materialized, so `run` is Some and the paid columns are populated.
+pub fn payroll_run_reconciles_preview_against_paid_test() {
   let run =
     rolling_back(fn(conn) {
       apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
@@ -216,14 +219,17 @@ pub fn payroll_run_lists_prorated_amounts_test() {
       run
     })
 
+  let assert Payroll(run: Some(PayrollRunInfo(run_id:)), ..) = run
+
   assert run
     == Payroll(
       period_from: Date(2026, June, 1),
       period_to: Date(2026, July, 1),
+      run: Some(PayrollRunInfo(run_id:)),
       lines: [
-        PayrollLine("Aisha Okafor", 14_000.0, 30.0),
-        PayrollLine("Marcus Chen", 8000.0, 30.0),
-        PayrollLine("Priya Sharma", 10_000.0, 30.0),
+        PayrollLine("Aisha Okafor", 14_000.0, 30.0, Some(14_000.0), Some(30.0)),
+        PayrollLine("Marcus Chen", 8000.0, 30.0, Some(8000.0), Some(30.0)),
+        PayrollLine("Priya Sharma", 10_000.0, 30.0, Some(10_000.0), Some(30.0)),
       ],
     )
 }

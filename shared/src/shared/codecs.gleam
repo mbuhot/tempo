@@ -17,7 +17,8 @@ import shared/types.{
   type EngineerBanking, type EngineerContact, type EngineerDetail,
   type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
   type InvoiceLine, type LeaveBalance, type LeavePolicyRow, type LeaveRecord,
-  type OperationRequest, type Payroll, type PayrollLine, type PeopleList,
+  type OperationRequest, type Payroll, type PayrollLine, type PayrollRunInfo,
+  type PeopleList,
   type PersonRow, type Pnl, type PnlRow, type ProjectDetail, type ProjectList,
   type ProjectListRow, type ProjectPlan, type ProjectProfile, type RateCardRow,
   type Ref, type RoleVersion, type Roster, type RosterStatus, type SalaryRow,
@@ -30,7 +31,7 @@ import shared/types.{
   Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
   LeavePolicyRow, LeaveRecord, LogTimesheet, LogWeek, OnLeave, OnProject,
   OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
-  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
+  PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
   ProjectPlan, ProjectProfile, Promote, RateCardRow, Ref, ReviseRateCard,
   RoleVersion, RollOff, Roster, RosterOnLeave, RosterOnProjects,
   RosterUnassigned, RunPayroll, SalaryRow, SetSalary, Settings, SignContract,
@@ -1158,42 +1159,81 @@ pub fn invoice_detail_decoder() -> Decoder(InvoiceDetail) {
 
 // --- PayrollLine -------------------------------------------------------------
 
-/// Encode a `PayrollLine` (one engineer's prorated payment) as a JSON object.
+/// Encode a `PayrollLine` (live preview plus the materialized paid values) as a
+/// JSON object. `paid_amount`/`paid_days` are `null` until a run exists.
 pub fn encode_payroll_line(line: PayrollLine) -> Json {
-  let PayrollLine(engineer:, amount:, days:) = line
+  let PayrollLine(
+    engineer:,
+    preview_amount:,
+    preview_days:,
+    paid_amount:,
+    paid_days:,
+  ) = line
   json.object([
     #("engineer", json.string(engineer)),
-    #("amount", json.float(amount)),
-    #("days", json.float(days)),
+    #("preview_amount", json.float(preview_amount)),
+    #("preview_days", json.float(preview_days)),
+    #("paid_amount", json.nullable(paid_amount, json.float)),
+    #("paid_days", json.nullable(paid_days, json.float)),
   ])
 }
 
 /// Decode a `PayrollLine` from a JSON object.
 pub fn payroll_line_decoder() -> Decoder(PayrollLine) {
   use engineer <- decode.field("engineer", decode.string)
-  use amount <- decode.field("amount", lenient_float_decoder())
-  use days <- decode.field("days", lenient_float_decoder())
-  decode.success(PayrollLine(engineer:, amount:, days:))
+  use preview_amount <- decode.field("preview_amount", lenient_float_decoder())
+  use preview_days <- decode.field("preview_days", lenient_float_decoder())
+  use paid_amount <- decode.field(
+    "paid_amount",
+    decode.optional(lenient_float_decoder()),
+  )
+  use paid_days <- decode.field(
+    "paid_days",
+    decode.optional(lenient_float_decoder()),
+  )
+  decode.success(PayrollLine(
+    engineer:,
+    preview_amount:,
+    preview_days:,
+    paid_amount:,
+    paid_days:,
+  ))
+}
+
+// --- PayrollRunInfo ----------------------------------------------------------
+
+/// Encode a `PayrollRunInfo` (the materialized run's id) as a JSON object.
+pub fn encode_payroll_run_info(run: PayrollRunInfo) -> Json {
+  let PayrollRunInfo(run_id:) = run
+  json.object([#("run_id", json.int(run_id))])
+}
+
+/// Decode a `PayrollRunInfo` from a JSON object.
+pub fn payroll_run_info_decoder() -> Decoder(PayrollRunInfo) {
+  use run_id <- decode.field("run_id", decode.int)
+  decode.success(PayrollRunInfo(run_id:))
 }
 
 // --- Payroll -----------------------------------------------------------------
 
-/// Encode a `Payroll` run (the month plus its lines) to JSON.
+/// Encode a `Payroll` month read model (period, optional run, lines) to JSON.
 pub fn encode_payroll(payroll: Payroll) -> Json {
-  let Payroll(period_from:, period_to:, lines:) = payroll
+  let Payroll(period_from:, period_to:, run:, lines:) = payroll
   json.object([
     #("period_from", encode_date(period_from)),
     #("period_to", encode_date(period_to)),
+    #("run", json.nullable(run, encode_payroll_run_info)),
     #("lines", json.array(lines, encode_payroll_line)),
   ])
 }
 
-/// Decode a `Payroll` run from JSON.
+/// Decode a `Payroll` month read model from JSON.
 pub fn payroll_decoder() -> Decoder(Payroll) {
   use period_from <- decode.field("period_from", date_decoder())
   use period_to <- decode.field("period_to", date_decoder())
+  use run <- decode.field("run", decode.optional(payroll_run_info_decoder()))
   use lines <- decode.field("lines", decode.list(payroll_line_decoder()))
-  decode.success(Payroll(period_from:, period_to:, lines:))
+  decode.success(Payroll(period_from:, period_to:, run:, lines:))
 }
 
 // --- PnlRow ------------------------------------------------------------------

@@ -18,13 +18,23 @@
 //// timesheet (P&L utilization is capacity-based), so the timesheets are the work
 //// record the My-timesheet grid shows rather than an input to the billing.
 ////
-//// IDEMPOTENCY: it first reads the invoice list as of 2026-06-30; if any invoice
-//// already covers that date it prints `seed-financials: already populated, skipping`
-//// and exits without writing, so re-running is safe (drafting again would mint
-//// duplicate invoices). Each write goes through `command.dispatch` (actor "seed");
-//// a failing operation `panic`s (non-zero exit) so a broken seed gates loudly. It
-//// reuses `finance_query.list_invoices` to resolve a freshly-drafted invoice's
-//// minted id by project NAME and billing month rather than adding a new query.
+//// IDEMPOTENCY is PER-SCENARIO so a partial DB tops up only what is missing rather
+//// than skipping the whole seed when ANY invoice exists (which once skipped payroll
+//// on a partial DB): timesheets are logged only if absent; each month's invoices are
+//// drafted/progressed only if that month's invoice is absent; each month's payroll is
+//// run only if no run covers it; the back-dated variance promotion is applied only if
+//// absent. Each step is independently safe to re-run. Each write goes through
+//// `command.dispatch` (actor "seed"); a failing operation `panic`s (non-zero exit) so
+//// a broken seed gates loudly. It reuses `finance_query.list_invoices` to resolve a
+//// freshly-drafted invoice's minted id by project NAME and billing month rather than
+//// adding a new query.
+////
+//// VARIANCE DEMO: after the six monthly runs it records a back-dated promotion of
+//// Priya (engineer 1) L5 -> L6 effective 2026-05-01 — into the already-run MAY month.
+//// The May run froze her line at the L5 salary ($10,000); the back-dated promotion
+//// lifts the LIVE recompute to the L6 salary ($14,000), so the Payroll tab at May
+//// reads the ⚠ back-pay-owed / Δ state out of the box. Priya bills Ledger/Inventory,
+//// not Data Platform, so this does not touch the Data-Platform invoice totals.
 
 import gleam/float
 import gleam/int
@@ -40,20 +50,26 @@ import gleam/time/calendar.{
 import gleam/time/timestamp
 import shared/types.{
   type Command, type Invoice, type TimesheetEntry, DraftInvoice, IssueInvoice,
-  LogWeek, PayInvoice, RunPayroll, TimesheetEntry,
+  LogWeek, PayInvoice, Promote, RunPayroll, TimesheetEntry,
 }
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/finance_query
+import tempo/server/sql
 
 /// The actor recorded against every demo `event_log` row.
 const seed_actor = "seed"
 
-/// The as-of date the idempotency probe reads at: by 2026-06-30 every month's
-/// invoices exist (June's draft opens 06-01), so a non-empty list means the demo
-/// set has been seeded before.
-const probe_date = Date(2026, June, 30)
+/// The back-dated variance demo: promote Priya (engineer 1) from her seeded L5 to L6,
+/// effective the start of the already-run MAY month. The L6 salary band ($14,000)
+/// exists in the base seed, and Priya bills Ledger/Inventory (not Data Platform), so
+/// the promotion lifts only her own May payroll preview — not any invoice total.
+const variance_engineer_id = 1
+
+const variance_level = 6
+
+const variance_effective = Date(2026, May, 1)
 
 /// The projects billed each month, with the names `list_invoices` reports — used to
 /// resolve a freshly-drafted invoice's minted id (project name + billing month is
@@ -87,32 +103,27 @@ type MonthPlan {
 // --- entrypoint --------------------------------------------------------------
 
 /// `gleam run -m tempo/seed_financials` (via `./bin/seed-invoices`). Connect to the
-/// dev DB, skip if already populated, otherwise replay the demo pipeline and print a
-/// one-line summary. `panic`s (non-zero exit) on the first failure.
+/// dev DB and replay the demo pipeline; each step tops up only what is missing, so a
+/// partial DB fills in the rest and a full DB is a no-op. `panic`s (non-zero exit) on
+/// the first failure.
 pub fn main() -> Nil {
   let assert Ok(ctx) = context.start()
-
-  case already_populated(ctx) {
-    True -> io.println("seed-financials: already populated, skipping")
-    False -> seed(ctx)
-  }
+  seed(ctx)
 }
 
-/// True when an invoice already covers `probe_date` — the signal the demo set has
-/// been seeded before (so re-running is a no-op).
-fn already_populated(ctx: Context) -> Bool {
-  list_invoices(ctx, probe_date) != []
-}
-
-/// Replay the demo pipeline against the (already-migrated) dev DB: log Jan–Jun
-/// timesheets, then for each month draft + progress its invoices and run its
-/// payroll. Each write asserts `Ok`. Prints a one-line summary.
+/// Replay the demo pipeline against the (already-migrated) dev DB, PER-SCENARIO
+/// idempotent: log Jan–Jun timesheets (if absent), then for each month draft +
+/// progress its invoices (if that month's invoice is absent) and run its payroll (if
+/// no run covers it), then apply the back-dated variance promotion (if absent). Each
+/// write asserts `Ok`. Prints a one-line summary.
 fn seed(ctx: Context) -> Nil {
   log_timesheets(ctx)
   list.each(month_plans(), fn(plan) { bill_month(ctx, plan) })
+  apply_variance_promotion(ctx)
   io.println(
-    "seed-financials: logged Jan–Jun 2026 timesheets, drafted 18 invoices "
-    <> "(Jan–Mar paid, Apr–May issued, Jun draft), and ran six monthly payrolls.",
+    "seed-financials: ensured Jan–Jun 2026 timesheets, 18 invoices "
+    <> "(Jan–Mar paid, Apr–May issued, Jun draft), six monthly payrolls, and the "
+    <> "back-dated May variance promotion (Priya L5->L6).",
   )
 }
 
@@ -135,8 +146,29 @@ fn workers() -> List(Worker) {
 /// Log every worker's hours for the Mon–Fri working days of Jan–Jun 2026, one
 /// `LogWeek` per worker per calendar week (skipping leave days, and weeks with no
 /// loggable day). Every allocation spans the period, so each working day is
-/// loggable.
+/// loggable. Skipped wholesale when timesheets are already present (re-logging a week
+/// would mint duplicate entries).
 fn log_timesheets(ctx: Context) -> Nil {
+  case timesheets_present(ctx) {
+    True -> Nil
+    False -> log_all_timesheets(ctx)
+  }
+}
+
+/// True when engineer 1 already has any hours logged in the first seed week — the
+/// signal the timesheet scenario has run before.
+fn timesheets_present(ctx: Context) -> Bool {
+  let first_monday =
+    day_index_to_date(
+      date_to_day_index(Date(2026, January, 1)) - weekday_of(
+        date_to_day_index(Date(2026, January, 1)),
+      ),
+    )
+  let assert Ok(returned) = sql.timesheet_week(ctx.db, 1, first_monday)
+  list.any(returned.rows, fn(row) { row.hours >. 0.0 })
+}
+
+fn log_all_timesheets(ctx: Context) -> Nil {
   let period_start = date_to_day_index(Date(2026, January, 1))
   let period_end = date_to_day_index(Date(2026, June, 30))
   list.each(workers(), fn(worker) {
@@ -247,30 +279,74 @@ fn month_plans() -> List(MonthPlan) {
 /// Bill every project for the month (draft → issue → pay per the plan) and run the
 /// month's payroll. Each event is recorded at the date it would naturally happen:
 /// invoices are prepared and payroll run at month end; an invoice is issued/paid on
-/// its issue/pay date.
+/// its issue/pay date. PER-SCENARIO idempotent: a project's invoice is drafted +
+/// progressed only if that month's invoice is absent, and the payroll is run only if
+/// no run already covers the month — so a partial DB tops up exactly the gaps.
 fn bill_month(ctx: Context, plan: MonthPlan) -> Nil {
   let month_end = day_index_to_date(date_to_day_index(plan.to) - 1)
   list.each(billable_projects, fn(project) {
     let #(project_id, project_name) = project
-    apply(
-      ctx,
-      DraftInvoice(project_id:, billing_from: plan.from, billing_to: plan.to),
-      month_end,
-    )
-    case plan.issue {
-      None -> Nil
-      Some(issue_at) -> {
-        let invoice_id = drafted_invoice_id(ctx, project_name, plan.from)
-        apply(ctx, IssueInvoice(invoice_id:, at: issue_at), issue_at)
-        case plan.pay {
-          None -> Nil
-          Some(pay_at) ->
-            apply(ctx, PayInvoice(invoice_id:, at: pay_at), pay_at)
-        }
-      }
+    case existing_invoice_id(ctx, project_name, plan.from) {
+      Some(_) -> Nil
+      None -> bill_project(ctx, project_id, project_name, plan, month_end)
     }
   })
-  apply(ctx, RunPayroll(period_from: plan.from, period_to: plan.to), month_end)
+  case payroll_run_present(ctx, plan.from, plan.to) {
+    True -> Nil
+    False ->
+      apply(ctx, RunPayroll(period_from: plan.from, period_to: plan.to), month_end)
+  }
+}
+
+/// Draft one project's invoice for the month and progress it (issue, then pay) per
+/// the plan, recording each event at the date it would naturally happen.
+fn bill_project(
+  ctx: Context,
+  project_id: Int,
+  project_name: String,
+  plan: MonthPlan,
+  month_end: Date,
+) -> Nil {
+  apply(
+    ctx,
+    DraftInvoice(project_id:, billing_from: plan.from, billing_to: plan.to),
+    month_end,
+  )
+  case plan.issue {
+    None -> Nil
+    Some(issue_at) -> {
+      let invoice_id = drafted_invoice_id(ctx, project_name, plan.from)
+      apply(ctx, IssueInvoice(invoice_id:, at: issue_at), issue_at)
+      case plan.pay {
+        None -> Nil
+        Some(pay_at) -> apply(ctx, PayInvoice(invoice_id:, at: pay_at), pay_at)
+      }
+    }
+  }
+}
+
+/// The minted id of the invoice for `project_name` whose billing month starts at
+/// `billing_from` if one already exists, else `None` — the per-project guard that
+/// keeps `bill_month` from re-drafting a month already billed.
+fn existing_invoice_id(
+  ctx: Context,
+  project_name: String,
+  billing_from: Date,
+) -> Option(Int) {
+  list_invoices(ctx, billing_from)
+  |> list.find(fn(invoice) {
+    invoice.project == project_name && invoice.billing_from == billing_from
+  })
+  |> result.map(fn(invoice) { invoice.id })
+  |> option.from_result
+}
+
+/// True when a materialized payroll run already covers the month `[from, to)` — the
+/// per-month guard that keeps `bill_month` from re-running a month (which the
+/// payroll_period EXCLUDE-overlap constraint would refuse anyway).
+fn payroll_run_present(ctx: Context, from: Date, to: Date) -> Bool {
+  let assert Ok(payroll) = finance_query.payroll(ctx, from, to)
+  payroll.run != None
 }
 
 /// The minted id of the invoice for `project_name` whose billing month starts at
@@ -295,6 +371,45 @@ fn drafted_invoice_id(
         <> string.inspect(billing_from)
       }
   }
+}
+
+// --- back-dated variance promotion -------------------------------------------
+
+/// Record the back-dated promotion that surfaces a payroll variance: Priya L5 -> L6
+/// effective the start of the already-run May month. The May run froze her line at
+/// the L5 salary; this lifts the live recompute to L6, so the May Payroll tab shows
+/// the ⚠ back-pay-owed / Δ state. Recorded on 2026-06-01 (after the six runs, so the
+/// run captured the OLD salary). Skipped if Priya already holds the target level over
+/// the effective date — so re-running is a no-op (a re-promote to the same level from
+/// the same date is a FOR-PORTION-OF no-op anyway, but the guard avoids a dangling
+/// journal entry).
+fn apply_variance_promotion(ctx: Context) -> Nil {
+  case variance_promotion_present(ctx) {
+    True -> Nil
+    False ->
+      apply(
+        ctx,
+        Promote(
+          engineer_id: variance_engineer_id,
+          level: variance_level,
+          effective: variance_effective,
+        ),
+        Date(2026, June, 1),
+      )
+  }
+}
+
+/// True when Priya already holds the variance target level over the effective date —
+/// the signal the back-dated promotion has been applied before.
+fn variance_promotion_present(ctx: Context) -> Bool {
+  let assert Ok(returned) =
+    sql.engineer_role_history(ctx.db, variance_engineer_id)
+  let effective_index = date_to_day_index(variance_effective)
+  list.any(returned.rows, fn(role) {
+    role.level == variance_level
+    && date_to_day_index(role.valid_from) <= effective_index
+    && effective_index < date_to_day_index(role.valid_to)
+  })
 }
 
 // --- helpers -----------------------------------------------------------------

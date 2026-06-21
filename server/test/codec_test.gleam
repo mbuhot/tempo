@@ -12,6 +12,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{None, Some}
 import gleam/time/calendar.{Date, January, July, June, May}
 import shared/codecs
 import shared/types.{
@@ -19,7 +20,8 @@ import shared/types.{
   ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
   EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
   IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine, Pnl,
+  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
+  PayrollRunInfo, Pnl,
   PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
   SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
   TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
@@ -783,7 +785,13 @@ pub fn invoice_detail_empty_round_trips_test() {
 
 pub fn payroll_line_round_trips_test() {
   let original =
-    PayrollLine(engineer: "Marcus Chen", amount: 8000.0, days: 30.0)
+    PayrollLine(
+      engineer: "Marcus Chen",
+      preview_amount: 8000.0,
+      preview_days: 30.0,
+      paid_amount: Some(8000.0),
+      paid_days: Some(30.0),
+    )
 
   assert round_trip(
       original,
@@ -802,9 +810,22 @@ pub fn payroll_round_trips_test() {
     Payroll(
       period_from: Date(2026, June, 1),
       period_to: Date(2026, July, 1),
+      run: Some(PayrollRunInfo(run_id: 7)),
       lines: [
-        PayrollLine(engineer: "Marcus Chen", amount: 8000.0, days: 30.0),
-        PayrollLine(engineer: "Priya Sharma", amount: 5000.0, days: 15.0),
+        PayrollLine(
+          engineer: "Marcus Chen",
+          preview_amount: 8000.0,
+          preview_days: 30.0,
+          paid_amount: Some(8000.0),
+          paid_days: Some(30.0),
+        ),
+        PayrollLine(
+          engineer: "Priya Sharma",
+          preview_amount: 5000.0,
+          preview_days: 15.0,
+          paid_amount: None,
+          paid_days: None,
+        ),
       ],
     )
 
@@ -818,6 +839,7 @@ pub fn payroll_empty_round_trips_test() {
     Payroll(
       period_from: Date(2026, June, 1),
       period_to: Date(2026, July, 1),
+      run: None,
       lines: [],
     )
 

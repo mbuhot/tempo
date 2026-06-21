@@ -390,16 +390,36 @@ pub type InvoiceDetail {
   InvoiceDetail(invoice: Invoice, lines: List(InvoiceLine))
 }
 
-/// One line of a payroll run (FR-F5/FR-F6): the engineer, the prorated `amount`
-/// owed for the period, and the employed `days` it covers.
-pub type PayrollLine {
-  PayrollLine(engineer: String, amount: Float, days: Float)
+/// Identifies the materialized payroll run for a month (FR-F5/FR-F6) once it
+/// exists; absent from the `Payroll` envelope until `RunPayroll` has been done.
+pub type PayrollRunInfo {
+  PayrollRunInfo(run_id: Int)
 }
 
-/// A payroll run read model (`GET /api/payroll?period=`): the `period_from`..
-/// `period_to` month and one `PayrollLine` per employed engineer.
+/// One engineer's line in the month's payroll panel. `preview_amount`/
+/// `preview_days` are the LIVE recompute over current facts (always present).
+/// `paid_amount`/`paid_days` are the MATERIALIZED values frozen at run time
+/// (`None` until a run exists). Variance Δ = preview_amount - paid_amount.
+pub type PayrollLine {
+  PayrollLine(
+    engineer: String,
+    preview_amount: Float,
+    preview_days: Float,
+    paid_amount: Option(Float),
+    paid_days: Option(Float),
+  )
+}
+
+/// A month's payroll read model (`GET /api/payroll?period=`): the
+/// `period_from`..`period_to` month, the materialized `run` (`None` until
+/// `RunPayroll`), and one `PayrollLine` per employed engineer.
 pub type Payroll {
-  Payroll(period_from: Date, period_to: Date, lines: List(PayrollLine))
+  Payroll(
+    period_from: Date,
+    period_to: Date,
+    run: Option(PayrollRunInfo),
+    lines: List(PayrollLine),
+  )
 }
 
 /// One per-employee row of the P&L statement (FR-F8): the engineer's `revenue`

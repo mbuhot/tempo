@@ -7,3 +7,8 @@
 .pnl__profit--positive { color: var(--color-ok); }
 .pnl__profit--negative { color: var(--color-leave); }
 .finance__total-note { font-family: var(--mono); font-weight: var(--weight-semibold); }
+
+/* Payroll variance: the back-pay-owed emphasis (header pill + the per-line Δ) and
+ * the flagged varying rows borrow the warning status token. */
+.finance__owed { color: var(--color-warn); font-weight: var(--weight-semibold); }
+.finance__variance-row { background: var(--color-warn-soft); }
