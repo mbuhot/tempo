@@ -21,6 +21,7 @@
   border: var(--border-thin) solid var(--color-accent); background: var(--color-accent); color: var(--color-on-accent);
   border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md); font-weight: var(--weight-semibold); font-size: var(--text-sm);
   box-shadow: var(--shadow-accent);
+  white-space: nowrap; flex: none;
 }
 .btn:hover { background: var(--color-accent-hover); }
 .btn--ghost { background: var(--color-surface); color: var(--color-muted); border-color: var(--color-border); box-shadow: none; }

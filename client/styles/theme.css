@@ -114,7 +114,10 @@
   --size-spark-lg: 0.4375rem;
   --size-ts-input: 2.875rem;
   --size-field: 12rem;
-  --size-card-min: 14.5rem;
+  /* floor for the board/team allocation cards: wide enough that the dense card
+     row (avatar + fraction + level pill + day rate + roll-off action) lays out
+     on one line across font/render differences between browsers */
+  --size-card-min: 22rem;
 
   /* measure — max line length for prose */
   --measure: 60ch;
