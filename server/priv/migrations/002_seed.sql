@@ -54,7 +54,7 @@ SELECT v.level, v.monthly_salary, daterange('2024-01-01', NULL), e.id FROM e,
 -- Set leave policy: annual 20 days/yr (L1-5) stepping to 25 for senior levels
 -- (L6-7), sick 10 days/yr (all levels), from the company epoch. Per-level so a
 -- promotion across L6 raises the annual accrual rate from the promotion date.
--- L1-3 annual is end-dated at 2025-07-01 below, where the policy is revised to 25.
+-- L1-5 annual is end-dated at 2025-07-01 below, where the policy is revised to 25.
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
     ('2024-01-01', 'seed', 'set_leave_policy',
@@ -67,8 +67,8 @@ SELECT v.kind, v.level, v.days_per_year, v.eff, e.id FROM e,
     ('annual', 1, 20.00, daterange('2024-01-01','2025-07-01')),
     ('annual', 2, 20.00, daterange('2024-01-01','2025-07-01')),
     ('annual', 3, 20.00, daterange('2024-01-01','2025-07-01')),
-    ('annual', 4, 20.00, daterange('2024-01-01', NULL)),
-    ('annual', 5, 20.00, daterange('2024-01-01', NULL)),
+    ('annual', 4, 20.00, daterange('2024-01-01','2025-07-01')),
+    ('annual', 5, 20.00, daterange('2024-01-01','2025-07-01')),
     ('annual', 6, 25.00, daterange('2024-01-01', NULL)),
     ('annual', 7, 25.00, daterange('2024-01-01', NULL)),
     ('sick', 1, 10.00, daterange('2024-01-01', NULL)),
@@ -80,22 +80,24 @@ SELECT v.kind, v.level, v.days_per_year, v.eff, e.id FROM e,
     ('sick', 7, 10.00, daterange('2024-01-01', NULL))
   ) AS v(kind, level, days_per_year, eff);
 
--- Revise the annual leave policy for the junior band (L1-3) 20 -> 25 days/yr
--- effective 2025-07-01: the founding rows above end at the split date and these
--- open [2025-07-01, ) at the higher rate. The (kind, level) gist no-overlap
--- constraint is satisfied because each band's two spans abut without overlapping.
--- Deliberately excludes L4-7: Priya (engineer 1) is L5 across the whole window,
--- so her accrual is untouched and the over-balance leave refusal still holds.
+-- Revise the annual leave policy (L1-5) 20 -> 25 days/yr effective 2025-07-01: the
+-- founding rows above end at the split date and these open [2025-07-01, ) at the
+-- higher rate, so from 2025-07-01 every level accrues 25/yr (L6-7 were already 25).
+-- The (kind, level) gist no-overlap constraint is satisfied because each band's two
+-- spans abut without overlapping. This DOES lift Priya (L5) and Marcus (L4)
+-- accrual; the over-balance leave refusal still holds — their balance stays well
+-- under a four-month request (covered by the operations e2e).
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
     ('2025-06-15', 'seed', 'set_leave_policy',
-     'Revise leave policy: annual 25/yr (L1-3) from 2025-07-01',
-     '{"annual":{"1-3":25},"effective":"2025-07-01"}')
+     'Revise leave policy: annual 25/yr (L1-5) from 2025-07-01',
+     '{"annual":{"1-5":25},"effective":"2025-07-01"}')
   RETURNING id)
 INSERT INTO leave_policy (kind, level, days_per_year, effective_during, audit_id)
 SELECT v.kind, v.level, v.days_per_year, daterange('2025-07-01', NULL), e.id FROM e,
   (VALUES
-    ('annual', 1, 25.00), ('annual', 2, 25.00), ('annual', 3, 25.00)
+    ('annual', 1, 25.00), ('annual', 2, 25.00), ('annual', 3, 25.00),
+    ('annual', 4, 25.00), ('annual', 5, 25.00)
   ) AS v(kind, level, days_per_year);
 
 -- Register clients. -----------------------------------------------------------
