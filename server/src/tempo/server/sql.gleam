@@ -1228,6 +1228,68 @@ UPDATE engineer_banking
   |> pog.execute(db)
 }
 
+/// A row you get from running the `engineer_contact_current` query
+/// defined in `./src/tempo/server/sql/engineer_contact_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerContactCurrentRow {
+  EngineerContactCurrentRow(
+    engineer_id: Option(Int),
+    name: Option(String),
+    email: Option(String),
+    phone: Option(String),
+    postal_address: Option(String),
+  )
+}
+
+/// engineer_contact_current.sql — an engineer's CURRENT contact (name + contact
+/// details) from the engineer_current view, which already exposes the
+/// latest-version columns. $1 = engineer_id; an empty result means no such
+/// engineer (the detail handler answers 404). Scalar columns only.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_contact_current(
+  db: pog.Connection,
+  arg_1: Int,
+) -> Result(pog.Returned(EngineerContactCurrentRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.optional(decode.int))
+    use name <- decode.field(1, decode.optional(decode.string))
+    use email <- decode.field(2, decode.optional(decode.string))
+    use phone <- decode.field(3, decode.optional(decode.string))
+    use postal_address <- decode.field(4, decode.optional(decode.string))
+    decode.success(EngineerContactCurrentRow(
+      engineer_id:,
+      name:,
+      email:,
+      phone:,
+      postal_address:,
+    ))
+  }
+
+  "-- engineer_contact_current.sql — an engineer's CURRENT contact (name + contact
+-- details) from the engineer_current view, which already exposes the
+-- latest-version columns. $1 = engineer_id; an empty result means no such
+-- engineer (the detail handler answers 404). Scalar columns only.
+SELECT
+  id AS engineer_id,
+  name,
+  email,
+  phone,
+  postal_address
+FROM engineer_current
+WHERE id = $1;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// engineer_contact_open.sql — open an engineer's founding contact (carries the
 /// NAME; the anchor is id-only). Last param is the audit_id.
 /// $1 = engineer_id, $2 = name, $3 = email, $4 = phone, $5 = postal, $6 = from.

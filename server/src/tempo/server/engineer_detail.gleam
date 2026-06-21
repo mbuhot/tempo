@@ -11,12 +11,13 @@
 //// answer a 404 rather than a 500; `Error(_)` is a database failure. No HTTP —
 //// this layer never imports `wisp`.
 ////
-//// Contact is read from `engineer_current` (the view already exposes
-//// name/email/phone/postal_address) via an inline query rather than a dedicated
-//// `.sql` file — there is no Squirrel reader for the view and one is not needed.
+//// Contact is read from the `engineer_current` view (which already exposes
+//// name/email/phone/postal_address) via `engineer_contact_current.sql`. The
+//// view's columns are nullable to Squirrel, so `contact_to_shared` asserts them
+//// present for a row that exists.
 
-import gleam/dynamic/decode
 import gleam/list
+import gleam/option.{Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -37,10 +38,10 @@ pub fn detail(
   engineer_id: Int,
   as_of: Date,
 ) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use contact_rows <- result.try(current_contact(context, engineer_id))
-  case contact_rows {
+  use contact <- result.try(sql.engineer_contact_current(context.db, engineer_id))
+  case contact.rows {
     [] -> Ok(Error(Nil))
-    [contact, ..] -> assemble(context, engineer_id, as_of, contact)
+    [row, ..] -> assemble(context, engineer_id, as_of, contact_to_shared(row))
   }
 }
 
@@ -106,40 +107,20 @@ fn assemble(
   }
 }
 
-/// Read the engineer's current contact (name/email/phone/postal_address) from the
-/// `engineer_current` view directly (no dedicated `.sql` reader exists; the view
-/// already exposes these columns). Empty list = unknown engineer → 404.
-fn current_contact(
-  context: Context,
-  engineer_id: Int,
-) -> Result(List(EngineerContact), pog.QueryError) {
-  let decoder = {
-    use id <- decode.field(0, decode.int)
-    use name <- decode.field(1, decode.string)
-    use email <- decode.field(2, decode.string)
-    use phone <- decode.field(3, decode.string)
-    use postal_address <- decode.field(4, decode.string)
-    decode.success(EngineerContact(
-      engineer_id: id,
-      name:,
-      email:,
-      phone:,
-      postal_address:,
-    ))
-  }
-  use returned <- result.map(
-    engineer_current_sql
-    |> pog.query
-    |> pog.parameter(pog.int(engineer_id))
-    |> pog.returning(decoder)
-    |> pog.execute(context.db),
-  )
-  returned.rows
+/// Map an `engineer_contact_current` row to the shared `EngineerContact`. The row
+/// comes from the `engineer_current` view, so Squirrel types every column nullable;
+/// a row only exists for a known engineer (whose columns are all present), so the
+/// mapper asserts each is `Some`.
+fn contact_to_shared(row: sql.EngineerContactCurrentRow) -> EngineerContact {
+  let assert sql.EngineerContactCurrentRow(
+    engineer_id: Some(engineer_id),
+    name: Some(name),
+    email: Some(email),
+    phone: Some(phone),
+    postal_address: Some(postal_address),
+  ) = row
+  EngineerContact(engineer_id:, name:, email:, phone:, postal_address:)
 }
-
-const engineer_current_sql = "SELECT id, name, email, phone, postal_address
-FROM engineer_current
-WHERE id = $1;"
 
 fn banking_to_shared(row: sql.EngineerBankingCurrentRow) -> EngineerBanking {
   EngineerBanking(
