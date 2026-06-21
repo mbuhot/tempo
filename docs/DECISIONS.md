@@ -993,6 +993,35 @@ visuals were the explicit goal and are cheaper to iterate in HTML).
 
 ---
 
+## ADR-041 — No eyebrow kickers over page headings; the section name IS the heading
+**Status:** Accepted
+
+**Context.** Page headers shipped as a three-line stack: a small uppercase "eyebrow" kicker (the section
+name, e.g. FINANCE), then a large heading, then a supporting sentence. Because the real section word was
+spent on the kicker, the heading had to be *invented* — which produced filler like a "FINANCE" eyebrow
+over a heading literally titled **"Money"**. No business app should have a page headed "Money"; the word
+"Finance" should simply have been the heading.
+
+**Decision.** **Banned.** A page's heading is the section's own name (Board, People, Clients, Projects,
+Finance, Activity, Settings) or, on a detail page, the entity's name (e.g. "Priya Sharma"). There is NO
+eyebrow kicker stacked above a heading, and NO decorative/invented heading. `ui.page_head` takes no
+`eyebrow`; real metadata that previously hid in a detail-page eyebrow (an engineer's level, a project's
+client) moves into a plain subtitle/meta line, not an uppercase kicker. A single supporting sentence
+(the blurb) below the heading is fine. This is forbidden from re-introduction: do not add an eyebrow
+label above any heading, and do not invent a heading because the obvious word was used as a kicker.
+
+(The uppercase micro-label style remains acceptable only as a *functional* label that is NOT a heading
+kicker — a stat caption like "UTILIZATION", a control label like the rail's "VIEWING AS OF", a list-
+group label — never stacked above a page/entity heading.)
+
+**Rationale.** The kicker pattern is a generic-template tell that forces filler headings; removing it
+makes every header say the true thing in one line. Naming the bar explicitly stops it creeping back.
+
+**Alternatives.** Keep the eyebrow but make it non-redundant (rejected — it still demotes the real word
+and invites filler); drop the heading and keep only the eyebrow (rejected — headings should be headings).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

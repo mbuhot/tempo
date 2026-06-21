@@ -20,6 +20,8 @@
 .avatar { width: var(--size-avatar); height: var(--size-avatar); border-radius: var(--radius-circle); flex: none; display: grid; place-items: center; color: var(--color-on-accent); font-weight: var(--weight-bold); font-size: var(--text-xs); }
 .avatar--square { border-radius: var(--radius-sm); }
 .board-card__info { min-width: 0; flex: 1; }
+.board-card__action { margin-left: auto; flex: none; }
+.board-card__action:empty { display: none; }
 .board-card__name { font-weight: var(--weight-semibold); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .board-card__sub { font-size: var(--text-xs); color: var(--color-faint); display: flex; gap: var(--space-xs); align-items: center; }
 .board-card__fraction {

@@ -114,6 +114,11 @@
   --size-spark-lg: 0.4375rem;
   --size-ts-input: 2.875rem;
   --size-field: 12rem;
+  /* the op modal's max-width, and the uniform height every op-form control
+     (text / number / date inputs and ref <select>s) snaps to so they line up at
+     one height across browsers (the Safari control-height complaint) */
+  --size-modal: 30rem;
+  --size-control-h: 2.25rem;
   /* floor for the board/team allocation cards: wide enough that the dense card
      row (avatar + fraction + level pill + day rate + roll-off action) lays out
      on one line across font/render differences between browsers */
@@ -122,10 +127,18 @@
   /* measure — max line length for prose */
   --measure: 60ch;
 
+  /* scrim — the dim behind a modal. An rgba over the text colour rather than a
+     palette entry, so it documents its own literal here (like login.css's
+     gradient stops) rather than leaking one into components.css. */
+  --color-scrim: rgba(26,27,42,.45);
+
   /* elevation */
   --shadow: 0 1px 2px rgba(26,27,42,.04), 0 4px 16px rgba(26,27,42,.05);
   --shadow-accent: 0 2px 8px rgba(91,91,214,.4);
   --shadow-lg: 0 12px 40px rgba(26,27,42,.16);
+
+  /* stacking — the modal layer sits above all page chrome */
+  --z-modal: 100;
 
   /* typography families */
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

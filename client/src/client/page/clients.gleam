@@ -415,7 +415,6 @@ fn view_list(client_list: ClientList, op: Option(OpState)) -> Element(Msg) {
   let clients = client_list.clients
   html.div([], [
     ui.page_head(
-      eyebrow: "Clients",
       title: "Clients",
       blurb: "Who we work for, and the contracts behind the projects.",
       actions: [op_trigger("+ Sign contract", ui.OpSignContract)],
@@ -497,7 +496,6 @@ fn view_detail_loaded(
   html.div([], [
     back_link(),
     ui.page_head(
-      eyebrow: "Client",
       title: name,
       blurb: "Client since " <> option_date(since) <> ".",
       actions: [

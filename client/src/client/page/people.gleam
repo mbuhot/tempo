@@ -561,8 +561,7 @@ fn view_list(
 ) -> Element(Msg) {
   let head =
     ui.page_head(
-      eyebrow: "People",
-      title: "Engineers",
+      title: "People",
       blurb: "Everyone employed as of "
         <> time.iso_date(as_of)
         <> ". Open a person for their full record and history.",
@@ -697,10 +696,12 @@ fn detail_head(detail: EngineerDetail) -> Element(Msg) {
   let EngineerDetail(engineer_id:, name:, level:, allocations:, ..) = detail
   html.div([attribute.class("page-head")], [
     html.div([], [
-      html.div([attribute.class("eyebrow")], [html.text(ui.level_band(level))]),
       html.h1([attribute.class("detail__title")], [
         ui.avatar(name:, category: engineer_id, class: "avatar"),
         html.text(name),
+      ]),
+      html.div([attribute.class("detail__subtitle")], [
+        html.text(ui.level_band(level)),
       ]),
       html.p([], [html.text(situation(allocations))]),
     ]),

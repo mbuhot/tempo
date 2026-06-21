@@ -367,7 +367,6 @@ fn view_list(
 ) -> Element(Msg) {
   let head =
     ui.page_head(
-      eyebrow: "Projects",
       title: "Projects",
       blurb: "Active engagements as of "
         <> format_date(as_of)
@@ -465,11 +464,11 @@ fn view_project_detail(
   let head =
     html.div([attribute.class("page-head")], [
       html.div([], [
-        html.div([attribute.class("eyebrow detail__eyebrow")], [
+        html.h1([], [html.text(detail.profile.title)]),
+        html.div([attribute.class("detail__subtitle")], [
           ui.swatch(category: detail.profile.project_id, inline: False),
           html.text(detail.client),
         ]),
-        html.h1([], [html.text(detail.profile.title)]),
         html.p([], [html.text(detail.profile.summary)]),
       ]),
       html.div([attribute.class("action-row")], [

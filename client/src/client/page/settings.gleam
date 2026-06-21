@@ -277,7 +277,6 @@ fn view_shell(body: List(Element(Msg))) -> Element(Msg) {
 /// The page head, with an optional cluster of head actions on the right.
 fn head(actions: List(Element(Msg))) -> Element(Msg) {
   ui.page_head(
-    eyebrow: "Admin",
     title: "Settings",
     blurb: "Rate card, salary bands, and leave policy. Changes here are temporal — they apply from an effective date forward.",
     actions: actions,

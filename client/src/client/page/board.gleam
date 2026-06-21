@@ -4,10 +4,11 @@
 //// driven through the shared `ui` op-form engine and posted via `api`.
 ////
 //// Two fetches answer one date: `GET /api/board?date=` (the snapshot — rows +
-//// leave balances) and `GET /api/people?as_of=` (the roster, whose `PersonRow`
-//// carries the `engineer_id` the snapshot's `BoardRow` lacks). The people list
+//// leave balances) and `GET /api/roster?as_of=` (the directory of employed
+//// engineers, active projects, and clients as `Ref`s — id + name). The roster
 //// resolves an engineer NAME -> id so a card can `Navigate(route.People(Some(id)))`
-//// (FR-BD5) and supplies the engineer/project `Ref`s the op forms select over.
+//// (FR-BD5) and a project TITLE -> id, and supplies the engineer/project `Ref`s the
+//// op forms select over.
 ////
 //// Each fetch result carries the `as_of` it answers; `update` drops a result whose
 //// `as_of` no longer matches the model's current date (stale-while-revalidate) so a
@@ -32,16 +33,16 @@ import lustre/event
 import rsvp
 import shared/codecs
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Event, type PeopleList, type Ref,
-  BoardRow, OnLeave, OnProject, Ref, Unassigned,
+  type BoardRow, type BoardSnapshot, type Event, type Ref, type Roster, BoardRow,
+  OnLeave, OnProject, Unassigned,
 }
 
 // --- Model -------------------------------------------------------------------
 
-/// The page's state. The board snapshot and the people roster are fetched
-/// separately for the same date; `Loaded` only renders the full board once BOTH
-/// have arrived, so `data` holds each as it lands. The op form, when open, holds
-/// the chosen `OpKind`, the in-progress `OpForm`, and the last submit error.
+/// The page's state. The board snapshot and the roster directory are fetched
+/// separately for the same date; the board only renders in full once BOTH have
+/// arrived, so `data` holds each as it lands. The op form, when open, holds the
+/// chosen `OpKind`, the in-progress `OpForm`, and the last submit error.
 pub type Model {
   Model(as_of: calendar.Date, actor: String, data: Data, op: Option(OpState))
 }
@@ -52,7 +53,7 @@ pub type Model {
 pub type Data {
   Data(
     snapshot: Option(Result(BoardSnapshot, String)),
-    people: Option(Result(PeopleList, String)),
+    roster: Option(Result(Roster, String)),
   )
 }
 
@@ -71,13 +72,13 @@ pub type Msg {
     as_of: calendar.Date,
     result: Result(BoardSnapshot, rsvp.Error(String)),
   )
-  PeopleFetched(
+  RosterFetched(
     as_of: calendar.Date,
-    result: Result(PeopleList, rsvp.Error(String)),
+    result: Result(Roster, rsvp.Error(String)),
   )
   CardClicked(engineer: String)
   OpStarted(kind: ui.OpKind)
-  OpStartedFor(kind: ui.OpKind, engineer_id: Int)
+  OpStartedFor(kind: ui.OpKind, engineer_id: Int, project_id: Int)
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -102,7 +103,7 @@ pub fn init(
 ) -> #(Model, Effect(Msg)) {
   let _ = route
   let model =
-    Model(as_of:, actor:, data: Data(snapshot: None, people: None), op: None)
+    Model(as_of:, actor:, data: Data(snapshot: None, roster: None), op: None)
   #(model, fetch_all(as_of))
 }
 
@@ -119,7 +120,7 @@ pub fn refetch(
 }
 
 fn fetch_all(as_of: calendar.Date) -> Effect(Msg) {
-  effect.batch([fetch_board(as_of), fetch_people(as_of)])
+  effect.batch([fetch_board(as_of), fetch_roster(as_of)])
 }
 
 fn fetch_board(as_of: calendar.Date) -> Effect(Msg) {
@@ -130,11 +131,11 @@ fn fetch_board(as_of: calendar.Date) -> Effect(Msg) {
   )
 }
 
-fn fetch_people(as_of: calendar.Date) -> Effect(Msg) {
+fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
-    "/api/people?as_of=" <> time.iso_date(as_of),
-    codecs.people_list_decoder(),
-    fn(result) { PeopleFetched(as_of:, result:) },
+    "/api/roster?as_of=" <> time.iso_date(as_of),
+    codecs.roster_decoder(),
+    fn(result) { RosterFetched(as_of:, result:) },
   )
 }
 
@@ -156,15 +157,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         }
       }
 
-    PeopleFetched(as_of:, result:) ->
+    RosterFetched(as_of:, result:) ->
       case as_of == model.as_of {
         False -> #(model, effect.none(), [])
         True -> {
-          let people = case result {
-            Ok(people) -> Ok(people)
+          let roster = case result {
+            Ok(roster) -> Ok(roster)
             Error(error) -> Error(api.describe_error(error))
           }
-          let data = Data(..model.data, people: Some(people))
+          let data = Data(..model.data, roster: Some(roster))
           #(Model(..model, data:), effect.none(), [])
         }
       }
@@ -185,10 +186,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       )
     }
 
-    OpStartedFor(kind:, engineer_id:) -> {
+    OpStartedFor(kind:, engineer_id:, project_id:) -> {
       let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form =
         ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
+      let form =
+        ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+      let form = reconcile(model, form)
       #(
         Model(..model, op: Some(OpState(kind:, form:, error: ""))),
         effect.none(),
@@ -251,24 +255,37 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   }
 }
 
-/// Seed an op form's engineer slot from the as-of roster so a freshly opened "+
-/// Assign" form already names a valid engineer. The project id has no source on
-/// this page's reads (neither the snapshot nor the roster carries one), so it is
-/// left for manual entry.
+/// Snap an op form's engineer and project slots to valid options from the as-of
+/// roster, so a freshly opened form (whether blank or pre-filled from a card) names
+/// an engineer and project the directory actually carries.
 fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
-  ui.reconcile_form(form, engineer_refs(model), [])
+  ui.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
-/// The engineer id for a board engineer NAME, resolved through the people roster
+/// The engineer id for a board engineer NAME, resolved through the as-of roster
 /// (the snapshot's `BoardRow` carries no id). `None` when the roster has not
 /// loaded or the name is absent.
 fn engineer_id_for(model: Model, engineer: String) -> Option(Int) {
-  case model.data.people {
-    Some(Ok(people)) ->
-      people.people
-      |> list.find(fn(person) { person.name == engineer })
+  case model.data.roster {
+    Some(Ok(roster)) ->
+      roster.engineers
+      |> list.find(fn(reference) { reference.name == engineer })
       |> option.from_result
-      |> option.map(fn(person) { person.engineer_id })
+      |> option.map(fn(reference) { reference.id })
+    _ -> None
+  }
+}
+
+/// The project id for a board project TITLE, resolved through the as-of roster
+/// (the snapshot's `OnProject` engagement carries the title, not the id). `None`
+/// when the roster has not loaded or the title is absent.
+fn project_id_for(model: Model, title: String) -> Option(Int) {
+  case model.data.roster {
+    Some(Ok(roster)) ->
+      roster.projects
+      |> list.find(fn(reference) { reference.name == title })
+      |> option.from_result
+      |> option.map(fn(reference) { reference.id })
     _ -> None
   }
 }
@@ -277,13 +294,13 @@ fn engineer_id_for(model: Model, engineer: String) -> Option(Int) {
 
 /// Render the board for `as_of`: while either fetch is in flight, a loading state;
 /// if either failed, the failure; otherwise the stats hero, the per-project blocks,
-/// and the On-leave / Unassigned panels, with the op-form panel overlaid when open.
+/// and the On-leave / Unassigned panels, with the op-form modal overlaid when open.
 pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
   let _ = as_of
-  case model.data.snapshot, model.data.people {
+  case model.data.snapshot, model.data.roster {
     Some(Error(message)), _ -> view_failed(message)
     _, Some(Error(message)) -> view_failed(message)
-    Some(Ok(snapshot)), Some(Ok(people)) -> view_loaded(model, snapshot, people)
+    Some(Ok(snapshot)), Some(Ok(_roster)) -> view_loaded(model, snapshot)
     _, _ -> view_loading()
   }
 }
@@ -304,8 +321,7 @@ fn view_failed(message: String) -> Element(Msg) {
 
 fn head() -> Element(Msg) {
   ui.page_head(
-    eyebrow: "Org board",
-    title: "Who's doing what",
+    title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
       html.button(
@@ -319,21 +335,17 @@ fn head() -> Element(Msg) {
   )
 }
 
-fn view_loaded(
-  model: Model,
-  snapshot: BoardSnapshot,
-  people: PeopleList,
-) -> Element(Msg) {
+fn view_loaded(model: Model, snapshot: BoardSnapshot) -> Element(Msg) {
   let on_project = list.filter(snapshot.rows, is_on_project)
   let on_leave = list.filter(snapshot.rows, is_on_leave)
   let unassigned = list.filter(snapshot.rows, is_unassigned)
   html.div([], [
     head(),
-    op_panel(model),
     stats_hero(on_project, on_leave, snapshot),
-    on_projects_panel(on_project, people),
+    on_projects_panel(model, on_project),
     on_leave_panel(on_leave),
     unassigned_panel(unassigned),
+    op_panel(model),
   ])
 }
 
@@ -394,10 +406,7 @@ fn stats_hero(
 
 /// The "On projects" panel: each project a `.board-group` (swatch, title, client,
 /// run-rate + team-size meta) over a grid of engineer allocation cards.
-fn on_projects_panel(
-  on_project: List(BoardRow),
-  people: PeopleList,
-) -> Element(Msg) {
+fn on_projects_panel(model: Model, on_project: List(BoardRow)) -> Element(Msg) {
   let groups = group_by_project(on_project)
   let allocation_count = list.length(on_project)
   let project_count = list.length(groups)
@@ -410,7 +419,7 @@ fn on_projects_panel(
     [] -> [ui.empty_state(message: "No one is allocated on this date.")]
     groups ->
       list.index_map(groups, fn(group, index) {
-        proj_block(group, index, people)
+        proj_block(model, group, index)
       })
   }
   ui.panel(title: "On projects", count: count, right: [], body: body)
@@ -419,9 +428,9 @@ fn on_projects_panel(
 /// One project's block of engineer cards. `category` (the group's index) tints the
 /// swatch; the meta line shows the project's daily run-rate and team size.
 fn proj_block(
+  model: Model,
   group: #(String, String, List(BoardRow)),
   category: Int,
-  people: PeopleList,
 ) -> Element(Msg) {
   let #(project, client, rows) = group
   let project_revenue =
@@ -433,7 +442,7 @@ fn proj_block(
     <> "/day · "
     <> int.to_string(list.length(rows))
     <> " on team"
-  let cards = list.map(rows, fn(row) { project_card(row, people) })
+  let cards = list.map(rows, fn(row) { project_card(model, project, row) })
   html.div([attribute.class("board-group")], [
     html.div([attribute.class("board-group__head")], [
       ui.swatch(category: category, inline: False),
@@ -445,10 +454,11 @@ fn proj_block(
   ])
 }
 
-/// An engineer's allocation card on a project: avatar, name, and a sub-line of
-/// fraction pill / level-band pill / day rate. Clicking the card drills into the
-/// engineer's detail; "Roll off" opens a pre-filled RollOff form.
-fn project_card(row: BoardRow, people: PeopleList) -> Element(Msg) {
+/// An engineer's allocation card on a project: avatar, name, a sub-line of
+/// fraction pill / level-band pill / day rate, and a right-aligned "Roll off"
+/// action. Clicking the card drills into the engineer's detail; "Roll off" opens a
+/// modal pre-filled with the engineer and this project.
+fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
   let sub = case row.engagement {
     OnProject(day_rate:, fraction:, ..) -> [
       html.span([attribute.class("board-card__fraction")], [
@@ -458,39 +468,37 @@ fn project_card(row: BoardRow, people: PeopleList) -> Element(Msg) {
         html.text(ui.level_band(row.level)),
       ]),
       html.span([], [html.text(ui.money(day_rate) <> "/d")]),
-      roll_off_action(row, people),
     ]
     _ -> []
   }
-  alloc_card(row, "", sub)
+  alloc_card(row, "", sub, roll_off_action(model, project, row))
 }
 
-/// The "Roll off" affordance on a project card. It opens a RollOff form pre-filled
-/// with the engineer's id (resolved via the roster); the project id is entered in
-/// the form (the board's reads carry no project id). Renders nothing when the
-/// engineer's id cannot be resolved. `stop_propagation` keeps the click off the
-/// card's drill-in handler.
-fn roll_off_action(row: BoardRow, people: PeopleList) -> Element(Msg) {
-  let engineer_id =
-    people.people
-    |> list.find(fn(person) { person.name == row.engineer })
-    |> option.from_result
-    |> option.map(fn(person) { person.engineer_id })
-  case engineer_id {
-    Some(engineer_id) ->
+/// The "Roll off" affordance on a project card. It opens a RollOff modal pre-filled
+/// with the engineer's id (resolved by name) and this project's id (resolved by
+/// title) from the as-of roster. Renders nothing until BOTH resolve.
+/// `stop_propagation` keeps the click off the card's drill-in handler.
+fn roll_off_action(
+  model: Model,
+  project: String,
+  row: BoardRow,
+) -> Element(Msg) {
+  case engineer_id_for(model, row.engineer), project_id_for(model, project) {
+    Some(engineer_id), Some(project_id) ->
       html.button(
         [
           attribute.class("btn btn--ghost btn--sm"),
           event.stop_propagation(
             event.on_click(OpStartedFor(
               kind: ui.OpRollOff,
-              engineer_id: engineer_id,
+              engineer_id:,
+              project_id:,
             )),
           ),
         ],
         [html.text("Roll off")],
       )
-    None -> element.none()
+    _, _ -> element.none()
   }
 }
 
@@ -513,7 +521,7 @@ fn on_leave_panel(on_leave: List(BoardRow)) -> Element(Msg) {
             ]
             _ -> []
           }
-          alloc_card(row, "on-leave", sub)
+          alloc_card(row, "on-leave", sub, element.none())
         })
       ui.panel(
         title: "On leave",
@@ -543,7 +551,7 @@ fn unassigned_panel(unassigned: List(BoardRow)) -> Element(Msg) {
             ]),
             html.span([], [html.text("available")]),
           ]
-          alloc_card(row, "bench", sub)
+          alloc_card(row, "bench", sub, element.none())
         })
       ui.panel(
         title: "Unassigned",
@@ -559,13 +567,16 @@ fn unassigned_panel(unassigned: List(BoardRow)) -> Element(Msg) {
   }
 }
 
-/// One `.board-card`: avatar + name + sub-line, tinted by the engineer's name hash,
-/// with the `extra` modifier ("" | "on-leave" | "bench"). Clicking it drills into
-/// the engineer detail.
+/// One `.board-card`: a flex row of avatar, an info column (name + badge sub-line),
+/// and a right-aligned `action` slot, tinted by the engineer's name hash, with the
+/// `extra` modifier ("" | "on-leave" | "bench"). The action is its own element after
+/// the info so CSS pushes it to the far right; pass `element.none()` for no action.
+/// Clicking the card drills into the engineer detail.
 fn alloc_card(
   row: BoardRow,
   extra: String,
   sub: List(Element(Msg)),
+  action: Element(Msg),
 ) -> Element(Msg) {
   let class = case extra {
     "" -> "board-card"
@@ -581,38 +592,29 @@ fn alloc_card(
       html.div([attribute.class("board-card__name")], [html.text(row.engineer)]),
       html.div([attribute.class("board-card__sub")], sub),
     ]),
+    html.div([attribute.class("board-card__action")], [action]),
   ])
 }
 
 // --- Op form panel -----------------------------------------------------------
 
-/// The contextual operation panel, shown when an op is open. Renders the fields the
-/// op needs (engineer/project from the as-of directory, fraction, dates), the last
-/// rejection message, and Apply / Cancel actions.
+/// The contextual operation, shown as a centred modal over a dimmed backdrop when an
+/// op is open. Renders the fields the op needs (engineer/project as `<select>`s from
+/// the as-of directory, fraction, dates), the last rejection message, and the
+/// Cancel / Confirm footer. Clicking the backdrop or Cancel closes (`OpCancelled`);
+/// Confirm submits (`OpSubmitted`).
 fn op_panel(model: Model) -> Element(Msg) {
   case model.op {
     None -> element.none()
-    Some(state) -> {
-      let fields = op_fields(model, state)
-      let error_row = case state.error {
-        "" -> element.none()
-        message ->
-          html.div([attribute.class("op-form__error")], [html.text(message)])
-      }
-      ui.panel(title: op_title(state.kind), count: "", right: [], body: [
-        html.div([attribute.class("op-form")], fields),
-        error_row,
-        html.div([attribute.class("action-row")], [
-          html.button(
-            [attribute.class("btn btn--ghost"), event.on_click(OpCancelled)],
-            [html.text("Cancel")],
-          ),
-          html.button([attribute.class("btn"), event.on_click(OpSubmitted)], [
-            html.text("Apply"),
-          ]),
-        ]),
-      ])
-    }
+    Some(state) ->
+      ui.modal(
+        title: op_title(state.kind),
+        error: state.error,
+        body: op_fields(model, state),
+        on_cancel: OpCancelled,
+        on_confirm: OpSubmitted,
+        confirm_label: op_verb(state.kind),
+      )
   }
 }
 
@@ -624,26 +626,33 @@ fn op_title(kind: ui.OpKind) -> String {
   }
 }
 
-/// The form fields for the open op. The engineer is picked from the as-of roster
-/// (`ref_select`); the project id is typed (the board's reads carry no project id
-/// to populate a select). AssignToProject adds a fraction and a validity window;
-/// RollOff adds an effective date.
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpAssignToProject -> "Assign"
+    ui.OpRollOff -> "Roll off"
+    _ -> "Confirm"
+  }
+}
+
+/// The form fields for the open op. Both the engineer and the project are picked
+/// from the as-of roster (`ref_select`), pre-filled from the launching card.
+/// AssignToProject adds a fraction and a validity window; RollOff adds an effective
+/// date.
 fn op_fields(model: Model, state: OpState) -> List(Element(Msg)) {
-  let engineers = engineer_refs(model)
   let engineer_field =
     ui.ref_select(
       label: "Engineer",
       field: ui.FEngineerId,
-      refs: engineers,
+      refs: engineer_refs(model),
       selected: state.form.engineer_id,
       to_msg: OpFieldEdited,
     )
   let project_field =
-    ui.op_field(
-      label: "Project id",
+    ui.ref_select(
+      label: "Project",
       field: ui.FProjectId,
-      value: state.form.project_id,
-      input_type: "number",
+      refs: project_refs(model),
+      selected: state.form.project_id,
       to_msg: OpFieldEdited,
     )
   case state.kind {
@@ -689,13 +698,19 @@ fn op_fields(model: Model, state: OpState) -> List(Element(Msg)) {
 // --- Directories (Ref lists for op selects) ----------------------------------
 
 /// The engineer directory for the op `<select>`s, from the as-of roster (every
-/// employed engineer, id + name).
+/// employed engineer, id + name). Empty until the roster loads.
 fn engineer_refs(model: Model) -> List(Ref) {
-  case model.data.people {
-    Some(Ok(people)) ->
-      list.map(people.people, fn(person) {
-        Ref(id: person.engineer_id, name: person.name)
-      })
+  case model.data.roster {
+    Some(Ok(roster)) -> roster.engineers
+    _ -> []
+  }
+}
+
+/// The project directory for the op `<select>`s, from the as-of roster (every
+/// active project, id + name). Empty until the roster loads.
+fn project_refs(model: Model) -> List(Ref) {
+  case model.data.roster {
+    Some(Ok(roster)) -> roster.projects
     _ -> []
   }
 }

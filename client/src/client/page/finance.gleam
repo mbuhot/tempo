@@ -566,8 +566,7 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
 
 fn page_head(as_of: calendar.Date) -> Element(Msg) {
   ui.page_head(
-    eyebrow: "Finance",
-    title: "Money",
+    title: "Finance",
     blurb: "Invoices, payroll, and profit — every figure resolved as of "
       <> format_date(as_of)
       <> ".",

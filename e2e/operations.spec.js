@@ -83,13 +83,13 @@ test("a containment violation is refused with the reason and leaves the board un
   await expect(page.getByRole("heading", { name: "Who's doing what" })).toBeVisible();
 
   await page.getByRole("button", { name: "+ Assign" }).dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Assign to a project" })).toBeVisible();
+  await expect(page.getByText("Assign to a project")).toBeVisible();
   await page.getByLabel("Engineer").selectOption({ label: "Aisha Okafor" });
-  await page.getByLabel("Project id").fill("100");
+  await page.getByLabel("Project").selectOption({ label: "Ledger Migration" });
   await page.getByLabel("Fraction").fill("0.5");
   await page.getByLabel("Valid from").fill("2024-01-01");
   await page.getByLabel("Valid to").fill("2024-06-01");
-  await page.getByRole("button", { name: "Apply" }).dispatchEvent("click");
+  await page.getByRole("button", { name: "Assign", exact: true }).dispatchEvent("click");
 
   // The user sees the containment rule that fired — not a crash, not a silent
   // success — and the board still shows Aisha on leave at the seed now (her

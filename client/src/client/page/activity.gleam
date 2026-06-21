@@ -296,8 +296,7 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
   }
   html.div([], [
     ui.page_head(
-      eyebrow: "Activity",
-      title: "Activity log",
+      title: "Activity",
       blurb: "Every change recorded against the workspace, newest first. This feed is on system time — what was recorded when, independent of the rail.",
       actions: [view_filters(filters, events, as_of)],
     ),

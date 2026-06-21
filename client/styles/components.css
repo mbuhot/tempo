@@ -107,7 +107,9 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-feature-setti
 .back-link { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-faint); font-weight: var(--weight-semibold); font-size: var(--text-xs); margin-bottom: var(--space-md); cursor: pointer; }
 .back-link:hover { color: var(--color-accent); }
 .detail__title { display: flex; align-items: center; gap: var(--space-md); }
-.detail__eyebrow { display: flex; align-items: center; gap: var(--space-xs); }
+/* A detail page's metadata line (an engineer's level, a project's client) — a
+ * plain muted subtitle under the heading, NOT an uppercase eyebrow kicker (ADR-041). */
+.detail__subtitle { display: flex; align-items: center; gap: var(--space-xs); margin-top: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); }
 .kv { display: grid; grid-template-columns: 1fr; gap: 0; }
 .kv__row { display: flex; justify-content: space-between; gap: var(--space-md); padding: var(--space-sm) 0; border-bottom: var(--border-thin) solid var(--color-border); }
 .kv__row:last-child { border-bottom: none; }
@@ -120,28 +122,56 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-feature-setti
 /* ---------- Empty state ---------- */
 .empty { padding: var(--space-xl); text-align: center; color: var(--color-faint); }
 
+/* ---------- Modal ---------- */
+/* The dialog the pages overlay to write a change: a centred card over a dimmed
+ * full-screen backdrop, with a header (the op title), a body of op-form fields,
+ * an optional rejection line, and a Cancel / Confirm footer. Clicking the
+ * backdrop closes; a click inside the card is swallowed. Token-only per ADR-038
+ * (the scrim and z-index are named tokens in theme.css). */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: grid; place-items: center; padding: var(--space-lg);
+  background: var(--color-scrim);
+}
+.modal {
+  width: min(100%, var(--size-modal)); background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); overflow: hidden;
+}
+.modal__header {
+  padding: var(--space-md) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border);
+  font-size: var(--text-base); font-weight: var(--weight-bold);
+}
+.modal__body { padding: var(--space-lg); }
+.modal__footer {
+  display: flex; justify-content: flex-end; gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg); border-top: var(--border-thin) solid var(--color-border);
+}
+
 /* ---------- Contextual-operation form ---------- */
-/* The inline op panel the pages overlay to write a change: a stack of labelled
- * fields (text / number / date inputs and ref <select>s), a rejection message,
- * and the Apply / Cancel actions. The prototype stubbed ops as alerts, so these
- * atoms are new. The field column floors at the shared --size-field width. */
-.op-form { display: flex; flex-wrap: wrap; gap: var(--space-md); padding: var(--space-md) 0; }
-.op-form__fields { display: contents; }
-.op-form__field { display: flex; flex-direction: column; gap: var(--space-xs); min-width: var(--size-field); flex: 1; }
+/* The labelled fields inside the modal body: a stack of label-above-control
+ * rows (text / number / date inputs and ref <select>s) plus a rejection message.
+ * Every control snaps to one uniform height (--size-control-h) and identical
+ * chrome so select / date / text / number line up across browsers (the Safari
+ * complaint). The prototype stubbed ops as alerts, so these atoms are new. */
+.op-form { display: flex; flex-direction: column; gap: var(--space-md); }
+.op-form__field { display: flex; flex-direction: column; gap: var(--space-xs); }
 .op-form__field > span {
   font-family: var(--mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
   text-transform: uppercase; color: var(--color-faint); font-weight: var(--weight-semibold);
 }
-.op-form__field input, .op-form__field select {
-  font-family: var(--sans); font-size: var(--text-sm); color: var(--color-text); background: var(--color-surface);
-  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md);
+.op-form__field select, .op-form__field input {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  width: 100%; height: var(--size-control-h); padding: 0 var(--space-md);
+  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text); font: inherit;
 }
-.op-form__field input:focus, .op-form__field select:focus {
+.op-form__field select:focus-visible, .op-form__field input:focus-visible,
+.op-form__field select:focus, .op-form__field input:focus {
   outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 var(--space-xs) var(--color-accent-soft);
 }
-.op-form__actions { display: flex; gap: var(--space-sm); }
 .op-form__error {
   font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-leave);
   background: var(--color-leave-soft); border: var(--border-thin) solid var(--color-leave-border);
-  border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md); margin: var(--space-xs) 0;
+  border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md); margin: var(--space-md) var(--space-lg) 0;
 }

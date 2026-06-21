@@ -18,6 +18,7 @@
 ////     a frozen deliverable so the per-page agents never serialize on shared edits
 ////     to this module.
 
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
@@ -39,18 +40,16 @@ import shared/types.{
 
 // --- View atoms -------------------------------------------------------------
 
-/// The standard page header: an eyebrow, a title, an optional supporting
-/// paragraph, and an optional cluster of action elements on the right. Mirrors
-/// the prototype's `.page-head`.
+/// The standard page header: the heading IS the section/entity name (no eyebrow
+/// kicker — ADR-041), a supporting paragraph, and an optional cluster of action
+/// elements on the right.
 pub fn page_head(
-  eyebrow eyebrow: String,
   title title: String,
   blurb blurb: String,
   actions actions: List(Element(msg)),
 ) -> Element(msg) {
   html.div([attribute.class("page-head")], [
     html.div([], [
-      html.div([attribute.class("eyebrow")], [html.text(eyebrow)]),
       html.h1([], [html.text(title)]),
       html.p([], [html.text(blurb)]),
     ]),
@@ -700,6 +699,55 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       Ok(SetSalary(level:, monthly_salary:, effective:))
     }
   }
+}
+
+/// A centred modal over a dimmed full-screen backdrop: a header naming the
+/// operation, a body of form fields, an optional rejection line, and a footer with
+/// a ghost Cancel and a primary Confirm right-aligned. Clicking the backdrop raises
+/// `on_cancel`; a click inside the modal is stopped so it never closes the dialog.
+pub fn modal(
+  title title: String,
+  error error: String,
+  body body: List(Element(msg)),
+  on_cancel on_cancel: msg,
+  on_confirm on_confirm: msg,
+  confirm_label confirm_label: String,
+) -> Element(msg) {
+  let error_line = case error {
+    "" -> element.none()
+    message ->
+      html.div([attribute.class("op-form__error")], [html.text(message)])
+  }
+  html.div([attribute.class("modal-backdrop"), event.on_click(on_cancel)], [
+    html.div([attribute.class("modal"), swallow_click(on_cancel)], [
+      html.div([attribute.class("modal__header")], [html.text(title)]),
+      html.div([attribute.class("modal__body op-form")], body),
+      error_line,
+      html.div([attribute.class("modal__footer")], [
+        html.button(
+          [attribute.class("btn btn--ghost"), event.on_click(on_cancel)],
+          [html.text("Cancel")],
+        ),
+        html.button([attribute.class("btn"), event.on_click(on_confirm)], [
+          html.text(confirm_label),
+        ]),
+      ]),
+    ]),
+  ])
+}
+
+/// A click handler that stops the event reaching parent elements but dispatches
+/// nothing: the decoder reads a path that is never present on a click event, so it
+/// always fails and no message is raised, while the `stop_propagation` flag still
+/// fires at the DOM level (Lustre applies it before running the decoder). Used
+/// inside `modal` so a click in the dialog never closes it via the backdrop. The
+/// `witness` only fixes the decoder's `msg` type; it is never actually dispatched.
+fn swallow_click(witness: msg) -> attribute.Attribute(msg) {
+  event.on(
+    "click",
+    decode.at(["__never__"], decode.string) |> decode.map(fn(_) { witness }),
+  )
+  |> event.stop_propagation
 }
 
 /// A labelled input bound to an `OpForm` slot; editing it raises `to_msg(field,
