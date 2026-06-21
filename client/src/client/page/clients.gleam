@@ -670,9 +670,12 @@ fn view_contract_row(contract: ContractRow) -> Element(Msg) {
 
 /// A header button that opens a contextual operation's form.
 fn op_trigger(label: String, kind: ui.OpKind) -> Element(Msg) {
-  html.button([attribute.class("btn"), event.on_click(OpStarted(kind:))], [
-    html.text(label),
-  ])
+  ui.button(
+    label: label,
+    kind: ui.Primary,
+    size: ui.Medium,
+    on_press: OpStarted(kind:),
+  )
 }
 
 /// The open op form (or nothing) as a centred modal over a dimmed backdrop: the

@@ -50,11 +50,11 @@ test("scrubbing into the future activates Marcus's promotion and rate step", asy
   // future-dated promotion AND the L5 rate-card revision and his card reads L5
   // (Principal) at the new $1,400/day, unaided.
   await scrubTo(page, "2026-06-15");
-  await expect(page.getByText(engineerSays("Marcus Chen", "L4 · Staff"))).toBeVisible();
+  await expect(page.getByText(engineerSays("Marcus Chen", "L4"))).toBeVisible();
   await expect(page.getByText(engineerSays("Marcus Chen", "$1,000/d"))).toBeVisible();
 
   await scrubTo(page, "2026-07-15");
-  await expect(page.getByText(engineerSays("Marcus Chen", "L5 · Principal"))).toBeVisible();
+  await expect(page.getByText(engineerSays("Marcus Chen", "L5"))).toBeVisible();
   await expect(page.getByText(engineerSays("Marcus Chen", "$1,400/d"))).toBeVisible();
 });
 
@@ -65,7 +65,7 @@ test("scrubbing before her leave shows Aisha on her project, not on leave", asyn
   // Platform, and the On-leave panel is gone (its "til 22 Jun 2026" marker absent),
   // so she is not on leave that day.
   await scrubTo(page, "2026-06-01");
-  await expect(page.getByText(engineerSays("Aisha Okafor", "L6 · Distinguished"))).toBeVisible();
+  await expect(page.getByText(engineerSays("Aisha Okafor", "L6"))).toBeVisible();
   await expect(page.getByText("til 22 Jun 2026")).toHaveCount(0);
 });
 

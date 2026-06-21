@@ -1022,6 +1022,27 @@ and invites filler); drop the heading and keep only the eyebrow (rejected — he
 
 ---
 
+## ADR-042 — Wrap a CSS-class + HTML-primitive coupling in a `ui` component
+**Status:** Accepted
+
+When a CSS class only makes sense on one HTML primitive — `btn` on `<button>`, the chip/pill classes on
+`<span>` — wrap the pairing in a `ui.gleam` component so the class can never be used without its primitive
+and every instance is identical. Established with `ui.button(label, kind: Primary|Ghost, size: Medium|Small,
+on_press)` (covering the `btn` / `btn--ghost` / `btn--sm` combinations), `ui.chip(label, tone: Neutral|Accent)`
+(the compact board pill), and the pre-existing `ui.pill` (status pill with a colour dot). Call sites pass
+intent (label, kind, on_press), never class strings.
+
+**Rationale.** A bare `class("btn …")` on a hand-written `<button>` invites the wrong combo, a forgotten
+primitive, or visual drift, and scatters markup; centralising makes the class an implementation detail and
+the call site declarative — the same reasoning as ADR-038's token discipline, one level up at the component
+boundary.
+
+**Limitation.** A fixed-arg component can't express every attribute: buttons needing `event.stop_propagation`
+(the board roll-off action, invoice-row Issue/Mark-paid) stay raw `html.button`. Extending `ui.button` to
+carry that is a follow-up, not a blocker.
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

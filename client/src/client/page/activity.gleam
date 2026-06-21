@@ -318,12 +318,11 @@ fn view_filters(
     date_input("to", iso_or_blank(filters.to), ToChanged),
     operation_select(filters, events),
     actor_select(filters, events),
-    html.button(
-      [
-        attribute.class("btn btn--ghost btn--sm"),
-        event.on_click(JumpedToRail(as_of)),
-      ],
-      [html.text("Jump to " <> time.iso_date(as_of))],
+    ui.button(
+      label: "Jump to " <> time.iso_date(as_of),
+      kind: ui.Ghost,
+      size: ui.Small,
+      on_press: JumpedToRail(as_of),
     ),
   ])
 }

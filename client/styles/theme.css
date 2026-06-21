@@ -10,7 +10,8 @@
  * six type steps, three tracking steps. */
 
 :root {
-  /* spacing scale — five steps, a dense rhythm */
+  /* spacing scale — six steps, a dense rhythm */
+  --space-2xs: 0.125rem;
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;
   --space-md: 0.75rem;

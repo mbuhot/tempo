@@ -800,12 +800,11 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
 }
 
 fn draft_button() -> Element(Msg) {
-  html.button(
-    [
-      attribute.class("btn btn--sm"),
-      event.on_click(OpOpened(ui.OpDraftInvoice)),
-    ],
-    [html.text("+ Draft")],
+  ui.button(
+    label: "+ Draft",
+    kind: ui.Primary,
+    size: ui.Small,
+    on_press: OpOpened(ui.OpDraftInvoice),
   )
 }
 
@@ -813,20 +812,18 @@ fn view_invoice_detail(detail: InvoiceDetail) -> Element(Msg) {
   let invoice = detail.invoice
   let action = case invoice.status {
     "draft" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(OpOpenedForInvoice(ui.OpIssueInvoice, invoice.id)),
-        ],
-        [html.text("Issue")],
+      ui.button(
+        label: "Issue",
+        kind: ui.Primary,
+        size: ui.Small,
+        on_press: OpOpenedForInvoice(ui.OpIssueInvoice, invoice.id),
       )
     "issued" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(OpOpenedForInvoice(ui.OpPayInvoice, invoice.id)),
-        ],
-        [html.text("Mark paid")],
+      ui.button(
+        label: "Mark paid",
+        kind: ui.Primary,
+        size: ui.Small,
+        on_press: OpOpenedForInvoice(ui.OpPayInvoice, invoice.id),
       )
     _ -> element.none()
   }
@@ -934,12 +931,11 @@ fn view_payroll_preview(payroll: Payroll) -> Element(Msg) {
   let total =
     list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.preview_amount })
   let run_button =
-    html.button(
-      [
-        attribute.class("btn btn--sm"),
-        event.on_click(OpOpened(ui.OpRunPayroll)),
-      ],
-      [html.text("Run payroll")],
+    ui.button(
+      label: "Run payroll",
+      kind: ui.Primary,
+      size: ui.Small,
+      on_press: OpOpened(ui.OpRunPayroll),
     )
   ui.panel(
     title: "Payroll preview · " <> month,

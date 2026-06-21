@@ -495,7 +495,12 @@ fn view_list(
         <> format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        op_button("+ Start project", "btn", OpStarted(ui.OpStartProject)),
+        ui.button(
+          label: "+ Start project",
+          kind: ui.Primary,
+          size: ui.Medium,
+          on_press: OpStarted(ui.OpStartProject),
+        ),
       ],
     )
   let body = case list {
@@ -597,27 +602,36 @@ fn view_project_detail(
         html.p([], [html.text(detail.profile.summary)]),
       ]),
       html.div([attribute.class("action-row")], [
-        op_button(
-          "Assign",
-          "btn btn--ghost btn--sm",
-          OpStarted(ui.OpAssignToProject),
+        ui.button(
+          label: "Assign",
+          kind: ui.Ghost,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpAssignToProject),
         ),
-        op_button(
-          "Adjust allocation",
-          "btn btn--ghost btn--sm",
-          OpStarted(ui.OpChangeAllocationFraction),
+        ui.button(
+          label: "Adjust allocation",
+          kind: ui.Ghost,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpChangeAllocationFraction),
         ),
-        op_button(
-          "Edit profile",
-          "btn btn--ghost btn--sm",
-          OpStarted(ui.OpUpdateProjectProfile),
+        ui.button(
+          label: "Edit profile",
+          kind: ui.Ghost,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpUpdateProjectProfile),
         ),
-        op_button(
-          "Edit plan",
-          "btn btn--ghost btn--sm",
-          OpStarted(ui.OpUpdateProjectPlan),
+        ui.button(
+          label: "Edit plan",
+          kind: ui.Ghost,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpUpdateProjectPlan),
         ),
-        op_button("Draft invoice", "btn btn--sm", OpStarted(ui.OpDraftInvoice)),
+        ui.button(
+          label: "Draft invoice",
+          kind: ui.Primary,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpDraftInvoice),
+        ),
       ]),
     ])
   let stats =
@@ -1006,10 +1020,6 @@ fn op_verb(kind: ui.OpKind) -> String {
 }
 
 // --- Small view helpers -----------------------------------------------------
-
-fn op_button(label: String, class: String, msg: Msg) -> Element(Msg) {
-  html.button([attribute.class(class), event.on_click(msg)], [html.text(label)])
-}
 
 fn state_pill(active: Bool) -> #(String, String) {
   case active {

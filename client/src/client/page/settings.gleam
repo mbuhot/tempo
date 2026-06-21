@@ -335,26 +335,23 @@ fn head(actions: List(Element(Msg))) -> Element(Msg) {
 /// read-only leave-policy table, then the op-form modal overlaid when open.
 fn view_loaded(settings: Settings, op: Option(OpState)) -> Element(Msg) {
   let actions = [
-    html.button(
-      [
-        attribute.class("btn btn--ghost btn--sm"),
-        event.on_click(OpStarted(ui.OpAdjustRateForPortion)),
-      ],
-      [html.text("Adjust window")],
+    ui.button(
+      label: "Adjust window",
+      kind: ui.Ghost,
+      size: ui.Small,
+      on_press: OpStarted(ui.OpAdjustRateForPortion),
     ),
-    html.button(
-      [
-        attribute.class("btn btn--ghost btn--sm"),
-        event.on_click(OpStarted(ui.OpSetSalary)),
-      ],
-      [html.text("Set salary")],
+    ui.button(
+      label: "Set salary",
+      kind: ui.Ghost,
+      size: ui.Small,
+      on_press: OpStarted(ui.OpSetSalary),
     ),
-    html.button(
-      [
-        attribute.class("btn btn--sm"),
-        event.on_click(OpStarted(ui.OpReviseRateCard)),
-      ],
-      [html.text("Revise rate")],
+    ui.button(
+      label: "Revise rate",
+      kind: ui.Primary,
+      size: ui.Small,
+      on_press: OpStarted(ui.OpReviseRateCard),
     ),
   ]
   html.div([], [
@@ -384,28 +381,28 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
         html.td([attribute.class("num")], [html.text(ui.money(rate.day_rate))]),
         html.td([attribute.class("num")], [html.text(salary)]),
         html.td([attribute.class("num")], [
-          html.button(
-            [
-              attribute.class("btn btn--ghost btn--sm"),
-              event.on_click(OpStartedForLevel(
+          html.div([attribute.class("action-row")], [
+            ui.button(
+              label: "Revise",
+              kind: ui.Ghost,
+              size: ui.Small,
+              on_press: OpStartedForLevel(
                 kind: ui.OpReviseRateCard,
                 level: rate.level,
                 amount: rate.day_rate,
-              )),
-            ],
-            [html.text("Revise")],
-          ),
-          html.button(
-            [
-              attribute.class("btn btn--ghost btn--sm"),
-              event.on_click(OpStartedForLevel(
+              ),
+            ),
+            ui.button(
+              label: "Set salary",
+              kind: ui.Ghost,
+              size: ui.Small,
+              on_press: OpStartedForLevel(
                 kind: ui.OpSetSalary,
                 level: rate.level,
                 amount: salary_amount(settings.salaries, rate.level),
-              )),
-            ],
-            [html.text("Set salary")],
-          ),
+              ),
+            ),
+          ]),
         ]),
       ])
     })

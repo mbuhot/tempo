@@ -170,6 +170,65 @@ pub fn pill(variant variant: String, label label: String) -> Element(msg) {
   html.span([attribute.class("pill pill--" <> variant)], [html.text(label)])
 }
 
+/// How a `chip` is toned: `Neutral` reads as the sunken-surface neutral palette
+/// (level, day-rate), `Accent` as the accent-soft palette (allocation fraction).
+pub type ChipTone {
+  Neutral
+  Accent
+}
+
+/// A compact, dotless pill for dense card sub-lines (the board/team cards' level,
+/// allocation-fraction, and day-rate badges). Emits `<span class="chip chip--…">`
+/// so the tight 2px/4px padding can never be applied without the primitive. Unlike
+/// `pill` it carries no leading dot and a tighter, square-cornered shape.
+pub fn chip(label label: String, tone tone: ChipTone) -> Element(msg) {
+  let tone_class = case tone {
+    Neutral -> "chip chip--neutral"
+    Accent -> "chip chip--accent"
+  }
+  html.span([attribute.class(tone_class)], [html.text(label)])
+}
+
+/// How a `button` is styled and sized. `Primary` is the filled accent button,
+/// `Ghost` the bordered surface variant; `Medium` is the default size, `Small`
+/// the dense `btn--sm` variant.
+pub type ButtonKind {
+  Primary
+  Ghost
+}
+
+pub type ButtonSize {
+  Medium
+  Small
+}
+
+/// A button: the only place the `btn` class (and its `btn--ghost` / `btn--sm`
+/// modifiers) is emitted, so the class can never be used without a real
+/// `<button>` carrying its click handler and visible label. Keeping the visible
+/// text means e2e `getByRole("button", { name })` still matches.
+pub fn button(
+  label label: String,
+  kind kind: ButtonKind,
+  size size: ButtonSize,
+  on_press on_press: msg,
+) -> Element(msg) {
+  let kind_class = case kind {
+    Primary -> ""
+    Ghost -> " btn--ghost"
+  }
+  let size_class = case size {
+    Medium -> ""
+    Small -> " btn--sm"
+  }
+  html.button(
+    [
+      attribute.class("btn" <> kind_class <> size_class),
+      event.on_click(on_press),
+    ],
+    [html.text(label)],
+  )
+}
+
 /// A table from a header spec and pre-rendered rows. Each header is `#(label,
 /// numeric?)` — a numeric header gets the right-aligned monospaced `.num` class.
 /// Rows are rendered by the caller (so cells can carry click handlers, pills,

@@ -324,12 +324,11 @@ fn head() -> Element(Msg) {
     title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
-      html.button(
-        [
-          attribute.class("btn"),
-          event.on_click(OpStarted(ui.OpAssignToProject)),
-        ],
-        [html.text("+ Assign")],
+      ui.button(
+        label: "+ Assign",
+        kind: ui.Primary,
+        size: ui.Medium,
+        on_press: OpStarted(ui.OpAssignToProject),
       ),
     ],
   )
@@ -455,19 +454,15 @@ fn proj_block(
 }
 
 /// An engineer's allocation card on a project: avatar, name, a sub-line of
-/// fraction pill / level-band pill / day rate, and a right-aligned "Roll off"
+/// fraction / short-level / day-rate chips, and a right-aligned "Roll off"
 /// action. Clicking the card drills into the engineer's detail; "Roll off" opens a
 /// modal pre-filled with the engineer and this project.
 fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
   let sub = case row.engagement {
     OnProject(day_rate:, fraction:, ..) -> [
-      html.span([attribute.class("board-card__fraction")], [
-        html.text(ui.fraction(fraction)),
-      ]),
-      html.span([attribute.class("level-pill")], [
-        html.text(ui.level_band(row.level)),
-      ]),
-      html.span([], [html.text(ui.money(day_rate) <> "/d")]),
+      ui.chip(label: ui.fraction(fraction), tone: ui.Accent),
+      ui.chip(label: short_level(row.level), tone: ui.Neutral),
+      ui.chip(label: ui.money(day_rate) <> "/d", tone: ui.Neutral),
     ]
     _ -> []
   }
@@ -546,9 +541,7 @@ fn unassigned_panel(unassigned: List(BoardRow)) -> Element(Msg) {
       let cards =
         list.map(rows, fn(row) {
           let sub = [
-            html.span([attribute.class("level-pill")], [
-              html.text(ui.level_band(row.level)),
-            ]),
+            ui.chip(label: short_level(row.level), tone: ui.Neutral),
             html.span([], [html.text("available")]),
           ]
           alloc_card(row, "bench", sub, element.none())
@@ -791,6 +784,12 @@ fn name_category(name: String) -> Int {
   |> list.fold(0, fn(sum, codepoint) {
     sum + string.utf_codepoint_to_int(codepoint)
   })
+}
+
+/// The board's short level label ("L6"), the dense card form of the People
+/// detail's full `ui.level_band` ("L6 · Distinguished").
+fn short_level(level: Int) -> String {
+  "L" <> int.to_string(level)
 }
 
 fn format_date(date: calendar.Date) -> String {

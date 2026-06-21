@@ -1016,9 +1016,11 @@ fn submit_week_button(week: TimesheetWeek) -> Element(Msg) {
   case week.rows {
     [] -> element.none()
     _ ->
-      html.button(
-        [attribute.class("btn btn--sm"), event.on_click(TimesheetSubmitted)],
-        [html.text("Log week")],
+      ui.button(
+        label: "Log week",
+        kind: ui.Primary,
+        size: ui.Small,
+        on_press: TimesheetSubmitted,
       )
   }
 }
@@ -1209,13 +1211,11 @@ fn employment_panel(
 /// A button that opens the contextual operation `kind`. `ghost` renders the
 /// secondary (outlined) variant.
 fn op_button(label: String, kind: ui.OpKind, ghost: Bool) -> Element(Msg) {
-  let class = case ghost {
-    True -> "btn btn--ghost btn--sm"
-    False -> "btn btn--sm"
+  let button_kind = case ghost {
+    True -> ui.Ghost
+    False -> ui.Primary
   }
-  html.button([attribute.class(class), event.on_click(OpOpened(kind))], [
-    html.text(label),
-  ])
+  ui.button(label:, kind: button_kind, size: ui.Small, on_press: OpOpened(kind))
 }
 
 /// The contextual operation as a centred modal over a dimmed backdrop, shown only
