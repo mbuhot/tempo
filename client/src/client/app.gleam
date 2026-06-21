@@ -67,9 +67,10 @@ pub type Msg {
   /// The global as-of changed (rail scrub/step/pick/Today). The shell stores it,
   /// `modem.replace`s the new `?date=`, and refetches ONLY the active page.
   AsOfChanged(date: calendar.Date)
-  /// The URL changed (modem). The shell reconciles its as-of from the query and,
-  /// when the route's page differs, inits the target page.
-  RouteChanged(route: Route)
+  /// The URL changed (modem). Carries the route AND the `?date=` parsed from the
+  /// SAME uri, so the shell reconciles its as-of from the CURRENT url (never the
+  /// page-load url), and inits the target page when the route's page differs.
+  RouteChanged(route: Route, as_of: Option(calendar.Date))
   BoardMsg(board.Msg)
   PeopleMsg(people.Msg)
   ClientsMsg(clients.Msg)
@@ -98,7 +99,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   #(
     model,
     effect.batch([
-      modem.init(fn(uri) { RouteChanged(route: route.parse(uri)) }),
+      modem.init(fn(uri) { RouteChanged(route.parse(uri), route.as_of_of(uri)) }),
       page_effect,
     ]),
   )
@@ -146,16 +147,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
-    RouteChanged(route:) -> {
-      // Reconcile the global as-of from the URL on every change so a shared link
-      // or a back/forward lands on the right instant. Re-init the target page
-      // whenever the route DIFFERS from the current one — including a detail id or
-      // finance tab/invoice change within the same section — so a cold load,
-      // reload, or back/forward of a detail route lands on the detail (the page's
-      // `init(route, ..)` loads the right sub-view). No-op when the route is
-      // identical (the self-push that follows a page's own Navigate must not loop);
-      // refetch when only the as-of moved underneath an identical route.
-      let as_of = as_of_from_url(model.as_of)
+    RouteChanged(route:, as_of: url_as_of) -> {
+      // Reconcile the global as-of from the CURRENT url (the uri this event
+      // carried), so a shared link or back/forward lands on the right instant.
+      // Re-init the target page whenever the route DIFFERS from the current one —
+      // including a detail id or finance tab/invoice change within the same
+      // section — so a cold load, reload, or back/forward of a detail route lands
+      // on the detail (the page's `init(route, ..)` loads the right sub-view).
+      // No-op when route AND as-of are identical: the self-`replace` that follows
+      // a scrub must NOT reset the date or fire a second refetch.
+      let as_of = case url_as_of {
+        Some(date) -> time.clamp_date(date)
+        None -> model.as_of
+      }
       case route == model.route {
         True ->
           case as_of == model.as_of {
@@ -469,19 +473,6 @@ fn actor_of(model: Model) -> String {
 // (no history flood); navigation `push`es. Pages never write the URL directly —
 // they raise `Navigate`, and the shell owns the modem call.
 
-/// The as-of carried in the live URL, falling back to `current` when absent or
-/// malformed. Clamped to the rail bounds.
-fn as_of_from_url(current: calendar.Date) -> calendar.Date {
-  case modem.initial_uri() {
-    Ok(uri) ->
-      case route.as_of_of(uri) {
-        Some(date) -> time.clamp_date(date)
-        None -> current
-      }
-    Error(Nil) -> current
-  }
-}
-
 /// Mirror a new as-of into the URL, REPLACING the current history entry so a
 /// scrub does not flood the back stack. Keeps the current route's path.
 fn sync_as_of(route: Route, as_of: calendar.Date) -> Effect(Msg) {
@@ -589,7 +580,7 @@ fn view_identity(
 /// page's content. Mirrors the prototype's `#app` grid.
 fn view_app(model: Model, actor: String) -> Element(Msg) {
   html.div([attribute.class("app")], [
-    view_sidebar(model.route, actor),
+    view_sidebar(model.route, model.as_of, actor),
     html.div([attribute.class("main")], [
       element.map(time.view(model.as_of), fn(rail_msg) {
         case rail_msg {
@@ -604,25 +595,30 @@ fn view_app(model: Model, actor: String) -> Element(Msg) {
 /// The sidebar: the brand, the nav (one link per page, the active route
 /// highlighted), and the signed-in identity with a sign-out switch. Mirrors the
 /// prototype's `.sidebar` markup and classes.
-fn view_sidebar(active: Route, actor: String) -> Element(Msg) {
+fn view_sidebar(
+  active: Route,
+  as_of: calendar.Date,
+  actor: String,
+) -> Element(Msg) {
   html.aside([attribute.class("sidebar")], [
     view_brand(),
     html.nav([attribute.class("sidebar__nav")], [
-      view_nav_link(active, route.Board, "▦", "Board"),
-      view_nav_link(active, route.People(id: None), "◔", "People"),
-      view_nav_link(active, route.Clients(id: None), "◇", "Clients"),
-      view_nav_link(active, route.Projects(id: None), "▪", "Projects"),
+      view_nav_link(active, as_of, route.Board, "▦", "Board"),
+      view_nav_link(active, as_of, route.People(id: None), "◔", "People"),
+      view_nav_link(active, as_of, route.Clients(id: None), "◇", "Clients"),
+      view_nav_link(active, as_of, route.Projects(id: None), "▪", "Projects"),
       view_nav_link(
         active,
+        as_of,
         route.Finance(tab: route.Invoices, invoice: None),
         "$",
         "Finance",
       ),
-      view_nav_link(active, route.Activity, "≋", "Activity"),
+      view_nav_link(active, as_of, route.Activity, "≋", "Activity"),
       html.div([attribute.class("sidebar__nav-group eyebrow")], [
         html.text("Admin"),
       ]),
-      view_nav_link(active, route.Settings, "⚙", "Settings"),
+      view_nav_link(active, as_of, route.Settings, "⚙", "Settings"),
     ]),
     view_who(actor),
   ])
@@ -633,6 +629,7 @@ fn view_sidebar(active: Route, actor: String) -> Element(Msg) {
 /// active section carries the `active` class even on a detail view.
 fn view_nav_link(
   active: Route,
+  as_of: calendar.Date,
   target: Route,
   icon: String,
   label: String,
@@ -641,11 +638,13 @@ fn view_nav_link(
     True -> "sidebar__nav-link sidebar__nav-link--active"
     False -> "sidebar__nav-link"
   }
+  // A plain in-app link: modem intercepts the click and drives the route, firing
+  // RouteChanged with this uri (carrying ?date= so the as-of persists across nav).
+  // No explicit on_click — that would double-fire and bypass the URL.
   html.a(
     [
       attribute.class(class),
-      attribute.href(route.to_path(target)),
-      event.on_click(RouteChanged(route: target)),
+      attribute.href(route.to_path(target) <> "?" <> as_of_query(as_of)),
     ],
     [
       html.span([attribute.class("sidebar__nav-icon")], [html.text(icon)]),

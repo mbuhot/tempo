@@ -101,3 +101,38 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
     page.getByText("Promote engineer 1 to L6 from 2026-06-01").first(),
   ).toBeVisible();
 });
+
+// Regression: scrubbing the as-of used to SNAP BACK because RouteChanged
+// reconciled the date from the page-load URL (modem.initial_uri) on the self-
+// `replace` that follows every scrub — so the rail readout reverted and a second
+// API request fired. Here we change the date via the rail's own control on each
+// page and assert the readout shows the new date AND STAYS there (no revert), with
+// the URL carrying it. (scrubTo could not catch this — it asserts a freshly
+// fetched body, never the rail readout persisting.)
+for (const path of ["/board", "/people", "/finance"]) {
+  test(`the as-of set on the rail sticks (no snap-back) on ${path}`, async ({ page }) => {
+    await page.goto(`${path}?date=2026-06-15`);
+    await page.getByRole("button", { name: "Priya Sharma" }).click();
+    await expect(
+      page.getByText(railReadout("2026-06-15"), { exact: true }),
+    ).toBeVisible();
+
+    const picker = page.locator('input[type="date"]');
+    await picker.fill("2026-03-10");
+    await picker.dispatchEvent("change");
+
+    // the readout reflects the new date immediately...
+    await expect(
+      page.getByText(railReadout("2026-03-10"), { exact: true }),
+    ).toBeVisible();
+    // ...and is STILL there after the self-replace settles (the old bug reverted
+    // it to the page-load 15 Jun 2026 right about here)...
+    await page.waitForTimeout(500);
+    await expect(
+      page.getByText(railReadout("2026-03-10"), { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(railReadout("2026-06-15"), { exact: true })).toHaveCount(0);
+    // ...and the URL carries it.
+    await expect(page).toHaveURL(/date=2026-03-10/);
+  });
+}
