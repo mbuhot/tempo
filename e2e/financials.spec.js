@@ -8,6 +8,7 @@ const {
   clickContent,
   confirmOp,
   rosterRow,
+  escapeRegExp,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the Finance invoice lifecycle (PRD-financials §6) on
@@ -30,6 +31,18 @@ const {
 const PROJECT = { id: 300, name: "Data Platform", client: "Globex Corporation" };
 const TOTAL = "$84,000";
 const MONTH = "Jun 2026";
+
+// The accrual beat bills Data Platform's APRIL 2026 month and issues it in June,
+// AFTER April's 2026-05-01 close. April's agreed rates are the contract's signing-
+// date (2025-01-01) rates: Marcus L4 @1000, Aisha L6 @1800 — neither revised before
+// April, and Marcus's L4->L5 promotion is 2026-07-01, after April. Both are full-
+// time (fraction 1.0) over the whole 30-day April month, so the contract-agreed
+// per-engineer revenue is deterministic: Marcus 30 × 1000 = $30,000, Aisha 30 ×
+// 1800 = $54,000. These are the exact figures the April P&L per-engineer rows must
+// recognize once the invoice is issued — under the OLD recognition-on-issue gate
+// they would each read $0 for April (issued in June, after April closed).
+const APRIL = { month: "Apr 2026", from: "2026-04-01", to: "2026-05-01" };
+const APRIL_REVENUE = { "Marcus Chen": "$30,000", "Aisha Okafor": "$54,000" };
 
 // The rail sits at 2026-06-15 in every beat (beforeEach), and the Issue / Mark-paid
 // forms default their date to the rail's as-of. So issuing here stamps issued_at =
@@ -90,6 +103,73 @@ async function settledMaxInvoiceId(page) {
     })
     .toBe(true);
   return settled;
+}
+
+// The id of the invoices-table row for a given project + billing month, or null if
+// no such row is currently shown. Scans the visible invoice rows (each "#<id>",
+// project name, and "<Mon year>") for the one matching BOTH the project and the
+// month, returning the id parsed from its "#<id>" cell. Used to make the accrual
+// beat re-run safe: the (project, billing-month) subject is unique, so a row that
+// already bills Data Platform / Apr 2026 is reused rather than re-drafted.
+async function invoiceIdForProjectMonth(page, projectName, month) {
+  const rows = page.getByRole("row", {
+    name: new RegExp(`#\\d+.*${escapeRegExp(projectName)}`),
+  });
+  const count = await rows.count();
+  for (let i = 0; i < count; i++) {
+    const text = await rows.nth(i).innerText();
+    if (text.includes(projectName) && text.includes(month)) {
+      const match = text.match(/#(\d+)/);
+      if (match) return Number(match[1]);
+    }
+  }
+  return null;
+}
+
+// Draft an invoice for Data Platform's APRIL 2026 month and return the new id —
+// mirroring draftJuneInvoice's settled-max capture, but with April's billing window
+// (from APRIL.from to APRIL.to). The +Draft modal's Project select is "Data
+// Platform"; the lines are computed from the contract-agreed rates at draft time.
+async function draftAprilInvoice(page) {
+  const maxBefore = await settledMaxInvoiceId(page);
+  await page.getByRole("button", { name: "+ Draft" }).dispatchEvent("click");
+  await expect(page.getByText("Draft an invoice")).toBeVisible();
+  await page.getByLabel("Project").selectOption({ label: PROJECT.name });
+  await page.getByLabel("Billing from").fill(APRIL.from);
+  await page.getByLabel("Billing to").fill(APRIL.to);
+  await confirmOp(page, "Draft");
+  let created = 0;
+  await expect
+    .poll(async () => {
+      const max = await maxInvoiceId(page);
+      if (max > maxBefore) created = max;
+      return created;
+    })
+    .toBeGreaterThan(maxBefore);
+  return created;
+}
+
+// Ensure exactly one ISSUED Data Platform / April 2026 invoice exists, re-run safe
+// against the append-only DB and the unique (project, billing-month) subject:
+// reuse the April Data-Platform row if one is already drafted/issued (it is visible
+// at the 2026-06-15 rail because a draft status opens at billing_from = 2026-04-01,
+// open-ended), otherwise draft it. Then issue it (its row's Issue action) if it has
+// not been issued yet — issuing here, in June, stamps issued_at AFTER April's
+// 2026-05-01 close, which is exactly the timing the accrual rule must tolerate.
+async function ensureIssuedAprilInvoice(page) {
+  let id = await invoiceIdForProjectMonth(page, PROJECT.name, APRIL.month);
+  if (id === null) id = await draftAprilInvoice(page);
+  const row = invoiceRowById(page, id);
+  await expect(row).toBeVisible();
+  const issueButton = row.getByRole("button", { name: "Issue" });
+  const needsIssue = await issueButton.isVisible().catch(() => false);
+  if (needsIssue) {
+    await clickContent(issueButton);
+    await expect(page.getByText("Issue invoice")).toBeVisible();
+    await confirmOp(page, "Issue");
+    await expect(row).toContainText("issued");
+  }
+  return id;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -324,6 +404,45 @@ test("the P&L tab shows month and year-to-date figures side by side", async ({
   // from the month row's "/mo" — both axes coexist on the tab.
   await expect(page.getByText("YTD").first()).toBeVisible();
   await expect(page.getByText("/mo").first()).toBeVisible();
+});
+
+test("the P&L recognizes a month's revenue once its invoice is issued, even when issued after that month closed (accrual)", async ({
+  page,
+}) => {
+  // ACCRUAL / MATCHING (ADR-043). Bill Data Platform's APRIL 2026 month and issue
+  // the invoice now, in June (rail at 2026-06-15 from beforeEach) — AFTER April's
+  // 2026-05-01 close — then open the P&L for APRIL and assert it recognizes that
+  // revenue. Under the OLD "status as-of the period close" gate the April P&L would
+  // recognize $0 (the invoice is not issued until June, long after April closed),
+  // so each Data Platform engineer's April row would read "$0" revenue. Under the
+  // new accrual rule revenue is matched to the billing period it earned and
+  // recognized once the invoice has EVER been issued, so April shows Marcus's
+  // $30,000 and Aisha's $54,000 — this beat passes only under accrual and fails
+  // under the old gate.
+  const id = await ensureIssuedAprilInvoice(page);
+  await expect(invoiceRowById(page, id)).toContainText("issued");
+
+  // Open the P&L tab and scrub the rail to APRIL 2026 — the server computes the
+  // month window from the as-of, so the per-engineer table now reads April's
+  // figures (title "Profit & loss · Apr 2026").
+  await openPnlTab(page, MONTH);
+  await scrubTo(page, "2026-04-15");
+  await expect(page.getByText(`Profit & loss · ${APRIL.month}`)).toBeVisible();
+
+  // Assert the exact contract-agreed April revenue on each Data Platform engineer's
+  // P&L row. Scoped to the row matching BOTH the engineer name AND the revenue
+  // figure: the inactive Payroll subpage also renders these engineers' rows, but it
+  // carries their monthly SALARY (Marcus $8,000, Aisha $14,000), never these billing
+  // figures, so the name+figure filter resolves only the visible P&L row. A "$0"
+  // revenue (the old gate's result for April) would match no such row and fail here.
+  for (const name of ["Marcus Chen", "Aisha Okafor"]) {
+    const revenue = APRIL_REVENUE[name];
+    await expect(
+      page
+        .getByRole("row", { name: new RegExp(escapeRegExp(name)) })
+        .filter({ hasText: revenue }),
+    ).toBeVisible();
+  }
 });
 
 test("a drafted invoice is journalled in the Activity log", async ({ page }) => {

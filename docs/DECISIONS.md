@@ -1043,6 +1043,53 @@ carry that is a follow-up, not a blocker.
 
 ---
 
+## ADR-043 — P&L revenue is accrual/matching — recognized in the month earned, not gated on issue timing
+**Status:** Accepted (amends ADR-026)
+
+**Context.** ADR-026 defined P&L revenue as issued/paid invoice lines "recognized on issue, read as-of the
+window's upper bound." Taken literally that is *recognition-on-issue*: a month's revenue counted only the
+invoices whose issue transition had already happened as-of the month's close. But the seed (and the realistic
+billing cycle it models) **issues each month's invoice the FOLLOWING month** — after that month's P&L has
+already closed. The two rules collided: a fully-worked month showed its payroll **cost** but **$0 matching
+revenue**, because the invoice that bills the work it earned was not issued until the next month. Monthly
+revenue was therefore structurally ~$0 across the board, and every closed month looked like a loss. Verified
+on live data before the change: May 2026 — fully worked, fully billed — recognized $0 revenue against its full
+cost.
+
+**Decision.** Make the P&L statement **accrual / matching**. A month's revenue is the sum of `invoice_line`
+amounts whose **billing period OVERLAPS the P&L month** AND whose invoice has **EVER reached `issued` or
+`paid`** (an `EXISTS` over `invoice_status` for those states, at any time). Revenue is matched to the **period
+of the work that earned it** (the billing month) and recognized **once the invoice is issued** — it is **not**
+gated by whether the issue happened before the period closed. So a month's revenue lines up even when its
+invoice is issued the following month. A **still-draft (never-issued) invoice contributes nothing** — issuance
+is still the recognition trigger; only its *timing relative to the period close* no longer matters
+(`server/src/tempo/server/sql/pnl_rows.sql`, the `rev` CTE). Verified after the change: May 2026 now recognizes
+$124,000 (Priya 37,200 / Marcus 31,000 / Aisha 55,800).
+
+**Rationale.** The matching principle: revenue belongs in the same period as the cost of the work that produced
+it. Recognition-on-issue made the P&L a function of *invoicing cadence* rather than *work done*, so the
+statement told the wrong story for every month whose invoice lagged its work — which, given the next-month
+issue cadence, was every month. Matching revenue to the billing period it was earned over makes each month's
+profit reflect that month's economics.
+
+**Tradeoff (explicit).** This **drops the strict temporal behaviour for the P&L** where scrubbing the period
+end back before an invoice's issue date made that revenue disappear. The P&L no longer asks "was this invoice
+issued as-of the window close?" — only "does it overlap, and was it ever issued?". The temporal, as-of-status
+behaviour is **not lost from the system**: **FR-F4 still governs the invoice ROW status** (the invoices table
+still reads `draft` before its issue date and `issued` after, as a true as-of-status query — ADR-026's
+lifecycle is unchanged), but the **P&L statement is accrual** and reads issuance as a binary ever/never gate.
+The two views deliberately answer different questions: the invoice row is "what was the status on date D"; the
+P&L is "what did this month earn."
+
+**Alternatives.** Keep recognition-on-issue and re-time the seed to issue each invoice within its own month
+(rejected — it papers over the modelling error with a seed quirk, and any real next-month billing cadence
+reintroduces the $0-revenue month); recognize on the as-of status of the *window close* but match to the
+billing period (rejected — reintroduces the temporal gate that produced the bug, just shifted by the matching
+join); cash-basis recognition on `paid` only (rejected — even further from matching, and most months would
+show $0 until payment clears).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

@@ -3791,18 +3791,16 @@ pub type PnlRowsRow {
 /// engineer employed at any point in the period, carrying the raw components the
 /// caller turns into profit / margin % / utilization %.
 ///
-/// Params: $1 = period start (date), $2 = period end (date, exclusive). The same
-/// two dates serve as the period range (daterange($1, $2, '[)')) AND $2 is the
-/// as-of instant for invoice status (the period's exclusive upper bound — "the
-/// state at the close of the period"). Only scalar dates cross the boundary.
+/// Params: $1 = period start (date), $2 = period end (date, exclusive) — the period
+/// range daterange($1, $2, '[)'). Only scalar dates cross the boundary.
 ///
 /// Returned components (caller computes the rest):
 /// revenue          — Σ invoice_line.amount over invoices whose billing_period
-/// OVERLAPS the period AND whose status AS OF $2 is issued or
-/// paid. Revenue is recognized on issue (PRD §8), and the
-/// as-of predicate (status_during @> $2) means scrubbing the
-/// period end back before an issue date drops that revenue
-/// (FR-F4 carried into the P&L).
+/// OVERLAPS the period and that have EVER reached issued/paid
+/// (ACCRUAL / matching): a month's revenue is the billing it
+/// earned, recognized once issued — matched to the period of
+/// the work, NOT to the month the invoice happens to be issued.
+/// A still-draft (never-issued) invoice contributes nothing.
 /// cost             — Σ payroll_line.amount over payroll_runs whose period
 /// OVERLAPS the period.
 /// utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
@@ -3831,8 +3829,8 @@ pub type PnlRowsRow {
 /// (consistent with month-grained invoicing/payroll; the caller chooses
 /// month/YTD windows aligned to month boundaries so straddling does not occur
 /// in practice).
-/// * An invoice has at most one status covering $2 (WITHOUT OVERLAPS guarantees
-/// it); EXISTS over {issued, paid} is the recognition gate.
+/// * EXISTS of an {issued, paid} status (at any time) is the recognition gate —
+/// once an invoice is issued, its billing is earned revenue for its period.
 /// * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
 /// so they reflect what was billed/paid, not a recomputation (PRD §8).
 ///
@@ -3865,18 +3863,16 @@ pub fn pnl_rows(
 -- engineer employed at any point in the period, carrying the raw components the
 -- caller turns into profit / margin % / utilization %.
 --
--- Params: $1 = period start (date), $2 = period end (date, exclusive). The same
--- two dates serve as the period range (daterange($1, $2, '[)')) AND $2 is the
--- as-of instant for invoice status (the period's exclusive upper bound — \"the
--- state at the close of the period\"). Only scalar dates cross the boundary.
+-- Params: $1 = period start (date), $2 = period end (date, exclusive) — the period
+-- range daterange($1, $2, '[)'). Only scalar dates cross the boundary.
 --
 -- Returned components (caller computes the rest):
 --   revenue          — Σ invoice_line.amount over invoices whose billing_period
---                      OVERLAPS the period AND whose status AS OF $2 is issued or
---                      paid. Revenue is recognized on issue (PRD §8), and the
---                      as-of predicate (status_during @> $2) means scrubbing the
---                      period end back before an issue date drops that revenue
---                      (FR-F4 carried into the P&L).
+--                      OVERLAPS the period and that have EVER reached issued/paid
+--                      (ACCRUAL / matching): a month's revenue is the billing it
+--                      earned, recognized once issued — matched to the period of
+--                      the work, NOT to the month the invoice happens to be issued.
+--                      A still-draft (never-issued) invoice contributes nothing.
 --   cost             — Σ payroll_line.amount over payroll_runs whose period
 --                      OVERLAPS the period.
 --   utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
@@ -3905,14 +3901,12 @@ pub fn pnl_rows(
 --     (consistent with month-grained invoicing/payroll; the caller chooses
 --     month/YTD windows aligned to month boundaries so straddling does not occur
 --     in practice).
---   * An invoice has at most one status covering $2 (WITHOUT OVERLAPS guarantees
---     it); EXISTS over {issued, paid} is the recognition gate.
+--   * EXISTS of an {issued, paid} status (at any time) is the recognition gate —
+--     once an invoice is issued, its billing is earned revenue for its period.
 --   * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
 --     so they reflect what was billed/paid, not a recomputation (PRD §8).
 WITH params AS (
-  SELECT
-    daterange($1::date, $2::date, '[)') AS period,
-    $2::date AS as_of
+  SELECT daterange($1::date, $2::date, '[)') AS period
 ),
 emp AS (
   -- employed days in the period per engineer (employment ∩ period)
@@ -3944,8 +3938,13 @@ util AS (
   GROUP BY allocation.engineer_id
 ),
 rev AS (
-  -- revenue: invoice_line.amount for invoices overlapping the period whose status
-  -- AS OF $2 (period end) is issued or paid
+  -- revenue (ACCRUAL / matching): invoice_line.amount for invoices whose billing
+  -- period OVERLAPS the P&L period and that have EVER reached issued or paid.
+  -- Matched to the period EARNED (the billing month), recognized once the invoice
+  -- is issued — NOT gated by whether issue happened before the period closed — so a
+  -- month's revenue lines up with the cost of the work that produced it even when
+  -- the invoice is issued the following month. A still-draft invoice (never issued)
+  -- contributes nothing.
   SELECT
     invoice_line.engineer_id,
     sum(invoice_line.amount)::numeric AS revenue
@@ -3955,7 +3954,6 @@ rev AS (
   WHERE EXISTS (
     SELECT 1 FROM invoice_status
     WHERE invoice_status.invoice_id = invoice_subject.invoice_id
-      AND invoice_status.status_during @> params.as_of
       AND invoice_status.status IN ('issued', 'paid')
   )
   GROUP BY invoice_line.engineer_id
