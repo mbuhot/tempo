@@ -49,6 +49,8 @@ fn list_row_to_invoice(row: sql.InvoiceListRow) -> Invoice {
     billing_to: row.billing_to,
     status: row.status,
     total: row.total,
+    issued_at: row.issued_at,
+    paid_at: row.paid_at,
   )
 }
 
@@ -82,6 +84,8 @@ fn header_row_to_invoice(row: sql.InvoiceHeaderRow) -> Invoice {
     billing_to: row.billing_to,
     status: row.status,
     total: row.total,
+    issued_at: row.issued_at,
+    paid_at: row.paid_at,
   )
 }
 

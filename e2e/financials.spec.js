@@ -31,6 +31,13 @@ const PROJECT = { id: 300, name: "Data Platform", client: "Globex Corporation" }
 const TOTAL = "$84,000";
 const MONTH = "Jun 2026";
 
+// The rail sits at 2026-06-15 in every beat (beforeEach), and the Issue / Mark-paid
+// forms default their date to the rail's as-of. So issuing here stamps issued_at =
+// 2026-06-15 and paying stamps paid_at = 2026-06-15, both rendered as "<d> <Mon>
+// <year>" -> "15 Jun 2026". The row's lifecycle cell then carries the Neutral chip
+// "Issued 15 Jun 2026" / "Paid 15 Jun 2026" in place of any action button.
+const ISSUE_DATE = "15 Jun 2026";
+
 // Draft an invoice for Data Platform's June 2026 month and return the id of the
 // invoice that draft created (the one absent before it).
 async function draftJuneInvoice(page) {
@@ -113,16 +120,23 @@ test("drafting then issuing then paying walks an invoice through its lifecycle",
   await expect(page.getByText("Issue invoice")).toBeVisible();
   await confirmOp(page, "Issue");
   await expect(row()).toContainText("issued");
-  await expect(row().getByRole("button", { name: "Mark paid" })).toBeVisible();
+  // The lifecycle cell now carries the "Issued <date>" chip and the row stops
+  // offering Issue — the Mark-paid action takes its place (issued -> paid is the
+  // only valid next step). issued_at was stamped at the rail's 2026-06-15.
+  await expect(row()).toContainText(`Issued ${ISSUE_DATE}`);
   await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
+  await expect(row().getByRole("button", { name: "Mark paid" })).toBeVisible();
 
   // Pay it: Mark paid opens the pay form; the modal's Mark-paid confirm commits
-  // issued -> paid. The row now reads `paid` and offers no further action.
+  // issued -> paid. The row now reads `paid`, carries the "Paid <date>" chip, and
+  // offers no further action — neither Issue nor Mark paid.
   await clickContent(row().getByRole("button", { name: "Mark paid" }));
   await expect(page.getByText("Mark invoice paid")).toBeVisible();
   await confirmOp(page, "Mark paid");
   await expect(row()).toContainText("paid");
+  await expect(row()).toContainText(`Paid ${ISSUE_DATE}`);
   await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
+  await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
 });
 
 test("an invoice's status is temporal: scrubbing before its issue date shows it as draft", async ({
@@ -140,10 +154,18 @@ test("an invoice's status is temporal: scrubbing before its issue date shows it 
   await expect(page.getByText("Issue invoice")).toBeVisible();
   await confirmOp(page, "Issue");
   await expect(row()).toContainText("issued");
+  // At/after the issue date the row carries the "Issued <date>" chip and no Issue
+  // action.
+  await expect(row()).toContainText(`Issued ${ISSUE_DATE}`);
+  await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
 
+  // Scrub the rail back before the 2026-06-15 issue date: the SAME invoice reverts
+  // to `draft`, the "Issued <date>" chip is GONE, and the Issue action returns (no
+  // Mark paid). The lifecycle cell is a pure function of the row's as-of status.
   await scrubTo(page, "2026-06-01");
   await expect(row()).toContainText("draft");
   await expect(row().getByRole("button", { name: "Issue" })).toBeVisible();
+  await expect(row().getByText(`Issued ${ISSUE_DATE}`)).toHaveCount(0);
   await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
 });
 
@@ -268,6 +290,40 @@ test("back-dating a promotion into a run month surfaces the back-pay owed", asyn
   await expect(
     page.getByRole("row", { name: /Priya Sharma/ }),
   ).toContainText("$20,000");
+});
+
+// Open the P&L tab from the Finance page. The tab is a button labelled "P&L";
+// clicking it reveals the P&L panel, whose per-engineer table title is "Profit &
+// loss · <Mon year>" — we wait for that month-suffixed title as the visible signal
+// the tab's read model has landed.
+async function openPnlTab(page, month) {
+  await page.getByRole("button", { name: "P&L", exact: true }).click();
+  await expect(page.getByText(`Profit & loss · ${month}`)).toBeVisible();
+}
+
+test("the P&L tab shows month and year-to-date figures side by side", async ({
+  page,
+}) => {
+  // FR-F (P&L): the tab carries TWO stat rows — a single-MONTH row labelled by the
+  // as-of month and a YEAR-TO-DATE row labelled "since Jan <year>". The rail sits at
+  // 2026-06-15 (beforeEach), so the month window is June 2026 and the YTD window is
+  // Jan–Jun 2026. With five prior months of the same year folded in, YTD is a
+  // genuinely distinct, wider window than the single month — we assert both labelled
+  // axes are present (revenue / cost / profit, each in month and YTD form) and that
+  // every figure renders as a money-k value. We assert the labelled axes and that
+  // figures render, not exact dollars: the e2e DB is append-only and shared, so a
+  // concurrent spec's self-drafted invoice or back-dated promotion can shift the
+  // absolute revenue/cost — but the month-vs-YTD label contract is fixed.
+  await openPnlTab(page, MONTH);
+
+  for (const metric of ["Revenue", "Cost", "Profit"]) {
+    await expect(page.getByText(`${metric} · ${MONTH}`)).toBeVisible();
+    await expect(page.getByText(`${metric} · since Jan 2026`)).toBeVisible();
+  }
+  // The YTD row's stats carry the literal "YTD" unit suffix, distinguishing them
+  // from the month row's "/mo" — both axes coexist on the tab.
+  await expect(page.getByText("YTD").first()).toBeVisible();
+  await expect(page.getByText("/mo").first()).toBeVisible();
 });
 
 test("a drafted invoice is journalled in the Activity log", async ({ page }) => {

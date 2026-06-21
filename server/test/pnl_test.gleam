@@ -23,7 +23,7 @@
 
 import gleam/dynamic/decode
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June}
 import pog
 import shared/types.{
@@ -127,6 +127,8 @@ pub fn list_invoices_shows_status_and_total_test() {
       billing_to: Date(2026, July, 1),
       status: "issued",
       total: 84_000.0,
+      issued_at: Some(Date(2026, June, 10)),
+      paid_at: None,
     )
 
   let ledger = invoice_for(invoices, "Ledger Migration")

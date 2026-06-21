@@ -758,6 +758,12 @@ fn view_invoice_list(invoices: List(Invoice)) -> Element(Msg) {
   ])
 }
 
+/// The row's lifecycle cell: the single action VALID for the row's current as-of
+/// status (a `draft` offers Issue, an `issued` offers Mark paid, a `paid` offers
+/// nothing) and, where a transition has already happened, a Neutral chip stating
+/// when it took effect (`Issued <date>` on an issued/paid row, `Paid <date>` on a
+/// paid row). The action stays a raw `html.button` so the row click can be
+/// stopped from propagating (the `ui.button` primitive carries no such handle).
 fn invoice_row(invoice: Invoice) -> Element(Msg) {
   let action = case invoice.status {
     "draft" ->
@@ -780,6 +786,16 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
       )
     _ -> element.none()
   }
+  let lifecycle = case invoice.status {
+    "draft" -> action
+    "issued" ->
+      html.div([attribute.class("action-row")], [
+        transition_pill("Issued", invoice.issued_at),
+        action,
+      ])
+    "paid" -> transition_pill("Paid", invoice.paid_at)
+    _ -> element.none()
+  }
   html.tr(
     [attribute.class("clickable"), event.on_click(InvoiceClicked(invoice.id))],
     [
@@ -794,9 +810,20 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
       html.td([], [html.text(format_month(invoice.billing_from))]),
       html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
       html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
-      html.td([attribute.class("num")], [action]),
+      html.td([attribute.class("num")], [lifecycle]),
     ],
   )
+}
+
+/// A Neutral chip naming when a lifecycle transition took effect, e.g.
+/// `Issued 5 Feb 2026`. Falls back to the verb alone if the date is somehow
+/// absent (a `paid`/`issued` row should always carry its transition date).
+fn transition_pill(verb: String, at: Option(calendar.Date)) -> Element(Msg) {
+  let label = case at {
+    Some(date) -> verb <> " " <> format_date(date)
+    None -> verb
+  }
+  ui.chip(label: label, tone: ui.Neutral)
 }
 
 fn draft_button() -> Element(Msg) {
@@ -1078,26 +1105,51 @@ fn view_pnl(data: Data) -> Element(Msg) {
           ui.Pct(float.round(pnl.month_profit /. pnl.month_revenue *. 100.0))
         False -> ui.NoPct
       }
+      let ytd_margin_pct = case pnl.ytd_revenue >. 0.0 {
+        True -> ui.Pct(float.round(pnl.ytd_profit /. pnl.ytd_revenue *. 100.0))
+        False -> ui.NoPct
+      }
+      let year = int.to_string(time.first_of_month(data.as_of).year)
       let rows = list.map(pnl.rows, pnl_row)
       html.div([], [
         html.div([attribute.class("stats stats--cols-3")], [
           ui.stat(
             value: ui.money_k(pnl.month_revenue),
             unit: "/mo",
-            label: "Revenue",
+            label: "Revenue · " <> month,
             pct: ui.NoPct,
           ),
           ui.stat(
             value: ui.money_k(pnl.month_cost),
             unit: "/mo",
-            label: "Cost",
+            label: "Cost · " <> month,
             pct: ui.NoPct,
           ),
           ui.stat(
             value: ui.money_k(pnl.month_profit),
             unit: "/mo",
-            label: "Profit",
+            label: "Profit · " <> month,
             pct: margin_pct,
+          ),
+        ]),
+        html.div([attribute.class("stats stats--cols-3")], [
+          ui.stat(
+            value: ui.money_k(pnl.ytd_revenue),
+            unit: "YTD",
+            label: "Revenue · since Jan " <> year,
+            pct: ui.NoPct,
+          ),
+          ui.stat(
+            value: ui.money_k(pnl.ytd_cost),
+            unit: "YTD",
+            label: "Cost · since Jan " <> year,
+            pct: ui.NoPct,
+          ),
+          ui.stat(
+            value: ui.money_k(pnl.ytd_profit),
+            unit: "YTD",
+            label: "Profit · since Jan " <> year,
+            pct: ytd_margin_pct,
           ),
         ]),
         ui.panel(

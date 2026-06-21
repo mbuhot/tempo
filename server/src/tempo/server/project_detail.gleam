@@ -147,5 +147,7 @@ fn invoice_to_shared(row: sql.ProjectInvoicesRow) -> Invoice {
     billing_to: row.billing_to,
     status: row.status,
     total: row.total,
+    issued_at: row.issued_at,
+    paid_at: row.paid_at,
   )
 }

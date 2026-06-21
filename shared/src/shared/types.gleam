@@ -370,6 +370,9 @@ pub type Event {
 /// (`id`, `project`, `client`, the `billing_from`..`billing_to` month) plus its
 /// `status` *as of* the selected date and its `total` (Σ line amounts). `status`
 /// is the lifecycle word ("draft" | "issued" | "paid") covering the as-of date.
+/// `issued_at`/`paid_at` are the dates those transitions took effect (the lower
+/// bound of the issued/paid status span), each `None` until that transition has
+/// happened as of the view — so the UI can show "Issued <date>" / "Paid <date>".
 pub type Invoice {
   Invoice(
     id: Int,
@@ -379,6 +382,8 @@ pub type Invoice {
     billing_to: Date,
     status: String,
     total: Float,
+    issued_at: Option(Date),
+    paid_at: Option(Date),
   )
 }
 

@@ -2205,12 +2205,20 @@ pub type InvoiceHeaderRow {
     billing_to: Date,
     status: String,
     total: Float,
+    issued_at: Option(Date),
+    paid_at: Option(Date),
   )
 }
 
 /// invoice_header.sql — one invoice's header for the detail read model
 /// (GET /api/invoices/:id). Same projection as invoice_list (project + client
-/// name, billing month, status AS OF $2, line total) for a single invoice.
+/// name, billing month, status AS OF $2, line total, issue/pay transition dates)
+/// for a single invoice.
+///
+/// issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+/// issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+/// not happened as-of $2. The `?` alias suffix forces Squirrel to generate
+/// Option(Date) rather than inferring non-null off the all-issued/all-paid seed.
 ///
 /// Params: $1 = invoice_id, $2 = as-of date. The status shown is the row covering
 /// $2 (FR-F4). Unlike the list, the status JOIN is LEFT so the header still
@@ -2235,6 +2243,11 @@ pub fn invoice_header(
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
     use total <- decode.field(6, pog.numeric_decoder())
+    use issued_at <- decode.field(
+      7,
+      decode.optional(pog.calendar_date_decoder()),
+    )
+    use paid_at <- decode.field(8, decode.optional(pog.calendar_date_decoder()))
     decode.success(InvoiceHeaderRow(
       id:,
       project:,
@@ -2243,12 +2256,20 @@ pub fn invoice_header(
       billing_to:,
       status:,
       total:,
+      issued_at:,
+      paid_at:,
     ))
   }
 
   "-- invoice_header.sql — one invoice's header for the detail read model
 -- (GET /api/invoices/:id). Same projection as invoice_list (project + client
--- name, billing month, status AS OF $2, line total) for a single invoice.
+-- name, billing month, status AS OF $2, line total, issue/pay transition dates)
+-- for a single invoice.
+--
+-- issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+-- issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+-- not happened as-of $2. The `?` alias suffix forces Squirrel to generate
+-- Option(Date) rather than inferring non-null off the all-issued/all-paid seed.
 --
 -- Params: $1 = invoice_id, $2 = as-of date. The status shown is the row covering
 -- $2 (FR-F4). Unlike the list, the status JOIN is LEFT so the header still
@@ -2282,7 +2303,23 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total
+  ), 0)::numeric AS total,
+  (
+    SELECT lower(issued.status_during)
+      FROM invoice_status issued
+     WHERE issued.invoice_id = invoice.id
+       AND issued.status = 'issued'
+       AND lower(issued.status_during) <= $2::date
+     LIMIT 1
+  ) AS \"issued_at?\",
+  (
+    SELECT lower(paid.status_during)
+      FROM invoice_status paid
+     WHERE paid.invoice_id = invoice.id
+       AND paid.status = 'paid'
+       AND lower(paid.status_during) <= $2::date
+     LIMIT 1
+  ) AS \"paid_at?\"
 FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 WHERE invoice.id = $1;
@@ -2412,12 +2449,22 @@ pub type InvoiceListRow {
     billing_to: Date,
     status: String,
     total: Float,
+    issued_at: Option(Date),
+    paid_at: Option(Date),
   )
 }
 
 /// invoice_list.sql — the invoices-table read model (FR-F1/FR-F4). One row per
 /// invoice: the durable subject (project + client name, billing month) plus its
-/// status AS OF $1 and its line total (Σ invoice_line.amount).
+/// status AS OF $1, its line total (Σ invoice_line.amount), and the issue/pay
+/// transition dates.
+///
+/// issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+/// issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+/// not happened as-of $1 (the transition day is after the rail date, or never).
+/// The `?` alias suffix forces Squirrel to generate Option(Date) (the seed has no
+/// unissued/unpaid invoice, so it would otherwise infer non-null and decode-fail).
+/// The as-of status above still resolves independently via @>.
 ///
 /// Param: $1 = as-of date. The status shown is the row covering $1 via `@>`, so
 /// scrubbing the slider back shows a `draft` before its issue date (FR-F4). An
@@ -2450,6 +2497,11 @@ pub fn invoice_list(
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
     use total <- decode.field(6, pog.numeric_decoder())
+    use issued_at <- decode.field(
+      7,
+      decode.optional(pog.calendar_date_decoder()),
+    )
+    use paid_at <- decode.field(8, decode.optional(pog.calendar_date_decoder()))
     decode.success(InvoiceListRow(
       id:,
       project:,
@@ -2458,12 +2510,22 @@ pub fn invoice_list(
       billing_to:,
       status:,
       total:,
+      issued_at:,
+      paid_at:,
     ))
   }
 
   "-- invoice_list.sql — the invoices-table read model (FR-F1/FR-F4). One row per
 -- invoice: the durable subject (project + client name, billing month) plus its
--- status AS OF $1 and its line total (Σ invoice_line.amount).
+-- status AS OF $1, its line total (Σ invoice_line.amount), and the issue/pay
+-- transition dates.
+--
+-- issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+-- issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+-- not happened as-of $1 (the transition day is after the rail date, or never).
+-- The `?` alias suffix forces Squirrel to generate Option(Date) (the seed has no
+-- unissued/unpaid invoice, so it would otherwise infer non-null and decode-fail).
+-- The as-of status above still resolves independently via @>.
 --
 -- Param: $1 = as-of date. The status shown is the row covering $1 via `@>`, so
 -- scrubbing the slider back shows a `draft` before its issue date (FR-F4). An
@@ -2502,7 +2564,23 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total
+  ), 0)::numeric AS total,
+  (
+    SELECT lower(issued.status_during)
+      FROM invoice_status issued
+     WHERE issued.invoice_id = invoice.id
+       AND issued.status = 'issued'
+       AND lower(issued.status_during) <= $1::date
+     LIMIT 1
+  ) AS \"issued_at?\",
+  (
+    SELECT lower(paid.status_during)
+      FROM invoice_status paid
+     WHERE paid.invoice_id = invoice.id
+       AND paid.status = 'paid'
+       AND lower(paid.status_during) <= $1::date
+     LIMIT 1
+  ) AS \"paid_at?\"
 FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 JOIN invoice_status ON invoice_status.invoice_id = invoice.id
@@ -3956,6 +4034,8 @@ pub type ProjectInvoicesRow {
     billing_to: Date,
     status: String,
     total: Float,
+    issued_at: Option(Date),
+    paid_at: Option(Date),
   )
 }
 
@@ -3971,6 +4051,11 @@ pub type ProjectInvoicesRow {
 /// its contract's client (correlated LIMIT-1 so a multi-period project does not
 /// multiply rows). Total is coalesce(Σ amount, 0) over the snapshot lines. Ordered by
 /// billing month then id.
+///
+/// issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+/// issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+/// not happened as-of $2. The `?` alias suffix forces Squirrel to generate
+/// Option(Date) rather than inferring non-null off the all-issued/all-paid seed.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3988,6 +4073,11 @@ pub fn project_invoices(
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
     use total <- decode.field(6, pog.numeric_decoder())
+    use issued_at <- decode.field(
+      7,
+      decode.optional(pog.calendar_date_decoder()),
+    )
+    use paid_at <- decode.field(8, decode.optional(pog.calendar_date_decoder()))
     decode.success(ProjectInvoicesRow(
       id:,
       project:,
@@ -3996,6 +4086,8 @@ pub fn project_invoices(
       billing_to:,
       status:,
       total:,
+      issued_at:,
+      paid_at:,
     ))
   }
 
@@ -4011,6 +4103,11 @@ pub fn project_invoices(
 -- its contract's client (correlated LIMIT-1 so a multi-period project does not
 -- multiply rows). Total is coalesce(Σ amount, 0) over the snapshot lines. Ordered by
 -- billing month then id.
+--
+-- issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+-- issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+-- not happened as-of $2. The `?` alias suffix forces Squirrel to generate
+-- Option(Date) rather than inferring non-null off the all-issued/all-paid seed.
 SELECT
   invoice.id,
   coalesce((
@@ -4033,7 +4130,23 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total
+  ), 0)::numeric AS total,
+  (
+    SELECT lower(issued.status_during)
+      FROM invoice_status issued
+     WHERE issued.invoice_id = invoice.id
+       AND issued.status = 'issued'
+       AND lower(issued.status_during) <= $2::date
+     LIMIT 1
+  ) AS \"issued_at?\",
+  (
+    SELECT lower(paid.status_during)
+      FROM invoice_status paid
+     WHERE paid.invoice_id = invoice.id
+       AND paid.status = 'paid'
+       AND lower(paid.status_during) <= $2::date
+     LIMIT 1
+  ) AS \"paid_at?\"
 FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
                     AND invoice_subject.project_id = $1

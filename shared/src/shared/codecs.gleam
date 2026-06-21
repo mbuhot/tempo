@@ -1097,6 +1097,7 @@ pub fn event_decoder() -> Decoder(Event) {
 // One row of the invoices-table read model: the durable subject plus its status
 // as-of the selected date and its line total. Dates are ISO strings, money a
 // lenient Float (a whole amount may arrive integer-looking from the JS client).
+// `issued_at`/`paid_at` are nullable ISO dates (null until that transition).
 
 /// Encode an `Invoice` (one invoices-table row) as a JSON object.
 pub fn encode_invoice(invoice: Invoice) -> Json {
@@ -1108,6 +1109,8 @@ pub fn encode_invoice(invoice: Invoice) -> Json {
     billing_to:,
     status:,
     total:,
+    issued_at:,
+    paid_at:,
   ) = invoice
   json.object([
     #("id", json.int(id)),
@@ -1117,6 +1120,8 @@ pub fn encode_invoice(invoice: Invoice) -> Json {
     #("billing_to", encode_date(billing_to)),
     #("status", json.string(status)),
     #("total", json.float(total)),
+    #("issued_at", encode_option_date(issued_at)),
+    #("paid_at", encode_option_date(paid_at)),
   ])
 }
 
@@ -1129,6 +1134,8 @@ pub fn invoice_decoder() -> Decoder(Invoice) {
   use billing_to <- decode.field("billing_to", date_decoder())
   use status <- decode.field("status", decode.string)
   use total <- decode.field("total", lenient_float_decoder())
+  use issued_at <- decode.field("issued_at", option_date_decoder())
+  use paid_at <- decode.field("paid_at", option_date_decoder())
   decode.success(Invoice(
     id:,
     project:,
@@ -1137,6 +1144,8 @@ pub fn invoice_decoder() -> Decoder(Invoice) {
     billing_to:,
     status:,
     total:,
+    issued_at:,
+    paid_at:,
   ))
 }
 

@@ -1,6 +1,12 @@
 -- invoice_header.sql — one invoice's header for the detail read model
 -- (GET /api/invoices/:id). Same projection as invoice_list (project + client
--- name, billing month, status AS OF $2, line total) for a single invoice.
+-- name, billing month, status AS OF $2, line total, issue/pay transition dates)
+-- for a single invoice.
+--
+-- issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+-- issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+-- not happened as-of $2. The `?` alias suffix forces Squirrel to generate
+-- Option(Date) rather than inferring non-null off the all-issued/all-paid seed.
 --
 -- Params: $1 = invoice_id, $2 = as-of date. The status shown is the row covering
 -- $2 (FR-F4). Unlike the list, the status JOIN is LEFT so the header still
@@ -34,7 +40,23 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total
+  ), 0)::numeric AS total,
+  (
+    SELECT lower(issued.status_during)
+      FROM invoice_status issued
+     WHERE issued.invoice_id = invoice.id
+       AND issued.status = 'issued'
+       AND lower(issued.status_during) <= $2::date
+     LIMIT 1
+  ) AS "issued_at?",
+  (
+    SELECT lower(paid.status_during)
+      FROM invoice_status paid
+     WHERE paid.invoice_id = invoice.id
+       AND paid.status = 'paid'
+       AND lower(paid.status_during) <= $2::date
+     LIMIT 1
+  ) AS "paid_at?"
 FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 WHERE invoice.id = $1;

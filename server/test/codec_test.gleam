@@ -25,8 +25,8 @@ import shared/types.{
   PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
   SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
   TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -183,6 +183,13 @@ pub fn board_snapshot_round_trips_test() {
         LeaveBalance(engineer: "Marcus Chen", annual: 40.7, sick: 20.4),
         LeaveBalance(engineer: "Aisha Okafor", annual: 29.3, sick: 14.5),
       ],
+      unstaffed: [
+        UnstaffedProject(
+          project_id: 400,
+          title: "Ledger Migration",
+          client: "Northwind Trading",
+        ),
+      ],
     )
 
   assert round_trip(
@@ -196,7 +203,7 @@ pub fn board_snapshot_round_trips_test() {
 // An empty board (no employed engineers on the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
   let original =
-    BoardSnapshot(date: Date(2026, June, 15), rows: [], balances: [])
+    BoardSnapshot(date: Date(2026, June, 15), rows: [], balances: [], unstaffed: [])
 
   assert round_trip(
       original,
@@ -670,6 +677,8 @@ pub fn invoice_round_trips_test() {
       billing_to: Date(2026, July, 1),
       status: "issued",
       total: 26_400.0,
+      issued_at: Some(Date(2026, July, 5)),
+      paid_at: None,
     )
 
   assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
@@ -688,6 +697,8 @@ pub fn invoice_draft_zero_total_round_trips_test() {
       billing_to: Date(2026, July, 1),
       status: "draft",
       total: 0.0,
+      issued_at: None,
+      paid_at: None,
     )
 
   assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
@@ -729,6 +740,8 @@ pub fn invoice_detail_round_trips_test() {
         billing_to: Date(2026, July, 1),
         status: "issued",
         total: 26_400.0,
+        issued_at: Some(Date(2026, July, 5)),
+        paid_at: None,
       ),
       lines: [
         InvoiceLine(
@@ -769,6 +782,8 @@ pub fn invoice_detail_empty_round_trips_test() {
         billing_to: Date(2026, July, 1),
         status: "draft",
         total: 0.0,
+        issued_at: None,
+        paid_at: None,
       ),
       lines: [],
     )

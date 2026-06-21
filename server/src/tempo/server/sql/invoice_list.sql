@@ -1,6 +1,14 @@
 -- invoice_list.sql — the invoices-table read model (FR-F1/FR-F4). One row per
 -- invoice: the durable subject (project + client name, billing month) plus its
--- status AS OF $1 and its line total (Σ invoice_line.amount).
+-- status AS OF $1, its line total (Σ invoice_line.amount), and the issue/pay
+-- transition dates.
+--
+-- issued_at/paid_at. The lower bound of the issued/paid status span — the day the
+-- issue_invoice/pay_invoice transition occurred — or NULL when that transition has
+-- not happened as-of $1 (the transition day is after the rail date, or never).
+-- The `?` alias suffix forces Squirrel to generate Option(Date) (the seed has no
+-- unissued/unpaid invoice, so it would otherwise infer non-null and decode-fail).
+-- The as-of status above still resolves independently via @>.
 --
 -- Param: $1 = as-of date. The status shown is the row covering $1 via `@>`, so
 -- scrubbing the slider back shows a `draft` before its issue date (FR-F4). An
@@ -39,7 +47,23 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total
+  ), 0)::numeric AS total,
+  (
+    SELECT lower(issued.status_during)
+      FROM invoice_status issued
+     WHERE issued.invoice_id = invoice.id
+       AND issued.status = 'issued'
+       AND lower(issued.status_during) <= $1::date
+     LIMIT 1
+  ) AS "issued_at?",
+  (
+    SELECT lower(paid.status_during)
+      FROM invoice_status paid
+     WHERE paid.invoice_id = invoice.id
+       AND paid.status = 'paid'
+       AND lower(paid.status_during) <= $1::date
+     LIMIT 1
+  ) AS "paid_at?"
 FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 JOIN invoice_status ON invoice_status.invoice_id = invoice.id
