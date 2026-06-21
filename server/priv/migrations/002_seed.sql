@@ -28,12 +28,14 @@ SELECT setval(pg_get_serial_sequence('project',  'id'), 400);
 -- Establish the rate card (what we CHARGE) — founding rows. --------------------
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
-    ('2024-01-01', 'seed', 'revise_rate_card', 'Establish rate card (L3-L7) from 2024-01-01',
-     '{"levels":{"3":800,"4":1000,"5":1200,"6":1800,"7":2400},"effective":"2024-01-01"}')
+    ('2024-01-01', 'seed', 'revise_rate_card', 'Establish rate card (L1-L7) from 2024-01-01',
+     '{"levels":{"1":400,"2":600,"3":800,"4":1000,"5":1200,"6":1800,"7":2400},"effective":"2024-01-01"}')
   RETURNING id)
 INSERT INTO rate_card (level, day_rate, effective_during, audit_id)
 SELECT v.level, v.day_rate, v.eff, e.id FROM e,
-  (VALUES (3, 800.00, daterange('2024-01-01','2027-01-01')),
+  (VALUES (1, 400.00, daterange('2024-01-01','2027-01-01')),
+          (2, 600.00, daterange('2024-01-01','2027-01-01')),
+          (3, 800.00, daterange('2024-01-01','2027-01-01')),
           (4, 1000.00, daterange('2024-01-01','2027-01-01')),
           (5, 1200.00, daterange('2024-01-01','2026-07-01')),
           (6, 1800.00, daterange('2024-01-01','2027-01-01')),
@@ -42,12 +44,12 @@ SELECT v.level, v.day_rate, v.eff, e.id FROM e,
 -- Set salaries (what we PAY) per level. ---------------------------------------
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
-    ('2024-01-01', 'seed', 'set_salary', 'Set salaries (L3-L7) from 2024-01-01',
-     '{"levels":{"3":6000,"4":8000,"5":10000,"6":14000,"7":20000},"effective":"2024-01-01"}')
+    ('2024-01-01', 'seed', 'set_salary', 'Set salaries (L1-L7) from 2024-01-01',
+     '{"levels":{"1":2000,"2":4000,"3":6000,"4":8000,"5":10000,"6":14000,"7":20000},"effective":"2024-01-01"}')
   RETURNING id)
 INSERT INTO salary (level, monthly_salary, effective_during, audit_id)
 SELECT v.level, v.monthly_salary, daterange('2024-01-01', NULL), e.id FROM e,
-  (VALUES (3, 6000.00), (4, 8000.00), (5, 10000.00), (6, 14000.00), (7, 20000.00)) AS v(level, monthly_salary);
+  (VALUES (1, 2000.00), (2, 4000.00), (3, 6000.00), (4, 8000.00), (5, 10000.00), (6, 14000.00), (7, 20000.00)) AS v(level, monthly_salary);
 
 -- Set leave policy: annual 20 days/yr (L1-5) stepping to 25 for senior levels
 -- (L6-7), sick 10 days/yr (all levels), from the company epoch. Per-level so a
