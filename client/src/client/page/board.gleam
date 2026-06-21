@@ -33,8 +33,9 @@ import lustre/event
 import rsvp
 import shared/codecs
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Event, type Ref, type Roster, BoardRow,
-  OnLeave, OnProject, Unassigned,
+  type BoardRow, type BoardSnapshot, type Event, type Ref, type Roster,
+  type UnstaffedProject, BoardRow, OnLeave, OnProject, Unassigned,
+  UnstaffedProject,
 }
 
 // --- Model -------------------------------------------------------------------
@@ -79,6 +80,7 @@ pub type Msg {
   CardClicked(engineer: String)
   OpStarted(kind: ui.OpKind)
   OpStartedFor(kind: ui.OpKind, engineer_id: Int, project_id: Int)
+  OpStartedForProject(project_id: Int)
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -190,6 +192,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form =
         ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
+      let form =
+        ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+      let form = reconcile(model, form)
+      #(
+        Model(..model, op: Some(OpState(kind:, form:, error: ""))),
+        effect.none(),
+        [],
+      )
+    }
+
+    OpStartedForProject(project_id:) -> {
+      let kind = ui.OpAssignToProject
+      let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form =
         ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
       let form = reconcile(model, form)
@@ -342,6 +357,7 @@ fn view_loaded(model: Model, snapshot: BoardSnapshot) -> Element(Msg) {
     head(),
     stats_hero(on_project, on_leave, snapshot),
     on_projects_panel(model, on_project),
+    unstaffed_projects_panel(model, snapshot.unstaffed),
     on_leave_panel(on_leave),
     unassigned_panel(unassigned),
     op_panel(model),
@@ -495,6 +511,64 @@ fn roll_off_action(
       )
     _, _ -> element.none()
   }
+}
+
+// --- Unstaffed-projects panel ------------------------------------------------
+
+/// The "Unstaffed projects" panel: one card per active project with no engineer
+/// allocated on this date. Absent on a fully-staffed day (`[] -> element.none()`).
+/// Each card shows the project title, the client as a sub-line, and a right-aligned
+/// "Assign" button that opens the canonical AssignToProject modal pre-filled with
+/// this project (engineer/fraction left for the user).
+fn unstaffed_projects_panel(
+  model: Model,
+  unstaffed: List(UnstaffedProject),
+) -> Element(Msg) {
+  let _ = model
+  case unstaffed {
+    [] -> element.none()
+    projects -> {
+      let cards = list.map(projects, unstaffed_card)
+      ui.panel(
+        title: "Unstaffed projects",
+        count: unstaffed_count(list.length(projects)),
+        right: [],
+        body: [
+          html.div([attribute.class("board-group")], [
+            html.div([attribute.class("board-grid")], cards),
+          ]),
+        ],
+      )
+    }
+  }
+}
+
+/// The count header for the unstaffed panel: "1 project" / "<n> projects".
+fn unstaffed_count(count: Int) -> String {
+  case count {
+    1 -> "1 project"
+    n -> int.to_string(n) <> " projects"
+  }
+}
+
+/// One unstaffed-project card: the title, the client sub-line, and a right-aligned
+/// "Assign" button opening the AssignToProject modal pre-filled with this project.
+fn unstaffed_card(project: UnstaffedProject) -> Element(Msg) {
+  let UnstaffedProject(project_id:, title:, client:) = project
+  html.div([attribute.class("board-card")], [
+    html.div([attribute.class("board-card__info")], [
+      html.div([attribute.class("board-card__name")], [html.text(title)]),
+      html.div([attribute.class("board-card__sub")], [html.text(client)]),
+    ]),
+    html.div([attribute.class("board-card__action")], [
+      ui.button(
+        label: "Assign",
+        kind: ui.Ghost,
+        size: ui.Small,
+        on_press: OpStartedForProject(project_id:),
+      ),
+    ]),
+  ])
 }
 
 // --- On-leave / Unassigned panels --------------------------------------------

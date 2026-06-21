@@ -18,12 +18,12 @@
 INSERT INTO client (id) VALUES (1), (2);
 INSERT INTO engineer (id) VALUES (1), (2), (3);
 INSERT INTO contract (id) VALUES (10), (20);
-INSERT INTO project (id) VALUES (100), (200), (300);
+INSERT INTO project (id) VALUES (100), (200), (300), (400);
 
 SELECT setval(pg_get_serial_sequence('client',   'id'), 2);
 SELECT setval(pg_get_serial_sequence('engineer', 'id'), 3);
 SELECT setval(pg_get_serial_sequence('contract', 'id'), 20);
-SELECT setval(pg_get_serial_sequence('project',  'id'), 300);
+SELECT setval(pg_get_serial_sequence('project',  'id'), 400);
 
 -- Establish the rate card (what we CHARGE) — founding rows. --------------------
 WITH e AS (
@@ -187,6 +187,22 @@ WITH e AS (
           SELECT 300, 'Data Platform', '', daterange('2024-01-01', NULL), e.id FROM e)
 INSERT INTO project_plan (project_id, budget, target_completion, planned_during, audit_id)
 SELECT 300, 800000.00, '2026-12-31', daterange('2025-01-01', NULL), e.id FROM e;
+
+-- Start project Platform Telemetry but never staff it: an active run with ZERO
+-- allocations, so the board's Unstaffed-projects lane shows it at the seed now.
+-- Started 2026-02-01 (early 2026) so it demonstrates #19: before that date its
+-- run has not started and it must be ABSENT from the projects list (not 'ended').
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-02-01', 'seed', 'start_project', 'Start project Platform Telemetry under contract 20 (project 400) over 2026-02-01..2027-01-01',
+     '{"name":"Platform Telemetry","contract_id":20,"valid_from":"2026-02-01","valid_to":"2027-01-01"}')
+  RETURNING id),
+  run AS (INSERT INTO project_run (project_id, contract_id, active_during, audit_id)
+          SELECT 400, 20, daterange('2026-02-01','2027-01-01'), e.id FROM e),
+  pro AS (INSERT INTO project_profile (project_id, title, summary, recorded_during, audit_id)
+          SELECT 400, 'Platform Telemetry', '', daterange('2026-02-01', NULL), e.id FROM e)
+INSERT INTO project_plan (project_id, budget, target_completion, planned_during, audit_id)
+SELECT 400, 250000.00, '2026-12-31', daterange('2026-02-01', NULL), e.id FROM e;
 
 -- Assign engineers to projects (Priya is the 0.5 + 0.5 fractional split). ------
 WITH e AS (

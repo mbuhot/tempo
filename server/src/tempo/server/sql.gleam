@@ -423,6 +423,73 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `board_unstaffed` query
+/// defined in `./src/tempo/server/sql/board_unstaffed.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type BoardUnstaffedRow {
+  BoardUnstaffedRow(project_id: Int, title: String, client: String)
+}
+
+/// board_unstaffed.sql — active projects with ZERO allocations on the date
+/// ($1::date). The project-keyed companion to board_unassigned (which is keyed
+/// on the engineer); the client renders these as the board's "Unstaffed" lane.
+///
+/// A project is active when its run covers $1 (project_run.active_during @> $1).
+/// It is unstaffed when NO allocation covers $1 (NOT EXISTS). Counting allocations
+/// (not engagements) means a project staffed only by an on-leave engineer is NOT
+/// unstaffed — the allocation still covers the date — consistent with team_size.
+/// Title comes from project_current; the owning client name through the run's
+/// contract to client_current. All columns non-null, so the row decodes plainly.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn board_unstaffed(
+  db: pog.Connection,
+  arg_1: Date,
+) -> Result(pog.Returned(BoardUnstaffedRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use title <- decode.field(1, decode.string)
+    use client <- decode.field(2, decode.string)
+    decode.success(BoardUnstaffedRow(project_id:, title:, client:))
+  }
+
+  "-- board_unstaffed.sql — active projects with ZERO allocations on the date
+-- ($1::date). The project-keyed companion to board_unassigned (which is keyed
+-- on the engineer); the client renders these as the board's \"Unstaffed\" lane.
+--
+-- A project is active when its run covers $1 (project_run.active_during @> $1).
+-- It is unstaffed when NO allocation covers $1 (NOT EXISTS). Counting allocations
+-- (not engagements) means a project staffed only by an on-leave engineer is NOT
+-- unstaffed — the allocation still covers the date — consistent with team_size.
+-- Title comes from project_current; the owning client name through the run's
+-- contract to client_current. All columns non-null, so the row decodes plainly.
+SELECT
+  project_run.project_id,
+  coalesce(project_current.title, '') AS title,
+  coalesce(client_current.name, '') AS client
+FROM project_run
+JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id AND contract_terms.term @> $1::date
+JOIN client_current ON client_current.id = contract_terms.client_id
+JOIN project_current ON project_current.id = project_run.project_id
+WHERE project_run.active_during @> $1::date
+  AND NOT EXISTS (
+    SELECT 1 FROM allocation
+    WHERE allocation.project_id = project_run.project_id
+      AND allocation.allocated_during @> $1::date
+  )
+ORDER BY title;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `client_contracts` query
 /// defined in `./src/tempo/server/sql/client_contracts.sql`.
 ///
@@ -4006,7 +4073,9 @@ pub type ProjectListRow {
 /// project_run anchors the project (every listed project has a run). A project may
 /// have several historical runs, so DISTINCT ON (project_id) keeps the run covering
 /// $1 (sorted first), falling back to the latest-started run for an ended project so
-/// it still lists with active=false — projects are marked active/ended, never hidden.
+/// it still lists with active=false — a started project is marked active/ended, never
+/// hidden. A run that has NOT started by $1 is excluded (lower(active_during) <= $1),
+/// so a project dormant before its start is absent, not rendered as 'ended'.
 /// The title comes from project_current, the client name through the run's contract
 /// to client_current, and budget/target from a LATERAL latest-read project_plan
 /// (DISTINCT ON by start desc, like project_plan_current; coalesced for a planless
@@ -4047,7 +4116,9 @@ pub fn project_list(
 -- project_run anchors the project (every listed project has a run). A project may
 -- have several historical runs, so DISTINCT ON (project_id) keeps the run covering
 -- $1 (sorted first), falling back to the latest-started run for an ended project so
--- it still lists with active=false — projects are marked active/ended, never hidden.
+-- it still lists with active=false — a started project is marked active/ended, never
+-- hidden. A run that has NOT started by $1 is excluded (lower(active_during) <= $1),
+-- so a project dormant before its start is absent, not rendered as 'ended'.
 -- The title comes from project_current, the client name through the run's contract
 -- to client_current, and budget/target from a LATERAL latest-read project_plan
 -- (DISTINCT ON by start desc, like project_plan_current; coalesced for a planless
@@ -4080,6 +4151,7 @@ FROM (
      ORDER BY lower(project_plan.planned_during) DESC
      LIMIT 1
   ) plan ON true
+  WHERE lower(project_run.active_during) <= $1::date
   ORDER BY project_run.project_id,
            (project_run.active_during @> $1::date) DESC,
            lower(project_run.active_during) DESC

@@ -46,10 +46,21 @@ pub type LeaveBalance {
   LeaveBalance(engineer: String, annual: Float, sick: Float)
 }
 
-/// The whole org board for a single date: the engagement rows plus each employed
-/// engineer's leave balances as of that date.
+/// A project with no engineers staffed on the board's date — a candidate for the
+/// Assign modal, which pre-fills `project_id` to skip a title->id round-trip.
+pub type UnstaffedProject {
+  UnstaffedProject(project_id: Int, title: String, client: String)
+}
+
+/// The whole org board for a single date: the engagement rows, each employed
+/// engineer's leave balances as of that date, and the unstaffed projects lane.
 pub type BoardSnapshot {
-  BoardSnapshot(date: Date, rows: List(BoardRow), balances: List(LeaveBalance))
+  BoardSnapshot(
+    date: Date,
+    rows: List(BoardRow),
+    balances: List(LeaveBalance),
+    unstaffed: List(UnstaffedProject),
+  )
 }
 
 /// One cell of the weekly timesheet grid: a single (project, day) slot. `allocated`

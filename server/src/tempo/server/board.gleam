@@ -16,14 +16,16 @@ import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type LeaveBalance, BoardRow, BoardSnapshot,
-  LeaveBalance, OnLeave, OnProject, Unassigned,
+  type BoardRow, type BoardSnapshot, type LeaveBalance, type UnstaffedProject,
+  BoardRow, BoardSnapshot, LeaveBalance, OnLeave, OnProject, Unassigned,
+  UnstaffedProject,
 }
 import tempo/server/context.{type Context}
 import tempo/server/sql
 
-/// Compute the board snapshot for a date: run the three board queries and the leave
-/// balances, map each to its shared type, and merge the rows sorted by engineer name.
+/// Compute the board snapshot for a date: run the three engagement queries, the
+/// unstaffed-projects query, and the leave balances; map each to its shared type,
+/// and merge the engagement rows sorted by engineer name.
 pub fn snapshot(
   context: Context,
   date: Date,
@@ -31,6 +33,7 @@ pub fn snapshot(
   use board <- result.try(sql.board_engaged(context.db, date))
   use unassigned <- result.try(sql.board_unassigned(context.db, date))
   use leave <- result.try(sql.board_leave(context.db, date))
+  use unstaffed <- result.try(sql.board_unstaffed(context.db, date))
   use balances <- result.try(sql.leave_balances(context.db, date))
   let rows =
     list.flatten([
@@ -40,7 +43,18 @@ pub fn snapshot(
     ])
     |> list.sort(by_engineer)
   let balances = list.map(balances.rows, balance_row_to_shared)
-  Ok(BoardSnapshot(date:, rows:, balances:))
+  let unstaffed = list.map(unstaffed.rows, unstaffed_row_to_shared)
+  Ok(BoardSnapshot(date:, rows:, balances:, unstaffed:))
+}
+
+/// Map a board_unstaffed row (an active project with no covering allocation) to
+/// the shared `UnstaffedProject` (the board's unstaffed lane).
+fn unstaffed_row_to_shared(row: sql.BoardUnstaffedRow) -> UnstaffedProject {
+  UnstaffedProject(
+    project_id: row.project_id,
+    title: row.title,
+    client: row.client,
+  )
 }
 
 /// Map a leave_balances row to the shared `LeaveBalance` (engineer + annual/sick

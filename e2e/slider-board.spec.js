@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { signInAs, scrubTo, escapeRegExp } = require("./helpers");
+const { signInAs, scrubTo, navigateTo, escapeRegExp } = require("./helpers");
 
 // Behaviour-driven coverage of the time rail + Board page on the NEW shell. After
 // signing in, the Board ("Who's doing what") shows the whole consultancy as of the
@@ -121,4 +121,48 @@ test("the on-leave panel appears and disappears as the rail moves", async ({
 
   await scrubTo(page, "2026-06-15");
   await expect(page.getByText("til 22 Jun 2026")).toBeVisible();
+});
+
+test("the unstaffed-projects lane lists a started project with no one allocated", async ({
+  page,
+}) => {
+  // Platform Telemetry (started 2026-02-01, never staffed) has an active run but no
+  // allocation at the seed now, so the board surfaces it under its own "Unstaffed
+  // projects" lane — never in the per-project "On projects" blocks (those need an
+  // allocation). The card names the project and its client (Globex Corporation).
+  await scrubTo(page, "2026-06-15");
+  await expect(
+    page.getByRole("heading", { name: "Unstaffed projects" }),
+  ).toBeVisible();
+  await expect(page.getByText("Platform Telemetry")).toBeVisible();
+  await expect(page.getByText("Platform Telemetry")).toHaveCount(1);
+});
+
+test("an unstaffed project's Assign opens the assign modal pre-filled with that project", async ({
+  page,
+}) => {
+  // The per-card "Assign" (distinct from the page-header "+ Assign") opens the
+  // canonical "Assign to a project" modal with Platform Telemetry already chosen in
+  // the Project select, leaving the engineer/fraction/dates for the user.
+  await scrubTo(page, "2026-06-15");
+  await expect(page.getByText("Platform Telemetry")).toBeVisible();
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await expect(page.getByText("Assign to a project")).toBeVisible();
+  await expect(page.getByLabel("Project")).toHaveValue(/.+/);
+  await expect(
+    page.getByLabel("Project").locator("option:checked"),
+  ).toHaveText("Platform Telemetry");
+});
+
+test("a project dormant before its start is absent from the projects list (#19)", async ({
+  page,
+}) => {
+  // Scrub to 2026-01-15 — before Platform Telemetry's 2026-02-01 start — and open
+  // the Projects tab: a not-yet-started project must be ABSENT entirely, never shown
+  // as 'ended'. The three earlier-started projects still list.
+  await scrubTo(page, "2026-01-15");
+  await navigateTo(page, "Projects");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(page.getByText("Data Platform")).toBeVisible();
+  await expect(page.getByText("Platform Telemetry")).toHaveCount(0);
 });

@@ -99,9 +99,9 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-feature-setti
 .chip {
   display: inline-flex; align-items: center; white-space: nowrap; flex: none;
   font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-semibold);
-  padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-sm);
+  padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-sm); border: var(--border-thin) solid transparent;
 }
-.chip--neutral { background: var(--color-surface-sunken); color: var(--color-muted); border: var(--border-thin) solid var(--color-border); }
+.chip--neutral { background: var(--color-surface-sunken); color: var(--color-muted); border-color: var(--color-border); }
 .chip--accent { background: var(--color-accent-soft); color: var(--color-accent); }
 
 /* ---------- Tabs ---------- */

@@ -23,8 +23,8 @@ import shared/types.{
   type ProjectListRow, type ProjectPlan, type ProjectProfile, type RateCardRow,
   type Ref, type RoleVersion, type Roster, type RosterStatus, type SalaryRow,
   type Settings, type TeamMember, type TimesheetCell, type TimesheetEntry,
-  type TimesheetWeek, type TimesheetWeekRow, type WriteRequest,
-  AdjustRateForPortion, AllocationRow, AssignToProject, BoardRow, BoardSnapshot,
+  type TimesheetWeek, type TimesheetWeekRow, type UnstaffedProject,
+  type WriteRequest, AdjustRateForPortion, AllocationRow, AssignToProject, BoardRow, BoardSnapshot,
   ChangeAllocationFraction, ClientDetail, ClientList, ClientListRow,
   ClientProfile, ClientProjectRow, ContractRow, DraftInvoice, Employment,
   EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency, Event,
@@ -36,7 +36,7 @@ import shared/types.{
   RoleVersion, RollOff, Roster, RosterOnLeave, RosterOnProjects,
   RosterUnassigned, RunPayroll, SalaryRow, SetSalary, Settings, SignContract,
   StartProject, TakeLeave, TeamMember, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
@@ -200,11 +200,12 @@ pub fn leave_balance_decoder() -> Decoder(LeaveBalance) {
 
 /// Encode a board snapshot to JSON for the HTTP API.
 pub fn encode_board_snapshot(snapshot: BoardSnapshot) -> Json {
-  let BoardSnapshot(date:, rows:, balances:) = snapshot
+  let BoardSnapshot(date:, rows:, balances:, unstaffed:) = snapshot
   json.object([
     #("date", encode_date(date)),
     #("rows", json.array(rows, encode_board_row)),
     #("balances", json.array(balances, encode_leave_balance)),
+    #("unstaffed", json.array(unstaffed, encode_unstaffed_project)),
   ])
 }
 
@@ -213,7 +214,31 @@ pub fn board_snapshot_decoder() -> Decoder(BoardSnapshot) {
   use date <- decode.field("date", date_decoder())
   use rows <- decode.field("rows", decode.list(board_row_decoder()))
   use balances <- decode.field("balances", decode.list(leave_balance_decoder()))
-  decode.success(BoardSnapshot(date:, rows:, balances:))
+  use unstaffed <- decode.field(
+    "unstaffed",
+    decode.list(unstaffed_project_decoder()),
+  )
+  decode.success(BoardSnapshot(date:, rows:, balances:, unstaffed:))
+}
+
+// --- UnstaffedProject -------------------------------------------------------
+
+/// Encode an `UnstaffedProject` (one unstaffed-lane entry) as a JSON object.
+pub fn encode_unstaffed_project(project: UnstaffedProject) -> Json {
+  let UnstaffedProject(project_id:, title:, client:) = project
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("title", json.string(title)),
+    #("client", json.string(client)),
+  ])
+}
+
+/// Decode an `UnstaffedProject` from a JSON object.
+pub fn unstaffed_project_decoder() -> Decoder(UnstaffedProject) {
+  use project_id <- decode.field("project_id", decode.int)
+  use title <- decode.field("title", decode.string)
+  use client <- decode.field("client", decode.string)
+  decode.success(UnstaffedProject(project_id:, title:, client:))
 }
 
 // --- TimesheetCell ----------------------------------------------------------

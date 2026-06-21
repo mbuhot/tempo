@@ -5,7 +5,9 @@
 -- project_run anchors the project (every listed project has a run). A project may
 -- have several historical runs, so DISTINCT ON (project_id) keeps the run covering
 -- $1 (sorted first), falling back to the latest-started run for an ended project so
--- it still lists with active=false — projects are marked active/ended, never hidden.
+-- it still lists with active=false — a started project is marked active/ended, never
+-- hidden. A run that has NOT started by $1 is excluded (lower(active_during) <= $1),
+-- so a project dormant before its start is absent, not rendered as 'ended'.
 -- The title comes from project_current, the client name through the run's contract
 -- to client_current, and budget/target from a LATERAL latest-read project_plan
 -- (DISTINCT ON by start desc, like project_plan_current; coalesced for a planless
@@ -38,6 +40,7 @@ FROM (
      ORDER BY lower(project_plan.planned_during) DESC
      LIMIT 1
   ) plan ON true
+  WHERE lower(project_run.active_during) <= $1::date
   ORDER BY project_run.project_id,
            (project_run.active_during @> $1::date) DESC,
            lower(project_run.active_during) DESC
