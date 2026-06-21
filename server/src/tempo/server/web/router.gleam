@@ -43,7 +43,7 @@ pub fn handle_request(
 ) -> wisp.Response {
   use <- wisp.log_request(request)
   use <- wisp.rescue_crashes
-  use <- wisp.serve_static(request, under: "/static", from: static_directory())
+  use <- serve_static_no_cache(request)
 
   case wisp.path_segments(request) {
     ["api", "board"] -> board.handle(request, context)
@@ -74,8 +74,27 @@ pub fn handle_request(
 
 // --- static assets ----------------------------------------------------------
 
+/// `wisp.serve_static`, but tagging served `/static/*` files with
+/// `Cache-Control: no-cache` so the browser always revalidates (the ETag still
+/// yields a 304 when unchanged). lustre/dev emits a fixed `app.js`/`main.css`
+/// filename with no content hash, so without this the browser serves a stale
+/// bundle after a rebuild until a hard refresh.
+fn serve_static_no_cache(
+  request: wisp.Request,
+  next handler: fn() -> wisp.Response,
+) -> wisp.Response {
+  let response =
+    wisp.serve_static(request, under: "/static", from: static_directory(), next: handler)
+  case wisp.path_segments(request), response.status {
+    ["static", ..], 200 | ["static", ..], 304 ->
+      wisp.set_header(response, "cache-control", "no-cache")
+    _, _ -> response
+  }
+}
+
 /// Serve the SPA shell `priv/static/index.html` at the application root (a 404 if
-/// the file is absent).
+/// the file is absent). Tagged `no-cache` so a reloaded deep link always
+/// re-fetches the shell and picks up the latest bundle reference.
 fn serve_index() -> wisp.Response {
   let index = static_directory() <> "/index.html"
   case simplifile.is_file(index) {
@@ -83,6 +102,7 @@ fn serve_index() -> wisp.Response {
       wisp.ok()
       |> wisp.set_body(wisp.File(path: index, offset: 0, limit: option.None))
       |> wisp.set_header("content-type", "text/html; charset=utf-8")
+      |> wisp.set_header("cache-control", "no-cache")
     _ -> wisp.not_found()
   }
 }
