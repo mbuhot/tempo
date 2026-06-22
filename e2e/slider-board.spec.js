@@ -170,7 +170,11 @@ test("a project dormant before its start is absent from the projects list (#19)"
   // as 'ended'. The three earlier-started projects still list.
   await scrubTo(page, "2026-01-15");
   await navigateTo(page, "Projects");
-  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  // Exact match: the page-title heading is "Projects"; the section heading "All
+  // projects" also contains "projects", so a loose name matches both.
+  await expect(
+    page.getByRole("heading", { name: "Projects", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Data Platform")).toBeVisible();
   await expect(page.getByText("Platform Telemetry")).toHaveCount(0);
 });

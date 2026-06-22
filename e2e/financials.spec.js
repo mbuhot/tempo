@@ -450,7 +450,11 @@ test("setting a capacity requirement on a project lists it in the requirements p
   // (project, level) window — no overlap, no split), so repeated runs against the
   // append-only DB land the same single line.
   await navigateTo(page, "Projects");
-  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  // Exact match: the page-title heading is "Projects"; the section heading "All
+  // projects" also contains "projects", so a loose name matches both.
+  await expect(
+    page.getByRole("heading", { name: "Projects", exact: true }),
+  ).toBeVisible();
   await clickContent(page.getByText("Ledger Migration").first());
   await expect(
     page.getByRole("heading", { name: "Ledger Migration" }),

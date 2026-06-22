@@ -3,10 +3,12 @@
 //// calendar date.
 ////
 //// This module is stateless — the selected date lives in the shell model. `view`
-//// renders the rail for a given date and emits `AsOfChanged` when the presenter
-//// scrubs the slider, steps a day, picks a date, or presses Today; the shell maps
-//// that into its own message via `element.map` (Gleam has no constructor
-//// re-export, so the shell owns a distinct `AsOfChanged` constructor). The slider
+//// renders the rail for a given date and emits a message when the presenter scrubs
+//// the slider (`AsOfScrubbed` — fired on every drag tick so the readout tracks the
+//// thumb instantly; the shell debounces the refetch), or steps a day, picks a date,
+//// or presses Today (`AsOfChanged` — a discrete change the shell applies at once).
+//// The shell maps these into its own messages via `element.map` (Gleam has no
+//// constructor re-export, so the shell owns distinct constructors). The slider
 //// position is a unix-day index between fixed seed-range endpoints, so every
 //// position is a deterministic absolute date independent of the wall clock, and
 //// Today resets to the seed "now" rather than the real clock.
@@ -44,14 +46,16 @@ pub const range_end = calendar.Date(
   day: 31,
 )
 
-/// Debounce window (ms) on slider input: coalesce a fast scrub into one emit of
-/// the final position rather than one message per intermediate pixel.
-const slider_debounce_ms = 150
-
-/// Messages the rail emits. The shell maps this into its own `AsOfChanged` via
-/// `element.map(time.view(as_of), ...)` — this constructor is NOT re-exported.
+/// Messages the rail emits, mapped into the shell's own constructors via
+/// `element.map(time.view(as_of), ...)` (these are NOT re-exported).
 pub type Msg {
+  /// A discrete change — a day step, a date pick, or Today. The shell applies it
+  /// at once (instant refetch + URL sync).
   AsOfChanged(date: calendar.Date)
+  /// A slider drag tick, fired on EVERY `input`. The shell updates the as-of (so
+  /// the readout tracks the thumb) immediately, but debounces the refetch + URL
+  /// sync to a settle once the drag stops.
+  AsOfScrubbed(date: calendar.Date)
 }
 
 /// Render the time rail for `as_of`: the as-of readout (label, dot, date, and a
@@ -91,7 +95,7 @@ pub fn view(as_of: calendar.Date) -> Element(Msg) {
           attribute.max(int.to_string(date_to_day_index(range_end))),
           attribute.value(int.to_string(day_index)),
           attribute.attribute("aria-label", "As-of date"),
-          event.debounce(event.on_input(on_slider_input), slider_debounce_ms),
+          event.on_input(on_slider_scrub),
         ]),
       ]),
     ]),
@@ -174,13 +178,13 @@ fn fill_pct(day_index: Int) -> String {
   float.to_string(range_pct(day_index_to_date(day_index))) <> "%"
 }
 
-/// Parse the range input's string value into an `AsOfChanged`, clamping to the
+/// Parse the range input's string value into an `AsOfScrubbed`, clamping to the
 /// rail bounds and holding the seed "now" if the value is somehow not an integer
 /// (range inputs never emit one).
-fn on_slider_input(raw_value: String) -> Msg {
+fn on_slider_scrub(raw_value: String) -> Msg {
   case int.parse(raw_value) {
-    Ok(day_index) -> AsOfChanged(clamp_date(day_index_to_date(day_index)))
-    Error(Nil) -> AsOfChanged(seed_now)
+    Ok(day_index) -> AsOfScrubbed(clamp_date(day_index_to_date(day_index)))
+    Error(Nil) -> AsOfScrubbed(seed_now)
   }
 }
 

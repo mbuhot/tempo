@@ -4,14 +4,20 @@
 //// same frozen interface (Model/Msg/OutMsg/init/update/view/refetch), so the
 //// per-page work never touches this file.
 ////
-//// The shell owns four cross-cutting messages — SignedIn/SignedOut (the login
-//// gate, ADR-035), AsOfChanged (the global as-of), RouteChanged (URL change) —
-//// plus one wrapper per page. The time rail (`client/time`) owns its own
-//// `time.Msg(AsOfChanged)`; the shell maps it into its OWN `AsOfChanged` via
-//// `element.map` (Gleam has no constructor re-export). Scrubbing the rail
-//// `modem.replace`s the new `?date=` (so a scrub does not flood history);
-//// sidebar and drill-in navigation `push`. The signed-in actor flows into every
-//// `api.submit_operation(actor, ...)`, replacing the old hardcoded console actor.
+//// The shell owns the cross-cutting messages — SignedIn/SignedOut (the login
+//// gate, ADR-035), AsOfChanged (a discrete as-of change), AsOfScrubbed +
+//// AsOfScrubSettled (the debounced slider scrub), RouteChanged (URL change) —
+//// plus one wrapper per page. The time rail (`client/time`) maps its messages
+//// into these via `element.map` (Gleam has no constructor re-export). A discrete
+//// change (step/pick/Today) applies at once: refetch + `modem.replace` the new
+//// `?date=`. A scrub updates the as-of and `?date=` INSTANTLY (so the readout
+//// tracks the thumb and the URL stays shareable) but defers the refetch to a
+//// settle, debounced via `scheduler.after` and guarded by a generation token so
+//// only the final position fetches (a scrub does not flood the network). The URL
+//// is synced on the scrub tick rather than the settle so its same-route
+//// RouteChanged echo is a clean no-op, never a settle's `replace` racing a
+//// navigation. Sidebar and drill-in navigation `push`. The signed-in actor flows
+//// into every `api.submit_operation(actor, ...)`, replacing the old console actor.
 ////
 //// Imports `client/*` and `shared/*` only — never `server/*`.
 
@@ -23,6 +29,7 @@ import client/page/people
 import client/page/projects
 import client/page/settings
 import client/route.{type Route}
+import client/scheduler
 import client/time
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -49,11 +56,23 @@ pub type Page {
 }
 
 /// The shell model: who is signed in (the login gate — `None` shows the gate),
-/// the current route, the one global as-of date, and the active page sub-model.
-/// The as-of lives ONLY here; pages receive it as a parameter and never store it.
+/// the current route, the one global as-of date, the active page sub-model, and the
+/// scrub generation token. The as-of lives ONLY here; pages receive it as a
+/// parameter and never store it. `scrub_token` is bumped on every as-of/route
+/// change so a debounced scrub-settle only refetches when it is still the latest.
 pub type Model {
-  Model(actor: Option(String), route: Route, as_of: calendar.Date, page: Page)
+  Model(
+    actor: Option(String),
+    route: Route,
+    as_of: calendar.Date,
+    page: Page,
+    scrub_token: Int,
+  )
 }
+
+/// The debounce window (ms) for a slider scrub: the as-of updates instantly, but
+/// the refetch + URL sync wait this long after the last drag tick.
+const scrub_refetch_ms = 150
 
 /// Messages the runtime feeds back to `update`: the four cross-cutting shell
 /// messages plus one wrapper per page. `AsOfChanged` is the shell's OWN
@@ -64,9 +83,19 @@ pub type Msg {
   SignedIn(actor: String)
   /// The signed-in actor signed out, returning to the login gate.
   SignedOut
-  /// The global as-of changed (rail scrub/step/pick/Today). The shell stores it,
-  /// `modem.replace`s the new `?date=`, and refetches ONLY the active page.
+  /// A discrete as-of change (rail step/pick/Today). The shell stores it,
+  /// `modem.replace`s the new `?date=`, and refetches ONLY the active page — all
+  /// at once.
   AsOfChanged(date: calendar.Date)
+  /// A slider scrub tick. The shell stores the new as-of and syncs `?date=`
+  /// immediately (so the rail readout tracks the thumb and the URL stays
+  /// shareable) and schedules a debounced `AsOfScrubSettled`, but does NOT refetch
+  /// yet.
+  AsOfScrubbed(date: calendar.Date)
+  /// A scheduled scrub settle: refetch the active page, but only if `token` is
+  /// still the model's current `scrub_token` (a later scrub or any navigation
+  /// supersedes it). The URL was already synced on the scrub tick.
+  AsOfScrubSettled(token: Int)
   /// The URL changed (modem). Carries the route AND the `?date=` parsed from the
   /// SAME uri, so the shell reconciles its as-of from the CURRENT url (never the
   /// page-load url), and inits the target page when the route's page differs.
@@ -95,7 +124,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   let as_of = initial_as_of()
   let route = initial_route()
   let #(page, page_effect) = init_page(route, as_of, "")
-  let model = Model(actor: None, route:, as_of:, page:)
+  let model = Model(actor: None, route:, as_of:, page:, scrub_token: 0)
   #(
     model,
     effect.batch([
@@ -142,37 +171,75 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let #(page, page_effect) =
         refetch_page(model.page, as_of, actor_of(model))
       #(
-        Model(..model, as_of:, page:),
+        Model(..model, as_of:, page:, scrub_token: model.scrub_token + 1),
         effect.batch([sync_as_of(model.route, as_of), page_effect]),
       )
     }
 
+    AsOfScrubbed(date:) -> {
+      // Update the as-of INSTANTLY so the rail readout tracks the thumb, sync the
+      // URL eagerly, and bump the token; defer ONLY the refetch to a debounced
+      // settle carrying this token. The URL is synced HERE (not in the settle) so
+      // its same-route RouteChanged echo lands while we are still on this route —
+      // a clean no-op — rather than a settle's `replace` racing a navigation and
+      // reverting the route.
+      let as_of = time.clamp_date(date)
+      let token = model.scrub_token + 1
+      #(
+        Model(..model, as_of:, scrub_token: token),
+        effect.batch([
+          sync_as_of(model.route, as_of),
+          scheduler.after(scrub_refetch_ms, AsOfScrubSettled(token)),
+        ]),
+      )
+    }
+
+    AsOfScrubSettled(token:) ->
+      // Only the latest scrub fetches: a later tick or any navigation has bumped
+      // scrub_token past this one, so a superseded settle is a no-op. The URL was
+      // already synced on the scrub tick, so the settle only refetches.
+      case token == model.scrub_token {
+        False -> #(model, effect.none())
+        True -> {
+          let #(page, page_effect) =
+            refetch_page(model.page, model.as_of, actor_of(model))
+          #(Model(..model, page:), page_effect)
+        }
+      }
+
     RouteChanged(route:, as_of: url_as_of) -> {
       // Reconcile the global as-of from the CURRENT url (the uri this event
-      // carried), so a shared link or back/forward lands on the right instant.
-      // Re-init the target page whenever the route DIFFERS from the current one —
-      // including a detail id or finance tab/invoice change within the same
-      // section — so a cold load, reload, or back/forward of a detail route lands
-      // on the detail (the page's `init(route, ..)` loads the right sub-view).
-      // No-op when route AND as-of are identical: the self-`replace` that follows
-      // a scrub must NOT reset the date or fire a second refetch.
+      // carried), so a shared link or back/forward lands on the right instant, and
+      // init the target page (its `init(route, ..)` loads the right sub-view — a
+      // detail id, a finance tab — so a cold load, reload, or back/forward lands
+      // there). Bump scrub_token so a pending scrub settle does not refetch the
+      // page we just left.
       let as_of = case url_as_of {
         Some(date) -> time.clamp_date(date)
         None -> model.as_of
       }
       case route == model.route {
-        True ->
-          case as_of == model.as_of {
-            True -> #(model, effect.none())
-            False -> {
-              let #(page, page_effect) =
-                refetch_page(model.page, as_of, actor_of(model))
-              #(Model(..model, as_of:, page:), page_effect)
-            }
-          }
+        // Same route: this is the echo of our own `replace` (a scrub tick or a
+        // discrete sync). We already hold the authoritative as_of, set
+        // synchronously when the change was applied, so the echo is a no-op —
+        // whether its date matches (the rested position) or lags (a superseded
+        // mid-drag replace, which must NOT drag the as_of backward or refetch). A
+        // genuine same-route date change never arrives here: scrubs `replace` (no
+        // new history entry) and navigation `push`es a route change, so
+        // back/forward always lands on a DIFFERENT route.
+        True -> #(model, effect.none())
         False -> {
           let #(page, page_effect) = init_page(route, as_of, actor_of(model))
-          #(Model(..model, route:, as_of:, page:), page_effect)
+          #(
+            Model(
+              ..model,
+              route:,
+              as_of:,
+              page:,
+              scrub_token: model.scrub_token + 1,
+            ),
+            page_effect,
+          )
         }
       }
     }
@@ -585,6 +652,7 @@ fn view_app(model: Model, actor: String) -> Element(Msg) {
       element.map(time.view(model.as_of), fn(rail_msg) {
         case rail_msg {
           time.AsOfChanged(date) -> AsOfChanged(date:)
+          time.AsOfScrubbed(date) -> AsOfScrubbed(date:)
         }
       }),
       html.div([attribute.class("content")], [view_page(model)]),
