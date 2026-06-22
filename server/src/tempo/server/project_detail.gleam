@@ -77,24 +77,25 @@ fn assemble(
   use plan <- result.try(sql.project_plan_current(context.db, project_id))
   use run <- result.try(sql.project_run_period(context.db, project_id, as_of))
   use team <- result.try(sql.project_team(context.db, project_id, as_of))
-  use requirements <- result.try(sql.project_requirements(context.db, project_id))
+  use requirements <- result.try(sql.project_requirements(
+    context.db,
+    project_id,
+  ))
   use invoices <- result.map(sql.project_invoices(context.db, project_id, as_of))
 
   case plan.rows, run.rows {
     [plan, ..], [run, ..] ->
-      Ok(
-        ProjectDetail(
-          profile:,
-          client: run.client,
-          plan: plan_to_shared(plan),
-          valid_from: run.valid_from,
-          valid_to: run.valid_to,
-          active: run.active,
-          team: list.map(team.rows, team_member_to_shared),
-          requirements: list.map(requirements.rows, requirement_to_shared),
-          invoices: list.map(invoices.rows, invoice_to_shared),
-        ),
-      )
+      Ok(ProjectDetail(
+        profile:,
+        client: run.client,
+        plan: plan_to_shared(plan),
+        valid_from: run.valid_from,
+        valid_to: run.valid_to,
+        active: run.active,
+        team: list.map(team.rows, team_member_to_shared),
+        requirements: list.map(requirements.rows, requirement_to_shared),
+        invoices: list.map(invoices.rows, invoice_to_shared),
+      ))
     _, _ -> Error(Nil)
   }
 }
@@ -143,7 +144,9 @@ fn team_member_to_shared(row: sql.ProjectTeamRow) -> TeamMember {
   )
 }
 
-fn requirement_to_shared(row: sql.ProjectRequirementsRow) -> ProjectRequirement {
+fn requirement_to_shared(
+  row: sql.ProjectRequirementsRow,
+) -> ProjectRequirement {
   ProjectRequirement(
     project_id: row.project_id,
     level: row.level,

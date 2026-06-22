@@ -102,7 +102,8 @@ pub fn policy_change_applies_automatically_test() {
       )
       |> pog.parameter(pog.calendar_date(Date(2026, January, 1)))
       |> pog.execute(on: conn)
-    assert balance(conn, 1, "annual", Date(2027, January, 1)) == 72.52054794520548
+    assert balance(conn, 1, "annual", Date(2027, January, 1))
+      == 72.52054794520548
   })
 }
 

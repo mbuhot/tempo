@@ -38,7 +38,10 @@ pub fn detail(
   engineer_id: Int,
   as_of: Date,
 ) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use contact <- result.try(sql.engineer_contact_current(context.db, engineer_id))
+  use contact <- result.try(sql.engineer_contact_current(
+    context.db,
+    engineer_id,
+  ))
   case contact.rows {
     [] -> Ok(Error(Nil))
     [row, ..] -> assemble(context, engineer_id, as_of, contact_to_shared(row))

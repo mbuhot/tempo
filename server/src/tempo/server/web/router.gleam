@@ -86,7 +86,12 @@ fn serve_static_no_cache(
   next handler: fn() -> wisp.Response,
 ) -> wisp.Response {
   let response =
-    wisp.serve_static(request, under: "/static", from: static_directory(), next: handler)
+    wisp.serve_static(
+      request,
+      under: "/static",
+      from: static_directory(),
+      next: handler,
+    )
   case wisp.path_segments(request), response.status {
     ["static", ..], 200 | ["static", ..], 304 ->
       wisp.set_header(response, "cache-control", "no-cache")

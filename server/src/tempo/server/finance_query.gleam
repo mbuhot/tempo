@@ -226,7 +226,10 @@ fn percentage(part: Float, of whole: Float) -> Float {
 /// allocations (the (b) rule). This derives the per-month profit (revenue − cost) and
 /// margin % (profit / revenue, 0 when revenue is 0) — the same derivation the P&L
 /// does — leaving the cliff and the (b) switch to SQL.
-pub fn forecast(context: Context, as_of: Date) -> Result(Forecast, pog.QueryError) {
+pub fn forecast(
+  context: Context,
+  as_of: Date,
+) -> Result(Forecast, pog.QueryError) {
   use returned <- result.map(sql.forecast(context.db, as_of))
   Forecast(months: list.map(returned.rows, forecast_row_to_month))
 }

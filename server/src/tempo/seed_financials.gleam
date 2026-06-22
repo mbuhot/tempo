@@ -160,9 +160,8 @@ fn log_timesheets(ctx: Context) -> Nil {
 fn timesheets_present(ctx: Context) -> Bool {
   let first_monday =
     day_index_to_date(
-      date_to_day_index(Date(2026, January, 1)) - weekday_of(
-        date_to_day_index(Date(2026, January, 1)),
-      ),
+      date_to_day_index(Date(2026, January, 1))
+      - weekday_of(date_to_day_index(Date(2026, January, 1))),
     )
   let assert Ok(returned) = sql.timesheet_week(ctx.db, 1, first_monday)
   list.any(returned.rows, fn(row) { row.hours >. 0.0 })
@@ -294,7 +293,11 @@ fn bill_month(ctx: Context, plan: MonthPlan) -> Nil {
   case payroll_run_present(ctx, plan.from, plan.to) {
     True -> Nil
     False ->
-      apply(ctx, RunPayroll(period_from: plan.from, period_to: plan.to), month_end)
+      apply(
+        ctx,
+        RunPayroll(period_from: plan.from, period_to: plan.to),
+        month_end,
+      )
   }
 }
 
