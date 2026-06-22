@@ -21,6 +21,7 @@ import shared/types.{
   type PeopleList,
   type PersonRow, type Pnl, type PnlRow, type ProjectDetail, type ProjectList,
   type ProjectListRow, type ProjectPlan, type ProjectProfile, type RateCardRow,
+  type Forecast, type ForecastMonth, type ProjectRequirement,
   type Ref, type RoleVersion, type Roster, type RosterStatus, type SalaryRow,
   type Settings, type TeamMember, type TimesheetCell, type TimesheetEntry,
   type TimesheetWeek, type TimesheetWeekRow, type UnstaffedProject,
@@ -33,8 +34,9 @@ import shared/types.{
   OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
   PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
   ProjectPlan, ProjectProfile, Promote, RateCardRow, Ref, ReviseRateCard,
+  Forecast, ForecastMonth, ProjectRequirement,
   RoleVersion, RollOff, Roster, RosterOnLeave, RosterOnProjects,
-  RosterUnassigned, RunPayroll, SalaryRow, SetSalary, Settings, SignContract,
+  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, SignContract,
   StartProject, TakeLeave, TeamMember, TerminateEmployment, TimesheetCell,
   TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
@@ -802,6 +804,21 @@ pub fn encode_command(command: Command) -> Json {
         #("period_from", encode_date(period_from)),
         #("period_to", encode_date(period_to)),
       ])
+    SetProjectRequirement(
+      project_id:,
+      level:,
+      quantity:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      json.object([
+        #("op", json.string("set_project_requirement")),
+        #("project_id", json.int(project_id)),
+        #("level", json.int(level)),
+        #("quantity", json.float(quantity)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
   }
 }
 
@@ -1021,6 +1038,20 @@ pub fn command_decoder() -> Decoder(Command) {
       use period_from <- decode.field("period_from", date_decoder())
       use period_to <- decode.field("period_to", date_decoder())
       decode.success(RunPayroll(period_from:, period_to:))
+    }
+    "set_project_requirement" -> {
+      use project_id <- decode.field("project_id", decode.int)
+      use level <- decode.field("level", decode.int)
+      use quantity <- decode.field("quantity", lenient_float_decoder())
+      use valid_from <- decode.field("valid_from", date_decoder())
+      use valid_to <- decode.field("valid_to", date_decoder())
+      decode.success(SetProjectRequirement(
+        project_id:,
+        level:,
+        quantity:,
+        valid_from:,
+        valid_to:,
+      ))
     }
     _ ->
       decode.failure(
@@ -1876,10 +1907,86 @@ pub fn team_member_decoder() -> Decoder(TeamMember) {
   decode.success(TeamMember(engineer_id:, name:, level:, fraction:, day_rate:))
 }
 
+// --- ProjectRequirement ------------------------------------------------------
+// One capacity requirement (demand) on the project-detail read model: `quantity`
+// FTE at a `level` over `[valid_from, valid_to)`. `quantity` decodes through the
+// lenient decoder (a JS client may serialise a whole `Float` as an integer-looking
+// number).
+
+/// Encode a `ProjectRequirement` (one capacity-requirement line) as a JSON object.
+pub fn encode_project_requirement(requirement: ProjectRequirement) -> Json {
+  let ProjectRequirement(project_id:, level:, quantity:, valid_from:, valid_to:) =
+    requirement
+  json.object([
+    #("project_id", json.int(project_id)),
+    #("level", json.int(level)),
+    #("quantity", json.float(quantity)),
+    #("valid_from", encode_date(valid_from)),
+    #("valid_to", encode_date(valid_to)),
+  ])
+}
+
+/// Decode a `ProjectRequirement` from a JSON object.
+pub fn project_requirement_decoder() -> Decoder(ProjectRequirement) {
+  use project_id <- decode.field("project_id", decode.int)
+  use level <- decode.field("level", decode.int)
+  use quantity <- decode.field("quantity", lenient_float_decoder())
+  use valid_from <- decode.field("valid_from", date_decoder())
+  use valid_to <- decode.field("valid_to", date_decoder())
+  decode.success(ProjectRequirement(
+    project_id:,
+    level:,
+    quantity:,
+    valid_from:,
+    valid_to:,
+  ))
+}
+
+// --- ForecastMonth -----------------------------------------------------------
+// One month of the forecast: the first-of-`month` Date plus the projected
+// revenue/cost/profit/margin from committed demand. The money/margin fields
+// decode through the lenient decoder.
+
+/// Encode a `ForecastMonth` (one month of the forecast) as a JSON object.
+pub fn encode_forecast_month(month: ForecastMonth) -> Json {
+  let ForecastMonth(month:, revenue:, cost:, profit:, margin_pct:) = month
+  json.object([
+    #("month", encode_date(month)),
+    #("revenue", json.float(revenue)),
+    #("cost", json.float(cost)),
+    #("profit", json.float(profit)),
+    #("margin_pct", json.float(margin_pct)),
+  ])
+}
+
+/// Decode a `ForecastMonth` from a JSON object.
+pub fn forecast_month_decoder() -> Decoder(ForecastMonth) {
+  use month <- decode.field("month", date_decoder())
+  use revenue <- decode.field("revenue", lenient_float_decoder())
+  use cost <- decode.field("cost", lenient_float_decoder())
+  use profit <- decode.field("profit", lenient_float_decoder())
+  use margin_pct <- decode.field("margin_pct", lenient_float_decoder())
+  decode.success(ForecastMonth(month:, revenue:, cost:, profit:, margin_pct:))
+}
+
+// --- Forecast ----------------------------------------------------------------
+
+/// Encode a `Forecast` (the forecast read model) to JSON.
+pub fn encode_forecast(forecast: Forecast) -> Json {
+  let Forecast(months:) = forecast
+  json.object([#("months", json.array(months, encode_forecast_month))])
+}
+
+/// Decode a `Forecast` from JSON.
+pub fn forecast_decoder() -> Decoder(Forecast) {
+  use months <- decode.field("months", decode.list(forecast_month_decoder()))
+  decode.success(Forecast(months:))
+}
+
 // --- ProjectDetail -----------------------------------------------------------
 // A bundle codec: `profile`/`plan` delegate to their component codecs, the run
-// period decomposes to plain dates + an `active` flag, and `team`/`invoices` go
-// through their row codecs.
+// period decomposes to plain dates + an `active` flag, and
+// `team`/`requirements`/`invoices` go through their row codecs.
 
 /// Encode a `ProjectDetail` (the project-detail read model) to JSON.
 pub fn encode_project_detail(detail: ProjectDetail) -> Json {
@@ -1891,6 +1998,7 @@ pub fn encode_project_detail(detail: ProjectDetail) -> Json {
     valid_to:,
     active:,
     team:,
+    requirements:,
     invoices:,
   ) = detail
   json.object([
@@ -1901,6 +2009,7 @@ pub fn encode_project_detail(detail: ProjectDetail) -> Json {
     #("valid_to", encode_date(valid_to)),
     #("active", json.bool(active)),
     #("team", json.array(team, encode_team_member)),
+    #("requirements", json.array(requirements, encode_project_requirement)),
     #("invoices", json.array(invoices, encode_invoice)),
   ])
 }
@@ -1914,6 +2023,10 @@ pub fn project_detail_decoder() -> Decoder(ProjectDetail) {
   use valid_to <- decode.field("valid_to", date_decoder())
   use active <- decode.field("active", decode.bool)
   use team <- decode.field("team", decode.list(team_member_decoder()))
+  use requirements <- decode.field(
+    "requirements",
+    decode.list(project_requirement_decoder()),
+  )
   use invoices <- decode.field("invoices", decode.list(invoice_decoder()))
   decode.success(ProjectDetail(
     profile:,
@@ -1923,6 +2036,7 @@ pub fn project_detail_decoder() -> Decoder(ProjectDetail) {
     valid_to:,
     active:,
     team:,
+    requirements:,
     invoices:,
   ))
 }

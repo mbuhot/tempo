@@ -19,9 +19,10 @@ import gleam/result
 import gleam/time/calendar.{type Date, Date, January}
 import pog
 import shared/types.{
-  type Invoice, type InvoiceDetail, type Payroll, type PayrollLine,
-  type PayrollRunInfo, type Pnl, type PnlRow, Invoice, InvoiceDetail, Payroll,
-  PayrollLine, PayrollRunInfo, Pnl, PnlRow,
+  type Forecast, type ForecastMonth, type Invoice, type InvoiceDetail,
+  type Payroll, type PayrollLine, type PayrollRunInfo, type Pnl, type PnlRow,
+  Forecast, ForecastMonth, Invoice, InvoiceDetail, Payroll, PayrollLine,
+  PayrollRunInfo, Pnl, PnlRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/sql
@@ -214,6 +215,30 @@ fn percentage(part: Float, of whole: Float) -> Float {
     0.0 -> 0.0
     _ -> part /. whole *. 100.0
   }
+}
+
+// --- forecast ----------------------------------------------------------------
+
+/// The forward P&L from committed demand (`GET /api/forecast?as_of=`). `sql.forecast`
+/// returns one (month, revenue, cost) row per calendar month from the as-of month to
+/// the cliff (the last day any requirement or allocation runs); per project per month
+/// the demand is the project's requirements if any cover the month, else its
+/// allocations (the (b) rule). This derives the per-month profit (revenue − cost) and
+/// margin % (profit / revenue, 0 when revenue is 0) — the same derivation the P&L
+/// does — leaving the cliff and the (b) switch to SQL.
+pub fn forecast(context: Context, as_of: Date) -> Result(Forecast, pog.QueryError) {
+  use returned <- result.map(sql.forecast(context.db, as_of))
+  Forecast(months: list.map(returned.rows, forecast_row_to_month))
+}
+
+fn forecast_row_to_month(row: sql.ForecastRow) -> ForecastMonth {
+  ForecastMonth(
+    month: row.month,
+    revenue: row.revenue,
+    cost: row.cost,
+    profit: row.revenue -. row.cost,
+    margin_pct: percentage(row.revenue -. row.cost, of: row.revenue),
+  )
 }
 
 // --- month arithmetic --------------------------------------------------------

@@ -32,10 +32,11 @@ import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AssignToProject,
   ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogWeek, OnboardEngineer,
-  PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
+  PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
+  UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -392,6 +393,7 @@ pub type OpKind {
   OpReviseRateCard
   OpAdjustRateForPortion
   OpSetSalary
+  OpSetProjectRequirement
 }
 
 /// Names a slot of the shared `OpForm`, so one edit message targets every text
@@ -756,6 +758,20 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(SetSalary(level:, monthly_salary:, effective:))
+    }
+    OpSetProjectRequirement -> {
+      use project_id <- result.try(require_int(form.project_id, "project id"))
+      use level <- result.try(require_int(form.level, "level"))
+      use quantity <- result.try(require_float(form.fraction, "quantity"))
+      use valid_from <- result.try(require_date(form.valid_from, "valid from"))
+      use valid_to <- result.try(require_date(form.valid_to, "valid to"))
+      Ok(SetProjectRequirement(
+        project_id:,
+        level:,
+        quantity:,
+        valid_from:,
+        valid_to:,
+      ))
     }
   }
 }

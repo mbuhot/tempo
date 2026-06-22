@@ -8,6 +8,10 @@
 .pnl__profit--negative { color: var(--color-leave); }
 .finance__total-note { font-family: var(--mono); font-weight: var(--weight-semibold); }
 
+/* Forecast: the summary row capping the month series — a hairline top rule and
+ * semibold weight set it apart from the per-month rows above. */
+.finance__total-row td { border-top: var(--border-thin) solid var(--color-border); font-weight: var(--weight-semibold); }
+
 /* Payroll variance: the back-pay-owed emphasis (header pill + the per-line Δ) and
  * the flagged varying rows borrow the warning status token. */
 .finance__owed { color: var(--color-warn); font-weight: var(--weight-semibold); }

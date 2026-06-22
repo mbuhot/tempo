@@ -123,30 +123,38 @@ test("the on-leave panel appears and disappears as the rail moves", async ({
   await expect(page.getByText("til 22 Jun 2026")).toBeVisible();
 });
 
-test("the unstaffed-projects lane lists a started project with no one allocated", async ({
+test("the unstaffed-projects lane lists started projects with no one allocated", async ({
   page,
 }) => {
-  // Platform Telemetry (started 2026-02-01, never staffed) has an active run but no
-  // allocation at the seed now, so the board surfaces it under its own "Unstaffed
-  // projects" lane — never in the per-project "On projects" blocks (those need an
-  // allocation). The card names the project and its client (Globex Corporation).
+  // Two projects run at the seed now with an active run but no allocation, so the
+  // board surfaces BOTH under its own "Unstaffed projects" lane — never in the
+  // per-project "On projects" blocks (those need an allocation). Platform Telemetry
+  // (started 2026-02-01, never staffed) and Edge Analytics (the prospective project
+  // — a forward run carrying capacity requirements but no allocation yet). Each card
+  // names the project and its client.
   await scrubTo(page, "2026-06-15");
   await expect(
     page.getByRole("heading", { name: "Unstaffed projects" }),
   ).toBeVisible();
   await expect(page.getByText("Platform Telemetry")).toBeVisible();
   await expect(page.getByText("Platform Telemetry")).toHaveCount(1);
+  await expect(page.getByText("Edge Analytics")).toBeVisible();
+  await expect(page.getByText("Initech Systems")).toBeVisible();
 });
 
 test("an unstaffed project's Assign opens the assign modal pre-filled with that project", async ({
   page,
 }) => {
   // The per-card "Assign" (distinct from the page-header "+ Assign") opens the
-  // canonical "Assign to a project" modal with Platform Telemetry already chosen in
-  // the Project select, leaving the engineer/fraction/dates for the user.
+  // canonical "Assign to a project" modal with that card's project already chosen in
+  // the Project select, leaving the engineer/fraction/dates for the user. Two
+  // unstaffed cards now share the lane (Platform Telemetry + Edge Analytics), so we
+  // scope the click to the card whose text names Platform Telemetry.
   await scrubTo(page, "2026-06-15");
-  await expect(page.getByText("Platform Telemetry")).toBeVisible();
-  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  const card = page
+    .locator("div")
+    .filter({ hasText: /^Platform TelemetryGlobex CorporationAssign$/ });
+  await card.getByRole("button", { name: "Assign", exact: true }).click();
   await expect(page.getByText("Assign to a project")).toBeVisible();
   await expect(page.getByLabel("Project")).toHaveValue(/.+/);
   await expect(

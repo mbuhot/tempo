@@ -15,15 +15,15 @@
 -- 2026-07-01 (rate-card change); Priya 0.5 + 0.5 fractional split.
 
 -- Identity anchors (BY DEFAULT identity; explicit ids allowed) -----------------
-INSERT INTO client (id) VALUES (1), (2);
+INSERT INTO client (id) VALUES (1), (2), (3);
 INSERT INTO engineer (id) VALUES (1), (2), (3);
-INSERT INTO contract (id) VALUES (10), (20);
-INSERT INTO project (id) VALUES (100), (200), (300), (400);
+INSERT INTO contract (id) VALUES (10), (20), (30);
+INSERT INTO project (id) VALUES (100), (200), (300), (400), (500);
 
-SELECT setval(pg_get_serial_sequence('client',   'id'), 2);
+SELECT setval(pg_get_serial_sequence('client',   'id'), 3);
 SELECT setval(pg_get_serial_sequence('engineer', 'id'), 3);
-SELECT setval(pg_get_serial_sequence('contract', 'id'), 20);
-SELECT setval(pg_get_serial_sequence('project',  'id'), 400);
+SELECT setval(pg_get_serial_sequence('contract', 'id'), 30);
+SELECT setval(pg_get_serial_sequence('project',  'id'), 500);
 
 -- Establish the rate card (what we CHARGE) — founding rows. --------------------
 WITH e AS (
@@ -117,6 +117,14 @@ WITH e AS (
 INSERT INTO client_profile (client_id, name, recorded_during, audit_id)
 SELECT 2, 'Globex Corporation', daterange('2024-01-01', NULL), e.id FROM e;
 
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-05-01', 'seed', 'register_client', 'Register client Initech Systems (client 3)',
+     '{"client_id":3,"name":"Initech Systems"}')
+  RETURNING id)
+INSERT INTO client_profile (client_id, name, recorded_during, audit_id)
+SELECT 3, 'Initech Systems', daterange('2024-01-01', NULL), e.id FROM e;
+
 -- Onboard engineers (employment, opening role, founding contact/banking/emergency).
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
@@ -183,6 +191,17 @@ WITH e AS (
 INSERT INTO contract_terms (contract_id, client_id, term, audit_id)
 SELECT 20, 2, daterange('2025-01-01','2027-01-01'), e.id FROM e;
 
+-- Sign a forward contract for Initech Systems over the prospective window, so a
+-- planned-but-unstaffed project can run under it (contract_terms PERIOD-FK contains
+-- the project_run, which in turn contains the capacity requirements below).
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-05-15', 'seed', 'sign_contract', 'Sign contract for Initech Systems (contract 30) over 2026-06-01..2027-01-01',
+     '{"client":"Initech Systems","valid_from":"2026-06-01","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO contract_terms (contract_id, client_id, term, audit_id)
+SELECT 30, 3, daterange('2026-06-01','2027-01-01'), e.id FROM e;
+
 -- Start projects (run + founding profile + founding plan). --------------------
 WITH e AS (
   INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
@@ -235,6 +254,38 @@ WITH e AS (
           SELECT 400, 'Platform Telemetry', '', daterange('2026-02-01', NULL), e.id FROM e)
 INSERT INTO project_plan (project_id, budget, target_completion, planned_during, audit_id)
 SELECT 400, 250000.00, '2026-12-31', daterange('2026-02-01', NULL), e.id FROM e;
+
+-- Start a PROSPECTIVE project: Edge Analytics for Initech Systems. Its run is
+-- active from 2026-06-01 (so at the seed now it surfaces in the board's
+-- Unstaffed-projects lane alongside Platform Telemetry, the hiring signal), and it
+-- carries capacity REQUIREMENTS (demand) over 2026-08-01..2027-01-01 but ZERO
+-- allocations (supply). It is the demand-side seed beat: the forecast prices revenue
+-- off its requirement lines despite no one being allocated (decision (b)). The
+-- requirement window sits inside the run, which sits inside the contract term, so
+-- both PERIOD-FKs hold.
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-06-01', 'seed', 'start_project', 'Start project Edge Analytics under contract 30 (project 500) over 2026-06-01..2027-01-01',
+     '{"name":"Edge Analytics","contract_id":30,"valid_from":"2026-06-01","valid_to":"2027-01-01"}')
+  RETURNING id),
+  run AS (INSERT INTO project_run (project_id, contract_id, active_during, audit_id)
+          SELECT 500, 30, daterange('2026-06-01','2027-01-01'), e.id FROM e),
+  pro AS (INSERT INTO project_profile (project_id, title, summary, recorded_during, audit_id)
+          SELECT 500, 'Edge Analytics', '', daterange('2026-06-01', NULL), e.id FROM e)
+INSERT INTO project_plan (project_id, budget, target_completion, planned_during, audit_id)
+SELECT 500, 600000.00, '2026-12-31', daterange('2026-06-01', NULL), e.id FROM e;
+
+-- Record Edge Analytics' capacity requirements (demand): 2× L3 + 1× L4 + 0.5× L5
+-- over 2026-08-01..2027-01-01. No engineer fills them yet — the roles would be hired
+-- — so the forecast prices them from the rate card / salary table directly.
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-06-01', 'seed', 'set_project_requirement', 'Set Edge Analytics capacity: 2x L3 + 1x L4 + 0.5x L5 over 2026-08-01..2027-01-01',
+     '{"project_id":500,"requirements":[{"level":3,"quantity":2},{"level":4,"quantity":1},{"level":5,"quantity":0.5}],"valid_from":"2026-08-01","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO project_requirement (project_id, level, quantity, required_during, audit_id)
+SELECT 500, v.level, v.quantity, daterange('2026-08-01','2027-01-01'), e.id FROM e,
+  (VALUES (3, 2.00), (4, 1.00), (5, 0.50)) AS v(level, quantity);
 
 -- Assign engineers to projects (Priya is the 0.5 + 0.5 fractional split). ------
 WITH e AS (

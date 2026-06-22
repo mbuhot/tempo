@@ -23,6 +23,7 @@ import tempo/server/web/board
 import tempo/server/web/clients
 import tempo/server/web/engineers
 import tempo/server/web/events
+import tempo/server/web/forecast
 import tempo/server/web/invoices
 import tempo/server/web/operations
 import tempo/server/web/payroll
@@ -54,6 +55,7 @@ pub fn handle_request(
     ["api", "invoices", id] -> invoices.handle_detail(request, context, id)
     ["api", "payroll"] -> payroll.handle(request, context)
     ["api", "pnl"] -> pnl.handle(request, context)
+    ["api", "forecast"] -> forecast.handle(request, context)
     ["api", "roster"] -> roster.handle(request, context)
     ["api", "people"] -> people.handle(request, context)
     ["api", "engineers", id] -> engineers.handle_detail(request, context, id)

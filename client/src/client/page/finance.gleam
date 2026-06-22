@@ -35,8 +35,9 @@ import lustre/event
 import rsvp
 import shared/codecs
 import shared/types.{
-  type Event, type Invoice, type InvoiceDetail, type InvoiceLine, type Payroll,
-  type PayrollLine, type Pnl, type PnlRow, type Ref, type Roster,
+  type Event, type Forecast, type ForecastMonth, type Invoice,
+  type InvoiceDetail, type InvoiceLine, type Payroll, type PayrollLine, type Pnl,
+  type PnlRow, type Ref, type Roster,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -70,6 +71,7 @@ pub type Data {
     invoices: Option(List(Invoice)),
     payroll: Option(Payroll),
     pnl: Option(Pnl),
+    forecast: Option(Forecast),
     roster: Option(Roster),
     selected: Option(Int),
     detail: Option(InvoiceDetail),
@@ -92,6 +94,10 @@ pub type Msg {
   )
   GotPayroll(as_of: calendar.Date, result: Result(Payroll, rsvp.Error(String)))
   GotPnl(as_of: calendar.Date, result: Result(Pnl, rsvp.Error(String)))
+  GotForecast(
+    as_of: calendar.Date,
+    result: Result(Forecast, rsvp.Error(String)),
+  )
   GotRoster(as_of: calendar.Date, result: Result(Roster, rsvp.Error(String)))
   GotDetail(
     as_of: calendar.Date,
@@ -162,6 +168,7 @@ pub fn refetch(
       invoices: None,
       payroll: None,
       pnl: None,
+      forecast: None,
       roster: None,
       selected:,
       detail: None,
@@ -179,6 +186,7 @@ fn fetch_all(as_of: calendar.Date) -> Effect(Msg) {
     fetch_invoices(as_of),
     fetch_payroll(as_of),
     fetch_pnl(as_of),
+    fetch_forecast(as_of),
     fetch_roster(as_of),
   ])
 }
@@ -209,6 +217,14 @@ fn fetch_pnl(as_of: calendar.Date) -> Effect(Msg) {
   )
 }
 
+fn fetch_forecast(as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/forecast?as_of=" <> time.iso_date(as_of),
+    codecs.forecast_decoder(),
+    GotForecast(as_of, _),
+  )
+}
+
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> time.iso_date(as_of),
@@ -236,6 +252,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     GotInvoices(as_of:, result:) -> on_invoices(model, as_of, result)
     GotPayroll(as_of:, result:) -> on_payroll(model, as_of, result)
     GotPnl(as_of:, result:) -> on_pnl(model, as_of, result)
+    GotForecast(as_of:, result:) -> on_forecast(model, as_of, result)
     GotRoster(as_of:, result:) -> on_roster(model, as_of, result)
     GotDetail(as_of:, id:, result:) -> on_detail(model, as_of, id, result)
     TabClicked(tab:) -> on_tab(model, tab)
@@ -300,6 +317,25 @@ fn on_pnl(
       case result {
         Ok(pnl) -> #(
           Loaded(Data(..data_for(model, as_of), pnl: Some(pnl))),
+          detail_catch_up(model, as_of),
+          [],
+        )
+        Error(error) -> on_load_error(model, error)
+      }
+  }
+}
+
+fn on_forecast(
+  model: Model,
+  as_of: calendar.Date,
+  result: Result(Forecast, rsvp.Error(String)),
+) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case answers_current(model, as_of) {
+    False -> #(model, effect.none(), [])
+    True ->
+      case result {
+        Ok(forecast) -> #(
+          Loaded(Data(..data_for(model, as_of), forecast: Some(forecast))),
           detail_catch_up(model, as_of),
           [],
         )
@@ -509,6 +545,7 @@ fn refetch_loaded(data: Data) -> #(Model, Effect(Msg)) {
         invoices: None,
         payroll: None,
         pnl: None,
+        forecast: None,
         roster: None,
         detail: None,
         op: None,
@@ -564,6 +601,7 @@ fn blank_data(
     invoices: None,
     payroll: None,
     pnl: None,
+    forecast: None,
     roster: None,
     selected:,
     detail: None,
@@ -620,6 +658,7 @@ fn view_loaded(data: Data, as_of: calendar.Date) -> Element(Msg) {
     subpage(data.tab == route.Invoices, view_invoices(data)),
     subpage(data.tab == route.Payroll, view_payroll(data)),
     subpage(data.tab == route.Pnl, view_pnl(data)),
+    subpage(data.tab == route.Forecast, view_forecast(data)),
   ])
 }
 
@@ -655,6 +694,7 @@ fn view_tabs(active: route.FinanceTab) -> Element(Msg) {
     tab_button("Invoices", route.Invoices, active),
     tab_button("Payroll", route.Payroll, active),
     tab_button("P&L", route.Pnl, active),
+    tab_button("Forecast", route.Forecast, active),
   ])
 }
 
@@ -1192,6 +1232,106 @@ fn pnl_row(row: PnlRow) -> Element(Msg) {
     html.td([attribute.class("num")], [html.text(ui.pct(row.margin_pct))]),
     html.td([attribute.class("num")], [html.text(ui.pct(row.utilization_pct))]),
   ])
+}
+
+// --- Forecast tab -----------------------------------------------------------
+
+/// The forward P&L from committed demand (`GET /api/forecast?as_of=`): one row per
+/// calendar month from the as-of month to the cliff (Month | Revenue | Cost |
+/// Profit | Margin), capped by a total row summing each money column with the
+/// blended margin. An empty-state when no month carries demand.
+fn view_forecast(data: Data) -> Element(Msg) {
+  case data.forecast {
+    None -> ui.empty_state(message: "Loading forecast…")
+    Some(forecast) ->
+      case forecast.months {
+        [] ->
+          ui.panel(title: "Forecast", count: "0 months", right: [], body: [
+            ui.empty_state(
+              message: "No committed demand to forecast on this date.",
+            ),
+          ])
+        months -> {
+          let count = list.length(months)
+          let total_revenue =
+            list.fold(months, 0.0, fn(sum, month) { sum +. month.revenue })
+          let total_cost =
+            list.fold(months, 0.0, fn(sum, month) { sum +. month.cost })
+          let total_profit = total_revenue -. total_cost
+          let total_margin = case total_revenue >. 0.0 {
+            True -> total_profit /. total_revenue *. 100.0
+            False -> 0.0
+          }
+          ui.panel(
+            title: "Forecast",
+            count: int.to_string(count) <> " months",
+            right: [
+              html.span([attribute.class("finance__total-note")], [
+                html.text(ui.money(total_revenue) <> " revenue to the cliff"),
+              ]),
+            ],
+            body: [
+              ui.data_table(
+                headers: [
+                  #("Month", False),
+                  #("Revenue", True),
+                  #("Cost", True),
+                  #("Profit", True),
+                  #("Margin", True),
+                ],
+                rows: list.append(list.map(months, forecast_row), [
+                  forecast_total_row(
+                    total_revenue,
+                    total_cost,
+                    total_profit,
+                    total_margin,
+                  ),
+                ]),
+              ),
+            ],
+          )
+        }
+      }
+  }
+}
+
+fn forecast_row(month: ForecastMonth) -> Element(Msg) {
+  let #(profit_class, profit_text) = forecast_profit(month.profit)
+  html.tr([], [
+    html.td([], [html.text(format_month(month.month))]),
+    html.td([attribute.class("num")], [html.text(ui.money(month.revenue))]),
+    html.td([attribute.class("num")], [html.text(ui.money(month.cost))]),
+    html.td([attribute.class(profit_class)], [html.text(profit_text)]),
+    html.td([attribute.class("num")], [html.text(ui.pct(month.margin_pct))]),
+  ])
+}
+
+fn forecast_total_row(
+  revenue: Float,
+  cost: Float,
+  profit: Float,
+  margin: Float,
+) -> Element(Msg) {
+  let #(profit_class, profit_text) = forecast_profit(profit)
+  html.tr([attribute.class("finance__total-row")], [
+    html.td([], [html.text("Total")]),
+    html.td([attribute.class("num")], [html.text(ui.money(revenue))]),
+    html.td([attribute.class("num")], [html.text(ui.money(cost))]),
+    html.td([attribute.class(profit_class)], [html.text(profit_text)]),
+    html.td([attribute.class("num")], [html.text(ui.pct(margin))]),
+  ])
+}
+
+/// The profit cell's class and signed text, mirroring the P&L table's positive /
+/// negative colouring (a leading minus glyph on a loss).
+fn forecast_profit(profit: Float) -> #(String, String) {
+  case profit >=. 0.0 {
+    True -> #("num pnl__profit--positive", ui.money(profit))
+    False -> #(
+      "num pnl__profit--negative",
+      "−" <> ui.money(float.absolute_value(profit)),
+    )
+  }
 }
 
 // --- Op form sheet ----------------------------------------------------------

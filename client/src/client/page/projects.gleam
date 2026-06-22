@@ -43,7 +43,8 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type Event, type Invoice, type ProjectDetail, type ProjectList,
-  type ProjectListRow, type Ref, type Roster, type TeamMember,
+  type ProjectListRow, type ProjectRequirement, type Ref, type Roster,
+  type TeamMember,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -458,6 +459,10 @@ fn seed_detail_fields(
             ui.FTargetCompletion,
             iso_date(detail.plan.target_completion),
           )
+        ui.OpSetProjectRequirement ->
+          form
+          |> ui.update_op_form(ui.FLevel, "3")
+          |> ui.update_op_form(ui.FFraction, "1")
         _ -> form
       }
     _ -> form
@@ -627,6 +632,12 @@ fn view_project_detail(
           on_press: OpStarted(ui.OpUpdateProjectPlan),
         ),
         ui.button(
+          label: "Set requirement",
+          kind: ui.Ghost,
+          size: ui.Small,
+          on_press: OpStarted(ui.OpSetProjectRequirement),
+        ),
+        ui.button(
           label: "Draft invoice",
           kind: ui.Primary,
           size: ui.Small,
@@ -665,6 +676,7 @@ fn view_project_detail(
     html.div([attribute.class("detail-grid")], [
       html.div([], [
         team_panel(detail.team, as_of),
+        requirements_panel(detail.requirements),
         invoices_panel(detail.invoices),
       ]),
       html.div([], [plan_panel(detail)]),
@@ -734,6 +746,40 @@ fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
       ]),
     ],
   )
+}
+
+/// The capacity-requirements panel (demand): each line as a level chip, its
+/// fractional-FTE quantity (`×N`), and the period it covers. An empty-state when
+/// the project carries no requirements.
+fn requirements_panel(requirements: List(ProjectRequirement)) -> Element(Msg) {
+  let body = case requirements {
+    [] -> [ui.empty_state(message: "No capacity requirements.")]
+    requirements -> list.map(requirements, requirement_row)
+  }
+  ui.panel(
+    title: "Capacity requirements",
+    count: int.to_string(list.length(requirements)),
+    right: [],
+    body: [html.div([attribute.class("kv")], body)],
+  )
+}
+
+fn requirement_row(requirement: ProjectRequirement) -> Element(Msg) {
+  html.div([attribute.class("kv__row")], [
+    html.span([attribute.class("kv__key")], [
+      ui.chip(label: ui.level_band(requirement.level), tone: ui.Neutral),
+      html.span([attribute.class("board-card__fraction")], [
+        html.text("×" <> ui.days(requirement.quantity)),
+      ]),
+    ]),
+    html.span([attribute.class("kv__value mono")], [
+      html.text(
+        format_date(requirement.valid_from)
+        <> " → "
+        <> format_date(requirement.valid_to),
+      ),
+    ]),
+  ])
 }
 
 fn invoices_panel(invoices: List(Invoice)) -> Element(Msg) {
@@ -893,8 +939,40 @@ fn op_fields(
       date_field("Billing from", ui.FValidFrom, form.valid_from),
       date_field("Billing to", ui.FValidTo, form.valid_to),
     ]
+    ui.OpSetProjectRequirement -> [
+      project_select,
+      level_select(form.level),
+      number_field("Quantity", ui.FFraction, form.fraction),
+      date_field("Valid from", ui.FValidFrom, form.valid_from),
+      date_field("Valid to", ui.FValidTo, form.valid_to),
+    ]
     _ -> []
   }
+}
+
+/// A labelled `<select>` over levels 1–7, bound to the `FLevel` slot. The option
+/// value is the level number as text, the label its band name; the form's current
+/// level is pre-selected. Built locally so `ui.gleam` stays frozen.
+fn level_select(selected: String) -> Element(Msg) {
+  let options =
+    [1, 2, 3, 4, 5, 6, 7]
+    |> list.map(fn(level) {
+      let value = int.to_string(level)
+      html.option(
+        [attribute.value(value), attribute.selected(value == selected)],
+        ui.level_band(level),
+      )
+    })
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Level")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Level"),
+        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+      ],
+      options,
+    ),
+  ])
 }
 
 /// The project select: a free `<select>` over the roster on the list page, or a
@@ -1003,6 +1081,7 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpUpdateProjectProfile -> "Edit project profile"
     ui.OpUpdateProjectPlan -> "Edit project plan"
     ui.OpDraftInvoice -> "Draft an invoice"
+    ui.OpSetProjectRequirement -> "Set capacity requirement"
     _ -> "Operation"
   }
 }
@@ -1015,6 +1094,7 @@ fn op_verb(kind: ui.OpKind) -> String {
     ui.OpUpdateProjectProfile -> "Save profile"
     ui.OpUpdateProjectPlan -> "Save plan"
     ui.OpDraftInvoice -> "Draft invoice"
+    ui.OpSetProjectRequirement -> "Set requirement"
     _ -> "Confirm"
   }
 }

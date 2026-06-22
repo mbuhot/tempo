@@ -340,6 +340,16 @@ pub type Command {
   /// Run payroll for a month, computing one prorated `payroll_line` per employed
   /// engineer (split by role so a mid-month promotion blends salaries).
   RunPayroll(period_from: Date, period_to: Date)
+  /// Set a project's capacity requirement (demand) at a level for a bounded
+  /// window: a FOR-PORTION-OF write on `(project_id, level)`, splitting the
+  /// requirement row into before/during/after. `quantity` is fractional FTE.
+  SetProjectRequirement(
+    project_id: Int,
+    level: Int,
+    quantity: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
 }
 
 /// The POST /api/operations request body: an `actor` (who is applying the
@@ -650,9 +660,43 @@ pub type TeamMember {
   )
 }
 
+/// One capacity requirement on the project-detail read model (demand): the project
+/// needs `quantity` FTE at a given `level` over `[valid_from, valid_to)`. One line
+/// per `(project, level)` over non-overlapping periods. Independent of which
+/// engineers (if any) fill it — the roles may need to be hired.
+pub type ProjectRequirement {
+  ProjectRequirement(
+    project_id: Int,
+    level: Int,
+    quantity: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+}
+
+/// One month of the forecast (`GET /api/forecast?as_of=`): the first-of-`month`
+/// Date (the client formats it) and the projected `revenue`, `cost`, `profit`, and
+/// `margin_pct` from committed demand for that month.
+pub type ForecastMonth {
+  ForecastMonth(
+    month: Date,
+    revenue: Float,
+    cost: Float,
+    profit: Float,
+    margin_pct: Float,
+  )
+}
+
+/// The forecast read model (`GET /api/forecast?as_of=`): one `ForecastMonth` per
+/// calendar month from the as-of month to the cliff.
+pub type Forecast {
+  Forecast(months: List(ForecastMonth))
+}
+
 /// The project-detail read model (`GET /api/projects/:id?as_of=`): the project's
 /// `profile` and `plan`, its `client` name, its run period `[valid_from, valid_to)`
-/// with `active` (covers the as-of date), its `team` as-of, and its `invoices`.
+/// with `active` (covers the as-of date), its `team` as-of, its capacity
+/// `requirements` (demand), and its `invoices`.
 pub type ProjectDetail {
   ProjectDetail(
     profile: ProjectProfile,
@@ -662,6 +706,7 @@ pub type ProjectDetail {
     valid_to: Date,
     active: Bool,
     team: List(TeamMember),
+    requirements: List(ProjectRequirement),
     invoices: List(Invoice),
   )
 }

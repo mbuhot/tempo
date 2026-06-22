@@ -1087,6 +1087,55 @@ bill, still needs an invoice to exist, an odd recognition point); keep recogniti
 
 ---
 
+## ADR-044 — Capacity requirements (demand) + a requirement-based forecast — mirror of the capacity P&L
+**Status:** Accepted (companions ADR-043)
+
+**Context.** Revenue was only ever derivable from **allocations** — supply, a specific engineer assigned to a
+project (ADR-043's capacity P&L recognizes the billable value of work *performed*). So a project that is
+contracted and *planned* but not yet staffed — or that will need new hires — forecast **nothing**, even though
+its forward revenue is knowable from what the client engaged it to deliver. There was no first-class notion of a
+project's *need* independent of who fills it.
+
+**Decision.** Introduce a **capacity requirement** (demand): a project needs `quantity` fractional FTE at a given
+`level` over a period (`project_requirement(project_id, level, quantity, required_during)` — e.g. 2× L3 + 1× L4 +
+0.5× L5, Aug 2026 – Jan 2027). It mirrors `allocation`'s containment: a PERIOD-FK contains each requirement within
+the project's run, one non-overlapping line per `(project, level)`, written by a FOR-PORTION-OF
+`SetProjectRequirement` op on the existing **ReviseRateCard** pattern (CHECK `quantity > 0`, `level ∈ 1..7`; the
+period must fall within the run). Then add a **forecast** (`GET /api/forecast?as_of=`) — the forward P&L from
+**committed demand**, the demand-side mirror of ADR-043:
+
+- **(b) requirements-else-allocations.** Per `(project, month)` the effective demand is the project's
+  **requirement lines if any cover that month, otherwise its current allocations** mapped to `(level, fraction)`
+  via `engineer_role` — never both, so no double-count. A staffed project forecasts off its real plan
+  (allocations); a planned-but-unstaffed project forecasts off its requirements; a project mid-transition uses
+  requirements wherever they exist and allocations elsewhere.
+- **Capacity basis.** `revenue = Σ quantity × rate_card[level].day_rate × days` and
+  `cost = Σ quantity × salary[level] × days/days-in-month`, each split on the rate-card / salary version over the
+  demand ∩ version ∩ month sub-period — the same rate/version splitting as the capacity P&L's `rev` CTE; cost is
+  the expected cost to fulfil, including roles that would be hired (standard `salary[level]`, no hiring ramp).
+  `profit = revenue − cost`; `margin = profit/revenue` (0 when revenue is 0).
+- **The cliff.** The series runs from the as-of month to
+  `max(upper(required_during) over all requirements, upper(allocated_during) over all allocations)` — the last
+  month any committed demand exists; beyond it there is nothing to forecast.
+
+**Rationale.** The P&L recognizes work **performed** (allocations); the forecast projects work **committed**
+(requirements, or allocations as the implicit plan) — two read models over one capacity basis. Requirements give
+the consultancy a first-class **hiring signal**: an unstaffed project surfaces in the board's Unstaffed lane AND
+contributes forward revenue, so the gap between demand and supply is visible before it bites.
+
+**Tradeoff (explicit).** A requirement-only project recognizes forecast revenue with **no one allocated** — the
+point of the (b) rule, but it means the forecast is a projection of *committed* demand, not booked work; once a
+project is staffed its allocations (the fallback) take over only for months no requirement covers. v1 has **no
+explicit requirement removal** — shrink the period to retire a need — and uncontracted sales-pipeline prospects
+are out of scope (a requirement attaches to a project that runs under a contract).
+
+**Alternatives.** Forecast off allocations alone (rejected — the original gap: a planned/unstaffed project
+forecasts $0); sum requirements AND allocations (rejected — double-counts a staffed project against its own
+plan); a separate pipeline/opportunity model decoupled from projects (rejected — out of scope for v1, and a
+contracted project already carries the run and rates the forecast needs).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

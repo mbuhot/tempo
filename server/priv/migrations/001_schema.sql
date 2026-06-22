@@ -148,6 +148,23 @@ CREATE TABLE allocation (
     REFERENCES project_run (project_id, PERIOD active_during)
 );
 
+-- Capacity requirement (demand): a project needs `quantity` FTE at `level` over a
+-- period, independent of who (if anyone) is allocated. One line per (project, level)
+-- over non-overlapping periods; the PERIOD-FK contains the demand within the
+-- project's run, mirroring how allocation is contained.
+CREATE TABLE project_requirement (
+  project_id      int  NOT NULL REFERENCES project(id),
+  level           int  NOT NULL CONSTRAINT project_requirement_level_check CHECK (level BETWEEN 1 AND 7),
+  quantity        numeric(4,2) NOT NULL CONSTRAINT project_requirement_quantity_check CHECK (quantity > 0),
+  required_during daterange NOT NULL,
+  audit_id        bigint,
+  CONSTRAINT project_requirement_no_overlap
+    PRIMARY KEY (project_id, level, required_during WITHOUT OVERLAPS),
+  CONSTRAINT requirement_within_project
+    FOREIGN KEY (project_id, PERIOD required_during)
+    REFERENCES project_run (project_id, PERIOD active_during)
+);
+
 CREATE TABLE timesheet (
   engineer_id int NOT NULL,
   project_id  int NOT NULL,

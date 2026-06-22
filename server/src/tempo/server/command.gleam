@@ -20,9 +20,10 @@ import shared/types.{
   type Command, type Event, AdjustRateForPortion, AssignToProject,
   ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet, LogWeek,
   OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
-  SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
+  UpdateProjectProfile,
 }
 import tempo/server/allocation
 import tempo/server/client_details
@@ -36,6 +37,7 @@ import tempo/server/leave
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll
 import tempo/server/project_details
+import tempo/server/project_requirement
 import tempo/server/rate_card
 import tempo/server/repository
 import tempo/server/salary
@@ -101,6 +103,8 @@ fn route(
 
     ReviseRateCard(..) | AdjustRateForPortion(..) ->
       rate_card.handle(conn, command)
+
+    SetProjectRequirement(..) -> project_requirement.handle(conn, command)
 
     SignContract(..) | StartProject(..) -> engagement.handle(conn, command)
 

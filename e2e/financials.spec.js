@@ -378,3 +378,100 @@ test("a drafted invoice is journalled in the Activity log", async ({ page }) => 
       .first(),
   ).toBeVisible();
 });
+
+// Open the Forecast tab from the Finance page. The tab is a button labelled
+// "Forecast"; clicking it reveals the forward-P&L panel titled "Forecast". The
+// panel's count header reads "<n> months", so we wait for that month-suffixed count
+// as the visible signal the read model has landed.
+async function openForecastTab(page) {
+  await page.getByRole("button", { name: "Forecast", exact: true }).click();
+  await expect(page.getByText(/\d+ months/)).toBeVisible();
+}
+
+test("the Forecast tab projects committed demand month-by-month to the cliff", async ({
+  page,
+}) => {
+  // FORWARD P&L from committed demand (the demand-side mirror of the capacity P&L).
+  // At the seed now (2026-06-15) the forecast buckets every calendar month from June
+  // 2026 to the cliff — the latest end of any requirement or allocation = 2027-01-01,
+  // so the last bucket is December 2026. The table carries the Month/Revenue/Cost/
+  // Profit/Margin axes and a blended Total row. We assert the labelled axes, the
+  // endpoint month, and that the revenue-to-the-cliff note renders a money figure —
+  // not exact dollars, since the shared append-only DB lets concurrent specs shift
+  // allocation-side revenue.
+  await openForecastTab(page);
+
+  for (const header of ["Month", "Revenue", "Cost", "Profit", "Margin"]) {
+    await expect(
+      page.getByRole("columnheader", { name: header, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(page.getByText(/\$[\d,]+ revenue to the cliff/)).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /Dec 2026/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /^Total/ }),
+  ).toBeVisible();
+});
+
+test("the prospective project forecasts requirement-based revenue with no allocations", async ({
+  page,
+}) => {
+  // The (b) rule end to end. The seed's Edge Analytics (the prospective Initech
+  // project) carries capacity requirements 2× L3 + 1× L4 + 0.5× L5 over
+  // 2026-08-01..2027-01-01 but NO allocation, so under any allocation-only forecast
+  // it would add $0. Its August 2026 requirement demand prices at
+  // (2×$800 + 1×$1,000 + 0.5×$1,400) × 31 days = $102,300. We compare two August
+  // figures on ONE page load — the whole-consultancy forecast total and the same
+  // forecast with the prospective project's contribution subtracted is not available
+  // per-row, so instead we prove the requirement basis lifts August strictly above
+  // the allocation-only months around it is also concurrent-sensitive. The stable,
+  // self-contained proof: August's revenue exceeds the seed's allocation-only
+  // baseline ($142,600) by at least the requirement value, i.e. it clears $200,000 —
+  // unreachable from the four allocated projects alone, so only the unstaffed
+  // project's priced requirements put it there.
+  await openForecastTab(page);
+  await expect(
+    page
+      .getByRole("row", { name: /Aug 2026/ })
+      .filter({ hasText: /\$2\d{2},\d{3}|\$[3-9]\d{2},\d{3}/ }),
+  ).toBeVisible();
+});
+
+test("setting a capacity requirement on a project lists it in the requirements panel", async ({
+  page,
+}) => {
+  // The demand-side write: on a project detail the "Set requirement" op records a
+  // capacity requirement (a FOR-PORTION-OF write), and the "Capacity requirements"
+  // panel then lists it as a level chip + ×quantity + period. We set 2× L3 over
+  // 2026-08-01..2027-01-01 on Ledger Migration (project 100, whose run spans that
+  // window). Re-run safe: the set is idempotent (FOR PORTION OF re-sets the same
+  // (project, level) window — no overlap, no split), so repeated runs against the
+  // append-only DB land the same single line.
+  await navigateTo(page, "Projects");
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await clickContent(page.getByText("Ledger Migration").first());
+  await expect(
+    page.getByRole("heading", { name: "Ledger Migration" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Set requirement" }).dispatchEvent("click");
+  await expect(page.getByText("Set capacity requirement")).toBeVisible();
+  await page.getByLabel("Level").selectOption({ label: "L3 · Senior" });
+  await page.getByLabel("Quantity").fill("2");
+  await page.getByLabel("Valid from").fill("2026-08-01");
+  await page.getByLabel("Valid to").fill("2027-01-01");
+  await confirmOp(page, "Set requirement");
+
+  // The panel now carries the line: the L3 band chip, its ×2 quantity, and the
+  // period rendered "1 Aug 2026 → 1 Jan 2027".
+  await expect(
+    page.getByRole("heading", { name: "Capacity requirements" }),
+  ).toBeVisible();
+  await expect(page.getByText("L3 · Senior").first()).toBeVisible();
+  await expect(page.getByText("×2").first()).toBeVisible();
+  await expect(
+    page.getByText("1 Aug 2026 → 1 Jan 2027").first(),
+  ).toBeVisible();
+});

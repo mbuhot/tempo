@@ -40,8 +40,8 @@ import tempo/server/fact.{
   EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
   EngineerEmployed, EngineerOffProject, EngineerOnLeave, EngineerWorkedHours,
   Invoice, InvoiceInStatus, InvoiceLine, InvoiceSubject, PayrollLine,
-  PayrollPeriod, PayrollRun, Project, ProjectPlan, ProjectProfile, ProjectRun,
-  RateCard, Salary,
+  PayrollPeriod, PayrollRun, Project, ProjectPlan, ProjectProfile,
+  ProjectRequirement, ProjectRun, RateCard, Salary,
 }
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/sql
@@ -351,6 +351,9 @@ fn write(
         },
       )
 
+    ProjectRequirement(project_id:, level:, quantity:, from:, to:) ->
+      record_requirement(conn, audit_id, project_id, level, quantity, from, to)
+
     // --- client ---------------------------------------------------------------
     ClientProfile(client_id:, name:, from:) ->
       change_or_open(
@@ -445,6 +448,41 @@ fn record_hours(
       sql.timesheet_write(conn, engineer_id, project_id, day, hours, audit_id)
       |> operation.run
   }
+}
+
+/// Record a project's capacity requirement as a FOR-PORTION-OF set on
+/// `(project_id, level)`: carve the target window out of any covering rows (the
+/// before/after remainders re-insert at their original quantity), then insert the
+/// new demand line. The WITHOUT OVERLAPS PK is not an ON CONFLICT target, so this is
+/// a clear-then-set run in ONE transaction. The insert's PERIOD-FK
+/// (`requirement_within_project`) classifies via `operation.run` as
+/// `ContainmentViolated` when the window is not covered by the project's run.
+fn record_requirement(
+  conn: pog.Connection,
+  audit_id: Int,
+  project_id: Int,
+  level: Int,
+  quantity: Float,
+  from: Date,
+  to: Date,
+) -> Result(Nil, OperationError) {
+  use _ <- operation.try(sql.project_requirement_clear(
+    conn,
+    project_id,
+    from,
+    to,
+    level,
+  ))
+  sql.project_requirement_set(
+    conn,
+    project_id,
+    from,
+    to,
+    level,
+    quantity,
+    audit_id,
+  )
+  |> operation.run
 }
 
 /// Record an engineer's departure from `from`: cap every fact contained by the

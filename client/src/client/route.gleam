@@ -23,6 +23,7 @@ pub type FinanceTab {
   Invoices
   Payroll
   Pnl
+  Forecast
 }
 
 /// The pages the shell can render. Detail routes carry their entity id so a deep
@@ -159,6 +160,7 @@ fn finance_tab_to_string(tab: FinanceTab) -> String {
     Invoices -> "invoices"
     Payroll -> "payroll"
     Pnl -> "pnl"
+    Forecast -> "forecast"
   }
 }
 
@@ -167,6 +169,7 @@ fn finance_tab_from_string(raw: String) -> FinanceTab {
   case raw {
     "payroll" -> Payroll
     "pnl" -> Pnl
+    "forecast" -> Forecast
     _ -> Invoices
   }
 }
