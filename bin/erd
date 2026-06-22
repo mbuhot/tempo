@@ -23,7 +23,8 @@ WITH tabs AS (
   -- ordinary tables in the public schema, minus the migration runner's bookkeeping
   SELECT c.oid, c.relname
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'schema_migrations'
+  WHERE n.nspname = 'public' AND c.relkind = 'r'
+    AND c.relname NOT IN ('schema_migrations', 'event_log')
 ),
 pk AS (  -- (table, column) pairs in a primary key, with conperiod = temporal (WITHOUT OVERLAPS)
   SELECT con.conrelid AS reloid, unnest(con.conkey) AS attnum, con.conperiod
@@ -64,8 +65,8 @@ entity_blocks AS (
 enforced AS (  -- real foreign keys; conperiod marks the temporal (PERIOD) ones
   SELECT parent.relname AS parent, child.relname AS child, con.conperiod
   FROM pg_constraint con
-  JOIN pg_class child  ON child.oid  = con.conrelid
-  JOIN pg_class parent ON parent.oid = con.confrelid
+  JOIN tabs child  ON child.oid  = con.conrelid
+  JOIN tabs parent ON parent.oid = con.confrelid
   WHERE con.contype = 'f'
 ),
 inferred AS (  -- unenforced <x>_id references (column named for a table, but no FK on it)
