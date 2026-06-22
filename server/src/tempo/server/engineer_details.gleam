@@ -59,7 +59,7 @@ fn update_contact_details(
       ),
       facts: [
         fact.EngineerContactDetails(
-          engineer_id:,
+          engineer_id: fact.EngineerId(engineer_id),
           name:,
           email:,
           phone:,
@@ -97,7 +97,7 @@ fn update_banking_details(
       ),
       facts: [
         fact.EngineerBankingDetails(
-          engineer_id:,
+          engineer_id: fact.EngineerId(engineer_id),
           bank:,
           branch:,
           account_no:,
@@ -137,7 +137,7 @@ fn update_emergency_contact(
       ),
       facts: [
         fact.EngineerEmergencyContact(
-          engineer_id:,
+          engineer_id: fact.EngineerId(engineer_id),
           relation:,
           name:,
           phone:,

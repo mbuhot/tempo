@@ -63,7 +63,14 @@ fn log_timesheet(command: Command) -> Result(Recorded, OperationError) {
           <> operation.iso(day),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:)],
+      facts: [
+        fact.EngineerWorkedHours(
+          engineer_id: fact.EngineerId(engineer_id),
+          project_id: fact.ProjectId(project_id),
+          day:,
+          hours:,
+        ),
+      ],
     ),
   )
 }
@@ -76,7 +83,12 @@ fn log_week(command: Command) -> Result(Recorded, OperationError) {
   let worked_hours =
     list.map(entries, fn(entry) {
       let TimesheetEntry(project_id:, day:, hours:) = entry
-      fact.EngineerWorkedHours(engineer_id:, project_id:, day:, hours:)
+      fact.EngineerWorkedHours(
+        engineer_id: fact.EngineerId(engineer_id),
+        project_id: fact.ProjectId(project_id),
+        day:,
+        hours:,
+      )
     })
   Ok(Recorded(
     entry: Event(

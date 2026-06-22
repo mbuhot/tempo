@@ -49,7 +49,12 @@ fn update_project_profile(
         payload: codecs.encode_command(command),
       ),
       facts: [
-        fact.ProjectProfile(project_id:, title:, summary:, from: effective),
+        fact.ProjectProfile(
+          project_id: fact.ProjectId(project_id),
+          title:,
+          summary:,
+          from: effective,
+        ),
       ],
     ),
   )
@@ -77,7 +82,7 @@ fn update_project_plan(command: Command) -> Result(Recorded, OperationError) {
       ),
       facts: [
         fact.ProjectPlan(
-          project_id:,
+          project_id: fact.ProjectId(project_id),
           budget:,
           target_completion:,
           from: effective,

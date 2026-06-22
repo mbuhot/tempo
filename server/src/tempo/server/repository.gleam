@@ -1,5 +1,6 @@
-//// The persistence seam: reserve anchor ids (`next_id`) and record a list of
-//// `Fact`s (`record_facts`), each mapped to the SQL that makes the database reflect
+//// The persistence seam: mint identity anchors (`create_*` — reserve the id with
+//// `nextval`, insert the id-only row, return its strongly-typed id) and record a list
+//// of `Fact`s (`record_facts`), each mapped to the SQL that makes the database reflect
 //// it, on the caller's in-transaction connection (`command.dispatch` owns the
 //// transaction, so all of a command's facts commit together or roll back together).
 //// A database rejection is classified into a typed `OperationError` by constraint
@@ -7,7 +8,7 @@
 ////
 //// This module is the ONE place a fact's write SEMANTIC lives, so handlers stay
 //// declarative — they say WHICH facts a command records, the repository says HOW:
-////   - identity anchors and bounded asserts are plain inserts;
+////   - a bounded assert is a plain insert;
 ////   - an open-ended versioned attribute (level, details, profile/plan, client) is a
 ////     temporal upsert (`*_upsert`): ONE statement changes the version covering `from`
 ////     (FOR PORTION OF … TO NULL) and opens the first span only if none yet exists — so
@@ -35,60 +36,71 @@ import pog
 import shared/types.{type Event}
 import tempo/server/event
 import tempo/server/fact.{
-  type Fact, ClientProfile, Contract, ContractTerms, Engineer,
+  type ContractId, type EngineerId, type Fact, type InvoiceId, type PayrollRunId,
+  type ProjectId, ClientId, ClientProfile, ContractId, ContractTerms,
   EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
   EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
-  EngineerEmployed, EngineerOffProject, EngineerOnLeave, EngineerWorkedHours,
-  Invoice, InvoiceInStatus, InvoiceLine, InvoiceSubject, PayrollLine,
-  PayrollPeriod, PayrollRun, Project, ProjectPlan, ProjectProfile,
-  ProjectRequirement, ProjectRun, RateCard, Salary,
+  EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
+  EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
+  PayrollLine, PayrollPeriod, PayrollRunId, ProjectId, ProjectPlan,
+  ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
 }
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/sql
 
-/// The id sequences a command reserves from before recording a freshly-minted
-/// anchor's facts.
-pub type Sequence {
-  Engineers
-  Contracts
-  Projects
-  Invoices
-  PayrollRuns
+/// Mint an engineer anchor: reserve its id (`nextval`), insert the id-only row, and
+/// return the strongly-typed `EngineerId` a handler threads into every fact about the
+/// engineer (so the type system keeps it out of a project-id position). The anchor row
+/// carries no `audit_id` — an anchor is not a fact — but it shares the command's
+/// transaction, so it rolls back with the facts if any of them is rejected.
+pub fn create_engineer(
+  conn: pog.Connection,
+) -> Result(EngineerId, OperationError) {
+  use returned <- operation.try(sql.engineer_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(sql.engineer_create(conn, row.id) |> operation.run)
+  Ok(EngineerId(row.id))
 }
 
-/// Reserve the next id from `sequence` (a `nextval`), so a handler can thread it
-/// into the anchor and every fact contained by it without reading anything back.
-pub fn next_id(
+/// Mint a contract anchor (reserve id, insert the id-only row), returning its typed id.
+pub fn create_contract(
   conn: pog.Connection,
-  sequence: Sequence,
-) -> Result(Int, OperationError) {
-  case sequence {
-    Engineers -> {
-      use returned <- operation.try(sql.engineer_next_id(conn))
-      let assert [row] = returned.rows
-      Ok(row.id)
-    }
-    Contracts -> {
-      use returned <- operation.try(sql.contract_next_id(conn))
-      let assert [row] = returned.rows
-      Ok(row.id)
-    }
-    Projects -> {
-      use returned <- operation.try(sql.project_next_id(conn))
-      let assert [row] = returned.rows
-      Ok(row.id)
-    }
-    Invoices -> {
-      use returned <- operation.try(sql.invoice_next_id(conn))
-      let assert [row] = returned.rows
-      Ok(row.id)
-    }
-    PayrollRuns -> {
-      use returned <- operation.try(sql.payroll_run_next_id(conn))
-      let assert [row] = returned.rows
-      Ok(row.id)
-    }
-  }
+) -> Result(ContractId, OperationError) {
+  use returned <- operation.try(sql.contract_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(sql.contract_create(conn, row.id) |> operation.run)
+  Ok(ContractId(row.id))
+}
+
+/// Mint a project anchor (reserve id, insert the id-only row), returning its typed id.
+pub fn create_project(
+  conn: pog.Connection,
+) -> Result(ProjectId, OperationError) {
+  use returned <- operation.try(sql.project_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(sql.project_create(conn, row.id) |> operation.run)
+  Ok(ProjectId(row.id))
+}
+
+/// Mint an invoice anchor (reserve id, insert the id-only row), returning its typed id.
+pub fn create_invoice(
+  conn: pog.Connection,
+) -> Result(InvoiceId, OperationError) {
+  use returned <- operation.try(sql.invoice_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(sql.invoice_create(conn, row.id) |> operation.run)
+  Ok(InvoiceId(row.id))
+}
+
+/// Mint a payroll-run anchor (reserve id, insert the id-only row), returning its typed
+/// id.
+pub fn create_payroll_run(
+  conn: pog.Connection,
+) -> Result(PayrollRunId, OperationError) {
+  use returned <- operation.try(sql.payroll_run_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(sql.payroll_run_create(conn, row.id) |> operation.run)
+  Ok(PayrollRunId(row.id))
 }
 
 /// Record a command's outcome in one transaction: append its journal `entry` (the
@@ -115,33 +127,28 @@ pub fn record_facts(
 
 /// Write one fact under `audit_id` (the recording command's event_log id): map it to
 /// the SQL that makes the database reflect it, passing `audit_id` to every insert and
-/// revise. Anchors and deletes carry no audit_id.
+/// revise, and unwrapping the strongly-typed anchor id in the pattern. Deletes (a
+/// retraction's cap) carry no audit_id. Anchors are not facts — they are minted by
+/// `create_*`, so they never reach here.
 fn write(
   conn: pog.Connection,
   audit_id: Int,
   a_fact: Fact,
 ) -> Result(Nil, OperationError) {
   case a_fact {
-    // --- identity anchors (id-only, no audit_id) ------------------------------
-    Engineer(id:) -> sql.engineer_create(conn, id) |> operation.run
-    Contract(id:) -> sql.contract_create(conn, id) |> operation.run
-    Project(id:) -> sql.project_create(conn, id) |> operation.run
-    Invoice(id:) -> sql.invoice_create(conn, id) |> operation.run
-    PayrollRun(id:) -> sql.payroll_run_create(conn, id) |> operation.run
-
     // --- engineer -------------------------------------------------------------
-    EngineerEmployed(engineer_id:, from:) ->
+    EngineerEmployed(engineer_id: EngineerId(engineer_id), from:) ->
       sql.employment_open(conn, engineer_id, from, audit_id) |> operation.run
 
-    EngineerDeparted(engineer_id:, from:) ->
+    EngineerDeparted(engineer_id: EngineerId(engineer_id), from:) ->
       record_departure(conn, engineer_id, from)
 
-    EngineerAtLevel(engineer_id:, level:, from:) ->
+    EngineerAtLevel(engineer_id: EngineerId(engineer_id), level:, from:) ->
       sql.engineer_role_upsert(conn, engineer_id, from, level, audit_id)
       |> operation.run
 
     EngineerContactDetails(
-      engineer_id:,
+      engineer_id: EngineerId(engineer_id),
       name:,
       email:,
       phone:,
@@ -161,7 +168,7 @@ fn write(
       |> operation.run
 
     EngineerBankingDetails(
-      engineer_id:,
+      engineer_id: EngineerId(engineer_id),
       bank:,
       branch:,
       account_no:,
@@ -181,7 +188,7 @@ fn write(
       |> operation.run
 
     EngineerEmergencyContact(
-      engineer_id:,
+      engineer_id: EngineerId(engineer_id),
       relation:,
       name:,
       phone:,
@@ -201,7 +208,13 @@ fn write(
       |> operation.run
 
     // --- allocation & leave ---------------------------------------------------
-    EngineerAllocatedToProject(engineer_id:, project_id:, fraction:, from:, to:) ->
+    EngineerAllocatedToProject(
+      engineer_id: EngineerId(engineer_id),
+      project_id: ProjectId(project_id),
+      fraction:,
+      from:,
+      to:,
+    ) ->
       case to {
         Some(to_date) ->
           sql.allocation_assign(
@@ -226,10 +239,14 @@ fn write(
           |> operation.run
       }
 
-    EngineerOffProject(engineer_id:, project_id:, from:) ->
+    EngineerOffProject(
+      engineer_id: EngineerId(engineer_id),
+      project_id: ProjectId(project_id),
+      from:,
+    ) ->
       sql.allocation_close(conn, engineer_id, project_id, from) |> operation.run
 
-    EngineerOnLeave(engineer_id:, kind:, from:, to:) ->
+    EngineerOnLeave(engineer_id: EngineerId(engineer_id), kind:, from:, to:) ->
       sql.leave_take(conn, engineer_id, kind, from, to, audit_id)
       |> operation.run
 
@@ -256,15 +273,20 @@ fn write(
       |> operation.run
 
     // --- engagement -----------------------------------------------------------
-    ContractTerms(contract_id:, client:, from:, to:) ->
+    ContractTerms(contract_id: ContractId(contract_id), client:, from:, to:) ->
       sql.contract_terms_open(conn, contract_id, client, from, to, audit_id)
       |> operation.run
 
-    ProjectRun(project_id:, contract_id:, from:, to:) ->
+    ProjectRun(
+      project_id: ProjectId(project_id),
+      contract_id: ContractId(contract_id),
+      from:,
+      to:,
+    ) ->
       sql.project_run_open(conn, project_id, contract_id, from, to, audit_id)
       |> operation.run
 
-    ProjectProfile(project_id:, title:, summary:, from:) ->
+    ProjectProfile(project_id: ProjectId(project_id), title:, summary:, from:) ->
       sql.project_profile_upsert(
         conn,
         project_id,
@@ -275,7 +297,12 @@ fn write(
       )
       |> operation.run
 
-    ProjectPlan(project_id:, budget:, target_completion:, from:) ->
+    ProjectPlan(
+      project_id: ProjectId(project_id),
+      budget:,
+      target_completion:,
+      from:,
+    ) ->
       sql.project_plan_upsert(
         conn,
         project_id,
@@ -286,20 +313,35 @@ fn write(
       )
       |> operation.run
 
-    ProjectRequirement(project_id:, level:, quantity:, from:, to:) ->
+    ProjectRequirement(
+      project_id: ProjectId(project_id),
+      level:,
+      quantity:,
+      from:,
+      to:,
+    ) ->
       record_requirement(conn, audit_id, project_id, level, quantity, from, to)
 
     // --- client ---------------------------------------------------------------
-    ClientProfile(client_id:, name:, from:) ->
+    ClientProfile(client_id: ClientId(client_id), name:, from:) ->
       sql.client_profile_upsert(conn, client_id, from, name, audit_id)
       |> operation.run
 
     // --- timesheet ------------------------------------------------------------
-    EngineerWorkedHours(engineer_id:, project_id:, day:, hours:) ->
-      record_hours(conn, audit_id, engineer_id, project_id, day, hours)
+    EngineerWorkedHours(
+      engineer_id: EngineerId(engineer_id),
+      project_id: ProjectId(project_id),
+      day:,
+      hours:,
+    ) -> record_hours(conn, audit_id, engineer_id, project_id, day, hours)
 
     // --- invoice & payroll ----------------------------------------------------
-    InvoiceSubject(invoice_id:, project_id:, from:, to:) ->
+    InvoiceSubject(
+      invoice_id: InvoiceId(invoice_id),
+      project_id: ProjectId(project_id),
+      from:,
+      to:,
+    ) ->
       sql.invoice_subject_insert(
         conn,
         invoice_id,
@@ -310,13 +352,20 @@ fn write(
       )
       |> operation.run
 
-    InvoiceInStatus(invoice_id:, status:, from:) -> {
+    InvoiceInStatus(invoice_id: InvoiceId(invoice_id), status:, from:) -> {
       use _ <- operation.try(sql.invoice_status_close(conn, invoice_id, from))
       sql.invoice_status_open(conn, invoice_id, status, from, audit_id)
       |> operation.run
     }
 
-    InvoiceLine(invoice_id:, engineer_id:, level:, day_rate:, days:, amount:) ->
+    InvoiceLine(
+      invoice_id: InvoiceId(invoice_id),
+      engineer_id: EngineerId(engineer_id),
+      level:,
+      day_rate:,
+      days:,
+      amount:,
+    ) ->
       sql.invoice_line_insert(
         conn,
         invoice_id,
@@ -329,11 +378,16 @@ fn write(
       )
       |> operation.run
 
-    PayrollPeriod(run_id:, from:, to:) ->
+    PayrollPeriod(run_id: PayrollRunId(run_id), from:, to:) ->
       sql.payroll_period_insert(conn, run_id, from, to, audit_id)
       |> operation.run
 
-    PayrollLine(run_id:, engineer_id:, amount:, days:) ->
+    PayrollLine(
+      run_id: PayrollRunId(run_id),
+      engineer_id: EngineerId(engineer_id),
+      amount:,
+      days:,
+    ) ->
       sql.payroll_line_insert(conn, run_id, engineer_id, amount, days, audit_id)
       |> operation.run
   }

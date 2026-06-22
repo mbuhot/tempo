@@ -49,7 +49,8 @@ fn draft_invoice(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
-  use invoice_id <- result.try(repository.next_id(conn, repository.Invoices))
+  use invoice_id <- result.try(repository.create_invoice(conn))
+  let fact.InvoiceId(id) = invoice_id
   use lines <- operation.try(sql.invoice_billing_lines(
     conn,
     project_id,
@@ -60,7 +61,7 @@ fn draft_invoice(
     list.map(lines.rows, fn(line) {
       fact.InvoiceLine(
         invoice_id:,
-        engineer_id: line.engineer_id,
+        engineer_id: fact.EngineerId(line.engineer_id),
         level: line.level,
         day_rate: line.day_rate,
         days: line.days,
@@ -73,17 +74,16 @@ fn draft_invoice(
       summary: "Draft invoice for project "
         <> int.to_string(project_id)
         <> " (invoice "
-        <> int.to_string(invoice_id)
+        <> int.to_string(id)
         <> ") over "
         <> operation.span(billing_from, billing_to),
       payload: codecs.encode_command(command),
     ),
     facts: list.flatten([
       [
-        fact.Invoice(id: invoice_id),
         fact.InvoiceSubject(
           invoice_id:,
-          project_id:,
+          project_id: fact.ProjectId(project_id),
           from: billing_from,
           to: billing_to,
         ),
@@ -112,7 +112,13 @@ fn issue_invoice(
           <> operation.iso(at),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.InvoiceInStatus(invoice_id:, status: "issued", from: at)],
+      facts: [
+        fact.InvoiceInStatus(
+          invoice_id: fact.InvoiceId(invoice_id),
+          status: "issued",
+          from: at,
+        ),
+      ],
     ),
   )
 }
@@ -135,7 +141,13 @@ fn pay_invoice(
           <> operation.iso(at),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.InvoiceInStatus(invoice_id:, status: "paid", from: at)],
+      facts: [
+        fact.InvoiceInStatus(
+          invoice_id: fact.InvoiceId(invoice_id),
+          status: "paid",
+          from: at,
+        ),
+      ],
     ),
   )
 }

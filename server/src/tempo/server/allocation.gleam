@@ -63,8 +63,8 @@ fn assign_to_project(command: Command) -> Result(Recorded, OperationError) {
       ),
       facts: [
         fact.EngineerAllocatedToProject(
-          engineer_id:,
-          project_id:,
+          engineer_id: fact.EngineerId(engineer_id),
+          project_id: fact.ProjectId(project_id),
           fraction:,
           from: valid_from,
           to: Some(valid_to),
@@ -101,8 +101,8 @@ fn change_allocation_fraction(
       ),
       facts: [
         fact.EngineerAllocatedToProject(
-          engineer_id:,
-          project_id:,
+          engineer_id: fact.EngineerId(engineer_id),
+          project_id: fact.ProjectId(project_id),
           fraction:,
           from: effective,
           to: None,
@@ -128,7 +128,11 @@ fn roll_off(command: Command) -> Result(Recorded, OperationError) {
         payload: codecs.encode_command(command),
       ),
       facts: [
-        fact.EngineerOffProject(engineer_id:, project_id:, from: effective),
+        fact.EngineerOffProject(
+          engineer_id: fact.EngineerId(engineer_id),
+          project_id: fact.ProjectId(project_id),
+          from: effective,
+        ),
       ],
     ),
   )

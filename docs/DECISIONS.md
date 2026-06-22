@@ -1163,6 +1163,46 @@ machinery a migration must carry, harder to read than one CTE).
 unchanged: timesheet's delete-then-insert (P1-T04), requirement's clear-then-set (ADR-044), departure's cascading
 caps, and the rate/allocation/invoice-status writes.
 
+## ADR-046 — Anchors are minted by `create_*` returning a strongly-typed id, not modelled as facts
+**Status:** Accepted (amends ADR-030; refines ADR-025/028)
+
+**Context.** ADR-030 made every entity an id-only anchor, but each anchor's *existence* was then modelled as a
+degenerate `Fact` variant — `Engineer(id)`, `Contract(id)`, `Project(id)`, `Invoice(id)`, `PayrollRun(id)` — a
+period-less existence assertion living inside a `Fact` enum whose stated contract is "a state that holds over time,
+NOT an event." It read wrong, and worse, the anchor id then threaded through every fact as a bare `Int`, so nothing
+in the type system stopped an engineer id landing in a project-id position. `repository.next_id` reserved the id
+(`nextval`) and a *separate* anchor `Fact` did the `INSERT`. (Tellingly, `client` never had an anchor variant —
+clients are registered only by the seed — so the model was already inconsistent about whether an anchor is a fact.)
+An investigation into "is there a clear creation fact per anchor?" found only invoice/payroll have a structurally
+1:1 one (`invoice_subject`, `payroll_period`); engineer/contract/project/client all derive existence from the
+*earliest* of a fact-type that can recur (employment especially: employed → terminated → re-employed), so no single
+row is structurally "the creation."
+
+**Decision.** An anchor is **not a fact**. Replace `next_id` + the `Sequence` enum with five `create_*` functions
+(`create_engineer`/`_contract`/`_project`/`_invoice`/`_payroll_run`), each of which reserves the id (`nextval`),
+inserts the id-only row, and returns a **strongly-typed id** — `EngineerId`/`ContractId`/`ProjectId`/`InvoiceId`/
+`PayrollRunId` (single-constructor newtypes in `fact.gleam`). Every `*_id` field on a `Fact` carries its typed id;
+`ClientId` is added too (client facts carry it typed) though there is no `create_client` — clients stay seed-only.
+The freshly-minted id flows straight into the contained facts; a command-sourced id is wrapped once at fact
+construction; `repository.write` unwraps it in the case **pattern** (`EngineerEmployed(engineer_id:
+EngineerId(engineer_id), …)`) at the SQL boundary, so no extra lines. The five anchor `Fact` variants and their
+`write` arms are deleted; the anchor `INSERT` moves from the fact-write phase into `create_*`, still inside the
+command's one transaction (it carries no `audit_id` — an anchor is not a fact — and shares rollback). This sidesteps
+the "which fact is the creation" ambiguity entirely: existence is asserted by the `create_*` seam (the one place a
+genuinely new anchor is minted), not inferred from a fact.
+
+**Scope (explicit).** Server-internal only. Facts are never serialized — only `Command` is, into
+`event_log.payload` — so codecs, `shared`, the Squirrel SQL bindings (which still take `Int`), the schema, and the
+whole test suite (which drives `command.dispatch_in` with `Command` and reads via `sql.*`) are untouched. 163
+tests + `gleam format --check` green on the base-seed DB.
+
+**Alternatives.** Keep anchors as facts (rejected — a period-less variant in a "states that hold over time" enum,
+and a bare-`Int` id with no kind-safety). Type ids only at the `create_*` seam and unwrap immediately, leaving
+`Fact` fields `Int` (rejected — the typed id never reaches the facts; shallow). Invent a dedicated once-only
+"creation fact" per anchor, incl. an `EngineerHired` distinct from the recurring employment span (rejected — more
+machinery to assert what `create_*` already does). Add a real `create_client`/register-client command to remove the
+client asymmetry (deferred — out of scope; clients remain seed-only, `ClientId` typed regardless).
+
 ---
 
 ## Documentation format

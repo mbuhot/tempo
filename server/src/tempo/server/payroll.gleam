@@ -43,13 +43,14 @@ fn run_payroll(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   let assert RunPayroll(period_from:, period_to:) = command
-  use run_id <- result.try(repository.next_id(conn, repository.PayrollRuns))
+  use run_id <- result.try(repository.create_payroll_run(conn))
+  let fact.PayrollRunId(id) = run_id
   use amounts <- operation.try(sql.payroll_amounts(conn, period_from, period_to))
   let line_facts =
     list.map(amounts.rows, fn(line) {
       fact.PayrollLine(
         run_id:,
-        engineer_id: line.engineer_id,
+        engineer_id: fact.EngineerId(line.engineer_id),
         amount: line.amount,
         days: line.days,
       )
@@ -60,15 +61,12 @@ fn run_payroll(
       summary: "Run payroll over "
         <> operation.span(period_from, period_to)
         <> " (run "
-        <> int.to_string(run_id)
+        <> int.to_string(id)
         <> ")",
       payload: codecs.encode_command(command),
     ),
     facts: list.flatten([
-      [
-        fact.PayrollRun(id: run_id),
-        fact.PayrollPeriod(run_id:, from: period_from, to: period_to),
-      ],
+      [fact.PayrollPeriod(run_id:, from: period_from, to: period_to)],
       line_facts,
     ]),
   ))

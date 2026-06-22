@@ -58,7 +58,7 @@ fn set_project_requirement(
       ),
       facts: [
         fact.ProjectRequirement(
-          project_id:,
+          project_id: fact.ProjectId(project_id),
           level:,
           quantity:,
           from: valid_from,

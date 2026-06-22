@@ -43,7 +43,13 @@ fn update_client_profile(command: Command) -> Result(Recorded, OperationError) {
           <> operation.iso(effective),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.ClientProfile(client_id:, name:, from: effective)],
+      facts: [
+        fact.ClientProfile(
+          client_id: fact.ClientId(client_id),
+          name:,
+          from: effective,
+        ),
+      ],
     ),
   )
 }

@@ -45,7 +45,8 @@ fn sign_contract(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   let assert SignContract(client:, valid_from:, valid_to:) = command
-  use contract_id <- result.try(repository.next_id(conn, repository.Contracts))
+  use contract_id <- result.try(repository.create_contract(conn))
+  let fact.ContractId(id) = contract_id
   Ok(
     Recorded(
       entry: Event(
@@ -53,13 +54,12 @@ fn sign_contract(
         summary: "Sign contract for "
           <> client
           <> " (contract "
-          <> int.to_string(contract_id)
+          <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
         payload: codecs.encode_command(command),
       ),
       facts: [
-        fact.Contract(id: contract_id),
         fact.ContractTerms(
           contract_id:,
           client:,
@@ -79,7 +79,8 @@ fn start_project(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   let assert StartProject(name:, contract_id:, valid_from:, valid_to:) = command
-  use project_id <- result.try(repository.next_id(conn, repository.Projects))
+  use project_id <- result.try(repository.create_project(conn))
+  let fact.ProjectId(id) = project_id
   Ok(
     Recorded(
       entry: Event(
@@ -89,16 +90,15 @@ fn start_project(
           <> " under contract "
           <> int.to_string(contract_id)
           <> " (project "
-          <> int.to_string(project_id)
+          <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
         payload: codecs.encode_command(command),
       ),
       facts: [
-        fact.Project(id: project_id),
         fact.ProjectRun(
           project_id:,
-          contract_id:,
+          contract_id: fact.ContractId(contract_id),
           from: valid_from,
           to: valid_to,
         ),

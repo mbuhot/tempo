@@ -65,7 +65,7 @@ fn take_leave(
       ),
       facts: [
         fact.EngineerOnLeave(
-          engineer_id:,
+          engineer_id: fact.EngineerId(engineer_id),
           kind:,
           from: valid_from,
           to: valid_to,

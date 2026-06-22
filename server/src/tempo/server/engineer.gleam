@@ -44,7 +44,8 @@ fn onboard_engineer(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   let assert OnboardEngineer(name:, level:, effective:) = command
-  use engineer_id <- result.try(repository.next_id(conn, repository.Engineers))
+  use engineer_id <- result.try(repository.create_engineer(conn))
+  let fact.EngineerId(id) = engineer_id
   Ok(
     Recorded(
       entry: Event(
@@ -54,13 +55,12 @@ fn onboard_engineer(
           <> " at L"
           <> int.to_string(level)
           <> " (engineer "
-          <> int.to_string(engineer_id)
+          <> int.to_string(id)
           <> ") from "
           <> operation.iso(effective),
         payload: codecs.encode_command(command),
       ),
       facts: [
-        fact.Engineer(id: engineer_id),
         fact.EngineerEmployed(engineer_id:, from: effective),
         fact.EngineerAtLevel(engineer_id:, level:, from: effective),
         fact.EngineerContactDetails(
@@ -92,7 +92,13 @@ fn promote(command: Command) -> Result(Recorded, OperationError) {
           <> operation.iso(effective),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.EngineerAtLevel(engineer_id:, level:, from: effective)],
+      facts: [
+        fact.EngineerAtLevel(
+          engineer_id: fact.EngineerId(engineer_id),
+          level:,
+          from: effective,
+        ),
+      ],
     ),
   )
 }
@@ -112,7 +118,12 @@ fn terminate_employment(command: Command) -> Result(Recorded, OperationError) {
           <> operation.iso(effective),
         payload: codecs.encode_command(command),
       ),
-      facts: [fact.EngineerDeparted(engineer_id:, from: effective)],
+      facts: [
+        fact.EngineerDeparted(
+          engineer_id: fact.EngineerId(engineer_id),
+          from: effective,
+        ),
+      ],
     ),
   )
 }
