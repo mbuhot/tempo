@@ -355,6 +355,39 @@ pub fn allocation_outside_project_is_rejected_test() {
   assert constraint_name(error) == "allocation_within_project"
 }
 
+// A capacity requirement whose period runs past the project's run is rejected by
+// the PERIOD FK `requirement_within_project` (demand ⊂ project), the same
+// containment the allocation FK enforces on the supply side.
+pub fn requirement_outside_project_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Stark Industries")
+        insert_contract(conn, 9008, client_id, "2026-01-01", "2027-01-01")
+        // Project runs only to 2026-06-01.
+        insert_project(
+          conn,
+          8008,
+          9008,
+          "Arc Reactor",
+          "2026-01-01",
+          "2026-06-01",
+        )
+        Nil
+      },
+      fn(conn) {
+        // Requirement runs to 2026-08-01, past the project's 2026-06-01 end.
+        exec(
+          conn,
+          "INSERT INTO project_requirement (project_id, level, quantity, required_during) "
+            <> "VALUES (8008, 3, 2.00, daterange('2026-01-01','2026-08-01'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "requirement_within_project"
+}
+
 // A project whose period runs past its contract's term is rejected by the
 // PERIOD FK `project_within_contract` (project ⊂ contract).
 pub fn project_outside_contract_is_rejected_test() {

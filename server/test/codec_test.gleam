@@ -13,20 +13,20 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{None, Some}
-import gleam/time/calendar.{Date, January, July, June, May}
+import gleam/time/calendar.{August, Date, January, July, June, May, September}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
   ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
-  EngineerContact, EngineerEmergency, Event, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
-  PayrollRunInfo, Pnl,
-  PnlRow, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll, SetSalary,
+  EngineerContact, EngineerEmergency, Event, Forecast, ForecastMonth, Invoice,
+  InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LogTimesheet, LogWeek,
+  OnLeave, OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
+  PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref,
+  ReviseRateCard, RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary,
   SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -203,7 +203,12 @@ pub fn board_snapshot_round_trips_test() {
 // An empty board (no employed engineers on the date) still round-trips.
 pub fn board_snapshot_empty_round_trips_test() {
   let original =
-    BoardSnapshot(date: Date(2026, June, 15), rows: [], balances: [], unstaffed: [])
+    BoardSnapshot(
+      date: Date(2026, June, 15),
+      rows: [],
+      balances: [],
+      unstaffed: [],
+    )
 
   assert round_trip(
       original,
@@ -1008,5 +1013,104 @@ pub fn engineer_emergency_round_trips_test() {
       codecs.encode_engineer_emergency,
       codecs.engineer_emergency_decoder(),
     )
+    == original
+}
+
+// --- SetProjectRequirement (Command) -----------------------------------------
+// The demand-side write (ADR-044): a FOR-PORTION-OF set of a project's capacity
+// requirement at a level over a bounded window. The `op` tag must reconstruct the
+// exact variant and the fractional FTE `quantity`.
+
+pub fn command_set_project_requirement_round_trips_test() {
+  let original =
+    SetProjectRequirement(
+      project_id: 500,
+      level: 3,
+      quantity: 2.0,
+      valid_from: Date(2026, August, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+    == original
+}
+
+// --- ProjectRequirement ------------------------------------------------------
+// One capacity-requirement fact on the project-detail read model. A fractional
+// FTE (0.5) must survive the JSON float round trip.
+
+pub fn project_requirement_round_trips_test() {
+  let original =
+    ProjectRequirement(
+      project_id: 500,
+      level: 5,
+      quantity: 0.5,
+      valid_from: Date(2026, August, 1),
+      valid_to: Date(2027, January, 1),
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_project_requirement,
+      codecs.project_requirement_decoder(),
+    )
+    == original
+}
+
+// --- ForecastMonth -----------------------------------------------------------
+// One month of the forecast read model: the first-of-month Date plus the
+// projected revenue/cost/profit/margin from committed demand.
+
+pub fn forecast_month_round_trips_test() {
+  let original =
+    ForecastMonth(
+      month: Date(2026, August, 1),
+      revenue: 102_300.0,
+      cost: 40_000.0,
+      profit: 62_300.0,
+      margin_pct: 60.9,
+    )
+
+  assert round_trip(
+      original,
+      codecs.encode_forecast_month,
+      codecs.forecast_month_decoder(),
+    )
+    == original
+}
+
+// --- Forecast ----------------------------------------------------------------
+// The forecast statement: one ForecastMonth per calendar month to the cliff,
+// proving the nested month list round-trips inside its container.
+
+pub fn forecast_round_trips_test() {
+  let original =
+    Forecast(months: [
+      ForecastMonth(
+        month: Date(2026, August, 1),
+        revenue: 102_300.0,
+        cost: 40_000.0,
+        profit: 62_300.0,
+        margin_pct: 60.9,
+      ),
+      ForecastMonth(
+        month: Date(2026, September, 1),
+        revenue: 102_300.0,
+        cost: 40_000.0,
+        profit: 62_300.0,
+        margin_pct: 60.9,
+      ),
+    ])
+
+  assert round_trip(original, codecs.encode_forecast, codecs.forecast_decoder())
+    == original
+}
+
+// An empty forecast (the as-of date is past the cliff — no committed demand
+// ahead) round-trips to the same empty statement.
+pub fn forecast_empty_round_trips_test() {
+  let original = Forecast(months: [])
+
+  assert round_trip(original, codecs.encode_forecast, codecs.forecast_decoder())
     == original
 }

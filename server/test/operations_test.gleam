@@ -31,8 +31,8 @@ import pog
 import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AssignToProject, ChangeAllocationFraction,
-  LogTimesheet, OnboardEngineer, Promote, ReviseRateCard, RollOff, SignContract,
-  StartProject, TerminateEmployment,
+  LogTimesheet, OnboardEngineer, Promote, ReviseRateCard, RollOff,
+  SetProjectRequirement, SignContract, StartProject, TerminateEmployment,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -766,6 +766,72 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
       Period("700.00", "2026-01-01", "2026-04-01"),
       Period("800.00", "2026-04-01", "2026-07-01"),
       Period("900.00", "2026-10-01", ""),
+    ]
+}
+
+// --- project_requirement aggregate (Surgical, the demand side) --------------
+
+// set_project_requirement sets a project's capacity demand for a BOUNDED window,
+// splitting the covering requirement row three ways: the [from, to) sub-period
+// takes the new quantity while the before/after remainders are carved off as
+// their own rows at the old quantity — the same FOR-PORTION-OF clear-then-set as
+// rate_card, but scoped by (project_id, level) and contained by the project's run.
+pub fn set_project_requirement_for_portion_splits_three_ways_test() {
+  let quantities =
+    rolling_back(fn(conn) {
+      // A project running open-ended from Jan, so the requirement's PERIOD FK
+      // (requirement_within_project) is satisfied for any window from Jan on.
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90020)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90020, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80020)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80020, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80020, 90020, daterange('2026-01-01', NULL, '[)'))",
+      )
+      // One open-ended L3 demand of 2 FTE from Jan.
+      exec(
+        conn,
+        "INSERT INTO project_requirement (project_id, level, quantity, required_during) VALUES "
+          <> "(80020, 3, 2.00, daterange('2026-01-01', NULL, '[)'))",
+      )
+      // Set 1 FTE for the bounded window [Apr, Jul) only.
+      apply(
+        conn,
+        SetProjectRequirement(
+          80_020,
+          3,
+          1.0,
+          Date(2026, April, 1),
+          Date(2026, July, 1),
+        ),
+      )
+      read_periods(
+        conn,
+        "project_requirement",
+        "quantity::text",
+        "required_during",
+        "project_id = 80020 AND level = 3",
+      )
+    })
+
+  // before [Jan,Apr) 2.00, during [Apr,Jul) 1.00, after [Jul,∞) 2.00.
+  assert quantities
+    == [
+      Period("2.00", "2026-01-01", "2026-04-01"),
+      Period("1.00", "2026-04-01", "2026-07-01"),
+      Period("2.00", "2026-07-01", ""),
     ]
 }
 
