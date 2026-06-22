@@ -260,10 +260,12 @@ pub fn pnl_totals_and_per_engineer_row_test() {
   assert pnl.month_revenue == 120_000.0
   assert pnl.month_cost == 32_000.0
   assert pnl.month_profit == 88_000.0
-  // YTD totals match (June is the only month with facts on record).
-  assert pnl.ytd_revenue == 120_000.0
+  // YTD revenue is CAPACITY-based (ADR-043): the billable value of the work over
+  // Jan–June from the seed allocations, not just June's issued invoices — so it far
+  // exceeds the single month. Cost is still the payroll snapshot (only June ran).
+  assert pnl.ytd_revenue == 724_000.0
   assert pnl.ytd_cost == 32_000.0
-  assert pnl.ytd_profit == 88_000.0
+  assert pnl.ytd_profit == 692_000.0
 
   // Aisha's per-engineer month row (revenue/cost/profit/margin/utilization). The
   // margin uses the same float arithmetic the domain does, so the comparison is
@@ -284,15 +286,16 @@ pub fn pnl_totals_and_per_engineer_row_test() {
   assert row_revenue == 120_000.0
 }
 
-// FR-F4 carried into the P&L: invoices DRAFTED but issued only AFTER the month
-// closes (Aug 1) are still `draft` as of the month's exclusive upper bound
-// (Jul 1), so no revenue is recognized this month — but the cost (June payroll)
-// still lands, giving a negative month profit.
-pub fn pnl_unissued_invoices_recognize_no_revenue_test() {
+// Capacity-based recognition (ADR-043): P&L revenue is the billable value of the
+// work performed (allocations × rate-card), recognized as the work happens —
+// INDEPENDENT of invoice status. With the month's invoices only DRAFTED (never
+// issued), June's revenue is still recognized in full; the invoice lifecycle governs
+// the invoices table + cash, not the P&L.
+pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
   let pnl =
     rolling_back(fn(conn) {
       apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
-      // Draft the three invoices but DO NOT issue them until after the month.
+      // Draft the three invoices but DO NOT issue them.
       apply(conn, DraftInvoice(100, Date(2026, June, 1), Date(2026, July, 1)))
       apply(conn, DraftInvoice(200, Date(2026, June, 1), Date(2026, July, 1)))
       apply(conn, DraftInvoice(300, Date(2026, June, 1), Date(2026, July, 1)))
@@ -301,7 +304,8 @@ pub fn pnl_unissued_invoices_recognize_no_revenue_test() {
       pnl
     })
 
-  assert pnl.month_revenue == 0.0
+  // Capacity recognizes June's work in full despite no issued invoice.
+  assert pnl.month_revenue == 120_000.0
   assert pnl.month_cost == 32_000.0
-  assert pnl.month_profit == -32_000.0
+  assert pnl.month_profit == 88_000.0
 }

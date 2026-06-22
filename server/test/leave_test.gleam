@@ -39,11 +39,13 @@ fn balance(
 
 // --- balance calculation ----------------------------------------------------
 
-// Per-level accrual: Priya (L5) accrues 20/yr, so two full years (2024 incl. leap +
-// 2025) is exactly 40; Aisha (L6) accrues 25/yr, so one full year is 25.
+// Per-level accrual: Priya (L5) accrues 20/yr until 2025-07-01 then 25/yr, so by
+// 2026-01-01 she has ~42.52 days (the time-varying policy); Aisha (L6) accrues
+// 25/yr, so one full year is 25.
 pub fn balance_accrues_per_level_test() {
   rolling_back(fn(conn) {
-    assert balance(conn, 1, "annual", Date(2026, January, 1)) == 40.0
+    assert balance(conn, 1, "annual", Date(2026, January, 1))
+      == 42.52054794520548
     assert balance(conn, 3, "annual", Date(2026, January, 1)) == 25.0
   })
 }
@@ -87,8 +89,9 @@ pub fn promotion_blends_accrual_rate_test() {
 }
 
 // A future policy change is picked up automatically — the calculation is unchanged,
-// it just integrates the right policy version per period. Revise L5 annual to 30/yr
-// from 2026-01-01; Priya then accrues 20×2 (2024-25) + 30×1 (2026) = 70 by 2027.
+// it just integrates the right policy version per period. Priya accrues 20/yr until
+// 2025-07-01 then 25/yr (the seeded L1-5 step); revising L5 to 30/yr from 2026-01-01
+// then layers 30/yr over 2026, giving ~72.52 by 2027.
 pub fn policy_change_applies_automatically_test() {
   rolling_back(fn(conn) {
     let assert Ok(_) =
@@ -99,7 +102,7 @@ pub fn policy_change_applies_automatically_test() {
       )
       |> pog.parameter(pog.calendar_date(Date(2026, January, 1)))
       |> pog.execute(on: conn)
-    assert balance(conn, 1, "annual", Date(2027, January, 1)) == 70.0
+    assert balance(conn, 1, "annual", Date(2027, January, 1)) == 72.52054794520548
   })
 }
 

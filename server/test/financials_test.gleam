@@ -284,6 +284,7 @@ fn billing_fixture(
       <> int.to_string(engineer_id)
       <> ", 1, daterange('2026-01-01', NULL, '[)'))",
   )
+  exec(conn, "DELETE FROM rate_card WHERE level = 1")
   exec(
     conn,
     "INSERT INTO rate_card (level, day_rate, effective_during) VALUES "
@@ -370,6 +371,8 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
   let #(salaries, journal) =
     rolling_back(fn(conn) {
       // Baseline L1 salary 3000 open-ended from Jan (the version SetSalary revises).
+      // Clear the seed's L1 salary first so this test owns the level's band.
+      exec(conn, "DELETE FROM salary WHERE level = 1")
       exec(
         conn,
         "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "
@@ -542,6 +545,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
       // Baseline L1 / L2 cost rates (levels the seed leaves empty), open-ended
       // from 2024 — inserted directly, since SetSalary is a CHANGE (FOR PORTION
       // OF an existing version), not the baseline Assert.
+      exec(conn, "DELETE FROM salary WHERE level IN (1, 2)")
       exec(
         conn,
         "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "
@@ -628,6 +632,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
 pub fn running_payroll_twice_for_a_month_is_rejected_test() {
   let outcome =
     rolling_back(fn(conn) {
+      exec(conn, "DELETE FROM salary WHERE level = 1")
       exec(
         conn,
         "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "

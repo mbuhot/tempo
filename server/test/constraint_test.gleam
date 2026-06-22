@@ -527,12 +527,13 @@ type RatePeriod {
 // (P1-T03 finding: PG reports "UPDATE 1" despite producing extra rows; never
 // rely on the affected-row count — read the rows back instead.)
 pub fn for_portion_of_splits_rate_card_test() {
-  // Uses level 7, which the seed (003_seed.sql) leaves unused — the seed
-  // populates L3–L6 and the CI runner applies it before `gleam test`, so a
-  // seeded level would collide with rate_card's WITHOUT OVERLAPS PK.
+  // Uses level 7. The seed (002_seed.sql) now populates rate_card for ALL levels
+  // L1–L7, so clear the seeded L7 row first (in this rolled-back tx) — otherwise the
+  // fixture insert collides with rate_card's WITHOUT OVERLAPS PK.
   let rows =
     read_rolling_back(
       fn(conn) {
+        let assert Ok(_) = exec(conn, "DELETE FROM rate_card WHERE level = 7")
         let assert Ok(_) =
           exec(
             conn,

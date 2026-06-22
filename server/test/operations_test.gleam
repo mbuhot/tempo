@@ -699,6 +699,7 @@ pub fn adjust_rate_for_portion_splits_three_ways_test() {
   let rates =
     rolling_back(fn(conn) {
       // One open-ended L1 version at 500 from Jan.
+      exec(conn, "DELETE FROM rate_card WHERE level = 1")
       exec(
         conn,
         "INSERT INTO rate_card (level, day_rate, effective_during) VALUES "
@@ -741,6 +742,7 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
   let rates =
     rolling_back(fn(conn) {
       // Two L2 versions: 700 covering H1, then a SCHEDULED FUTURE 900 from Oct.
+      exec(conn, "DELETE FROM rate_card WHERE level = 2")
       exec(
         conn,
         "INSERT INTO rate_card (level, day_rate, effective_during) VALUES "
