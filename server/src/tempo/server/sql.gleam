@@ -3857,12 +3857,12 @@ pub type PnlRowsRow {
 /// range daterange($1, $2, '[)'). Only scalar dates cross the boundary.
 ///
 /// Returned components (caller computes the rest):
-/// revenue          — Σ invoice_line.amount over invoices whose billing_period
-/// OVERLAPS the period and that have EVER reached issued/paid
-/// (ACCRUAL / matching): a month's revenue is the billing it
-/// earned, recognized once issued — matched to the period of
-/// the work, NOT to the month the invoice happens to be issued.
-/// A still-draft (never-issued) invoice contributes nothing.
+/// revenue          — Σ fraction × day_rate × days over each allocation ∩
+/// engineer_role(level) ∩ rate_card-version ∩ period sub-period
+/// (ACCRUAL, capacity-based): the billable value of the capacity
+/// worked, recognized as the work is performed — the SAME basis
+/// as utilization and cost, independent of invoicing. Leave does
+/// not reduce it.
 /// cost             — Σ payroll_line.amount over payroll_runs whose period
 /// OVERLAPS the period.
 /// utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
@@ -3886,15 +3886,15 @@ pub type PnlRowsRow {
 /// totals.
 ///
 /// Assumptions:
-/// * "Overlaps the period" (&&) for invoices/payroll, NOT containment: a billing
-/// month or run period that straddles the P&L window contributes in full
-/// (consistent with month-grained invoicing/payroll; the caller chooses
-/// month/YTD windows aligned to month boundaries so straddling does not occur
-/// in practice).
-/// * EXISTS of an {issued, paid} status (at any time) is the recognition gate —
-/// once an invoice is issued, its billing is earned revenue for its period.
-/// * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
-/// so they reflect what was billed/paid, not a recomputation (PRD §8).
+/// * Revenue is recomputed from the capacity facts (allocation × role × rate_card)
+/// clipped to the period, so it reflects the work performed regardless of the
+/// invoice lifecycle; it equals the billed amount once a month is invoiced at the
+/// agreed rates, but does not wait on (or require) an invoice.
+/// * Cost is "overlaps the period" (&&) for payroll runs, NOT containment: a run
+/// period that straddles the window contributes in full (month-grained payroll;
+/// the caller chooses month/YTD windows aligned to month boundaries).
+/// * Cost is summed from the SNAPSHOT payroll_line (what was paid), not a
+/// recomputation (PRD §8).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -3929,12 +3929,12 @@ pub fn pnl_rows(
 -- range daterange($1, $2, '[)'). Only scalar dates cross the boundary.
 --
 -- Returned components (caller computes the rest):
---   revenue          — Σ invoice_line.amount over invoices whose billing_period
---                      OVERLAPS the period and that have EVER reached issued/paid
---                      (ACCRUAL / matching): a month's revenue is the billing it
---                      earned, recognized once issued — matched to the period of
---                      the work, NOT to the month the invoice happens to be issued.
---                      A still-draft (never-issued) invoice contributes nothing.
+--   revenue          — Σ fraction × day_rate × days over each allocation ∩
+--                      engineer_role(level) ∩ rate_card-version ∩ period sub-period
+--                      (ACCRUAL, capacity-based): the billable value of the capacity
+--                      worked, recognized as the work is performed — the SAME basis
+--                      as utilization and cost, independent of invoicing. Leave does
+--                      not reduce it.
 --   cost             — Σ payroll_line.amount over payroll_runs whose period
 --                      OVERLAPS the period.
 --   utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
@@ -3958,15 +3958,15 @@ pub fn pnl_rows(
 -- totals.
 --
 -- Assumptions:
---   * \"Overlaps the period\" (&&) for invoices/payroll, NOT containment: a billing
---     month or run period that straddles the P&L window contributes in full
---     (consistent with month-grained invoicing/payroll; the caller chooses
---     month/YTD windows aligned to month boundaries so straddling does not occur
---     in practice).
---   * EXISTS of an {issued, paid} status (at any time) is the recognition gate —
---     once an invoice is issued, its billing is earned revenue for its period.
---   * revenue/cost are summed from the SNAPSHOT lines (invoice_line, payroll_line),
---     so they reflect what was billed/paid, not a recomputation (PRD §8).
+--   * Revenue is recomputed from the capacity facts (allocation × role × rate_card)
+--     clipped to the period, so it reflects the work performed regardless of the
+--     invoice lifecycle; it equals the billed amount once a month is invoiced at the
+--     agreed rates, but does not wait on (or require) an invoice.
+--   * Cost is \"overlaps the period\" (&&) for payroll runs, NOT containment: a run
+--     period that straddles the window contributes in full (month-grained payroll;
+--     the caller chooses month/YTD windows aligned to month boundaries).
+--   * Cost is summed from the SNAPSHOT payroll_line (what was paid), not a
+--     recomputation (PRD §8).
 WITH params AS (
   SELECT daterange($1::date, $2::date, '[)') AS period
 ),
@@ -4000,25 +4000,34 @@ util AS (
   GROUP BY allocation.engineer_id
 ),
 rev AS (
-  -- revenue (ACCRUAL / matching): invoice_line.amount for invoices whose billing
-  -- period OVERLAPS the P&L period and that have EVER reached issued or paid.
-  -- Matched to the period EARNED (the billing month), recognized once the invoice
-  -- is issued — NOT gated by whether issue happened before the period closed — so a
-  -- month's revenue lines up with the cost of the work that produced it even when
-  -- the invoice is issued the following month. A still-draft invoice (never issued)
-  -- contributes nothing.
+  -- revenue (ACCRUAL, capacity-based): the billable value of the capacity each
+  -- engineer worked in the period — Σ fraction × day_rate × days over each
+  -- allocation ∩ engineer_role(level) ∩ rate_card-version ∩ period sub-period.
+  -- Recognized as the work is performed, on the SAME capacity basis as utilization
+  -- and cost, independent of whether/when an invoice is drafted or issued (the
+  -- invoice lifecycle governs billing/cash, not P&L revenue — ADR-043). Splitting on
+  -- the role version AND the rate_card version bills a mid-period promotion or rate
+  -- revision day-accurate at each level's rate. Leave does NOT reduce it (capacity,
+  -- not hours) — symmetric with utilization_days.
   SELECT
-    invoice_line.engineer_id,
-    sum(invoice_line.amount)::numeric AS revenue
+    allocation.engineer_id,
+    sum(allocation.fraction * rate_card.day_rate
+        * (upper(allocation.allocated_during * engineer_role.held_during
+                 * rate_card.effective_during * params.period)
+           - lower(allocation.allocated_during * engineer_role.held_during
+                   * rate_card.effective_during * params.period)))::numeric
+      AS revenue
   FROM params
-  JOIN invoice_subject ON invoice_subject.billing_period && params.period
-  JOIN invoice_line    ON invoice_line.invoice_id = invoice_subject.invoice_id
-  WHERE EXISTS (
-    SELECT 1 FROM invoice_status
-    WHERE invoice_status.invoice_id = invoice_subject.invoice_id
-      AND invoice_status.status IN ('issued', 'paid')
-  )
-  GROUP BY invoice_line.engineer_id
+  JOIN allocation    ON allocation.allocated_during && params.period
+  JOIN engineer_role ON engineer_role.engineer_id = allocation.engineer_id
+                    AND engineer_role.held_during && allocation.allocated_during
+                    AND engineer_role.held_during && params.period
+  JOIN rate_card     ON rate_card.level = engineer_role.level
+                    AND rate_card.effective_during && engineer_role.held_during
+                    AND rate_card.effective_during && params.period
+  WHERE NOT isempty(allocation.allocated_during * engineer_role.held_during
+                    * rate_card.effective_during * params.period)
+  GROUP BY allocation.engineer_id
 ),
 cost AS (
   -- cost: payroll_line.amount for payroll runs overlapping the period

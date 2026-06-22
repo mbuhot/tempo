@@ -1043,50 +1043,47 @@ carry that is a follow-up, not a blocker.
 
 ---
 
-## ADR-043 — P&L revenue is accrual/matching — recognized in the month earned, not gated on issue timing
+## ADR-043 — P&L revenue is capacity-based accrual — the billable value of work performed
 **Status:** Accepted (amends ADR-026)
 
-**Context.** ADR-026 defined P&L revenue as issued/paid invoice lines "recognized on issue, read as-of the
-window's upper bound." Taken literally that is *recognition-on-issue*: a month's revenue counted only the
-invoices whose issue transition had already happened as-of the month's close. But the seed (and the realistic
-billing cycle it models) **issues each month's invoice the FOLLOWING month** — after that month's P&L has
-already closed. The two rules collided: a fully-worked month showed its payroll **cost** but **$0 matching
-revenue**, because the invoice that bills the work it earned was not issued until the next month. Monthly
-revenue was therefore structurally ~$0 across the board, and every closed month looked like a loss. Verified
-on live data before the change: May 2026 — fully worked, fully billed — recognized $0 revenue against its full
-cost.
+**Context.** ADR-026 defined P&L revenue as issued/paid invoice lines read as-of the window's close
+(recognition-on-issue). Because the seed issues each month's invoice the FOLLOWING month, a fully-worked month
+showed its payroll cost but $0 revenue (its invoice wasn't issued before the month closed). A first fix matched
+revenue to the *billing period* of any ever-issued invoice — but that still requires an invoice to exist and be
+issued: the CURRENT (in-progress) month, and any month whose invoices are still draft, kept showing **100%
+utilization against $0 revenue**. Verified on live data: June 2026 — fully allocated, draft invoices — recognized
+$0, while the billable value of the work was Priya $54k / Marcus $30k / Aisha $54k.
 
-**Decision.** Make the P&L statement **accrual / matching**. A month's revenue is the sum of `invoice_line`
-amounts whose **billing period OVERLAPS the P&L month** AND whose invoice has **EVER reached `issued` or
-`paid`** (an `EXISTS` over `invoice_status` for those states, at any time). Revenue is matched to the **period
-of the work that earned it** (the billing month) and recognized **once the invoice is issued** — it is **not**
-gated by whether the issue happened before the period closed. So a month's revenue lines up even when its
-invoice is issued the following month. A **still-draft (never-issued) invoice contributes nothing** — issuance
-is still the recognition trigger; only its *timing relative to the period close* no longer matters
-(`server/src/tempo/server/sql/pnl_rows.sql`, the `rev` CTE). Verified after the change: May 2026 now recognizes
-$124,000 (Priya 37,200 / Marcus 31,000 / Aisha 55,800).
+**Decision.** Make P&L revenue **capacity-based accrual**: a period's revenue per engineer is `Σ allocation.fraction
+× rate_card.day_rate × days` over each `allocation ∩ engineer_role(level) ∩ rate_card-version ∩ period`
+sub-period — the billable value of the capacity the engineer worked, recognized **as the work is performed**, on
+the **SAME capacity basis as utilization and cost**, and **independent of the invoice lifecycle**
+(`server/src/tempo/server/sql/pnl_rows.sql`, the `rev` CTE — it no longer touches `invoice_*`). Splitting on the
+role version AND the rate_card version bills a mid-period promotion or rate revision day-accurate at each level's
+rate; leave does not reduce it (capacity, not hours), symmetric with `utilization_days`. It equals the billed
+amount once a month is invoiced at the agreed rates, but does not wait on — or require — an invoice. Verified:
+June 2026 now recognizes the earned value instead of $0.
 
-**Rationale.** The matching principle: revenue belongs in the same period as the cost of the work that produced
-it. Recognition-on-issue made the P&L a function of *invoicing cadence* rather than *work done*, so the
-statement told the wrong story for every month whose invoice lagged its work — which, given the next-month
-issue cadence, was every month. Matching revenue to the billing period it was earned over makes each month's
-profit reflect that month's economics.
+**Rationale.** Revenue, utilization, and cost now share one capacity basis, so a fully-utilized month always
+shows matching revenue and the statement reflects *work done*, not *invoicing cadence*. The invoice lifecycle
+(draft → issued → paid) is a billing/cash concern; it belongs on the Invoices tab and no longer drives P&L
+revenue. This also fixes the in-progress / un-invoiced month, which no invoice-gated rule could.
 
-**Tradeoff (explicit).** This **drops the strict temporal behaviour for the P&L** where scrubbing the period
-end back before an invoice's issue date made that revenue disappear. The P&L no longer asks "was this invoice
-issued as-of the window close?" — only "does it overlap, and was it ever issued?". The temporal, as-of-status
-behaviour is **not lost from the system**: **FR-F4 still governs the invoice ROW status** (the invoices table
-still reads `draft` before its issue date and `issued` after, as a true as-of-status query — ADR-026's
-lifecycle is unchanged), but the **P&L statement is accrual** and reads issuance as a binary ever/never gate.
-The two views deliberately answer different questions: the invoice row is "what was the status on date D"; the
-P&L is "what did this month earn."
+**Tradeoff (explicit).** P&L revenue is **decoupled from actual billing** — it recognizes the billable value of
+utilized capacity even before, or without, an invoice. For this app invoices are computed from allocations ×
+rates, so capacity revenue equals the invoiced amount for billed months; it would diverge only if an invoice
+were manually adjusted away from the agreed rates (not modelled). The temporal as-of-status behaviour (FR-F4)
+still governs the invoice ROW status (`draft`/`issued`/`paid` by date); the P&L simply answers a different
+question — "what did this month earn" — and no longer consults invoices at all.
 
-**Alternatives.** Keep recognition-on-issue and re-time the seed to issue each invoice within its own month
-(rejected — it papers over the modelling error with a seed quirk, and any real next-month billing cadence
-reintroduces the $0-revenue month); recognize on the as-of status of the *window close* but match to the
-billing period (rejected — reintroduces the temporal gate that produced the bug, just shifted by the matching
-join); cash-basis recognition on `paid` only (rejected — even further from matching, and most months would
-show $0 until payment clears).
+**Supersedes** this ADR's earlier same-day form (invoice-matching accrual: billing-period overlap + ever-issued),
+which still read $0 for in-progress, un-invoiced, or still-draft months — the symptom that drove the move to a
+capacity basis.
+
+**Alternatives.** Invoice-matching accrual (rejected — still $0 for the current/un-invoiced/draft month, the very
+case that recurred); recognize drafted invoices too (rejected — recognizes on the internal act of drafting a
+bill, still needs an invoice to exist, an odd recognition point); keep recognition-on-issue and re-time the seed
+(rejected — papers over the model with a seed quirk).
 
 ---
 
