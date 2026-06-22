@@ -13,7 +13,12 @@
 ////     Platform), one `LogWeek` per engineer per week, skipping Aisha's June leave.
 ////   * INVOICES — one per project per month (18 in all), progressed so all three
 ////     statuses show: Jan–Mar PAID, Apr–May ISSUED, Jun left DRAFT.
-////   * PAYROLL — one run per month (six runs).
+////   * PAYROLL — one run per month for EVERY month Jan 2024 – Jun 2026 (30 runs),
+////     not just the invoice window: the P&L cost is a SNAPSHOT of materialized
+////     payroll runs overlapping the window, so a month with employed engineers but
+////     no run reads revenue at $0 cost. Allocations (revenue) start 2024-01-01, so a
+////     run per month back to then keeps the per-engineer P&L cost accurate at any
+////     as-of date.
 //// Financials are computed from allocations/role/salary/rate-card, not the
 //// timesheet (P&L utilization is capacity-based), so the timesheets are the work
 //// record the My-timesheet grid shows rather than an input to the billing.
@@ -29,7 +34,7 @@
 //// freshly-drafted invoice's minted id by project NAME and billing month rather than
 //// adding a new query.
 ////
-//// VARIANCE DEMO: after the six monthly runs it records a back-dated promotion of
+//// VARIANCE DEMO: after the monthly runs it records a back-dated promotion of
 //// Priya (engineer 1) L5 -> L6 effective 2026-05-01 — into the already-run MAY month.
 //// The May run froze her line at the L5 salary ($10,000); the back-dated promotion
 //// lifts the LIVE recompute to the L6 salary ($14,000), so the Payroll tab at May
@@ -112,18 +117,21 @@ pub fn main() -> Nil {
 }
 
 /// Replay the demo pipeline against the (already-migrated) dev DB, PER-SCENARIO
-/// idempotent: log Jan–Jun timesheets (if absent), then for each month draft +
-/// progress its invoices (if that month's invoice is absent) and run its payroll (if
-/// no run covers it), then apply the back-dated variance promotion (if absent). Each
-/// write asserts `Ok`. Prints a one-line summary.
+/// idempotent: log Jan–Jun timesheets (if absent), draft + progress each month's
+/// invoices (if that month's invoice is absent), run payroll for every month from the
+/// start of operations through Jun 2026 (each month if no run covers it), then apply
+/// the back-dated variance promotion (if absent). Each write asserts `Ok`. Prints a
+/// one-line summary.
 fn seed(ctx: Context) -> Nil {
   log_timesheets(ctx)
   list.each(month_plans(), fn(plan) { bill_month(ctx, plan) })
+  run_monthly_payrolls(ctx)
   apply_variance_promotion(ctx)
   io.println(
     "seed-financials: ensured Jan–Jun 2026 timesheets, 18 invoices "
-    <> "(Jan–Mar paid, Apr–May issued, Jun draft), six monthly payrolls, and the "
-    <> "back-dated May variance promotion (Priya L5->L6).",
+    <> "(Jan–Mar paid, Apr–May issued, Jun draft), a payroll run for every month "
+    <> "Jan 2024 – Jun 2026, and the back-dated May variance promotion (Priya "
+    <> "L5->L6).",
   )
 }
 
@@ -275,12 +283,12 @@ fn month_plans() -> List(MonthPlan) {
   ]
 }
 
-/// Bill every project for the month (draft → issue → pay per the plan) and run the
-/// month's payroll. Each event is recorded at the date it would naturally happen:
-/// invoices are prepared and payroll run at month end; an invoice is issued/paid on
-/// its issue/pay date. PER-SCENARIO idempotent: a project's invoice is drafted +
-/// progressed only if that month's invoice is absent, and the payroll is run only if
-/// no run already covers the month — so a partial DB tops up exactly the gaps.
+/// Bill every project for the month (draft → issue → pay per the plan). Each event is
+/// recorded at the date it would naturally happen: invoices are prepared at month end
+/// and issued/paid on their issue/pay date. PER-SCENARIO idempotent: a project's
+/// invoice is drafted + progressed only if that month's invoice is absent — so a
+/// partial DB tops up exactly the gaps. Payroll is no longer run here; it is a
+/// separate pass over EVERY month (see `run_monthly_payrolls`).
 fn bill_month(ctx: Context, plan: MonthPlan) -> Nil {
   let month_end = day_index_to_date(date_to_day_index(plan.to) - 1)
   list.each(billable_projects, fn(project) {
@@ -290,15 +298,38 @@ fn bill_month(ctx: Context, plan: MonthPlan) -> Nil {
       None -> bill_project(ctx, project_id, project_name, plan, month_end)
     }
   })
-  case payroll_run_present(ctx, plan.from, plan.to) {
-    True -> Nil
-    False ->
-      apply(
-        ctx,
-        RunPayroll(period_from: plan.from, period_to: plan.to),
-        month_end,
-      )
-  }
+}
+
+/// The inclusive month range payroll must cover: from the start of operations (Priya's
+/// 2024-01-01 employment + allocation, the earliest revenue) through the June 2026
+/// demo "now". Each is a month START; the run window is `[month_start, next month)`.
+const payroll_from = Date(2024, January, 1)
+
+const payroll_through = Date(2026, June, 1)
+
+/// Run payroll for EVERY month from `payroll_from` through `payroll_through`
+/// (inclusive), so the per-engineer P&L cost — a SNAPSHOT of payroll runs overlapping
+/// the window — is populated for every month with employed engineers, not only the
+/// Jan–Jun 2026 invoice window (without a run, such a month reads revenue at $0 cost).
+/// Recorded at each month's end. PER-MONTH idempotent: a month already covered by a
+/// run is skipped (the payroll_period EXCLUDE-overlap would refuse a duplicate
+/// anyway). Runs BEFORE the variance promotion, so the May 2026 run still froze
+/// Priya's L5 line.
+fn run_monthly_payrolls(ctx: Context) -> Nil {
+  list.each(month_starts(payroll_from, payroll_through), fn(month_start) {
+    let month_after = next_month_start(month_start)
+    case payroll_run_present(ctx, month_start, month_after) {
+      True -> Nil
+      False -> {
+        let month_end = day_index_to_date(date_to_day_index(month_after) - 1)
+        apply(
+          ctx,
+          RunPayroll(period_from: month_start, period_to: month_after),
+          month_end,
+        )
+      }
+    }
+  })
 }
 
 /// Draft one project's invoice for the month and progress it (issue, then pay) per
@@ -475,6 +506,23 @@ fn day_index_to_date(index: Int) -> Date {
 
 fn midnight() -> TimeOfDay {
   TimeOfDay(hours: 0, minutes: 0, seconds: 0, nanoseconds: 0)
+}
+
+/// Every first-of-month from `from` through `through` (both first-of-month),
+/// inclusive of both ends.
+fn month_starts(from: Date, through: Date) -> List(Date) {
+  case date_to_day_index(from) > date_to_day_index(through) {
+    True -> []
+    False -> [from, ..month_starts(next_month_start(from), through)]
+  }
+}
+
+/// The first day of the month following `date`'s month (rolling over the year).
+fn next_month_start(date: Date) -> Date {
+  case calendar.month_from_int(calendar.month_to_int(date.month) + 1) {
+    Ok(month) -> Date(date.year, month, 1)
+    Error(Nil) -> Date(date.year + 1, January, 1)
+  }
 }
 
 /// Inclusive list of integers `from..to` (`[]` when `from > to`).
