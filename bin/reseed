@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
-# One-shot DESTRUCTIVE full-demo reset: wipe the database volume and rebuild a rich
-# demo state from scratch in a single command —
-#   1. docker compose down -v   (DROPS the data volume — every fact is destroyed)
-#   2. bin/db                    (start a fresh PG19 and wait until healthy)
-#   3. bin/migrate               (apply schema + base seed onto the empty DB)
-#   4. bin/seed-invoices         (layer the Jan–Jun 2026 financials demo: timesheets,
-#                                 18 invoices, six monthly payrolls, and the back-dated
-#                                 promotion that surfaces a payroll variance)
+# One-shot DESTRUCTIVE full-demo reset: wipe the database and rebuild a rich demo
+# state from scratch — WITHOUT tearing down the container —
+#   1. bin/db                 (ensure the PG19 container is up and healthy)
+#   2. DROP + CREATE DATABASE (recreate the `tempo` database in-place, dropping every
+#                              object; WITH (FORCE) evicts open sessions — a running
+#                              server's pool just reconnects to the fresh, empty DB
+#                              rather than dying on a destroyed container)
+#   3. bin/migrate            (apply schema + base seed onto the empty DB)
+#   4. bin/seed-invoices      (layer the Jan–Jun 2026 financials demo: timesheets,
+#                              18 invoices, six monthly payrolls, and the back-dated
+#                              promotion that surfaces a payroll variance)
 #
-# DESTRUCTIVE: this throws away the entire database volume. It is intentionally
-# SEPARATE from bin/up (which stays test-clean and never seeds financials): use
-# bin/up for day-to-day dev, bin/reseed only when you want to blow everything away
-# and land the full demo story.
+# DESTRUCTIVE: this throws away every fact. It is intentionally SEPARATE from bin/up
+# (which stays test-clean and never seeds financials): use bin/up for day-to-day dev,
+# bin/reseed only when you want to blow everything away and land the full demo story.
+# Drops/recreates the database in-place (not `docker compose down -v`), so it is fast
+# and leaves the container — and any running server's connection pool — intact.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "==> [1/4] volume .................. wiping (docker compose down -v)"
-docker compose down -v
-
-echo "==> [2/4] database (PG19) ........ starting + waiting for healthy"
+echo "==> [1/4] database (PG19) ........ ensuring up + healthy"
 bin/db
+
+echo "==> [2/4] reset .................. drop + recreate the tempo database in-place"
+docker exec -i tempo-db psql -U tempo -d postgres -v ON_ERROR_STOP=1 \
+  -c "DROP DATABASE IF EXISTS tempo WITH (FORCE);" \
+  -c "CREATE DATABASE tempo OWNER tempo;"
 
 echo "==> [3/4] migrations ............. schema + base seed"
 bin/migrate
