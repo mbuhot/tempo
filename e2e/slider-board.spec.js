@@ -1,5 +1,11 @@
 const { test, expect } = require("@playwright/test");
-const { signInAs, scrubTo, navigateTo, escapeRegExp } = require("./helpers");
+const {
+  signInAs,
+  scrubTo,
+  navigateTo,
+  escapeRegExp,
+  railReadout,
+} = require("./helpers");
 
 // Behaviour-driven coverage of the time rail + Board page on the NEW shell. After
 // signing in, the Board ("Who's doing what") shows the whole consultancy as of the
@@ -108,6 +114,48 @@ test("the selected date lives in the URL and is restored on load", async ({
   await expect(
     page.getByRole("heading", { name: "Board" }),
   ).toBeVisible();
+});
+
+test("dragging the rail does not flood history.replaceState (the URL write is debounced)", async ({
+  page,
+}) => {
+  // A real drag fires an `input` on every thumb step — dozens per second. The URL
+  // mirror must be DEBOUNCED, not written per tick: the browser caps
+  // history.replaceState at ~100 per 10s and a continuous drag blows past it
+  // ("SecurityError: Attempt to use history.replaceState() more than 100 times per
+  // 10 seconds"). We count replaceState calls across a 150-step burst and assert
+  // only a handful land (the settle), while the readout and URL still arrive at the
+  // final date.
+  await page.evaluate(() => {
+    window.__replaceStateCount = 0;
+    const original = window.history.replaceState;
+    window.history.replaceState = function (...args) {
+      window.__replaceStateCount += 1;
+      try {
+        return original.apply(window.history, args);
+      } catch (error) {
+        window.__replaceStateThrew = String(error);
+      }
+    };
+  });
+
+  const slider = page.getByLabel("As-of date");
+  await slider.evaluate((el) => {
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    ).set;
+    for (let day = 20_500; day <= 20_649; day += 1) {
+      setValue.call(el, String(day));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  await expect(page.getByText(railReadout("2026-07-15"), { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
+
+  const replaceStateCount = await page.evaluate(() => window.__replaceStateCount);
+  expect(replaceStateCount).toBeLessThanOrEqual(5);
 });
 
 test("the on-leave panel appears and disappears as the rail moves", async ({

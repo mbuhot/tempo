@@ -177,33 +177,37 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     AsOfScrubbed(date:) -> {
-      // Update the as-of INSTANTLY so the rail readout tracks the thumb, sync the
-      // URL eagerly, and bump the token; defer ONLY the refetch to a debounced
-      // settle carrying this token. The URL is synced HERE (not in the settle) so
-      // its same-route RouteChanged echo lands while we are still on this route —
-      // a clean no-op — rather than a settle's `replace` racing a navigation and
-      // reverting the route.
+      // Update the as-of INSTANTLY so the rail readout/fill track the thumb and bump
+      // the token; defer BOTH the refetch and the URL sync to a debounced settle
+      // carrying this token. The URL must NOT be written per tick: a drag fires an
+      // `input` on every thumb step, so mirroring `?date=` each time floods
+      // history.replaceState past the browser's ~100-per-10s cap (a SecurityError).
       let as_of = time.clamp_date(date)
       let token = model.scrub_token + 1
       #(
         Model(..model, as_of:, scrub_token: token),
-        effect.batch([
-          sync_as_of(model.route, as_of),
-          scheduler.after(scrub_refetch_ms, AsOfScrubSettled(token)),
-        ]),
+        scheduler.after(scrub_refetch_ms, AsOfScrubSettled(token)),
       )
     }
 
     AsOfScrubSettled(token:) ->
-      // Only the latest scrub fetches: a later tick or any navigation has bumped
-      // scrub_token past this one, so a superseded settle is a no-op. The URL was
-      // already synced on the scrub tick, so the settle only refetches.
+      // Only the latest scrub settles: a later tick or any navigation has bumped
+      // scrub_token past this one, so a superseded settle is a no-op. The live settle
+      // refetches the page AND mirrors the rested as-of into the URL — collapsing a
+      // whole drag's worth of replaceState into ONE write. Syncing HERE is safe
+      // because a current token means NO navigation has happened, so we are still on
+      // `model.route` and the `replace`'s same-route RouteChanged echo is a clean
+      // no-op (a navigation bumps the token, so its settle never reaches this branch
+      // and never replaces a route we have already left).
       case token == model.scrub_token {
         False -> #(model, effect.none())
         True -> {
           let #(page, page_effect) =
             refetch_page(model.page, model.as_of, actor_of(model))
-          #(Model(..model, page:), page_effect)
+          #(
+            Model(..model, page:),
+            effect.batch([sync_as_of(model.route, model.as_of), page_effect]),
+          )
         }
       }
 
