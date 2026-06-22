@@ -55,8 +55,10 @@ test("shows the engineer's allocated projects as rows, with logged hours in the 
   await expect(page.getByText("week of 2026-06-08")).toBeVisible();
   await expect(cell(page, "Ledger Migration", WEEKDAY.Tue)).toHaveValue("4");
   await expect(cell(page, "Inventory Sync", WEEKDAY.Tue)).toHaveValue("4");
-  // Monday of that week was not logged.
-  await expect(cell(page, "Ledger Migration", WEEKDAY.Mon)).toHaveValue("");
+  // The seed logs every Mon–Fri working day, so Monday carries her 4h too; the
+  // weekend is not a working day, so Sunday's cell stays empty.
+  await expect(cell(page, "Ledger Migration", WEEKDAY.Mon)).toHaveValue("4");
+  await expect(cell(page, "Ledger Migration", WEEKDAY.Sun)).toHaveValue("");
   // Priya is not on Data Platform, so it is not a row in her grid.
   await expect(
     page.getByRole("row", { name: /Data Platform/ }).getByLabel("Hours"),

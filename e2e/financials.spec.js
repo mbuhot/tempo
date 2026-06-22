@@ -188,15 +188,22 @@ const EMPLOYED = ["Priya Sharma", "Marcus Chen", "Aisha Okafor"];
 // payroll_period EXCLUDE-overlap constraint (a 2nd run of the same month is
 // refused): the "Run payroll" button is present ONLY in the un-run preview state,
 // so its presence is the signal a run is needed.
-async function ensurePayrollRun(page, monthFrom, monthTo) {
+async function ensurePayrollRun(page, month, monthFrom, monthTo) {
+  // Wait for the payroll panel to SETTLE on this month before deciding: scrubbing the
+  // rail refetches the panel asynchronously, so an instant visibility check can race
+  // the refetch (still showing the prior month, which has no Run button) and wrongly
+  // skip a needed run. The panel has landed once it is either already run for this
+  // month or showing this month's un-run preview (its Run button).
+  const alreadyRun = page.getByText(`Payroll run · ${month}`);
   const runButton = page.getByRole("button", { name: "Run payroll", exact: true });
-  const needsRun = await runButton.isVisible().catch(() => false);
-  if (needsRun) {
+  await expect(alreadyRun.or(runButton).first()).toBeVisible();
+  if (await runButton.isVisible().catch(() => false)) {
     await runButton.click();
     await expect(page.getByText("Run payroll").first()).toBeVisible();
     await page.getByLabel("Period from").fill(monthFrom);
     await page.getByLabel("Period to").fill(monthTo);
     await confirmOp(page, "Run payroll");
+    await expect(page.getByText(`Payroll run · ${month}`)).toBeVisible();
   }
 }
 
@@ -233,7 +240,7 @@ test("running payroll materializes the run and shows each engineer's paid amount
   // — Beat 3 exercises the variance path deterministically instead.
   await openPayrollTab(page);
   await scrubTo(page, "2026-08-15");
-  await ensurePayrollRun(page, "2026-08-01", "2026-08-31");
+  await ensurePayrollRun(page, "Aug 2026", "2026-08-01", "2026-08-31");
 
   await expect(page.getByText("Payroll run · Aug 2026", { exact: false })).toBeVisible();
   await expect(page.getByText("not yet run")).toHaveCount(0);
@@ -267,7 +274,7 @@ test("back-dating a promotion into a run month surfaces the back-pay owed", asyn
   // collides with the sidebar's signed-in-user name.
   await openPayrollTab(page);
   await scrubTo(page, "2026-09-15");
-  await ensurePayrollRun(page, "2026-09-01", "2026-09-30");
+  await ensurePayrollRun(page, "Sep 2026", "2026-09-01", "2026-09-30");
 
   await navigateTo(page, "People");
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
