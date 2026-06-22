@@ -1134,6 +1134,35 @@ forecasts $0); sum requirements AND allocations (rejected — double-counts a st
 plan); a separate pipeline/opportunity model decoupled from projects (rejected — out of scope for v1, and a
 contracted project already carries the run and rates the forecast needs).
 
+## ADR-045 — Open-ended versioned attributes are a single-statement temporal upsert
+**Status:** Accepted (supersedes the `change_or_open` two-step)
+
+**Context.** Every open-ended versioned attribute (engineer role/contact/banking/emergency, project
+profile/plan, client profile) was written as a two-step `change_or_open` in `repository.gleam`: run the
+`FOR PORTION OF` **Change**, read its row count, and if it touched 0 rows (no version yet covers `from` — the
+founding write at onboard / start_project) fall back to an **Open** INSERT. This split one logical write — "record
+this attribute from `from` onward" — across a *pair* of `.sql` files (`*_revise`/`*_change` + `*_open`) and a
+count-branch helper, for each of seven attributes.
+
+**Decision.** Collapse each pair into one `*_upsert.sql` — a **writable-CTE temporal upsert**: a data-modifying
+CTE runs the `UPDATE … FOR PORTION OF recorded_during FROM $from TO NULL` and the trailing
+`INSERT … SELECT … WHERE NOT EXISTS (SELECT 1 FROM changed)` opens the founding span only when the Change matched
+nothing. One statement, no read-back, no Gleam-side branch; `change_or_open` is deleted. The Change still SETs
+`audit_id` on the `[from, NULL)` portion while PG copies the carved-off `[start, from)` leftover at its **original**
+`audit_id`, so per-version provenance (ADR-032) is unchanged. Canonical param order is `($1 id, $2 from, value
+columns…, audit_id)`. No schema migration — the tables, `WITHOUT OVERLAPS` PKs, PERIOD FKs, and error
+classification by constraint name (ADR-022) are untouched; only the way the write is expressed changes. Verified
+on the pinned `postgres:19beta1`: both branches work and the leftover keeps its prior `audit_id`.
+
+**Alternatives.** Keep `change_or_open` (rejected — two files + a count-branch per attribute for one logical
+write). `INSERT … ON CONFLICT` (rejected — a `WITHOUT OVERLAPS` PK is an exclusion constraint that `ON CONFLICT`
+cannot target, per ADR/P1-T04). A PL/pgSQL upsert function per table (rejected — moves branching into schema
+machinery a migration must carry, harder to read than one CTE).
+
+**Scope (explicit).** Only the seven `change_or_open` attributes. The other write shapes are deliberately
+unchanged: timesheet's delete-then-insert (P1-T04), requirement's clear-then-set (ADR-044), departure's cascading
+caps, and the rate/allocation/invoice-status writes.
+
 ---
 
 ## Documentation format

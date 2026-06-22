@@ -1,7 +1,6 @@
 # Temporal Upsert — eliminate the `change_or_open` pattern
 
-**Status:** Approved (design). Implementation to follow; ADR-045 to be added to
-`docs/DECISIONS.md` during the build.
+**Status:** Implemented. Recorded as ADR-045 in `docs/DECISIONS.md`.
 
 ## Problem
 

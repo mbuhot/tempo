@@ -659,45 +659,18 @@ ORDER BY name;
   |> pog.execute(db)
 }
 
-/// client_profile_open.sql — open a client's founding profile (the NAME). Last param
-/// is the audit_id. $1 = client_id, $2 = name, $3 = from.
+/// client_profile_upsert.sql — record a client profile (the NAME) from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new name + audit_id on the [$2, NULL) portion of the covering version, and
+/// PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If
+/// no version covers $2 (the founding write) the Change touches nothing, so the guarded
+/// INSERT opens the first [$2, NULL) span instead. $1 = client_id, $2 = effective,
+/// $3 = name, $4 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn client_profile_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: Date,
-  arg_4: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- client_profile_open.sql — open a client's founding profile (the NAME). Last param
--- is the audit_id. $1 = client_id, $2 = name, $3 = from.
-INSERT INTO client_profile
-  (client_id, name, recorded_during, audit_id)
-VALUES ($1, $2, daterange($3::date, NULL, '[)'), $4);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.calendar_date(arg_3))
-  |> pog.parameter(pog.int(arg_4))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// client_profile_revise.sql — record a new client profile from $2 onward (the Change
-/// pattern). FOR PORTION OF sets the new name + audit_id on the [$2, NULL) portion; PG
-/// carves off the unchanged [start, $2) remainder keeping its original audit_id.
-/// $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn client_profile_revise(
+pub fn client_profile_upsert(
   db: pog.Connection,
   client_id: Int,
   arg_2: Date,
@@ -706,15 +679,25 @@ pub fn client_profile_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- client_profile_revise.sql — record a new client profile from $2 onward (the Change
--- pattern). FOR PORTION OF sets the new name + audit_id on the [$2, NULL) portion; PG
--- carves off the unchanged [start, $2) remainder keeping its original audit_id.
--- $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
-UPDATE client_profile
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET name = $3, audit_id = $4
- WHERE client_id = $1
-   AND recorded_during @> $2::date;
+  "-- client_profile_upsert.sql — record a client profile (the NAME) from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new name + audit_id on the [$2, NULL) portion of the covering version, and
+-- PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If
+-- no version covers $2 (the founding write) the Change touches nothing, so the guarded
+-- INSERT opens the first [$2, NULL) span instead. $1 = client_id, $2 = effective,
+-- $3 = name, $4 = audit_id.
+WITH changed AS (
+  UPDATE client_profile
+     FOR PORTION OF recorded_during FROM $2::date TO NULL
+     SET name = $3, audit_id = $4
+   WHERE client_id = $1
+     AND recorded_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO client_profile
+  (client_id, name, recorded_during, audit_id)
+SELECT $1, $3, daterange($2::date, NULL, '[)'), $4
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(client_id))
@@ -1146,54 +1129,19 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_banking_open.sql — open an engineer's banking details. Last param is the
-/// audit_id. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
-/// $5 = account_name, $6 = from.
+/// engineer_banking_upsert.sql — record banking details from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+/// If no version covers $2 (the founding write) the Change touches nothing, so the
+/// guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+/// $2 = effective, $3 = bank, $4 = branch, $5 = account_no, $6 = account_name,
+/// $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_banking_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: String,
-  arg_4: String,
-  arg_5: String,
-  arg_6: Date,
-  arg_7: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_banking_open.sql — open an engineer's banking details. Last param is the
--- audit_id. $1 = engineer_id, $2 = bank, $3 = branch, $4 = account_no,
--- $5 = account_name, $6 = from.
-INSERT INTO engineer_banking
-  (engineer_id, bank, branch, account_no, account_name, recorded_during, audit_id)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.calendar_date(arg_6))
-  |> pog.parameter(pog.int(arg_7))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// engineer_banking_revise.sql — record new banking details from $2 onward (the
-/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
-/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
-/// audit_id. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
-/// $5 = account_no, $6 = account_name, $7 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_banking_revise(
+pub fn engineer_banking_upsert(
   db: pog.Connection,
   engineer_id: Int,
   arg_2: Date,
@@ -1205,16 +1153,26 @@ pub fn engineer_banking_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_banking_revise.sql — record new banking details from $2 onward (the
--- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
--- portion; PG carves off the unchanged [start, $2) remainder keeping its original
--- audit_id. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
--- $5 = account_no, $6 = account_name, $7 = audit_id.
-UPDATE engineer_banking
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET bank = $3, branch = $4, account_no = $5, account_name = $6, audit_id = $7
- WHERE engineer_id = $1
-   AND recorded_during @> $2::date;
+  "-- engineer_banking_upsert.sql — record banking details from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+-- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+-- If no version covers $2 (the founding write) the Change touches nothing, so the
+-- guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+-- $2 = effective, $3 = bank, $4 = branch, $5 = account_no, $6 = account_name,
+-- $7 = audit_id.
+WITH changed AS (
+  UPDATE engineer_banking
+     FOR PORTION OF recorded_during FROM $2::date TO NULL
+     SET bank = $3, branch = $4, account_no = $5, account_name = $6, audit_id = $7
+   WHERE engineer_id = $1
+     AND recorded_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO engineer_banking
+  (engineer_id, bank, branch, account_no, account_name, recorded_during, audit_id)
+SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1290,54 +1248,18 @@ WHERE id = $1;
   |> pog.execute(db)
 }
 
-/// engineer_contact_open.sql — open an engineer's founding contact (carries the
-/// NAME; the anchor is id-only). Last param is the audit_id.
-/// $1 = engineer_id, $2 = name, $3 = email, $4 = phone, $5 = postal, $6 = from.
+/// engineer_contact_upsert.sql — record contact details from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+/// If no version covers $2 (the founding write at onboard) the Change touches nothing,
+/// so the guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+/// $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_contact_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: String,
-  arg_4: String,
-  arg_5: String,
-  arg_6: Date,
-  arg_7: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_contact_open.sql — open an engineer's founding contact (carries the
--- NAME; the anchor is id-only). Last param is the audit_id.
--- $1 = engineer_id, $2 = name, $3 = email, $4 = phone, $5 = postal, $6 = from.
-INSERT INTO engineer_contact
-  (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.calendar_date(arg_6))
-  |> pog.parameter(pog.int(arg_7))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// engineer_contact_revise.sql — record new contact details from $2 onward (the
-/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
-/// portion of the covering row; PG carves off the unchanged [start, $2) remainder
-/// keeping its original audit_id. $1 = engineer_id, $2 = effective, $3 = name,
-/// $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_contact_revise(
+pub fn engineer_contact_upsert(
   db: pog.Connection,
   engineer_id: Int,
   arg_2: Date,
@@ -1349,16 +1271,25 @@ pub fn engineer_contact_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_contact_revise.sql — record new contact details from $2 onward (the
--- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
--- portion of the covering row; PG carves off the unchanged [start, $2) remainder
--- keeping its original audit_id. $1 = engineer_id, $2 = effective, $3 = name,
--- $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
-UPDATE engineer_contact
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET name = $3, email = $4, phone = $5, postal_address = $6, audit_id = $7
- WHERE engineer_id = $1
-   AND recorded_during @> $2::date;
+  "-- engineer_contact_upsert.sql — record contact details from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+-- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+-- If no version covers $2 (the founding write at onboard) the Change touches nothing,
+-- so the guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+-- $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
+WITH changed AS (
+  UPDATE engineer_contact
+     FOR PORTION OF recorded_during FROM $2::date TO NULL
+     SET name = $3, email = $4, phone = $5, postal_address = $6, audit_id = $7
+   WHERE engineer_id = $1
+     AND recorded_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO engineer_contact
+  (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1467,54 +1398,18 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_emergency_open.sql — open an engineer's emergency contact. Last param is
-/// the audit_id. $1 = engineer_id, $2 = relation, $3 = name, $4 = phone, $5 = email,
-/// $6 = from.
+/// engineer_emergency_upsert.sql — record an emergency contact from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+/// If no version covers $2 (the founding write) the Change touches nothing, so the
+/// guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+/// $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_emergency_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: String,
-  arg_4: String,
-  arg_5: String,
-  arg_6: Date,
-  arg_7: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_emergency_open.sql — open an engineer's emergency contact. Last param is
--- the audit_id. $1 = engineer_id, $2 = relation, $3 = name, $4 = phone, $5 = email,
--- $6 = from.
-INSERT INTO engineer_emergency
-  (engineer_id, relation, name, phone, email, recorded_during, audit_id)
-VALUES ($1, $2, $3, $4, $5, daterange($6::date, NULL, '[)'), $7);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.calendar_date(arg_6))
-  |> pog.parameter(pog.int(arg_7))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// engineer_emergency_revise.sql — record a new emergency contact from $2 onward (the
-/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
-/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
-/// audit_id. $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone,
-/// $6 = email, $7 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_emergency_revise(
+pub fn engineer_emergency_upsert(
   db: pog.Connection,
   engineer_id: Int,
   arg_2: Date,
@@ -1526,16 +1421,25 @@ pub fn engineer_emergency_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_emergency_revise.sql — record a new emergency contact from $2 onward (the
--- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
--- portion; PG carves off the unchanged [start, $2) remainder keeping its original
--- audit_id. $1 = engineer_id, $2 = effective, $3 = relation, $4 = name, $5 = phone,
--- $6 = email, $7 = audit_id.
-UPDATE engineer_emergency
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET relation = $3, name = $4, phone = $5, email = $6, audit_id = $7
- WHERE engineer_id = $1
-   AND recorded_during @> $2::date;
+  "-- engineer_emergency_upsert.sql — record an emergency contact from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+-- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+-- If no version covers $2 (the founding write) the Change touches nothing, so the
+-- guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
+-- $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
+WITH changed AS (
+  UPDATE engineer_emergency
+     FOR PORTION OF recorded_during FROM $2::date TO NULL
+     SET relation = $3, name = $4, phone = $5, email = $6, audit_id = $7
+   WHERE engineer_id = $1
+     AND recorded_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO engineer_emergency
+  (engineer_id, relation, name, phone, email, recorded_during, audit_id)
+SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1665,49 +1569,6 @@ SELECT nextval('engineer_id_seq')::int AS id;
   |> pog.execute(db)
 }
 
-/// engineer_role_change.sql — promote/change an engineer's level from a date onward.
-///
-/// Change pattern (one statement, no read). FOR PORTION OF intersects [effective, ∞)
-/// with the role version in effect, so the new level + audit_id land on [effective,
-/// row.upper) and PG re-inserts the [row.lower, effective) leftover at the OLD level
-/// AND its original audit_id (per-version provenance). The `@> $3` filter confines
-/// the edit to the version in effect; a scheduled future version is untouched.
-/// $1 = engineer_id, $2 = new level, $3 = effective, $4 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn engineer_role_change(
-  db: pog.Connection,
-  engineer_id: Int,
-  arg_2: Int,
-  arg_3: Date,
-  audit_id: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- engineer_role_change.sql — promote/change an engineer's level from a date onward.
---
--- Change pattern (one statement, no read). FOR PORTION OF intersects [effective, ∞)
--- with the role version in effect, so the new level + audit_id land on [effective,
--- row.upper) and PG re-inserts the [row.lower, effective) leftover at the OLD level
--- AND its original audit_id (per-version provenance). The `@> $3` filter confines
--- the edit to the version in effect; a scheduled future version is untouched.
--- $1 = engineer_id, $2 = new level, $3 = effective, $4 = audit_id.
-UPDATE engineer_role
-   FOR PORTION OF held_during FROM $3::date TO NULL
-   SET level = $2, audit_id = $4
- WHERE engineer_id = $1 AND held_during @> $3::date;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(engineer_id))
-  |> pog.parameter(pog.int(arg_2))
-  |> pog.parameter(pog.calendar_date(arg_3))
-  |> pog.parameter(pog.int(audit_id))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
 /// engineer_role_close_all.sql — cap all of an engineer's roles from a date.
 ///
 /// Close/cascade pattern. DELETE FOR PORTION OF intersects [$end, ∞) with each
@@ -1801,33 +1662,52 @@ ORDER BY lower(engineer_role.held_during);
   |> pog.execute(db)
 }
 
-/// engineer_role_open.sql — assert an ongoing engineer role (open-ended), contained
-/// by employment via the engineer_role_within_employment PERIOD FK. Last param is
-/// the audit_id. $1 = engineer_id, $2 = level, $3 = start date.
+/// engineer_role_upsert.sql — record an engineer's level from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new level + audit_id on the [$2, NULL) portion of the role in effect, and
+/// PG re-inserts the [start, $2) leftover at the OLD level AND its original audit_id. If
+/// no role covers $2 (the founding write at onboard) the Change touches nothing, so the
+/// guarded INSERT opens the first [$2, NULL) span — contained by employment via the
+/// engineer_role_within_employment PERIOD FK. $1 = engineer_id, $2 = effective,
+/// $3 = level, $4 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_role_open(
+pub fn engineer_role_upsert(
   db: pog.Connection,
-  arg_1: Int,
-  arg_2: Int,
-  arg_3: Date,
-  arg_4: Int,
+  engineer_id: Int,
+  arg_2: Date,
+  arg_3: Int,
+  audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_role_open.sql — assert an ongoing engineer role (open-ended), contained
--- by employment via the engineer_role_within_employment PERIOD FK. Last param is
--- the audit_id. $1 = engineer_id, $2 = level, $3 = start date.
+  "-- engineer_role_upsert.sql — record an engineer's level from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new level + audit_id on the [$2, NULL) portion of the role in effect, and
+-- PG re-inserts the [start, $2) leftover at the OLD level AND its original audit_id. If
+-- no role covers $2 (the founding write at onboard) the Change touches nothing, so the
+-- guarded INSERT opens the first [$2, NULL) span — contained by employment via the
+-- engineer_role_within_employment PERIOD FK. $1 = engineer_id, $2 = effective,
+-- $3 = level, $4 = audit_id.
+WITH changed AS (
+  UPDATE engineer_role
+     FOR PORTION OF held_during FROM $2::date TO NULL
+     SET level = $3, audit_id = $4
+   WHERE engineer_id = $1
+     AND held_during @> $2::date
+  RETURNING 1
+)
 INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
-VALUES ($1, $2, daterange($3::date, NULL, '[)'), $4);
+SELECT $1, $3, daterange($2::date, NULL, '[)'), $4
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.int(arg_2))
-  |> pog.parameter(pog.calendar_date(arg_3))
-  |> pog.parameter(pog.int(arg_4))
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -4692,47 +4572,18 @@ ORDER BY project_id, lower(planned_during) DESC;
   |> pog.execute(db)
 }
 
-/// project_plan_open.sql — open a project's founding plan (budget/target). Last param
-/// is the audit_id. $1 = project_id, $2 = budget, $3 = target_completion, $4 = from.
+/// project_plan_upsert.sql — record a project plan from $2 onward in one statement (the
+/// temporal upsert). The writable CTE runs the Change: FOR PORTION OF sets the new
+/// values + audit_id on the [$2, NULL) portion of the covering version, and PG carves
+/// off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If no version
+/// covers $2 (the founding write at start_project) the Change touches nothing, so the
+/// guarded INSERT opens the first [$2, NULL) span instead. $1 = project_id,
+/// $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn project_plan_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: Float,
-  arg_3: Date,
-  arg_4: Date,
-  arg_5: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- project_plan_open.sql — open a project's founding plan (budget/target). Last param
--- is the audit_id. $1 = project_id, $2 = budget, $3 = target_completion, $4 = from.
-INSERT INTO project_plan
-  (project_id, budget, target_completion, planned_during, audit_id)
-VALUES ($1, $2, $3::date, daterange($4::date, NULL, '[)'), $5);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.float(arg_2))
-  |> pog.parameter(pog.calendar_date(arg_3))
-  |> pog.parameter(pog.calendar_date(arg_4))
-  |> pog.parameter(pog.int(arg_5))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// project_plan_revise.sql — record a new project plan from $2 onward (the Change
-/// pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL) portion;
-/// PG carves off the unchanged [start, $2) remainder keeping its original audit_id.
-/// $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn project_plan_revise(
+pub fn project_plan_upsert(
   db: pog.Connection,
   project_id: Int,
   arg_2: Date,
@@ -4742,15 +4593,25 @@ pub fn project_plan_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_plan_revise.sql — record a new project plan from $2 onward (the Change
--- pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL) portion;
--- PG carves off the unchanged [start, $2) remainder keeping its original audit_id.
--- $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
-UPDATE project_plan
-   FOR PORTION OF planned_during FROM $2::date TO NULL
-   SET budget = $3, target_completion = $4::date, audit_id = $5
- WHERE project_id = $1
-   AND planned_during @> $2::date;
+  "-- project_plan_upsert.sql — record a project plan from $2 onward in one statement (the
+-- temporal upsert). The writable CTE runs the Change: FOR PORTION OF sets the new
+-- values + audit_id on the [$2, NULL) portion of the covering version, and PG carves
+-- off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If no version
+-- covers $2 (the founding write at start_project) the Change touches nothing, so the
+-- guarded INSERT opens the first [$2, NULL) span instead. $1 = project_id,
+-- $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
+WITH changed AS (
+  UPDATE project_plan
+     FOR PORTION OF planned_during FROM $2::date TO NULL
+     SET budget = $3, target_completion = $4::date, audit_id = $5
+   WHERE project_id = $1
+     AND planned_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO project_plan
+  (project_id, budget, target_completion, planned_during, audit_id)
+SELECT $1, $3, $4::date, daterange($2::date, NULL, '[)'), $5
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_id))
@@ -4762,47 +4623,18 @@ UPDATE project_plan
   |> pog.execute(db)
 }
 
-/// project_profile_open.sql — open a project's founding profile (title/summary).
-/// Last param is the audit_id. $1 = project_id, $2 = title, $3 = summary, $4 = from.
+/// project_profile_upsert.sql — record a project profile from $2 onward in one
+/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+/// If no version covers $2 (the founding write at start_project) the Change touches
+/// nothing, so the guarded INSERT opens the first [$2, NULL) span instead.
+/// $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn project_profile_open(
-  db: pog.Connection,
-  arg_1: Int,
-  arg_2: String,
-  arg_3: String,
-  arg_4: Date,
-  arg_5: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
-
-  "-- project_profile_open.sql — open a project's founding profile (title/summary).
--- Last param is the audit_id. $1 = project_id, $2 = title, $3 = summary, $4 = from.
-INSERT INTO project_profile
-  (project_id, title, summary, recorded_during, audit_id)
-VALUES ($1, $2, $3, daterange($4::date, NULL, '[)'), $5);
-"
-  |> pog.query
-  |> pog.parameter(pog.int(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.calendar_date(arg_4))
-  |> pog.parameter(pog.int(arg_5))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// project_profile_revise.sql — record a new project profile from $2 onward (the
-/// Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
-/// portion; PG carves off the unchanged [start, $2) remainder keeping its original
-/// audit_id. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn project_profile_revise(
+pub fn project_profile_upsert(
   db: pog.Connection,
   project_id: Int,
   arg_2: Date,
@@ -4812,15 +4644,25 @@ pub fn project_profile_revise(
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_profile_revise.sql — record a new project profile from $2 onward (the
--- Change pattern). FOR PORTION OF sets the new values + audit_id on the [$2, NULL)
--- portion; PG carves off the unchanged [start, $2) remainder keeping its original
--- audit_id. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
-UPDATE project_profile
-   FOR PORTION OF recorded_during FROM $2::date TO NULL
-   SET title = $3, summary = $4, audit_id = $5
- WHERE project_id = $1
-   AND recorded_during @> $2::date;
+  "-- project_profile_upsert.sql — record a project profile from $2 onward in one
+-- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
+-- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
+-- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
+-- If no version covers $2 (the founding write at start_project) the Change touches
+-- nothing, so the guarded INSERT opens the first [$2, NULL) span instead.
+-- $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
+WITH changed AS (
+  UPDATE project_profile
+     FOR PORTION OF recorded_during FROM $2::date TO NULL
+     SET title = $3, summary = $4, audit_id = $5
+   WHERE project_id = $1
+     AND recorded_during @> $2::date
+  RETURNING 1
+)
+INSERT INTO project_profile
+  (project_id, title, summary, recorded_during, audit_id)
+SELECT $1, $3, $4, daterange($2::date, NULL, '[)'), $5
+WHERE NOT EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_id))

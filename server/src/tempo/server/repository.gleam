@@ -8,10 +8,10 @@
 //// This module is the ONE place a fact's write SEMANTIC lives, so handlers stay
 //// declarative — they say WHICH facts a command records, the repository says HOW:
 ////   - identity anchors and bounded asserts are plain inserts;
-////   - an open-ended versioned attribute (level, details, profile/plan, client) is
-////     a change from `from` onward, falling back to an open if no version yet
-////     exists (`change_or_open` — so the founding write at onboard/start_project and
-////     a later edit are the SAME fact);
+////   - an open-ended versioned attribute (level, details, profile/plan, client) is a
+////     temporal upsert (`*_upsert`): ONE statement changes the version covering `from`
+////     (FOR PORTION OF … TO NULL) and opens the first span only if none yet exists — so
+////     the founding write at onboard/start_project and a later edit are the SAME fact;
 ////   - a rate is a revise (`None`) or a bounded surgical edit (`Some(to)`);
 ////   - an allocation is a fresh bounded assign (`Some(to)`) or a re-fraction (`None`);
 ////   - an invoice status is a cap-then-open (the prior status ends where the next
@@ -137,12 +137,8 @@ fn write(
       record_departure(conn, engineer_id, from)
 
     EngineerAtLevel(engineer_id:, level:, from:) ->
-      change_or_open(
-        sql.engineer_role_change(conn, engineer_id, level, from, audit_id),
-        fn() {
-          sql.engineer_role_open(conn, engineer_id, level, from, audit_id)
-        },
-      )
+      sql.engineer_role_upsert(conn, engineer_id, from, level, audit_id)
+      |> operation.run
 
     EngineerContactDetails(
       engineer_id:,
@@ -152,30 +148,17 @@ fn write(
       postal_address:,
       from:,
     ) ->
-      change_or_open(
-        sql.engineer_contact_revise(
-          conn,
-          engineer_id,
-          from,
-          name,
-          email,
-          phone,
-          postal_address,
-          audit_id,
-        ),
-        fn() {
-          sql.engineer_contact_open(
-            conn,
-            engineer_id,
-            name,
-            email,
-            phone,
-            postal_address,
-            from,
-            audit_id,
-          )
-        },
+      sql.engineer_contact_upsert(
+        conn,
+        engineer_id,
+        from,
+        name,
+        email,
+        phone,
+        postal_address,
+        audit_id,
       )
+      |> operation.run
 
     EngineerBankingDetails(
       engineer_id:,
@@ -185,30 +168,17 @@ fn write(
       account_name:,
       from:,
     ) ->
-      change_or_open(
-        sql.engineer_banking_revise(
-          conn,
-          engineer_id,
-          from,
-          bank,
-          branch,
-          account_no,
-          account_name,
-          audit_id,
-        ),
-        fn() {
-          sql.engineer_banking_open(
-            conn,
-            engineer_id,
-            bank,
-            branch,
-            account_no,
-            account_name,
-            from,
-            audit_id,
-          )
-        },
+      sql.engineer_banking_upsert(
+        conn,
+        engineer_id,
+        from,
+        bank,
+        branch,
+        account_no,
+        account_name,
+        audit_id,
       )
+      |> operation.run
 
     EngineerEmergencyContact(
       engineer_id:,
@@ -218,30 +188,17 @@ fn write(
       email:,
       from:,
     ) ->
-      change_or_open(
-        sql.engineer_emergency_revise(
-          conn,
-          engineer_id,
-          from,
-          relation,
-          name,
-          phone,
-          email,
-          audit_id,
-        ),
-        fn() {
-          sql.engineer_emergency_open(
-            conn,
-            engineer_id,
-            relation,
-            name,
-            phone,
-            email,
-            from,
-            audit_id,
-          )
-        },
+      sql.engineer_emergency_upsert(
+        conn,
+        engineer_id,
+        from,
+        relation,
+        name,
+        phone,
+        email,
+        audit_id,
       )
+      |> operation.run
 
     // --- allocation & leave ---------------------------------------------------
     EngineerAllocatedToProject(engineer_id:, project_id:, fraction:, from:, to:) ->
@@ -308,58 +265,34 @@ fn write(
       |> operation.run
 
     ProjectProfile(project_id:, title:, summary:, from:) ->
-      change_or_open(
-        sql.project_profile_revise(
-          conn,
-          project_id,
-          from,
-          title,
-          summary,
-          audit_id,
-        ),
-        fn() {
-          sql.project_profile_open(
-            conn,
-            project_id,
-            title,
-            summary,
-            from,
-            audit_id,
-          )
-        },
+      sql.project_profile_upsert(
+        conn,
+        project_id,
+        from,
+        title,
+        summary,
+        audit_id,
       )
+      |> operation.run
 
     ProjectPlan(project_id:, budget:, target_completion:, from:) ->
-      change_or_open(
-        sql.project_plan_revise(
-          conn,
-          project_id,
-          from,
-          budget,
-          target_completion,
-          audit_id,
-        ),
-        fn() {
-          sql.project_plan_open(
-            conn,
-            project_id,
-            budget,
-            target_completion,
-            from,
-            audit_id,
-          )
-        },
+      sql.project_plan_upsert(
+        conn,
+        project_id,
+        from,
+        budget,
+        target_completion,
+        audit_id,
       )
+      |> operation.run
 
     ProjectRequirement(project_id:, level:, quantity:, from:, to:) ->
       record_requirement(conn, audit_id, project_id, level, quantity, from, to)
 
     // --- client ---------------------------------------------------------------
     ClientProfile(client_id:, name:, from:) ->
-      change_or_open(
-        sql.client_profile_revise(conn, client_id, from, name, audit_id),
-        fn() { sql.client_profile_open(conn, client_id, name, from, audit_id) },
-      )
+      sql.client_profile_upsert(conn, client_id, from, name, audit_id)
+      |> operation.run
 
     // --- timesheet ------------------------------------------------------------
     EngineerWorkedHours(engineer_id:, project_id:, day:, hours:) ->
@@ -403,24 +336,6 @@ fn write(
     PayrollLine(run_id:, engineer_id:, amount:, days:) ->
       sql.payroll_line_insert(conn, run_id, engineer_id, amount, days, audit_id)
       |> operation.run
-  }
-}
-
-/// Record a versioned attribute from `from` onward: change the version in effect
-/// (FOR PORTION OF … TO NULL), and if none yet exists (the founding write at
-/// onboard/start_project) open the first span instead. The change is run for its row
-/// count; a 0-row change means there is no covering version, so fall to `open`.
-fn change_or_open(
-  changed: Result(pog.Returned(a), pog.QueryError),
-  open: fn() -> Result(b, pog.QueryError),
-) -> Result(Nil, OperationError) {
-  case changed {
-    Error(error) -> Error(operation.classify(error))
-    Ok(returned) ->
-      case returned.count {
-        0 -> operation.run(open())
-        _ -> Ok(Nil)
-      }
   }
 }
 
