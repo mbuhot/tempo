@@ -47,9 +47,9 @@ sub AS (
 preview AS (
   SELECT
     sub.engineer_id,
-    sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
-        / (upper(params.month) - lower(params.month)))::numeric AS amount,
-    sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
+    sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::numeric
+      AS amount,
+    sum(range_days(sub.sub_period))::numeric AS days
   FROM sub
   CROSS JOIN params
   WHERE NOT isempty(sub.sub_period)

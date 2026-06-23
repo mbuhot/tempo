@@ -2196,9 +2196,10 @@ revenue AS (
   -- Σ quantity × day_rate × days over each demand ∩ rate_card-version ∩ month
   SELECT
     demand.month,
-    sum(demand.quantity * rate_card.day_rate
-        * (upper(demand.sub_period * rate_card.effective_during)
-           - lower(demand.sub_period * rate_card.effective_during)))::numeric
+    sum(demand.quantity
+        * recognized_revenue(
+            rate_card.day_rate,
+            demand.sub_period * rate_card.effective_during))::numeric
       AS revenue
   FROM demand
   JOIN rate_card ON rate_card.level = demand.level
@@ -2211,10 +2212,11 @@ cost AS (
   -- salary-version ∩ month
   SELECT
     demand.month,
-    sum(demand.quantity * salary.monthly_salary
-        * (upper(demand.sub_period * salary.effective_during)
-           - lower(demand.sub_period * salary.effective_during))
-        / (upper(demand.span) - lower(demand.span)))::numeric
+    sum(demand.quantity
+        * prorated_salary(
+            salary.monthly_salary,
+            demand.sub_period * salary.effective_during,
+            demand.span))::numeric
       AS cost
   FROM demand
   JOIN salary ON salary.level = demand.level
@@ -3546,9 +3548,9 @@ sub AS (
 SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
-  sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
-      / (upper(params.month) - lower(params.month)))::numeric AS amount,
-  sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
+  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::numeric
+    AS amount,
+  sum(range_days(sub.sub_period))::numeric AS days
 FROM sub
 CROSS JOIN params
 JOIN engineer_current engineer ON engineer.id = sub.engineer_id
@@ -3810,9 +3812,9 @@ sub AS (
 preview AS (
   SELECT
     sub.engineer_id,
-    sum(sub.monthly_salary * (upper(sub.sub_period) - lower(sub.sub_period))
-        / (upper(params.month) - lower(params.month)))::numeric AS amount,
-    sum(upper(sub.sub_period) - lower(sub.sub_period))::numeric AS days
+    sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::numeric
+      AS amount,
+    sum(range_days(sub.sub_period))::numeric AS days
   FROM sub
   CROSS JOIN params
   WHERE NOT isempty(sub.sub_period)
@@ -4240,8 +4242,7 @@ emp AS (
   -- employed days in the period per engineer (employment ∩ period)
   SELECT
     employment.engineer_id,
-    sum(upper(employment.employed_during * params.period)
-        - lower(employment.employed_during * params.period))::numeric
+    sum(range_days(employment.employed_during * params.period))::numeric
       AS employed_days
   FROM params
   JOIN employment ON employment.employed_during && params.period
@@ -4252,10 +4253,8 @@ util AS (
   SELECT
     allocation.engineer_id,
     sum(allocation.fraction
-        * (upper(allocation.allocated_during * employment.employed_during
-                 * params.period)
-           - lower(allocation.allocated_during * employment.employed_during
-                   * params.period)))::numeric AS utilization_days
+        * range_days(allocation.allocated_during * employment.employed_during
+                     * params.period))::numeric AS utilization_days
   FROM params
   JOIN allocation ON allocation.allocated_during && params.period
   JOIN employment ON employment.engineer_id = allocation.engineer_id
@@ -4277,11 +4276,11 @@ rev AS (
   -- not hours) — symmetric with utilization_days.
   SELECT
     allocation.engineer_id,
-    sum(allocation.fraction * rate_card.day_rate
-        * (upper(allocation.allocated_during * engineer_role.held_during
-                 * rate_card.effective_during * params.period)
-           - lower(allocation.allocated_during * engineer_role.held_during
-                   * rate_card.effective_during * params.period)))::numeric
+    sum(allocation.fraction
+        * recognized_revenue(
+            rate_card.day_rate,
+            allocation.allocated_during * engineer_role.held_during
+              * rate_card.effective_during * params.period))::numeric
       AS revenue
   FROM params
   JOIN allocation    ON allocation.allocated_during && params.period
@@ -4314,12 +4313,11 @@ estimated_cost AS (
   -- excludes any month a run already covers, so actual and estimate never double-count.
   SELECT
     employment.engineer_id,
-    sum(salary.monthly_salary
-        * (upper(employment.employed_during * engineer_role.held_during
-                 * salary.effective_during * months.span)
-           - lower(employment.employed_during * engineer_role.held_during
-                   * salary.effective_during * months.span))
-        / (upper(months.span) - lower(months.span)))::numeric AS cost
+    sum(prorated_salary(
+          salary.monthly_salary,
+          employment.employed_during * engineer_role.held_during
+            * salary.effective_during * months.span,
+          months.span))::numeric AS cost
   FROM months
   JOIN employment    ON employment.employed_during && months.span
   JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id

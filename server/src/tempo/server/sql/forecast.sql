@@ -126,9 +126,10 @@ revenue AS (
   -- Σ quantity × day_rate × days over each demand ∩ rate_card-version ∩ month
   SELECT
     demand.month,
-    sum(demand.quantity * rate_card.day_rate
-        * (upper(demand.sub_period * rate_card.effective_during)
-           - lower(demand.sub_period * rate_card.effective_during)))::numeric
+    sum(demand.quantity
+        * recognized_revenue(
+            rate_card.day_rate,
+            demand.sub_period * rate_card.effective_during))::numeric
       AS revenue
   FROM demand
   JOIN rate_card ON rate_card.level = demand.level
@@ -141,10 +142,11 @@ cost AS (
   -- salary-version ∩ month
   SELECT
     demand.month,
-    sum(demand.quantity * salary.monthly_salary
-        * (upper(demand.sub_period * salary.effective_during)
-           - lower(demand.sub_period * salary.effective_during))
-        / (upper(demand.span) - lower(demand.span)))::numeric
+    sum(demand.quantity
+        * prorated_salary(
+            salary.monthly_salary,
+            demand.sub_period * salary.effective_during,
+            demand.span))::numeric
       AS cost
   FROM demand
   JOIN salary ON salary.level = demand.level
