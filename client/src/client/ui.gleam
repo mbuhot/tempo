@@ -18,10 +18,12 @@
 ////     a frozen deliverable so the per-page agents never serialize on shared edits
 ////     to this module.
 
+import client/time
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import gleam/time/calendar
@@ -470,6 +472,14 @@ pub type OpForm {
     valid_from: String,
     valid_to: String,
   )
+}
+
+/// An in-flight contextual operation: the `kind` being composed, the editable
+/// `form`, and an optional validation/submit prompt (`None` while clean). Shared
+/// by every page that opens an operation modal so the modal state never drifts
+/// per page.
+pub type OpState {
+  OpState(kind: OpKind, form: OpForm, error: Option(String))
 }
 
 /// A fresh form for `kind`: text fields empty, every date field defaulting to
@@ -941,7 +951,7 @@ fn require_float(raw: String, label: String) -> Result(Float, String) {
 
 /// Parse an ISO-8601 date field, or a prompt naming it.
 fn require_date(raw: String, label: String) -> Result(calendar.Date, String) {
-  case parse_iso_date(string.trim(raw)) {
+  case time.parse_iso_date(string.trim(raw)) {
     Ok(date) -> Ok(date)
     Error(Nil) -> Error("Enter " <> label <> " as YYYY-MM-DD.")
   }
@@ -961,19 +971,6 @@ fn parse_number(raw: String) -> Result(Float, Nil) {
 fn iso_date(date: calendar.Date) -> String {
   let calendar.Date(year:, month:, day:) = date
   pad4(year) <> "-" <> pad2(calendar.month_to_int(month)) <> "-" <> pad2(day)
-}
-
-fn parse_iso_date(text: String) -> Result(calendar.Date, Nil) {
-  case string.split(text, "-") {
-    [year, month, day] -> {
-      use year <- result.try(int.parse(year))
-      use month <- result.try(int.parse(month))
-      use month <- result.try(calendar.month_from_int(month))
-      use day <- result.try(int.parse(day))
-      Ok(calendar.Date(year:, month:, day:))
-    }
-    _ -> Error(Nil)
-  }
 }
 
 fn pad2(value: Int) -> String {

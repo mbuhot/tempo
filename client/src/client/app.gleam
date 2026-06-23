@@ -25,6 +25,7 @@
 //// Imports `client/*` and `shared/*` only — never `server/*`.
 
 import client/api
+import client/page.{type OutMsg}
 import client/page/activity
 import client/page/board
 import client/page/clients
@@ -272,7 +273,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             BoardPage(next),
             effect.map(page_effect, BoardMsg),
-            board_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -286,7 +287,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             PeoplePage(next),
             effect.map(page_effect, PeopleMsg),
-            people_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -300,7 +301,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             ClientsPage(next),
             effect.map(page_effect, ClientsMsg),
-            clients_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -314,7 +315,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             ProjectsPage(next),
             effect.map(page_effect, ProjectsMsg),
-            projects_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -328,7 +329,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             FinancePage(next),
             effect.map(page_effect, FinanceMsg),
-            finance_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -342,7 +343,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             ActivityPage(next),
             effect.map(page_effect, ActivityMsg),
-            activity_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -356,7 +357,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model,
             SettingsPage(next),
             effect.map(page_effect, SettingsMsg),
-            settings_outs(outs),
+            page_outs(outs),
           )
         }
         _ -> #(model, effect.none())
@@ -364,78 +365,24 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// A page's cross-cutting effects, lifted from any page's `OutMsg` into the
+/// A page's cross-cutting effects, lifted from the shared `page.OutMsg` into the
 /// shell's own neutral form. The two-variant `OutMsg` is the ONLY cross-page
-/// coupling (frozen in step 5): `Navigate` pushes a route URL,
-/// `OperationCommitted` is a no-op for now (a future Activity badge hooks here).
+/// coupling (one shared type, `client/page`, since issue #10): `Navigate` pushes a
+/// route URL, `OperationCommitted` is a global no-op for now (a future Activity
+/// badge or cross-page cache invalidation hooks here).
 type Out {
   NavigateTo(Route)
   Committed
 }
 
-// Each page declares an identical `OutMsg { Navigate(route.Route)
-// OperationCommitted }`, but they are DISTINCT types, so each needs a mechanical
-// mapper into the shell's neutral `Out`.
-
-fn board_outs(outs: List(board.OutMsg)) -> List(Out) {
+/// Map the page-interface `OutMsg`s every page now shares into the shell's neutral
+/// `Out`. One mapper, since all seven pages raise the SAME `page.OutMsg` (they used
+/// to each declare an identical-but-distinct copy needing a mapper apiece).
+fn page_outs(outs: List(OutMsg)) -> List(Out) {
   list.map(outs, fn(out) {
     case out {
-      board.Navigate(route) -> NavigateTo(route)
-      board.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn people_outs(outs: List(people.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      people.Navigate(route) -> NavigateTo(route)
-      people.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn clients_outs(outs: List(clients.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      clients.Navigate(route) -> NavigateTo(route)
-      clients.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn projects_outs(outs: List(projects.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      projects.Navigate(route) -> NavigateTo(route)
-      projects.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn finance_outs(outs: List(finance.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      finance.Navigate(route) -> NavigateTo(route)
-      finance.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn activity_outs(outs: List(activity.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      activity.Navigate(route) -> NavigateTo(route)
-      activity.OperationCommitted -> Committed
-    }
-  })
-}
-
-fn settings_outs(outs: List(settings.OutMsg)) -> List(Out) {
-  list.map(outs, fn(out) {
-    case out {
-      settings.Navigate(route) -> NavigateTo(route)
-      settings.OperationCommitted -> Committed
+      page.Navigate(route) -> NavigateTo(route)
+      page.OperationCommitted -> Committed
     }
   })
 }
@@ -453,7 +400,14 @@ fn handle_page(
 }
 
 /// Turn the page's `Out`s into shell effects: `NavigateTo` pushes the route URL
-/// (carrying the current as-of), `Committed` is a no-op for now.
+/// (carrying the current as-of); `Committed` is a DELIBERATE global no-op (issue
+/// #10's invalidation decision). Each page holds only its own data and re-`init`s
+/// (a full refetch) whenever the shell navigates to it, so a write committed on
+/// one page is re-read the next time any other page is opened — there is no
+/// cross-page cache to stale. The committed signal is kept on the interface (not
+/// dropped) so the day a cross-page cache or an Activity unread-badge lands, the
+/// hook is already wired: this branch becomes its invalidation point, no page or
+/// interface change needed.
 fn fold_outs(model: Model, outs: List(Out)) -> Effect(Msg) {
   case outs {
     [] -> effect.none()

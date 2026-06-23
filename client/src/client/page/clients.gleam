@@ -26,6 +26,7 @@
 //// never clobbered).
 
 import client/api
+import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
 import client/ui
@@ -63,7 +64,7 @@ pub type Model {
     list: ClientList,
     roster: Option(Result(Roster, String)),
     detail: Detail,
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
 }
 
@@ -75,13 +76,6 @@ pub type Detail {
   DetailLoading(client_id: Int)
   DetailLoaded(detail: ClientDetail)
   DetailFailed(client_id: Int, message: String)
-}
-
-/// An open contextual-operation form: which write it composes, the typed field
-/// values, and the last submission error (a validation prompt or a server
-/// rejection) to surface beneath it.
-pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: Option(String))
 }
 
 // --- Messages ---------------------------------------------------------------
@@ -110,13 +104,6 @@ pub type Msg {
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
   OpResponded(result: Result(List(types.Event), rsvp.Error(String)))
-}
-
-/// The cross-page effects this page raises: navigate to a route (the shell owns
-/// the URL) or signal a committed write. Identical across all seven pages.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 // --- Lifecycle --------------------------------------------------------------
@@ -252,7 +239,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           let form = ui.blank_op_form(kind, as_of)
           let form = prefill_op_form(kind, form, detail, model)
           #(
-            Loaded(..model, op: Some(OpState(kind:, form:, error: None))),
+            Loaded(..model, op: Some(ui.OpState(kind:, form:, error: None))),
             effect.none(),
             [],
           )
@@ -270,7 +257,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case model {
         Loaded(op: Some(op), ..) -> {
           let form = apply_field_edit(model, op, field, value)
-          #(Loaded(..model, op: Some(OpState(..op, form:))), effect.none(), [])
+          #(
+            Loaded(..model, op: Some(ui.OpState(..op, form:))),
+            effect.none(),
+            [],
+          )
         }
         _ -> #(model, effect.none(), [])
       }
@@ -285,7 +276,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             Error(prompt) -> #(
-              Loaded(..model, op: Some(OpState(..op, error: Some(prompt)))),
+              Loaded(..model, op: Some(ui.OpState(..op, error: Some(prompt)))),
               effect.none(),
               [],
             )
@@ -305,7 +296,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(error) -> #(
               Loaded(
                 ..model,
-                op: Some(OpState(..op, error: Some(api.describe_error(error)))),
+                op: Some(
+                  ui.OpState(..op, error: Some(api.describe_error(error))),
+                ),
               ),
               effect.none(),
               [],
@@ -461,7 +454,7 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
 fn view_list(
   client_list: ClientList,
   roster: Option(Result(Roster, String)),
-  op: Option(OpState),
+  op: Option(ui.OpState),
 ) -> Element(Msg) {
   let clients = client_list.clients
   html.div([], [
@@ -527,7 +520,7 @@ fn view_list_row(client: ClientListRow) -> Element(Msg) {
 fn view_detail(
   detail: Detail,
   roster: Option(Result(Roster, String)),
-  op: Option(OpState),
+  op: Option(ui.OpState),
 ) -> Element(Msg) {
   case detail {
     NoDetail -> ui.empty_state(message: "No client selected.")
@@ -545,7 +538,7 @@ fn view_detail(
 fn view_detail_loaded(
   detail: ClientDetail,
   roster: Option(Result(Roster, String)),
-  op: Option(OpState),
+  op: Option(ui.OpState),
 ) -> Element(Msg) {
   let types.ClientDetail(profile:, since:, contracts:, projects:) = detail
   let types.ClientProfile(name:, ..) = profile
@@ -685,11 +678,11 @@ fn op_trigger(label: String, kind: ui.OpKind) -> Element(Msg) {
 /// submits (`OpSubmitted`).
 fn op_panel(
   roster: Option(Result(Roster, String)),
-  op: Option(OpState),
+  op: Option(ui.OpState),
 ) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(OpState(kind:, form:, error:)) ->
+    Some(ui.OpState(kind:, form:, error:)) ->
       ui.modal(
         title: op_title(kind),
         error: option.unwrap(error, ""),
@@ -817,15 +810,15 @@ fn prefill_op_form(
 /// arrived ends up on a valid selection rather than a blank one. Leaves any other
 /// open op (or none) untouched.
 fn reconcile_op_client(
-  op: Option(OpState),
+  op: Option(ui.OpState),
   roster: Option(Result(Roster, String)),
-) -> Option(OpState) {
+) -> Option(ui.OpState) {
   case op {
-    Some(OpState(kind: ui.OpSignContract, form:, ..) as state) ->
+    Some(ui.OpState(kind: ui.OpSignContract, form:, ..) as state) ->
       case form.client, client_refs(roster) {
         "", [first, ..] ->
           Some(
-            OpState(
+            ui.OpState(
               ..state,
               form: ui.update_op_form(form, ui.FClient, first.name),
             ),
@@ -842,7 +835,7 @@ fn reconcile_op_client(
 /// Every other field writes through unchanged.
 fn apply_field_edit(
   model: Model,
-  op: OpState,
+  op: ui.OpState,
   field: ui.OpField,
   value: String,
 ) -> ui.OpForm {

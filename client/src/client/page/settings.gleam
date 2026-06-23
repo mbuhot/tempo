@@ -16,6 +16,7 @@
 //// and refetches so the tables reflect the new version.
 
 import client/api
+import client/page.{type OutMsg, OperationCommitted}
 import client/route
 import client/time
 import client/ui
@@ -46,15 +47,9 @@ pub type Model {
     actor: String,
     as_of: calendar.Date,
     settings: Settings,
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
   Failed(actor: String, message: String)
-}
-
-/// The open contextual operation: which kind it is, the form being typed, and any
-/// rejection sentence from the last submit attempt.
-pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: Option(String))
 }
 
 // --- Messages ---------------------------------------------------------------
@@ -73,13 +68,6 @@ pub type Msg {
   OpResponded(result: Result(List(types.Event), rsvp.Error(String)))
 }
 
-/// The cross-page effects a page can raise (the ONLY shell coupling, frozen in
-/// step 5): navigate to a route, or signal a write committed.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
-}
-
 // --- Init / refetch ---------------------------------------------------------
 
 /// Build the page's initial state for `as_of` on the signed-in `actor`'s behalf,
@@ -95,7 +83,7 @@ pub fn init(
 }
 
 /// Re-fetch settings for a new `as_of` without dropping a half-typed op form: the
-/// open `OpState` is preserved across the refetch (stale-while-revalidate); the
+/// open `ui.OpState` is preserved across the refetch (stale-while-revalidate); the
 /// in-flight result is reconciled against the model's as_of in `update`. The
 /// signed-in `actor` is refreshed onto the model in case it changed.
 pub fn refetch(
@@ -149,7 +137,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               actor:,
               as_of:,
               settings:,
-              op: Some(OpState(kind:, form:, error: None)),
+              op: Some(ui.OpState(kind:, form:, error: None)),
             ),
             effect.none(),
             [],
@@ -170,7 +158,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               actor:,
               as_of:,
               settings:,
-              op: Some(OpState(kind:, form:, error: None)),
+              op: Some(ui.OpState(kind:, form:, error: None)),
             ),
             effect.none(),
             [],
@@ -198,7 +186,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               actor:,
               as_of:,
               settings:,
-              op: Some(OpState(..state, form:, error: None)),
+              op: Some(ui.OpState(..state, form:, error: None)),
             ),
             effect.none(),
             [],
@@ -221,7 +209,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 actor:,
                 as_of:,
                 settings:,
-                op: Some(OpState(..state, error: Some(prompt))),
+                op: Some(ui.OpState(..state, error: Some(prompt))),
               ),
               effect.none(),
               [],
@@ -245,7 +233,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 as_of:,
                 settings:,
                 op: Some(
-                  OpState(..state, error: Some(api.describe_error(error))),
+                  ui.OpState(..state, error: Some(api.describe_error(error))),
                 ),
               ),
               effect.none(),
@@ -279,7 +267,7 @@ fn number_value(amount: Float) -> String {
 
 /// The op form to keep across a refetch or a fresh read: the open form survives so
 /// a half-typed revision is never clobbered; a closed form stays closed.
-fn keep_op(model: Model) -> Option(OpState) {
+fn keep_op(model: Model) -> Option(ui.OpState) {
   case model {
     Loaded(op:, ..) -> op
     _ -> None
@@ -333,7 +321,7 @@ fn head(actions: List(Element(Msg))) -> Element(Msg) {
 /// The loaded view: the page head with the New rate / New salary actions, the
 /// `.settings-grid` two-column layout of the rate-card & salary table and the
 /// read-only leave-policy table, then the op-form modal overlaid when open.
-fn view_loaded(settings: Settings, op: Option(OpState)) -> Element(Msg) {
+fn view_loaded(settings: Settings, op: Option(ui.OpState)) -> Element(Msg) {
   let actions = [
     ui.button(
       label: "Adjust window",
@@ -478,7 +466,7 @@ fn view_leave_policy(settings: Settings) -> Element(Msg) {
 /// the last rejection sentence, and the Cancel / Confirm footer. Clicking the
 /// backdrop or Cancel closes (`OpDismissed`); Confirm submits (`OpSubmitted`) under
 /// an op-appropriate verb.
-fn view_op(settings: Settings, op: Option(OpState)) -> Element(Msg) {
+fn view_op(settings: Settings, op: Option(ui.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
     Some(state) ->
@@ -516,7 +504,7 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// The input fields for the open op kind, each bound to its `OpForm` slot. The
 /// level is a `<select>` over the levels present in the rate card; the amount and
 /// dates are text/number/date inputs. Only the settings writes are reachable here.
-fn op_fields(settings: Settings, state: OpState) -> List(Element(Msg)) {
+fn op_fields(settings: Settings, state: ui.OpState) -> List(Element(Msg)) {
   let field = fn(label, slot, input_type, value) {
     ui.op_field(
       label: label,

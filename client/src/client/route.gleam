@@ -9,10 +9,10 @@
 //// id and Activity carries its own filters in the query (FR-AC3) so cross-page
 //// navigation needs no shell edit.
 
+import client/time
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
 import gleam/string
 import gleam/time/calendar
 import gleam/uri.{type Uri}
@@ -94,7 +94,7 @@ pub fn to_path(route: Route) -> String {
 /// change so a shared link opens on the right instant.
 pub fn as_of_of(uri: Uri) -> Option(calendar.Date) {
   query_param(uri, "date")
-  |> option.then(fn(value) { parse_iso_date(value) |> option.from_result })
+  |> option.then(fn(value) { time.parse_iso_date(value) |> option.from_result })
 }
 
 /// The full URL for a route at an as-of date: the route's path with the date in
@@ -117,10 +117,14 @@ pub fn activity_filters_of(
 ) {
   let from =
     query_param(uri, "from")
-    |> option.then(fn(value) { parse_iso_date(value) |> option.from_result })
+    |> option.then(fn(value) {
+      time.parse_iso_date(value) |> option.from_result
+    })
   let to =
     query_param(uri, "to")
-    |> option.then(fn(value) { parse_iso_date(value) |> option.from_result })
+    |> option.then(fn(value) {
+      time.parse_iso_date(value) |> option.from_result
+    })
   let operation = query_param(uri, "operation")
   let actor = query_param(uri, "actor")
   #(from, to, operation, actor)
@@ -199,18 +203,4 @@ fn pad2(value: Int) -> String {
 
 fn pad4(value: Int) -> String {
   int.to_string(value) |> string.pad_start(to: 4, with: "0")
-}
-
-/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date`.
-fn parse_iso_date(text: String) -> Result(calendar.Date, Nil) {
-  case string.split(text, "-") {
-    [year, month, day] -> {
-      use year <- result.try(int.parse(year))
-      use month <- result.try(int.parse(month))
-      use month <- result.try(calendar.month_from_int(month))
-      use day <- result.try(int.parse(day))
-      Ok(calendar.Date(year:, month:, day:))
-    }
-    _ -> Error(Nil)
-  }
 }

@@ -287,12 +287,18 @@ pub fn parse_iso_date(text: String) -> Result(calendar.Date, Nil) {
 
 /// Render a date as "15 Jun 2026" for the as-of readout (the prototype's
 /// `fmtDate`).
-fn format_date(date: calendar.Date) -> String {
+pub fn format_date(date: calendar.Date) -> String {
   int.to_string(date.day)
   <> " "
   <> month_abbrev(date.month)
   <> " "
   <> int.to_string(date.year)
+}
+
+/// Render a date as "Jun 2026" — the month-and-year label used by the finance
+/// and projects tables (the prototype's `fmtMonth`).
+pub fn format_month(date: calendar.Date) -> String {
+  month_abbrev(date.month) <> " " <> int.to_string(date.year)
 }
 
 /// The relative phrase from the seed "today" to `date`: "today", "N days ago",
@@ -313,7 +319,9 @@ fn day_word(count: Int) -> String {
   }
 }
 
-fn month_abbrev(month: calendar.Month) -> String {
+/// The three-letter English abbreviation of a month ("Jan".."Dec"), shared by
+/// every date/month label so Finance and Board never disagree on "Jun" vs "June".
+pub fn month_abbrev(month: calendar.Month) -> String {
   case month {
     calendar.January -> "Jan"
     calendar.February -> "Feb"

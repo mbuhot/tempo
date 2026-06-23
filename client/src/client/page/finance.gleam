@@ -18,6 +18,7 @@
 //// success, raises OperationCommitted and refetches.
 
 import client/api
+import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
 import client/ui
@@ -75,14 +76,8 @@ pub type Data {
     roster: Option(Roster),
     selected: Option(Int),
     detail: Option(InvoiceDetail),
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
-}
-
-/// An open contextual-operation sheet: which write it composes, the in-progress
-/// form, and the most recent rejection message (server or validation).
-pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: Option(String))
 }
 
 // --- Msg --------------------------------------------------------------------
@@ -113,13 +108,6 @@ pub type Msg {
   OpSubmitted
   OpCancelled
   OpReplied(result: Result(List(Event), rsvp.Error(String)))
-}
-
-/// The cross-page effects this page can raise: navigate to a route, or signal a
-/// write committed. Identical across all seven pages (frozen in step 5).
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 // --- Init / refetch ---------------------------------------------------------
@@ -454,7 +442,7 @@ fn on_op_opened(
       }
       let form = ui.reconcile_form(filled, [], project_refs(data))
       #(
-        Loaded(Data(..data, op: Some(OpState(kind:, form:, error: None)))),
+        Loaded(Data(..data, op: Some(ui.OpState(kind:, form:, error: None)))),
         effect.none(),
         [],
       )
@@ -471,7 +459,11 @@ fn on_op_field(
   case model {
     Loaded(Data(op: Some(op), ..) as data) -> {
       let form = ui.update_op_form(op.form, field, value)
-      #(Loaded(Data(..data, op: Some(OpState(..op, form:)))), effect.none(), [])
+      #(
+        Loaded(Data(..data, op: Some(ui.OpState(..op, form:)))),
+        effect.none(),
+        [],
+      )
     }
     _ -> #(model, effect.none(), [])
   }
@@ -481,13 +473,9 @@ fn on_op_submitted(model: Model) -> #(Model, Effect(Msg), List(OutMsg)) {
   case model {
     Loaded(Data(op: Some(op), ..) as data) ->
       case ui.build_command(op.kind, op.form) {
-        Ok(command) -> #(
-          model,
-          api.submit_operation(command, OpReplied),
-          [],
-        )
+        Ok(command) -> #(model, api.submit_operation(command, OpReplied), [])
         Error(message) -> #(
-          Loaded(Data(..data, op: Some(OpState(..op, error: Some(message))))),
+          Loaded(Data(..data, op: Some(ui.OpState(..op, error: Some(message))))),
           effect.none(),
           [],
         )
@@ -521,7 +509,7 @@ fn on_op_replied(
                 Data(
                   ..data,
                   op: Some(
-                    OpState(..op, error: Some(api.describe_error(error))),
+                    ui.OpState(..op, error: Some(api.describe_error(error))),
                   ),
                 ),
               ),
@@ -645,7 +633,7 @@ fn page_head(as_of: calendar.Date) -> Element(Msg) {
   ui.page_head(
     title: "Finance",
     blurb: "Invoices, payroll, and profit — every figure resolved as of "
-      <> format_date(as_of)
+      <> time.format_date(as_of)
       <> ".",
     actions: [],
   )
@@ -847,7 +835,7 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
         html.text(invoice.project),
       ]),
       html.td([], [html.text(invoice.client)]),
-      html.td([], [html.text(format_month(invoice.billing_from))]),
+      html.td([], [html.text(time.format_month(invoice.billing_from))]),
       html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
       html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
       html.td([attribute.class("num")], [lifecycle]),
@@ -860,7 +848,7 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
 /// absent (a `paid`/`issued` row should always carry its transition date).
 fn transition_pill(verb: String, at: Option(calendar.Date)) -> Element(Msg) {
   let label = case at {
-    Some(date) -> verb <> " " <> format_date(date)
+    Some(date) -> verb <> " " <> time.format_date(date)
     None -> verb
   }
   ui.chip(label: label, tone: ui.Neutral)
@@ -910,7 +898,7 @@ fn view_invoice_detail(detail: InvoiceDetail) -> Element(Msg) {
             ui.kv(key: "Client", value: invoice.client, mono: False),
             ui.kv(
               key: "Month",
-              value: format_month(invoice.billing_from),
+              value: time.format_month(invoice.billing_from),
               mono: False,
             ),
             ui.kv(key: "Total", value: ui.money(invoice.total), mono: True),
@@ -993,7 +981,7 @@ fn payroll_reconciled(lines: List(PayrollLine)) -> Bool {
 /// NOT YET RUN: the live recompute over current facts, the count of employed
 /// engineers, the total to pay, and the run button.
 fn view_payroll_preview(payroll: Payroll) -> Element(Msg) {
-  let month = format_month(payroll.period_from)
+  let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
   let total =
     list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.preview_amount })
@@ -1035,7 +1023,7 @@ fn payroll_preview_row(line: PayrollLine) -> Element(Msg) {
 /// RUN, NO CHANGES: the frozen paid lines, reconciled against the live recompute.
 /// No run button — the DB refuses a second run for the same month.
 fn view_payroll_reconciled(payroll: Payroll) -> Element(Msg) {
-  let month = format_month(payroll.period_from)
+  let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
   let total =
     list.fold(payroll.lines, 0.0, fn(sum, line) {
@@ -1075,7 +1063,7 @@ fn payroll_paid_row(line: PayrollLine) -> Element(Msg) {
 /// engineer. The header warns of the total back-pay owed; the table shows paid vs
 /// should-be with the per-line Δ, the varying rows flagged.
 fn view_payroll_variance(payroll: Payroll) -> Element(Msg) {
-  let month = format_month(payroll.period_from)
+  let month = time.format_month(payroll.period_from)
   let owed =
     list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line_delta(line) })
   ui.panel(
@@ -1139,7 +1127,7 @@ fn view_pnl(data: Data) -> Element(Msg) {
   case data.pnl {
     None -> ui.empty_state(message: "Loading P&L…")
     Some(pnl) -> {
-      let month = format_month(time.first_of_month(data.as_of))
+      let month = time.format_month(time.first_of_month(data.as_of))
       let margin_pct = case pnl.month_revenue >. 0.0 {
         True ->
           ui.Pct(float.round(pnl.month_profit /. pnl.month_revenue *. 100.0))
@@ -1298,7 +1286,7 @@ fn view_forecast(data: Data) -> Element(Msg) {
 fn forecast_row(month: ForecastMonth) -> Element(Msg) {
   let #(profit_class, profit_text) = forecast_profit(month.profit)
   html.tr([], [
-    html.td([], [html.text(format_month(month.month))]),
+    html.td([], [html.text(time.format_month(month.month))]),
     html.td([attribute.class("num")], [html.text(ui.money(month.revenue))]),
     html.td([attribute.class("num")], [html.text(ui.money(month.cost))]),
     html.td([attribute.class(profit_class)], [html.text(profit_text)]),
@@ -1341,7 +1329,7 @@ fn forecast_profit(profit: Float) -> #(String, String) {
 /// known invoice id as a locked read-only field; Run payroll is period dates), the
 /// last rejection line, and a Cancel / verb-labelled Confirm footer. Clicking the
 /// backdrop or Cancel raises `OpCancelled`; Confirm raises `OpSubmitted`.
-fn view_op_form(data: Data, op: OpState) -> Element(Msg) {
+fn view_op_form(data: Data, op: ui.OpState) -> Element(Msg) {
   ui.modal(
     title: op_title(op.kind),
     error: option.unwrap(op.error, ""),
@@ -1467,36 +1455,5 @@ fn project_refs(data: Data) -> List(Ref) {
   case data.roster {
     Some(roster) -> roster.projects
     None -> []
-  }
-}
-
-// --- Date display -----------------------------------------------------------
-
-fn format_date(date: calendar.Date) -> String {
-  int.to_string(date.day)
-  <> " "
-  <> month_abbrev(date.month)
-  <> " "
-  <> int.to_string(date.year)
-}
-
-fn format_month(date: calendar.Date) -> String {
-  month_abbrev(date.month) <> " " <> int.to_string(date.year)
-}
-
-fn month_abbrev(month: calendar.Month) -> String {
-  case month {
-    calendar.January -> "Jan"
-    calendar.February -> "Feb"
-    calendar.March -> "Mar"
-    calendar.April -> "Apr"
-    calendar.May -> "May"
-    calendar.June -> "Jun"
-    calendar.July -> "Jul"
-    calendar.August -> "Aug"
-    calendar.September -> "Sep"
-    calendar.October -> "Oct"
-    calendar.November -> "Nov"
-    calendar.December -> "Dec"
   }
 }

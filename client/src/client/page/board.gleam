@@ -15,6 +15,7 @@
 //// fast scrub never clobbers a fresh view or a half-typed op form.
 
 import client/api
+import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
 import client/ui
@@ -85,13 +86,6 @@ pub type Msg {
   OpCancelled
   OpSubmitted
   OpResolved(result: Result(List(Event), rsvp.Error(String)))
-}
-
-/// The cross-page effects a page can raise: navigate to a route, or signal a write
-/// committed. Identical across all 7 pages.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 // --- Init / refetch ----------------------------------------------------------
@@ -586,7 +580,7 @@ fn on_leave_panel(on_leave: List(BoardRow)) -> Element(Msg) {
               html.span([attribute.class("board-card__fraction")], [
                 html.text(kind),
               ]),
-              html.span([], [html.text("til " <> format_date(valid_to))]),
+              html.span([], [html.text("til " <> time.format_date(valid_to))]),
             ]
             _ -> []
           }
@@ -864,29 +858,4 @@ fn name_category(name: String) -> Int {
 /// detail's full `ui.level_band` ("L6 · Distinguished").
 fn short_level(level: Int) -> String {
   "L" <> int.to_string(level)
-}
-
-fn format_date(date: calendar.Date) -> String {
-  int.to_string(date.day)
-  <> " "
-  <> month_abbrev(date.month)
-  <> " "
-  <> int.to_string(date.year)
-}
-
-fn month_abbrev(month: calendar.Month) -> String {
-  case month {
-    calendar.January -> "Jan"
-    calendar.February -> "Feb"
-    calendar.March -> "Mar"
-    calendar.April -> "Apr"
-    calendar.May -> "May"
-    calendar.June -> "Jun"
-    calendar.July -> "Jul"
-    calendar.August -> "Aug"
-    calendar.September -> "Sep"
-    calendar.October -> "Oct"
-    calendar.November -> "Nov"
-    calendar.December -> "Dec"
-  }
 }

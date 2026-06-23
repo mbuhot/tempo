@@ -20,6 +20,7 @@
 //// clobbers a fresh view or a half-typed op form (stale-while-revalidate).
 
 import client/api
+import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
 import client/ui
@@ -59,7 +60,7 @@ pub type Model {
     actor: String,
     data: ListData,
     roster: RosterData,
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
   DetailView(
     as_of: calendar.Date,
@@ -68,7 +69,7 @@ pub type Model {
     detail: DetailData,
     timesheet: TimesheetData,
     roster: RosterData,
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
 }
 
@@ -106,12 +107,6 @@ pub type RosterData {
   RosterFailed(message: String)
 }
 
-/// An open contextual operation: its kind, the form being filled, and the most
-/// recent rejection prompt (an invalid field or a server refusal) to surface.
-pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: Option(String))
-}
-
 // --- Messages ---------------------------------------------------------------
 
 /// The page's messages, wrapped by the shell as `PeopleMsg(people.Msg)`. Fetch
@@ -145,14 +140,6 @@ pub type Msg {
   CellEdited(project_id: Int, day: calendar.Date, value: String)
   TimesheetSubmitted
   OperationReturned(result: Result(List(types.Event), rsvp.Error(String)))
-}
-
-/// The cross-page effects a page can raise (the ONLY shell coupling, frozen in
-/// step 5): navigate to a route, or signal a write committed (so the shell can
-/// refresh as needed). Identical across all 7 pages.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 // --- Init / refetch ---------------------------------------------------------
@@ -383,7 +370,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpOpened(kind:) -> #(
       set_op(
         model,
-        Some(OpState(kind:, form: blank_form(model, kind), error: None)),
+        Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
       ),
       effect.none(),
       [],
@@ -393,10 +380,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case current_op(model) {
-        Some(OpState(kind:, form:, ..)) -> #(
+        Some(ui.OpState(kind:, form:, ..)) -> #(
           set_op(
             model,
-            Some(OpState(
+            Some(ui.OpState(
               kind:,
               form: ui.update_op_form(form, field, value),
               error: None,
@@ -410,7 +397,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case current_op(model) {
-        Some(OpState(kind:, form:, ..)) ->
+        Some(ui.OpState(kind:, form:, ..)) ->
           case ui.build_command(kind, form) {
             Ok(command) -> #(
               model,
@@ -418,7 +405,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             Error(prompt) -> #(
-              set_op(model, Some(OpState(kind:, form:, error: Some(prompt)))),
+              set_op(model, Some(ui.OpState(kind:, form:, error: Some(prompt)))),
               effect.none(),
               [],
             )
@@ -463,7 +450,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 // --- Update helpers ---------------------------------------------------------
 
 /// The open contextual operation, regardless of sub-view.
-fn current_op(model: Model) -> Option(OpState) {
+fn current_op(model: Model) -> Option(ui.OpState) {
   case model {
     ListView(op:, ..) -> op
     DetailView(op:, ..) -> op
@@ -471,7 +458,7 @@ fn current_op(model: Model) -> Option(OpState) {
 }
 
 /// Set (or clear) the open contextual operation, preserving the sub-view.
-fn set_op(model: Model, op: Option(OpState)) -> Model {
+fn set_op(model: Model, op: Option(ui.OpState)) -> Model {
   case model {
     ListView(as_of:, actor:, data:, roster:, ..) ->
       ListView(as_of:, actor:, data:, roster:, op:)
@@ -525,8 +512,8 @@ fn roster_of(model: Model) -> RosterData {
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case current_op(model) {
-    Some(OpState(kind:, form:, ..)) ->
-      set_op(model, Some(OpState(kind:, form:, error: Some(message))))
+    Some(ui.OpState(kind:, form:, ..)) ->
+      set_op(model, Some(ui.OpState(kind:, form:, error: Some(message))))
     None -> model
   }
 }
@@ -738,7 +725,7 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
 fn view_list(
   model: Model,
   data: ListData,
-  op: Option(OpState),
+  op: Option(ui.OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
   let head =
@@ -855,7 +842,7 @@ fn view_detail(
   model: Model,
   detail: DetailData,
   timesheet: TimesheetData,
-  op: Option(OpState),
+  op: Option(ui.OpState),
 ) -> Element(Msg) {
   let back =
     html.a([attribute.class("back-link"), event.on_click(BackClicked)], [
@@ -1212,10 +1199,10 @@ fn op_button(label: String, kind: ui.OpKind, ghost: Bool) -> Element(Msg) {
 /// while an op is open. Renders the fields the chosen kind needs, the rejection
 /// prompt if any, and the Cancel / op-verb Confirm footer. Clicking the backdrop
 /// or Cancel closes (`OpCancelled`); Confirm submits (`OpSubmitted`).
-fn view_op_modal(model: Model, op: Option(OpState)) -> Element(Msg) {
+fn view_op_modal(model: Model, op: Option(ui.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(OpState(kind:, form:, error:)) ->
+    Some(ui.OpState(kind:, form:, error:)) ->
       ui.modal(
         title: op_title(kind),
         error: option.unwrap(error, ""),

@@ -27,7 +27,9 @@
 //// back link raises `Navigate(route.Projects(None))`.
 
 import client/api
+import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
+import client/time
 import client/ui
 import gleam/float
 import gleam/int
@@ -61,7 +63,7 @@ pub type Model {
     as_of: calendar.Date,
     list: Load(ProjectList),
     roster: Load(Roster),
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
   DetailView(
     actor: String,
@@ -69,7 +71,7 @@ pub type Model {
     project_id: Int,
     detail: Load(ProjectDetail),
     roster: Load(Roster),
-    op: Option(OpState),
+    op: Option(ui.OpState),
   )
 }
 
@@ -80,13 +82,6 @@ pub type Load(a) {
   Loading
   Loaded(value: a)
   Failed(message: String)
-}
-
-/// An open contextual-operation form: which command it builds, the shared form
-/// state, and the last submission error (a validation prompt or a rejected-op
-/// server message), if any.
-pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: Option(String))
 }
 
 // --- Messages ---------------------------------------------------------------
@@ -117,14 +112,6 @@ pub type Msg {
   OpCancelled
   OpSubmitted
   OpResponded(result: Result(List(Event), rsvp.Error(String)))
-}
-
-/// The cross-page effects a page can raise (the ONLY shell coupling, frozen in
-/// step 5): navigate to a route, or signal a write committed. Identical across
-/// all 7 pages.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 // --- Init / refetch ---------------------------------------------------------
@@ -272,10 +259,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case current_op(model) {
-        Some(OpState(kind:, form:, ..)) -> {
+        Some(ui.OpState(kind:, form:, ..)) -> {
           let form = ui.update_op_form(form, field, value)
           #(
-            set_op(model, Some(OpState(kind:, form:, error: None))),
+            set_op(model, Some(ui.OpState(kind:, form:, error: None))),
             effect.none(),
             [],
           )
@@ -287,7 +274,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case current_op(model) {
-        Some(OpState(kind:, form:, ..)) ->
+        Some(ui.OpState(kind:, form:, ..)) ->
           case ui.build_command(kind, form) {
             Ok(command) -> #(
               model,
@@ -295,7 +282,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             Error(prompt) -> #(
-              set_op(model, Some(OpState(kind:, form:, error: Some(prompt)))),
+              set_op(model, Some(ui.OpState(kind:, form:, error: Some(prompt)))),
               effect.none(),
               [],
             )
@@ -312,10 +299,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         }
         Error(error) ->
           case current_op(model) {
-            Some(OpState(kind:, form:, ..)) -> #(
+            Some(ui.OpState(kind:, form:, ..)) -> #(
               set_op(
                 model,
-                Some(OpState(
+                Some(ui.OpState(
                   kind:,
                   form:,
                   error: Some(api.describe_error(error)),
@@ -366,14 +353,14 @@ fn view_as_of(model: Model) -> calendar.Date {
   }
 }
 
-fn current_op(model: Model) -> Option(OpState) {
+fn current_op(model: Model) -> Option(ui.OpState) {
   case model {
     ListView(op:, ..) -> op
     DetailView(op:, ..) -> op
   }
 }
 
-fn set_op(model: Model, op: Option(OpState)) -> Model {
+fn set_op(model: Model, op: Option(ui.OpState)) -> Model {
   case model {
     ListView(..) -> ListView(..model, op:)
     DetailView(..) -> DetailView(..model, op:)
@@ -408,7 +395,11 @@ fn set_roster(model: Model, roster: Load(Roster)) -> Model {
 /// plan edits are pre-filled from the loaded detail (title/summary, budget/target
 /// completion) rather than starting blank; an op launched from a team card
 /// pre-fills the engineer. Entity slots are then snapped to valid roster options.
-fn open_op(model: Model, kind: ui.OpKind, engineer_id: Option(Int)) -> OpState {
+fn open_op(
+  model: Model,
+  kind: ui.OpKind,
+  engineer_id: Option(Int),
+) -> ui.OpState {
   let form = ui.blank_op_form(kind, view_as_of(model))
   let form = seed_project(model, form)
   let form = seed_detail_fields(model, kind, form)
@@ -417,7 +408,7 @@ fn open_op(model: Model, kind: ui.OpKind, engineer_id: Option(Int)) -> OpState {
     None -> form
   }
   let form = reconcile(model, form)
-  OpState(kind:, form:, error: None)
+  ui.OpState(kind:, form:, error: None)
 }
 
 /// Seed the form's project slot from the detail view, so an op composed on a
@@ -483,14 +474,14 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
 fn view_list(
   list: Load(ProjectList),
   roster: Load(Roster),
-  op: Option(OpState),
+  op: Option(ui.OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
   let head =
     ui.page_head(
       title: "Projects",
       blurb: "Active engagements as of "
-        <> format_date(as_of)
+        <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
         ui.button(
@@ -558,7 +549,7 @@ fn project_row(row: ProjectListRow, index: Int) -> Element(Msg) {
       ]),
       html.td([attribute.class("num")], [html.text(ui.money_k(row.budget))]),
       html.td([attribute.class("mono muted")], [
-        html.text(format_date(row.target_completion)),
+        html.text(time.format_date(row.target_completion)),
       ]),
     ],
   )
@@ -567,7 +558,7 @@ fn project_row(row: ProjectListRow, index: Int) -> Element(Msg) {
 fn view_detail(
   detail: Load(ProjectDetail),
   roster: Load(Roster),
-  op: Option(OpState),
+  op: Option(ui.OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
   let back =
@@ -586,7 +577,7 @@ fn view_detail(
 fn view_project_detail(
   detail: ProjectDetail,
   roster: Load(Roster),
-  op: Option(OpState),
+  op: Option(ui.OpState),
   as_of: calendar.Date,
 ) -> Element(Msg) {
   let head =
@@ -688,7 +679,7 @@ fn team_panel(team: List(TeamMember), as_of: calendar.Date) -> Element(Msg) {
     members -> list.index_map(members, team_card)
   }
   ui.panel(
-    title: "Team on " <> format_date(as_of),
+    title: "Team on " <> time.format_date(as_of),
     count: int.to_string(list.length(team)),
     right: [],
     body: [
@@ -767,9 +758,9 @@ fn requirement_row(requirement: ProjectRequirement) -> Element(Msg) {
     ]),
     html.span([attribute.class("kv__value mono")], [
       html.text(
-        format_date(requirement.valid_from)
+        time.format_date(requirement.valid_from)
         <> " → "
-        <> format_date(requirement.valid_to),
+        <> time.format_date(requirement.valid_to),
       ),
     ]),
   ])
@@ -807,7 +798,7 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
       html.td([attribute.class("mono")], [
         html.text("#" <> int.to_string(invoice.id)),
       ]),
-      html.td([], [html.text(format_month(invoice.billing_from))]),
+      html.td([], [html.text(time.format_month(invoice.billing_from))]),
       html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
       html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
     ],
@@ -821,15 +812,15 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
         ui.kv(key: "Budget", value: ui.money(detail.plan.budget), mono: True),
         ui.kv(
           key: "Target completion",
-          value: format_date(detail.plan.target_completion),
+          value: time.format_date(detail.plan.target_completion),
           mono: True,
         ),
       ]),
       html.div([attribute.class("note")], [
         html.text(
-          format_date(detail.valid_from)
+          time.format_date(detail.valid_from)
           <> " → "
-          <> format_date(detail.valid_to),
+          <> time.format_date(detail.valid_to),
         ),
       ]),
     ]),
@@ -844,13 +835,13 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
 /// detail page), the last rejection message, and a Cancel / verb-labelled Confirm
 /// footer. `locked_project_id`, when present, pins the project select to that id.
 fn op_modal(
-  op: Option(OpState),
+  op: Option(ui.OpState),
   roster: Load(Roster),
   locked_project_id: Option(Int),
 ) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(OpState(kind:, form:, error:)) ->
+    Some(ui.OpState(kind:, form:, error:)) ->
       ui.modal(
         title: op_title(kind),
         error: error_text(error),
@@ -1124,37 +1115,8 @@ fn iso_date(date: calendar.Date) -> String {
   pad4(year) <> "-" <> pad2(calendar.month_to_int(month)) <> "-" <> pad2(day)
 }
 
-fn format_date(date: calendar.Date) -> String {
-  int.to_string(date.day)
-  <> " "
-  <> month_abbrev(date.month)
-  <> " "
-  <> int.to_string(date.year)
-}
-
 fn short_date(date: calendar.Date) -> String {
-  int.to_string(date.day) <> " " <> month_abbrev(date.month)
-}
-
-fn format_month(date: calendar.Date) -> String {
-  month_abbrev(date.month) <> " " <> int.to_string(date.year)
-}
-
-fn month_abbrev(month: calendar.Month) -> String {
-  case month {
-    calendar.January -> "Jan"
-    calendar.February -> "Feb"
-    calendar.March -> "Mar"
-    calendar.April -> "Apr"
-    calendar.May -> "May"
-    calendar.June -> "Jun"
-    calendar.July -> "Jul"
-    calendar.August -> "Aug"
-    calendar.September -> "Sep"
-    calendar.October -> "Oct"
-    calendar.November -> "Nov"
-    calendar.December -> "Dec"
-  }
+  int.to_string(date.day) <> " " <> time.month_abbrev(date.month)
 }
 
 fn pad2(value: Int) -> String {

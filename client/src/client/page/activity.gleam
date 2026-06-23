@@ -17,6 +17,7 @@
 //// via a `.activity__payload--open` toggle.
 
 import client/api
+import client/page.{type OutMsg}
 import client/route
 import client/time
 import client/ui
@@ -69,15 +70,6 @@ pub type Msg {
   ActorPicked(value: String)
   JumpedToRail(as_of: calendar.Date)
   PayloadToggled(id: Int)
-}
-
-/// The cross-page effects a page can raise (the ONLY shell coupling, frozen in
-/// step 5): navigate to a route, or signal a write committed. Identical across all
-/// 7 pages. Activity is read-only and self-contained, so in practice it raises
-/// neither — but the variants stay to match the frozen interface.
-pub type OutMsg {
-  Navigate(route.Route)
-  OperationCommitted
 }
 
 /// The default window: the 30 days up to (and including) the seed "now", as a
