@@ -5222,6 +5222,16 @@ ORDER BY rate_card.level;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `rate_card_revise` query
+/// defined in `./src/tempo/server/sql/rate_card_revise.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type RateCardReviseRow {
+  RateCardReviseRow(revised: Int)
+}
+
 /// rate_card_revise.sql — change a level's day_rate from $1 onward (Change). FOR
 /// PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
 /// carves off the unchanged [start, $1) remainder keeping its original audit_id. The
@@ -5229,7 +5239,9 @@ ORDER BY rate_card.level;
 /// $2 = new rate, $3 = level, $4 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
-/// infer a split from the affected-row count — read the rows back instead.
+/// infer a split from the affected-row count — read the rows back instead. With no
+/// covering version the UPDATE matches nothing and RETURNING yields zero rows; the
+/// repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -5240,8 +5252,11 @@ pub fn rate_card_revise(
   arg_2: Float,
   level: Int,
   audit_id: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(RateCardReviseRow), pog.QueryError) {
+  let decoder = {
+    use revised <- decode.field(0, decode.int)
+    decode.success(RateCardReviseRow(revised:))
+  }
 
   "-- rate_card_revise.sql — change a level's day_rate from $1 onward (Change). FOR
 -- PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
@@ -5250,12 +5265,15 @@ pub fn rate_card_revise(
 -- $2 = new rate, $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
--- infer a split from the affected-row count — read the rows back instead.
+-- infer a split from the affected-row count — read the rows back instead. With no
+-- covering version the UPDATE matches nothing and RETURNING yields zero rows; the
+-- repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 UPDATE rate_card
    FOR PORTION OF effective_during FROM $1::date TO NULL
    SET day_rate = $2, audit_id = $4
  WHERE level = $3
-   AND effective_during @> $1::date;
+   AND effective_during @> $1::date
+RETURNING 1 AS revised;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
@@ -5491,6 +5509,16 @@ ORDER BY salary.level;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `salary_revise` query
+/// defined in `./src/tempo/server/sql/salary_revise.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type SalaryReviseRow {
+  SalaryReviseRow(revised: Int)
+}
+
 /// salary_revise.sql — change a level's monthly_salary from $1 onward (Change). FOR
 /// PORTION OF re-rates [$1, ∞) of the covering row, setting monthly_salary + audit_id;
 /// PG carves off the unchanged [start, $1) remainder keeping its original audit_id.
@@ -5498,7 +5526,9 @@ ORDER BY salary.level;
 /// $2 = new monthly salary, $3 = level, $4 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
-/// infer a split from the affected-row count — read the rows back instead.
+/// infer a split from the affected-row count — read the rows back instead. With no
+/// covering version the UPDATE matches nothing and RETURNING yields zero rows; the
+/// repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -5509,8 +5539,11 @@ pub fn salary_revise(
   arg_2: Float,
   level: Int,
   audit_id: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(SalaryReviseRow), pog.QueryError) {
+  let decoder = {
+    use revised <- decode.field(0, decode.int)
+    decode.success(SalaryReviseRow(revised:))
+  }
 
   "-- salary_revise.sql — change a level's monthly_salary from $1 onward (Change). FOR
 -- PORTION OF re-rates [$1, ∞) of the covering row, setting monthly_salary + audit_id;
@@ -5519,12 +5552,15 @@ pub fn salary_revise(
 -- $2 = new monthly salary, $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
--- infer a split from the affected-row count — read the rows back instead.
+-- infer a split from the affected-row count — read the rows back instead. With no
+-- covering version the UPDATE matches nothing and RETURNING yields zero rows; the
+-- repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 UPDATE salary
    FOR PORTION OF effective_during FROM $1::date TO NULL
    SET monthly_salary = $2, audit_id = $4
  WHERE level = $3
-   AND effective_during @> $1::date;
+   AND effective_during @> $1::date
+RETURNING 1 AS revised;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))

@@ -255,7 +255,7 @@ fn write(
       case to {
         None ->
           sql.rate_card_revise(conn, from, day_rate, level, audit_id)
-          |> operation.run
+          |> require_covering_version
         Some(to_date) ->
           sql.rate_card_for_portion_of(
             conn,
@@ -270,7 +270,7 @@ fn write(
 
     Salary(level:, monthly_salary:, from:) ->
       sql.salary_revise(conn, from, monthly_salary, level, audit_id)
-      |> operation.run
+      |> require_covering_version
 
     // --- engagement -----------------------------------------------------------
     ContractTerms(contract_id: ContractId(contract_id), client:, from:, to:) ->
@@ -390,6 +390,22 @@ fn write(
     ) ->
       sql.payroll_line_insert(conn, run_id, engineer_id, amount, days, audit_id)
       |> operation.run
+  }
+}
+
+/// Assert a revise (`salary`/`rate_card`) actually re-rated a version: its
+/// `RETURNING` rows are empty exactly when no version covered the effective date,
+/// so the `FOR PORTION OF` UPDATE matched nothing. A bare `operation.run` discards
+/// the rows and reports `Ok` for that no-op, journalling a money change that never
+/// happened; this rejects it as a typed `NoSuchVersion` so the caller's
+/// transaction rolls the journal entry back too.
+fn require_covering_version(
+  result: Result(pog.Returned(a), pog.QueryError),
+) -> Result(Nil, OperationError) {
+  use returned <- operation.try(result)
+  case returned.rows {
+    [] -> Error(operation.NoSuchVersion)
+    [_, ..] -> Ok(Nil)
   }
 }
 

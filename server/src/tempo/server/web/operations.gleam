@@ -22,7 +22,7 @@ import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/operation.{
   type OperationError, ContainmentViolated, DatabaseError,
-  InsufficientLeaveBalance, InvalidValue, OverlappingFact,
+  InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
 }
 import tempo/server/web/response
 import wisp
@@ -80,6 +80,12 @@ fn error_response(error: OperationError) -> wisp.Response {
         422,
         "invalid_value",
         "a value is out of range (fraction, level, or hours)",
+      )
+    NoSuchVersion ->
+      response.error_response(
+        422,
+        "no_such_version",
+        "no version covers the effective date for the level being revised",
       )
     InsufficientLeaveBalance(kind:, available:, requested:) ->
       response.error_response(

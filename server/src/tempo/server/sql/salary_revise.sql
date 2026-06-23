@@ -5,9 +5,12 @@
 -- $2 = new monthly salary, $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
--- infer a split from the affected-row count — read the rows back instead.
+-- infer a split from the affected-row count — read the rows back instead. With no
+-- covering version the UPDATE matches nothing and RETURNING yields zero rows; the
+-- repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 UPDATE salary
    FOR PORTION OF effective_during FROM $1::date TO NULL
    SET monthly_salary = $2, audit_id = $4
  WHERE level = $3
-   AND effective_during @> $1::date;
+   AND effective_during @> $1::date
+RETURNING 1 AS revised;

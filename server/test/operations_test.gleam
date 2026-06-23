@@ -32,7 +32,8 @@ import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AssignToProject, ChangeAllocationFraction,
   LogTimesheet, OnboardEngineer, Promote, ReviseRateCard, RollOff,
-  SetProjectRequirement, SignContract, StartProject, TerminateEmployment,
+  SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TerminateEmployment,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -767,6 +768,79 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
       Period("800.00", "2026-04-01", "2026-07-01"),
       Period("900.00", "2026-10-01", ""),
     ]
+}
+
+// revise_rate_card is REJECTED (NoSuchVersion) when no rate_card version covers the
+// effective date: the FOR PORTION OF UPDATE matches zero rows, so rather than
+// journalling a billing-rate change that never happened it fails with a typed
+// error and the transaction is undone. The fixture empties L1 (which the seed
+// leaves clear) so the level has no covering version at all.
+pub fn revise_rate_card_with_no_covering_version_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      exec(conn, "DELETE FROM rate_card WHERE level = 1")
+      command.dispatch_in(
+        conn,
+        "tester",
+        ReviseRateCard(1, 800.0, Date(2026, April, 1)),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
+// --- salary aggregate (Change) ----------------------------------------------
+
+// set_salary re-rates a level's monthly salary from a date onward (the Change
+// pattern, the cost analogue of revise_rate_card): it splits the version covering
+// the effective date — the new salary lands on [effective, upper) and the
+// [lower, effective) leftover keeps the OLD salary.
+pub fn set_salary_caps_from_date_splitting_covering_version_test() {
+  let salaries =
+    rolling_back(fn(conn) {
+      // One open-ended L2 salary of 4000 from Jan.
+      exec(conn, "DELETE FROM salary WHERE level = 2")
+      exec(
+        conn,
+        "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "
+          <> "(2, 4000.00, daterange('2026-01-01', NULL, '[)'))",
+      )
+      // Set 5000 effective Apr — splits the 4000 version at Apr.
+      apply(conn, SetSalary(2, 5000.0, Date(2026, April, 1)))
+      read_periods(
+        conn,
+        "salary",
+        "monthly_salary::text",
+        "effective_during",
+        "level = 2",
+      )
+    })
+
+  // 4000 leftover [Jan,Apr), revised 5000 [Apr,∞).
+  assert salaries
+    == [
+      Period("4000.00", "2026-01-01", "2026-04-01"),
+      Period("5000.00", "2026-04-01", ""),
+    ]
+}
+
+// set_salary is REJECTED (NoSuchVersion) when no salary version covers the
+// effective date: the FOR PORTION OF UPDATE matches zero rows, so rather than
+// journalling a salary change that never happened (which payroll would ignore) it
+// fails with a typed error and the transaction is undone. The fixture empties L1
+// so the level has no covering version at all.
+pub fn set_salary_with_no_covering_version_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      exec(conn, "DELETE FROM salary WHERE level = 1")
+      command.dispatch_in(
+        conn,
+        "tester",
+        SetSalary(1, 5000.0, Date(2026, April, 1)),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
 }
 
 // --- project_requirement aggregate (Surgical, the demand side) --------------

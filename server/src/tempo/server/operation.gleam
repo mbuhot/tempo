@@ -45,6 +45,11 @@ pub type OperationError {
   /// kind on return (the `take_leave` guard, not a database constraint). `available`
   /// is the balance on return, `requested` the days asked for.
   InsufficientLeaveBalance(kind: String, available: Float, requested: Float)
+  /// A revise (`salary`/`rate_card`) targeted a level/date with no covering
+  /// version: the `FOR PORTION OF` UPDATE matched zero rows, so there was nothing
+  /// to re-rate. Rejected rather than journalled as a no-op (the audit log must
+  /// not record a money change that never happened).
+  NoSuchVersion
   /// Any other database failure — surfaced opaquely.
   DatabaseError(pog.QueryError)
 }
