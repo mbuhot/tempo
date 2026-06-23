@@ -34,6 +34,15 @@ pub type DbSettings {
 ///
 /// Recognised variables: `TEMPO_DB_HOST`, `TEMPO_DB_PORT`, `TEMPO_DB_NAME`,
 /// `TEMPO_DB_USER`, `TEMPO_DB_PASSWORD`, `TEMPO_DB_POOL_SIZE`.
+///
+/// Pool sizing (`TEMPO_DB_POOL_SIZE`, default `default_pool_size`): a single
+/// board tick fans out ~5 concurrent as-of queries, so the old default of 10
+/// let only two scrubs overlap before checkouts queued. The default is sized so
+/// a handful of concurrent scrubs each get their fan-out without queueing, while
+/// the SUM of every instance's pool stays comfortably under PostgreSQL
+/// `max_connections` (100 on the dev container) — N instances must keep
+/// `N × pool_size + headroom ≤ max_connections`. Raise it deliberately for a
+/// single-instance deployment; lower it when running many instances.
 pub fn settings_from_env() -> DbSettings {
   DbSettings(
     host: env_string("TEMPO_DB_HOST", "127.0.0.1"),
@@ -41,9 +50,15 @@ pub fn settings_from_env() -> DbSettings {
     database: env_string("TEMPO_DB_NAME", "tempo"),
     user: env_string("TEMPO_DB_USER", "tempo"),
     password: Some(env_string("TEMPO_DB_PASSWORD", "tempo")),
-    pool_size: env_int("TEMPO_DB_POOL_SIZE", 10),
+    pool_size: env_int("TEMPO_DB_POOL_SIZE", default_pool_size),
   )
 }
+
+/// Default connection-pool size. Sized for a single board tick's ~5-query
+/// fan-out to overlap across a few concurrent scrubs without queueing, while
+/// keeping `N × pool_size` under PostgreSQL `max_connections` for small N. See
+/// `settings_from_env` for the sizing rationale.
+pub const default_pool_size = 20
 
 /// Turn settings into a `pog.Config` bound to the given pool name. The pool name
 /// lets the same pool be addressed by `pog.named_connection` from elsewhere.

@@ -25,7 +25,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(#(from, to)) ->
       case finance_query.payroll(ctx, from, to) {
         Ok(run) -> response.json_response(codecs.encode_payroll(run))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

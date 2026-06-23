@@ -25,7 +25,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case roster.roster(ctx, as_of) {
         Ok(directory) -> response.json_response(codecs.encode_roster(directory))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

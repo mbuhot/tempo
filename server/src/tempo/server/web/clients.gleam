@@ -27,7 +27,7 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case client_detail.list(ctx, as_of) {
         Ok(list) -> response.json_response(codecs.encode_client_list(list))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }
@@ -56,6 +56,6 @@ fn detail_response(ctx: Context, client_id: Int, as_of: Date) -> wisp.Response {
     Ok(Ok(detail)) ->
       response.json_response(codecs.encode_client_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
-    Error(_) -> wisp.internal_server_error()
+    Error(error) -> response.db_error_response(error)
   }
 }

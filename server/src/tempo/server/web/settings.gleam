@@ -22,7 +22,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case settings.read(ctx, as_of) {
         Ok(settings) -> response.json_response(codecs.encode_settings(settings))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

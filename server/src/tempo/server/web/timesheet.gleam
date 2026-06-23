@@ -55,6 +55,6 @@ fn read_form_response(
 ) -> wisp.Response {
   case timesheet.form_week(ctx, engineer_id, week_start) {
     Ok(week) -> response.json_response(codecs.encode_timesheet_week(week))
-    Error(_) -> wisp.internal_server_error()
+    Error(error) -> response.db_error_response(error)
   }
 }

@@ -55,7 +55,14 @@ docker compose down -v      # stop and wipe the data volume
 Connection settings come from the environment (defaults match the compose
 file): `TEMPO_DB_HOST` (127.0.0.1), `TEMPO_DB_PORT` (5434), `TEMPO_DB_NAME`
 (tempo), `TEMPO_DB_USER` (tempo), `TEMPO_DB_PASSWORD` (tempo),
-`TEMPO_DB_POOL_SIZE` (10).
+`TEMPO_DB_POOL_SIZE` (20).
+
+`TEMPO_DB_POOL_SIZE` is sized against PostgreSQL `max_connections` (100 on the
+dev container): a single board tick fans out ~5 concurrent as-of queries, so 20
+lets a few scrubs overlap without queueing while leaving headroom. Keep
+`instances × pool_size + headroom ≤ max_connections`. When the pool is
+saturated, a checkout times out and the API answers **503 Service Unavailable**
+(retryable) rather than hanging or returning a 500.
 
 ### Application
 

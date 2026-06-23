@@ -30,7 +30,7 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
       case finance_query.list_invoices(ctx, as_of) {
         Ok(invoices) ->
           response.json_response(json.array(invoices, codecs.encode_invoice))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }
@@ -63,6 +63,6 @@ fn detail_response(
     Ok(Ok(detail)) ->
       response.json_response(codecs.encode_invoice_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
-    Error(_) -> wisp.internal_server_error()
+    Error(error) -> response.db_error_response(error)
   }
 }

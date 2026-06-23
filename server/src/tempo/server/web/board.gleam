@@ -22,7 +22,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
       case board.snapshot(ctx, date) {
         Ok(snapshot) ->
           response.json_response(codecs.encode_board_snapshot(snapshot))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

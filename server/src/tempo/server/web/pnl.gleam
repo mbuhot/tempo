@@ -24,7 +24,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case finance_query.pnl(ctx, as_of) {
         Ok(statement) -> response.json_response(codecs.encode_pnl(statement))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

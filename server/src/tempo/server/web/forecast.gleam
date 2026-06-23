@@ -24,7 +24,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case finance_query.forecast(ctx, as_of) {
         Ok(forecast) -> response.json_response(codecs.encode_forecast(forecast))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

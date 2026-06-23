@@ -13,7 +13,8 @@
 //// written, and the stable wire shape the client decodes (it also refetches
 //// /api/events). A malformed body is a 400; a rejected operation maps by its
 //// `OperationError`: `Unauthorized` → 403, `ContainmentViolated`/`OverlappingFact`
-//// → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422, `DatabaseError` → 500.
+//// → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422, `DatabaseError` → 500
+//// (503 when the cause is a saturated connection pool).
 
 import gleam/dynamic/decode
 import gleam/float
@@ -137,6 +138,6 @@ fn error_response(error: OperationError) -> wisp.Response {
           <> int.to_string(float.round(requested))
           <> " requested",
       )
-    DatabaseError(_) -> wisp.internal_server_error()
+    DatabaseError(error) -> response.db_error_response(error)
   }
 }

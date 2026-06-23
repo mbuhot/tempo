@@ -44,6 +44,6 @@ fn detail_response(
     Ok(Ok(detail)) ->
       response.json_response(codecs.encode_engineer_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
-    Error(_) -> wisp.internal_server_error()
+    Error(error) -> response.db_error_response(error)
   }
 }

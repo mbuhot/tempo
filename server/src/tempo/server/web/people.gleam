@@ -22,7 +22,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case people.roster(ctx, as_of) {
         Ok(list) -> response.json_response(codecs.encode_people_list(list))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }

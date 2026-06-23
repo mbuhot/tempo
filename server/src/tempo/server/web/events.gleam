@@ -35,7 +35,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
       case event.list(ctx, from, to, operation, actor) {
         Ok(events) ->
           response.json_response(json.array(events, codecs.encode_event))
-        Error(_) -> wisp.internal_server_error()
+        Error(error) -> response.db_error_response(error)
       }
   }
 }
