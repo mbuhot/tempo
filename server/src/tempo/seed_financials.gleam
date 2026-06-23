@@ -449,7 +449,7 @@ fn variance_promotion_present(ctx: Context) -> Bool {
 // --- helpers -----------------------------------------------------------------
 
 /// Dispatch one demo command through `command.dispatch` (actor "seed"), then
-/// backdate the journal event(s) it appended to `occurred_on` — the date the
+/// backdate the journal event it appended to `occurred_on` — the date the
 /// operation would naturally have been entered — so the demo journal reads as a
 /// realistic timeline rather than all at the instant the seed ran. A failure
 /// `panic`s with the operation error so the seed gates loudly.
@@ -462,19 +462,17 @@ fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
         <> " failed: "
         <> string.inspect(error)
       }
-    Ok(events) ->
-      list.each(events, fn(created) {
-        case event.set_occurred_at(ctx, created.id, occurred_on) {
-          Ok(Nil) -> Nil
-          Error(error) ->
-            panic as {
-              "seed-financials: backdating event "
-              <> string.inspect(created.id)
-              <> " failed: "
-              <> string.inspect(error)
-            }
-        }
-      })
+    Ok(created) ->
+      case event.set_occurred_at(ctx, created.id, occurred_on) {
+        Ok(Nil) -> Nil
+        Error(error) ->
+          panic as {
+            "seed-financials: backdating event "
+            <> string.inspect(created.id)
+            <> " failed: "
+            <> string.inspect(error)
+          }
+      }
   }
 }
 

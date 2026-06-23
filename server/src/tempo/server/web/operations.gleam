@@ -4,10 +4,11 @@
 //// never `sql` — it reaches the database only through the domain `command`
 //// module, which already speaks shared types.
 ////
-//// On success `dispatch` returns the journal events it appended inside its own
-//// transaction (each with its minted id/occurred_at); the handler returns those
-//// created events as a JSON array — the authoritative record of what was written
-//// (the client also refetches /api/events). A malformed body is a 400; a rejected
+//// On success `dispatch` returns the single journal event it appended inside its
+//// own transaction (with its minted id/occurred_at); the handler returns that
+//// created event in a one-element JSON array — the authoritative record of what
+//// was written, and the stable wire shape the client decodes (it also refetches
+//// /api/events). A malformed body is a 400; a rejected
 //// operation maps by its `OperationError`: `ContainmentViolated`/`OverlappingFact`
 //// → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422, `DatabaseError` → 500.
 
@@ -44,16 +45,18 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
 
 fn dispatch(ctx: Context, request: OperationRequest) -> wisp.Response {
   case command.dispatch(ctx, actor: request.actor, command: request.command) {
-    Ok(events) -> created_events_response(events)
+    Ok(event) -> created_event_response(event)
     Error(error) -> error_response(error)
   }
 }
 
-/// On success, return the events the operation just appended as a JSON array —
-/// each carries its minted id/occurred_at, so this is exactly what was written
-/// (no race with a concurrent writer's newest row).
-fn created_events_response(events: List(Event)) -> wisp.Response {
-  response.json_response(json.array(events, codecs.encode_event))
+/// On success, return the event the operation just appended as a single-element
+/// JSON array — it carries its minted id/occurred_at, so this is exactly what was
+/// written (no race with a concurrent writer's newest row). The array shape is
+/// the stable wire contract the client decodes, even though a command appends
+/// exactly one event.
+fn created_event_response(event: Event) -> wisp.Response {
+  response.json_response(json.array([event], codecs.encode_event))
 }
 
 /// Map a typed `OperationError` to its HTTP status and a small JSON error body

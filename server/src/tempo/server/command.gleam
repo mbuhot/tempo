@@ -52,11 +52,11 @@ pub fn dispatch(
   context: Context,
   actor actor: String,
   command command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(Event, OperationError) {
   let outcome =
     pog.transaction(context.db, fn(conn) { dispatch_in(conn, actor, command) })
   case outcome {
-    Ok(events) -> Ok(events)
+    Ok(event) -> Ok(event)
     Error(pog.TransactionQueryError(query_error)) ->
       Error(operation.classify(query_error))
     Error(pog.TransactionRolledBack(operation_error)) -> Error(operation_error)
@@ -72,7 +72,7 @@ pub fn dispatch_in(
   conn: pog.Connection,
   actor: String,
   command: Command,
-) -> Result(List(Event), OperationError) {
+) -> Result(Event, OperationError) {
   use Recorded(entry:, facts:) <- result.try(route(conn, command))
   repository.record_facts(conn, actor:, entry:, facts:)
 }

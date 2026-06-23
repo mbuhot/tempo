@@ -29,7 +29,7 @@ import tempo/server/operation.{
 
 /// The pair of outcomes from a race, in launch order.
 type Outcomes =
-  #(Result(List(Event), OperationError), Result(List(Event), OperationError))
+  #(Result(Event, OperationError), Result(Event, OperationError))
 
 /// Dispatch two commands concurrently, each in its own transaction on its own
 /// pooled connection, and collect both outcomes in launch order. Each runs in a
@@ -66,7 +66,7 @@ fn winners(outcomes: Outcomes) -> Int {
 }
 
 /// The losing outcome (the one that errored) of a race won by exactly one.
-fn loser(outcomes: Outcomes) -> Result(List(Event), OperationError) {
+fn loser(outcomes: Outcomes) -> Result(Event, OperationError) {
   case outcomes.0 {
     Ok(_) -> outcomes.1
     Error(_) -> outcomes.0

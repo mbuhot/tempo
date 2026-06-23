@@ -689,6 +689,39 @@ pub fn dispatch_records_operation_summary_and_payload_test() {
     == Ok(Promote(..command, engineer_id:))
 }
 
+// A command records exactly one journal event, so dispatch returns that single
+// `Event` directly — not a one-element list the caller must destructure. Binding
+// `Ok(event)` and reading `event.operation` is the narrowed contract: it would not
+// compile against a `List(Event)` return.
+pub fn dispatch_returns_the_single_recorded_event_test() {
+  let event =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Grace Hopper")
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", 4, daterange('2026-01-01', NULL, '[)'))",
+      )
+      let assert Ok(event) =
+        command.dispatch_in(
+          conn,
+          "tester",
+          Promote(engineer_id, 5, Date(2026, July, 1)),
+        )
+      event
+    })
+
+  assert event.actor == "tester"
+  assert event.operation == "promote"
+}
+
 // --- rate_card aggregate (Surgical / Change) --------------------------------
 
 // adjust_rate_for_portion bumps a level's rate for a BOUNDED window, splitting the

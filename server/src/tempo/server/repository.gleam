@@ -113,7 +113,7 @@ pub fn record_facts(
   actor actor: String,
   entry entry: JournalEntry,
   facts facts: List(Fact),
-) -> Result(List(Event), OperationError) {
+) -> Result(Event, OperationError) {
   use appended <- result.try(
     event.append(conn, actor:, event: entry)
     |> result.map_error(operation.classify),
@@ -122,7 +122,7 @@ pub fn record_facts(
     list.try_map(facts, fn(a_fact) { write(conn, appended.id, a_fact) })
     |> result.replace(Nil),
   )
-  Ok([appended])
+  Ok(appended)
 }
 
 /// Write one fact under `audit_id` (the recording command's event_log id): map it to
