@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Apply pending numbered migrations (schema + seed) against the dev DB.
+# Apply pending numbered migrations (schema only) against the DB. The demo seed is
+# NO LONGER a migration — use bin/seed (dev) to lay in the base cast.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -86,7 +86,9 @@ pub fn smoke_check(db: pog.Connection) -> Result(Int, pog.QueryError) {
   value
 }
 
-fn env_string(name: String, default: String) -> String {
+/// Read an environment variable as a string, falling back to `default` when it is
+/// unset.
+pub fn env_string(name: String, default: String) -> String {
   case envoy.get(name) {
     Ok(value) -> value
     Error(Nil) -> default

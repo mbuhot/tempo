@@ -41,9 +41,19 @@ pub fn main() -> Nil {
   }
 }
 
+/// A fixed 64-bit key for the session/transaction advisory lock that serializes
+/// concurrent migration runs. Any value works as long as every booter agrees; it
+/// is the digits of "TEMPO" on a phone keypad so a stray `pg_advisory_*` call
+/// elsewhere is unlikely to collide.
+const advisory_lock_key = 83_676
+
 /// Apply every migration file in `priv/migrations` that has not yet been
-/// recorded, in version order, each inside its own transaction. Records each
-/// in `schema_migrations(version, applied_at)`. Re-running is a no-op.
+/// recorded, in version order, inside a single transaction guarded by a
+/// fixed-key `pg_advisory_xact_lock`. The lock serializes concurrent booters
+/// (e.g. a rolling deploy) so migrations cannot be double-applied; it is held
+/// for the duration of the apply transaction and released automatically when it
+/// commits or rolls back. Records each version in
+/// `schema_migrations(version, applied_at)`. Re-running is a no-op.
 pub fn run(context: Context) -> Result(RunReport, MigrateError) {
   let db = context.db
   use _ <- result.try(ensure_table(db))
@@ -115,35 +125,62 @@ fn migration_files() -> Result(List(Migration), MigrateError) {
   migrations
 }
 
-/// Apply each pending migration in order, recording it in the same transaction.
-/// Returns the versions applied this run.
+/// Apply all pending migrations in version order inside ONE transaction, taking
+/// the fixed-key `pg_advisory_xact_lock` before any work so a concurrent booter
+/// blocks here rather than double-applying. Each file's statements run and its
+/// version is recorded on the same pinned connection; any failure rolls the
+/// whole batch back (and releases the lock), so a partially-applied set is never
+/// committed. Returns the versions applied this run. Short-circuits with no
+/// transaction (and no lock contention) when nothing is pending.
 fn apply_all(
   db: pog.Connection,
   pending: List(Migration),
 ) -> Result(List(String), MigrateError) {
-  list.try_map(pending, fn(migration) { apply_one(db, migration) })
+  case pending {
+    [] -> Ok([])
+    _ -> {
+      let outcome =
+        pog.transaction(db, fn(conn) {
+          use _ <- result.try(acquire_lock(conn))
+          list.try_map(pending, fn(migration) { apply_one(conn, migration) })
+        })
+      case outcome {
+        Ok(applied) -> Ok(applied)
+        Error(pog.TransactionRolledBack(error)) -> Error(error)
+        Error(pog.TransactionQueryError(error)) -> Error(DbError(error))
+      }
+    }
+  }
 }
 
-/// Run one migration's statements and record its version in a single
-/// transaction, so a failing statement rolls the whole file back.
+/// Take the fixed-key transaction advisory lock. Held until the surrounding
+/// transaction ends, then released by PostgreSQL automatically.
+fn acquire_lock(conn: pog.Connection) -> Result(Nil, MigrateError) {
+  pog.query("SELECT pg_advisory_xact_lock($1)::text")
+  |> pog.parameter(pog.int(advisory_lock_key))
+  |> pog.execute(on: conn)
+  |> result.map(fn(_) { Nil })
+  |> result.map_error(DbError)
+}
+
+/// Run one migration's statements and record its version on the open
+/// transaction's connection. A failing statement aborts the enclosing batch
+/// transaction, rolling every file in this run back together.
 fn apply_one(
-  db: pog.Connection,
+  conn: pog.Connection,
   migration: Migration,
 ) -> Result(String, MigrateError) {
   let Migration(version:, body:) = migration
   let statements = split_statements(body)
-  let outcome =
-    pog.transaction(db, fn(conn) {
-      use _ <- result.try(run_statements(conn, statements))
-      record_version(conn, version)
-    })
-  case outcome {
-    Ok(_) -> Ok(version)
-    Error(pog.TransactionRolledBack(error)) ->
-      Error(ApplyFailed(version, error))
-    Error(pog.TransactionQueryError(error)) ->
-      Error(ApplyFailed(version, error))
-  }
+  use _ <- result.try(
+    run_statements(conn, statements)
+    |> result.map_error(fn(error) { ApplyFailed(version, error) }),
+  )
+  use _ <- result.map(
+    record_version(conn, version)
+    |> result.map_error(fn(error) { ApplyFailed(version, error) }),
+  )
+  version
 }
 
 /// Execute each statement of a migration in turn against the open transaction.

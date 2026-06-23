@@ -6,7 +6,8 @@
 #                              object; WITH (FORCE) evicts open sessions — a running
 #                              server's pool just reconnects to the fresh, empty DB
 #                              rather than dying on a destroyed container)
-#   3. bin/migrate            (apply schema + base seed onto the empty DB)
+#   3. bin/seed               (migrate the schema, then apply the base cast onto the
+#                              freshly-emptied DB)
 #   4. bin/seed-invoices      (layer the Jan–Jun 2026 financials demo: timesheets,
 #                              18 invoices, six monthly payrolls, and the back-dated
 #                              promotion that surfaces a payroll variance)
@@ -27,8 +28,8 @@ docker exec -i tempo-db psql -U tempo -d postgres -v ON_ERROR_STOP=1 \
   -c "DROP DATABASE IF EXISTS tempo WITH (FORCE);" \
   -c "CREATE DATABASE tempo OWNER tempo;"
 
-echo "==> [3/4] migrations ............. schema + base seed"
-bin/migrate
+echo "==> [3/4] migrate + seed ......... schema + base cast"
+bin/seed
 
 echo "==> [4/4] financials demo ........ timesheets, invoices, payroll, variance"
 bin/seed-invoices

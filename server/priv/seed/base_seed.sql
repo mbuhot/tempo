@@ -1,4 +1,10 @@
--- 002_seed.sql — the deterministic demo seed, with realistic provenance.
+-- base_seed.sql — the deterministic demo seed, with realistic provenance.
+--
+-- NOT an auto-applied migration. It lives outside priv/migrations so the forward
+-- runner can never inject this fictional cast into a real environment; it is applied
+-- only by the dev-only `tempo/seed` entrypoint (`bin/seed`), which refuses to run
+-- unless TEMPO_ENV is dev and the DB is empty. (Formerly the unconditionally-applied
+-- 002_seed.sql migration.)
 --
 -- Hand-written: explicit ids, names, dates, rates — no factory sequences. Consumed
 -- unchanged by the as-of query tests and the Playwright suite, so it must stay stable.

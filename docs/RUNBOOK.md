@@ -21,7 +21,8 @@ says to.
 ## The fixed clock and the cast
 
 Nothing here uses the wall clock. The seed pins **"now" = 2026-06-15**
-(`server/priv/migrations/003_seed.sql`); the slider, the board, and every test anchor to
+(`server/priv/seed/base_seed.sql`, applied by `bin/seed` — see *Migrations & seeding*
+below); the slider, the board, and every test anchor to
 it. The slider spans **2024-01-01 → 2026-12-31** (the seed range; the open upper
 bound 2027-01-01 makes 2026-12-31 the last selectable day).
 
@@ -66,27 +67,33 @@ alias tempodb='psql -h 127.0.0.1 -p 5434 -U tempo -d tempo'
 ## One-time setup (talk-machine, clean checkout)
 
 One command brings the whole stack up: it starts PG19 and waits for it, applies
-any pending migrations (schema + seed), builds the Lustre client bundle, and
-serves on **http://localhost:8000** (Ctrl-C stops the server; the DB container
-keeps running). It is idempotent — safe to re-run.
+any pending **schema** migrations, lays in the **dev base seed** (the demo cast —
+only on an empty DB, and only when `TEMPO_ENV` is dev), builds the Lustre client
+bundle, and serves on **http://localhost:8000** (Ctrl-C stops the server; the DB
+container keeps running). It is idempotent — safe to re-run.
 
 ```sh
 bin/up
 ```
+
+The seed is **not** a migration (see *Migrations & seeding* below): `bin/up` runs
+`bin/seed`, which migrates then seeds. Pointed at a non-dev DB it applies the
+schema but refuses to inject the cast, so the same command is safe against a real
+environment.
 
 **For a clean dry run start from an empty database** — the migration runner is
 forward-only and will not re-seed an already-migrated DB. Wipe and re-run:
 
 ```sh
 docker compose down -v        # wipe the data volume (skip on the live machine if already clean)
-bin/up                        # fresh PG19 → migrate → build → serve on :8000
+bin/up                        # fresh PG19 → migrate → seed → build → serve on :8000
 ```
 
 Open **http://localhost:8000**. The page boots **"As of 2026-06-15"** with the
 org board, the "My timesheet" panel, the operations console, the event log, and
 the financials view below it.
 
-On a freshly-migrated DB the financial screens are empty. To populate a demo set —
+On a freshly-seeded DB the financial screens are empty. To populate a demo set —
 an issued Data Platform invoice (issued 2026-06-20), a draft Ledger invoice, and a
 June payroll run — run on demand:
 
@@ -94,16 +101,98 @@ June payroll run — run on demand:
 bin/seed-invoices             # demo financials via the real command.dispatch; idempotent, NOT run by bin/up
 ```
 
-It is deliberately left out of `bin/up` so a freshly-migrated DB stays test-clean.
-Because it pre-commits invoices the read tests do not expect, re-migrate
+It is deliberately left out of `bin/up`/`bin/seed` so a freshly-seeded DB stays
+test-clean. Because it pre-commits invoices the read tests do not expect, re-seed
 (`docker compose down -v && bin/up`) before running `gleam test`.
 
 Smoke-check before going live (each must be green — actually observed, never assumed):
 
 ```sh
-cd server && gleam test          # 129 Gleam tests (DB constraint + operations + as-of + financials + codec layers)   (bin/test)
+cd server && gleam test          # Gleam tests (DB constraint + operations + as-of + financials + codec + migrate/seed layers)   (bin/test)
 cd e2e && npx playwright test    # 14 Playwright specs (board + timesheet + operations console + financials; needs the server running; see README)   (bin/e2e)
 ```
+
+---
+
+## Migrations & seeding (operations)
+
+The migration runner (`tempo/migrate`, `bin/migrate`) is a **forward-only,
+additive** applier: each file in `server/priv/migrations` is applied once, in
+filename order, inside a transaction, and recorded in `schema_migrations`. There
+is no automatic down-migration. The demo seed is **not** a migration.
+
+### Concurrency: the advisory lock
+
+`migrate.run` takes a fixed-key `pg_advisory_xact_lock` before applying any
+pending file and holds it for the apply transaction. A second booter (e.g. a
+rolling deploy bringing up a new instance while the old one migrates) **blocks**
+on that lock instead of racing — so migrations can never be double-applied. The
+whole pending batch commits or rolls back together; a failure leaves the DB at
+the last good state, and re-running resumes from there. PostgreSQL releases the
+lock automatically when the transaction ends.
+
+### Seeding is dev-only, never a migration
+
+`server/priv/seed/base_seed.sql` (the demo cast — clients, engineers, rate card,
+allocations) lives **outside** `priv/migrations`, so the runner can never inject
+it into a real environment. It is applied only by `tempo/seed` (`bin/seed`),
+which refuses unless **both**:
+
+- `TEMPO_ENV` is `dev` (the unset default) — any other value refuses with
+  `NotDevEnvironment` before touching the DB; and
+- the DB is **empty** — a DB that already has the cast is a no-op (`AlreadySeeded`),
+  never a double-insert.
+
+`bin/seed` migrates the schema first, then seeds, so a fresh dev DB reaches
+schema + cast in one step. To seed a real environment you would have to do it
+deliberately and out-of-band; the default path makes it impossible.
+
+### Adding a new migration — timestamp prefixes
+
+`001_schema.sql` and `002_*`-era files are the **frozen baseline** (the squash of
+the original 001–018). Their `NNN_` names are recorded in `schema_migrations`;
+**do not rename them** — re-baselining would orphan the recorded versions and
+re-apply the schema.
+
+For **every NEW migration**, use a **UTC timestamp prefix**, not the next
+sequential number:
+
+```
+server/priv/migrations/YYYYMMDDHHMMSS_short_description.sql
+# e.g. 20260815091500_add_project_archived_flag.sql
+```
+
+Filename order is still apply order (timestamps sort lexicographically), but
+timestamps **don't collide across branches** the way `003_`, `003_` would when
+two people both grab the next number. Generate one with `date -u +%Y%m%d%H%M%S`.
+
+### Never edit a committed migration
+
+Once a migration has been applied to **any** real DB, it is immutable. The runner
+records it by filename in `schema_migrations` and **never re-applies** an
+already-recorded file, so editing its SQL changes nothing on already-migrated
+databases and silently diverges environments. To change something a committed
+migration created, **add a new migration** that alters it forward.
+
+### Rollback (expand / contract)
+
+There is no down-runner. Roll **forward**, and make schema changes safe to deploy
+before the code that needs them using the **expand / contract** pattern:
+
+1. **Expand** — a migration adds the new shape *additively* (new nullable column,
+   new table, new index `CONCURRENTLY`) without removing or renaming anything the
+   running code reads. Old and new code both work against this shape.
+2. **Migrate data + ship code** — backfill in a migration or job; deploy the code
+   that uses the new shape. If the deploy goes wrong, **roll the code back** — the
+   schema still supports the old code because step 1 only added.
+3. **Contract** — only once the new code is stable across all instances, a *later*
+   migration drops the now-unused old column/table.
+
+To undo a bad change, the recovery is a **new forward migration** that reverses
+it (drop the column you just added, restore a default), plus a code rollback —
+never an in-place edit of the committed file. For a catastrophic case, restore
+from a backup and replay forward; the advisory lock makes replaying safe under
+concurrent boots.
 
 ---
 

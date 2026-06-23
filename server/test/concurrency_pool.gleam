@@ -12,8 +12,8 @@
 
 import gleam/erlang/process
 import pog
+import tempo/seed
 import tempo/server/context.{type DbSettings, DbSettings}
-import tempo/server/migrate
 
 const database_name = "tempo_concurrency"
 
@@ -33,7 +33,7 @@ fn pool_name() -> DbPoolName {
 /// before any concurrency test runs (from `tempo_test.main`).
 pub fn start() -> Nil {
   recreate_database()
-  migrate_database()
+  migrate_and_seed_database()
   let assert Ok(_) =
     pog.start(context.pool_config(settings(), pool_name()) |> pog.pool_size(10))
   Nil
@@ -83,13 +83,13 @@ fn recreate_database() -> Nil {
   Nil
 }
 
-/// Apply the schema + seed migrations into the freshly-created database via a
-/// short-lived pool, so the dedicated database carries the same fixtures as the
-/// shared one.
-fn migrate_database() -> Nil {
+/// Migrate the schema and apply the base seed into the freshly-created database
+/// via a short-lived pool, so the dedicated database carries the same fixtures as
+/// the shared one. `seed.run` migrates first, then seeds the empty DB (dev env).
+fn migrate_and_seed_database() -> Nil {
   let migrate_name = binary_to_atom("tempo_concurrency_migrate_pool")
   let assert Ok(started) =
     pog.start(context.pool_config(settings(), migrate_name) |> pog.pool_size(1))
-  let assert Ok(_) = migrate.run(context.Context(started.data))
+  let assert Ok(seed.Seeded) = seed.run(context.Context(started.data), "dev")
   Nil
 }

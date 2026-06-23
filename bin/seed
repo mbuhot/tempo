@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Dev-only base seed: migrate the schema, then apply priv/seed/base_seed.sql (the
+# deterministic demo cast — clients, engineers, rate card, allocations). Refuses
+# unless TEMPO_ENV is dev (the unset default) AND the DB is empty, so it can never
+# seed a real environment and is a safe no-op on an already-seeded DB.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cd server && gleam run -m tempo/seed

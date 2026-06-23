@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # One-shot: bring the whole stack up and run it. Idempotent — safe to re-run.
 #   1. start PG19 (tempo-db) and wait until it is healthy
-#   2. apply pending migrations (schema + seed); only un-applied ones run
+#   2. migrate the schema, then seed the dev base cast (bin/seed migrates first,
+#      then applies the seed only on an empty DB — a no-op once seeded)
 #   3. build the Lustre client bundle into server/priv/static
 #   4. run the Wisp server on http://localhost:8000   (Ctrl-C to stop)
+#
+# bin/seed refuses unless TEMPO_ENV is dev, so pointing bin/up at a real DB applies
+# the schema but NEVER injects the demo cast.
 #
 # The DB container keeps running after Ctrl-C; stop it with `docker compose down`
 # (add -v to also wipe the data volume for a clean reseed).
@@ -13,8 +17,8 @@ cd "$(dirname "$0")/.."
 echo "==> [1/4] database (PG19) ........ starting + waiting for healthy"
 bin/db
 
-echo "==> [2/4] migrations ............. applying any pending"
-bin/migrate
+echo "==> [2/4] migrate + seed ......... schema, then dev base cast (empty DB only)"
+bin/seed
 
 echo "==> [3/4] client bundle .......... building"
 bin/build
