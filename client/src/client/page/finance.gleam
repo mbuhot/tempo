@@ -19,13 +19,15 @@
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
+import client/page/finance/forecast as forecast_tab
+import client/page/finance/invoices as invoices_tab
+import client/page/finance/payroll as payroll_tab
+import client/page/finance/pnl as pnl_tab
 import client/route
 import client/time
 import client/ui
 import gleam/dynamic/decode
-import gleam/float
 import gleam/int
-import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar
 import lustre/attribute
@@ -36,9 +38,8 @@ import lustre/event
 import rsvp
 import shared/codecs
 import shared/types.{
-  type Event, type Forecast, type ForecastMonth, type Invoice,
-  type InvoiceDetail, type InvoiceLine, type Payroll, type PayrollLine, type Pnl,
-  type PnlRow, type Ref, type Roster,
+  type Event, type Forecast, type Invoice, type InvoiceDetail, type Payroll,
+  type Pnl, type Ref, type Roster,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -710,234 +711,34 @@ fn subpage(active: Bool, body: Element(Msg)) -> Element(Msg) {
 
 // --- Invoices tab -----------------------------------------------------------
 
+/// The Invoices tab: its loading guard and the shared op-panel, delegating the
+/// list/detail render to the tab's own `page/finance/invoices` module. The tab's
+/// user actions are wired from this page's `Msg` constructors into the module's
+/// `Actions` record.
 fn view_invoices(data: Data) -> Element(Msg) {
   let body = case data.invoices {
     None -> ui.empty_state(message: "Loading invoices…")
     Some(invoices) ->
       case data.detail, data.selected {
-        Some(detail), Some(_) -> view_invoice_detail(detail)
+        Some(detail), Some(_) -> invoices_tab.detail(detail, invoice_actions())
         _, Some(_) -> ui.empty_state(message: "Loading invoice…")
-        _, None -> view_invoice_list(invoices)
+        _, None -> invoices_tab.list(invoices, invoice_actions())
       }
   }
   html.div([], [op_panel(data, route.Invoices), body])
 }
 
-fn view_invoice_list(invoices: List(Invoice)) -> Element(Msg) {
-  let outstanding =
-    invoices
-    |> list.filter(fn(invoice) { invoice.status != "paid" })
-    |> list.fold(0.0, fn(sum, invoice) { sum +. invoice.total })
-  let collected =
-    invoices
-    |> list.filter(fn(invoice) { invoice.status == "paid" })
-    |> list.fold(0.0, fn(sum, invoice) { sum +. invoice.total })
-  let count = list.length(invoices)
-  let rows = case invoices {
-    [] -> [
-      html.tr([], [
-        html.td([attribute.attribute("colspan", "7")], [
-          ui.empty_state(message: "No invoices exist yet on this date."),
-        ]),
-      ]),
-    ]
-    rows -> list.map(rows, invoice_row)
-  }
-  html.div([], [
-    html.div([attribute.class("stats stats--cols-3")], [
-      ui.stat(
-        value: ui.money_k(outstanding),
-        unit: "",
-        label: "Outstanding",
-        pct: ui.NoPct,
-      ),
-      ui.stat(
-        value: ui.money_k(collected),
-        unit: "",
-        label: "Collected (visible)",
-        pct: ui.NoPct,
-      ),
-      ui.stat(
-        value: int.to_string(count),
-        unit: "invoices",
-        label: "Exist as of date",
-        pct: ui.NoPct,
-      ),
-    ]),
-    ui.panel(
-      title: "Invoices",
-      count: int.to_string(count),
-      right: [draft_button()],
-      body: [
-        ui.data_table(
-          headers: [
-            #("Invoice", False),
-            #("Project", False),
-            #("Client", False),
-            #("Month", False),
-            #("Total", True),
-            #("Status", False),
-            #("", True),
-          ],
-          rows: rows,
-        ),
-      ],
-    ),
-  ])
-}
-
-/// The row's lifecycle cell: the single action VALID for the row's current as-of
-/// status (a `draft` offers Issue, an `issued` offers Mark paid, a `paid` offers
-/// nothing) and, where a transition has already happened, a Neutral chip stating
-/// when it took effect (`Issued <date>` on an issued/paid row, `Paid <date>` on a
-/// paid row). The action stays a raw `html.button` so the row click can be
-/// stopped from propagating (the `ui.button` primitive carries no such handle).
-fn invoice_row(invoice: Invoice) -> Element(Msg) {
-  let action = case invoice.status {
-    "draft" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(OpOpenedForInvoice(ui.OpIssueInvoice, invoice.id))
-            |> event.stop_propagation,
-        ],
-        [html.text("Issue")],
-      )
-    "issued" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(OpOpenedForInvoice(ui.OpPayInvoice, invoice.id))
-            |> event.stop_propagation,
-        ],
-        [html.text("Mark paid")],
-      )
-    _ -> element.none()
-  }
-  let lifecycle = case invoice.status {
-    "draft" -> action
-    "issued" ->
-      html.div([attribute.class("action-row")], [
-        transition_pill("Issued", invoice.issued_at),
-        action,
-      ])
-    "paid" -> transition_pill("Paid", invoice.paid_at)
-    _ -> element.none()
-  }
-  html.tr(
-    [attribute.class("clickable"), event.on_click(InvoiceClicked(invoice.id))],
-    [
-      html.td([attribute.class("mono")], [
-        html.text("#" <> int.to_string(invoice.id)),
-      ]),
-      html.td([], [
-        ui.swatch(category: invoice.id, inline: True),
-        html.text(invoice.project),
-      ]),
-      html.td([], [html.text(invoice.client)]),
-      html.td([], [html.text(time.format_month(invoice.billing_from))]),
-      html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
-      html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
-      html.td([attribute.class("num")], [lifecycle]),
-    ],
+/// The Invoices tab's user actions, mapped onto this page's `Msg`: draft / issue /
+/// pay open the matching op form, opening a row selects it, closing returns to the
+/// list.
+fn invoice_actions() -> invoices_tab.Actions(Msg) {
+  invoices_tab.Actions(
+    on_draft: OpOpened(ui.OpDraftInvoice),
+    on_issue: fn(id) { OpOpenedForInvoice(ui.OpIssueInvoice, id) },
+    on_pay: fn(id) { OpOpenedForInvoice(ui.OpPayInvoice, id) },
+    on_open: fn(id) { InvoiceClicked(id) },
+    on_close: DetailClosed,
   )
-}
-
-/// A Neutral chip naming when a lifecycle transition took effect, e.g.
-/// `Issued 5 Feb 2026`. Falls back to the verb alone if the date is somehow
-/// absent (a `paid`/`issued` row should always carry its transition date).
-fn transition_pill(verb: String, at: Option(calendar.Date)) -> Element(Msg) {
-  let label = case at {
-    Some(date) -> verb <> " " <> time.format_date(date)
-    None -> verb
-  }
-  ui.chip(label: label, tone: ui.Neutral)
-}
-
-fn draft_button() -> Element(Msg) {
-  ui.button(
-    label: "+ Draft",
-    kind: ui.Primary,
-    size: ui.Small,
-    on_press: OpOpened(ui.OpDraftInvoice),
-  )
-}
-
-fn view_invoice_detail(detail: InvoiceDetail) -> Element(Msg) {
-  let invoice = detail.invoice
-  let action = case invoice.status {
-    "draft" ->
-      ui.button(
-        label: "Issue",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: OpOpenedForInvoice(ui.OpIssueInvoice, invoice.id),
-      )
-    "issued" ->
-      ui.button(
-        label: "Mark paid",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: OpOpenedForInvoice(ui.OpPayInvoice, invoice.id),
-      )
-    _ -> element.none()
-  }
-  let line_rows = list.map(detail.lines, invoice_line_row)
-  html.div([], [
-    html.div([attribute.class("back-link"), event.on_click(DetailClosed)], [
-      html.text("‹ All invoices"),
-    ]),
-    ui.panel(
-      title: "Invoice #" <> int.to_string(invoice.id),
-      count: invoice.status,
-      right: [action],
-      body: [
-        html.div([attribute.class("pad-detail")], [
-          html.div([attribute.class("kv")], [
-            ui.kv(key: "Project", value: invoice.project, mono: False),
-            ui.kv(key: "Client", value: invoice.client, mono: False),
-            ui.kv(
-              key: "Month",
-              value: time.format_month(invoice.billing_from),
-              mono: False,
-            ),
-            ui.kv(key: "Total", value: ui.money(invoice.total), mono: True),
-          ]),
-        ]),
-      ],
-    ),
-    ui.panel(
-      title: "Lines",
-      count: int.to_string(list.length(detail.lines)),
-      right: [],
-      body: [
-        ui.data_table(
-          headers: [
-            #("Engineer", False),
-            #("Level", False),
-            #("Day rate", True),
-            #("Days", True),
-            #("Amount", True),
-          ],
-          rows: line_rows,
-        ),
-      ],
-    ),
-  ])
-}
-
-fn invoice_line_row(line: InvoiceLine) -> Element(Msg) {
-  html.tr([], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([], [
-      html.span([attribute.class("level-pill")], [
-        html.text(ui.level_band(line.level)),
-      ]),
-    ]),
-    html.td([attribute.class("num")], [html.text(ui.money(line.day_rate))]),
-    html.td([attribute.class("num")], [html.text(ui.days(line.days))]),
-    html.td([attribute.class("num")], [html.text(ui.money(line.amount))]),
-  ])
 }
 
 // --- Payroll tab ------------------------------------------------------------
@@ -950,375 +751,37 @@ fn invoice_line_row(line: InvoiceLine) -> Element(Msg) {
 ///     (the DB refuses a re-run);
 ///   * a run a back-dated fact has since outgrown -> VARIANCE, the per-line Δ and
 ///     the total back-pay owed.
+/// The Payroll tab: its loading guard and the shared op-panel, delegating the
+/// loaded render to the tab's own `page/finance/payroll` module. The run-payroll
+/// button raises `OpOpened(ui.OpRunPayroll)`, handed in as the tab's one action.
 fn view_payroll(data: Data) -> Element(Msg) {
   let body = case data.payroll {
     None -> ui.empty_state(message: "Loading payroll…")
     Some(payroll) ->
-      case payroll.run {
-        None -> view_payroll_preview(payroll)
-        Some(_) ->
-          case payroll_reconciled(payroll.lines) {
-            True -> view_payroll_reconciled(payroll)
-            False -> view_payroll_variance(payroll)
-          }
-      }
+      payroll_tab.view(payroll, on_run: OpOpened(ui.OpRunPayroll))
   }
   html.div([], [op_panel(data, route.Payroll), body])
 }
 
-/// Whether every line's frozen paid amount still equals the live recompute (within
-/// a sub-cent epsilon) — i.e. nothing has been back-dated since the run. A line
-/// with no paid amount (employed-but-not-in-run) counts as a variance.
-fn payroll_reconciled(lines: List(PayrollLine)) -> Bool {
-  list.all(lines, fn(line) {
-    case line.paid_amount {
-      Some(paid) -> float.absolute_value(line.preview_amount -. paid) <. 0.005
-      None -> False
-    }
-  })
-}
-
-/// NOT YET RUN: the live recompute over current facts, the count of employed
-/// engineers, the total to pay, and the run button.
-fn view_payroll_preview(payroll: Payroll) -> Element(Msg) {
-  let month = time.format_month(payroll.period_from)
-  let count = list.length(payroll.lines)
-  let total =
-    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.preview_amount })
-  let run_button =
-    ui.button(
-      label: "Run payroll",
-      kind: ui.Primary,
-      size: ui.Small,
-      on_press: OpOpened(ui.OpRunPayroll),
-    )
-  ui.panel(
-    title: "Payroll preview · " <> month,
-    count: int.to_string(count) <> " employed · not yet run",
-    right: [
-      html.span([attribute.class("finance__total-note")], [
-        html.text(ui.money(total) <> " to pay"),
-      ]),
-      run_button,
-    ],
-    body: [
-      ui.data_table(
-        headers: [#("Engineer", False), #("Days", True), #("Preview", True)],
-        rows: list.map(payroll.lines, payroll_preview_row),
-      ),
-    ],
-  )
-}
-
-fn payroll_preview_row(line: PayrollLine) -> Element(Msg) {
-  html.tr([], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [html.text(ui.days(line.preview_days))]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(line.preview_amount)),
-    ]),
-  ])
-}
-
-/// RUN, NO CHANGES: the frozen paid lines, reconciled against the live recompute.
-/// No run button — the DB refuses a second run for the same month.
-fn view_payroll_reconciled(payroll: Payroll) -> Element(Msg) {
-  let month = time.format_month(payroll.period_from)
-  let count = list.length(payroll.lines)
-  let total =
-    list.fold(payroll.lines, 0.0, fn(sum, line) {
-      sum +. option.unwrap(line.paid_amount, 0.0)
-    })
-  ui.panel(
-    title: "Payroll run · " <> month,
-    count: int.to_string(count) <> " employed · reconciled",
-    right: [
-      html.span([attribute.class("finance__total-note")], [
-        html.text(ui.money(total) <> " paid"),
-      ]),
-    ],
-    body: [
-      ui.data_table(
-        headers: [#("Engineer", False), #("Days", True), #("Paid", True)],
-        rows: list.map(payroll.lines, payroll_paid_row),
-      ),
-    ],
-  )
-}
-
-fn payroll_paid_row(line: PayrollLine) -> Element(Msg) {
-  html.tr([], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [
-      html.text(ui.days(option.unwrap(line.paid_days, 0.0))),
-    ]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
-    ]),
-  ])
-}
-
-/// RUN + VARIANCE: a fact was back-dated into the month after the run, so the live
-/// recompute ("should be") no longer matches the frozen paid line for some
-/// engineer. The header warns of the total back-pay owed; the table shows paid vs
-/// should-be with the per-line Δ, the varying rows flagged.
-fn view_payroll_variance(payroll: Payroll) -> Element(Msg) {
-  let month = time.format_month(payroll.period_from)
-  let owed =
-    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line_delta(line) })
-  ui.panel(
-    title: "Payroll run · " <> month,
-    count: "",
-    right: [
-      html.span([attribute.class("finance__owed")], [
-        html.text("⚠ " <> ui.money(owed) <> " back-pay owed"),
-      ]),
-    ],
-    body: [
-      ui.data_table(
-        headers: [
-          #("Engineer", False),
-          #("Paid", True),
-          #("Should be", True),
-          #("Δ", True),
-        ],
-        rows: list.map(payroll.lines, payroll_variance_row),
-      ),
-    ],
-  )
-}
-
-/// The back-pay Δ for a line: the live recompute minus the frozen paid amount (a
-/// not-yet-paid line owes its full preview).
-fn line_delta(line: PayrollLine) -> Float {
-  line.preview_amount -. option.unwrap(line.paid_amount, 0.0)
-}
-
-fn payroll_variance_row(line: PayrollLine) -> Element(Msg) {
-  let delta = line_delta(line)
-  let varies = float.absolute_value(delta) >=. 0.005
-  let row_class = case varies {
-    True -> "finance__variance-row"
-    False -> ""
-  }
-  let delta_text = case varies {
-    True -> ui.money(delta)
-    False -> "—"
-  }
-  let delta_class = case varies {
-    True -> "num finance__owed"
-    False -> "num"
-  }
-  html.tr([attribute.class(row_class)], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
-    ]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(line.preview_amount)),
-    ]),
-    html.td([attribute.class(delta_class)], [html.text(delta_text)]),
-  ])
-}
-
 // --- P&L tab ----------------------------------------------------------------
 
+/// The P&L tab: its loading guard, delegating the loaded render to the tab's own
+/// `page/finance/pnl` module.
 fn view_pnl(data: Data) -> Element(Msg) {
   case data.pnl {
     None -> ui.empty_state(message: "Loading P&L…")
-    Some(pnl) -> {
-      let month = time.format_month(time.first_of_month(data.as_of))
-      let margin_pct = case pnl.month_revenue >. 0.0 {
-        True ->
-          ui.Pct(float.round(pnl.month_profit /. pnl.month_revenue *. 100.0))
-        False -> ui.NoPct
-      }
-      let ytd_margin_pct = case pnl.ytd_revenue >. 0.0 {
-        True -> ui.Pct(float.round(pnl.ytd_profit /. pnl.ytd_revenue *. 100.0))
-        False -> ui.NoPct
-      }
-      let year = int.to_string(time.first_of_month(data.as_of).year)
-      let rows = list.map(pnl.rows, pnl_row)
-      html.div([], [
-        html.div([attribute.class("stats stats--cols-3")], [
-          ui.stat(
-            value: ui.money_k(pnl.month_revenue),
-            unit: "/mo",
-            label: "Revenue · " <> month,
-            pct: ui.NoPct,
-          ),
-          ui.stat(
-            value: ui.money_k(pnl.month_cost),
-            unit: "/mo",
-            label: "Cost · " <> month,
-            pct: ui.NoPct,
-          ),
-          ui.stat(
-            value: ui.money_k(pnl.month_profit),
-            unit: "/mo",
-            label: "Profit · " <> month,
-            pct: margin_pct,
-          ),
-        ]),
-        html.div([attribute.class("stats stats--cols-3")], [
-          ui.stat(
-            value: ui.money_k(pnl.ytd_revenue),
-            unit: "YTD",
-            label: "Revenue · since Jan " <> year,
-            pct: ui.NoPct,
-          ),
-          ui.stat(
-            value: ui.money_k(pnl.ytd_cost),
-            unit: "YTD",
-            label: "Cost · since Jan " <> year,
-            pct: ui.NoPct,
-          ),
-          ui.stat(
-            value: ui.money_k(pnl.ytd_profit),
-            unit: "YTD",
-            label: "Profit · since Jan " <> year,
-            pct: ytd_margin_pct,
-          ),
-        ]),
-        ui.panel(
-          title: "Profit & loss · " <> month,
-          count: "per engineer",
-          right: [],
-          body: [
-            ui.data_table(
-              headers: [
-                #("Engineer", False),
-                #("Revenue", True),
-                #("Cost", True),
-                #("Profit", True),
-                #("Margin", True),
-                #("Utilization", True),
-              ],
-              rows: rows,
-            ),
-          ],
-        ),
-      ])
-    }
+    Some(pnl) -> pnl_tab.view(pnl, data.as_of)
   }
-}
-
-fn pnl_row(row: PnlRow) -> Element(Msg) {
-  let profit_class = case row.profit >=. 0.0 {
-    True -> "num pnl__profit--positive"
-    False -> "num pnl__profit--negative"
-  }
-  let profit_text = case row.profit >=. 0.0 {
-    True -> ui.money(row.profit)
-    False -> "−" <> ui.money(float.absolute_value(row.profit))
-  }
-  html.tr([], [
-    html.td([], [html.text(row.engineer)]),
-    html.td([attribute.class("num")], [html.text(ui.money(row.revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(row.cost))]),
-    html.td([attribute.class(profit_class)], [html.text(profit_text)]),
-    html.td([attribute.class("num")], [html.text(ui.pct(row.margin_pct))]),
-    html.td([attribute.class("num")], [html.text(ui.pct(row.utilization_pct))]),
-  ])
 }
 
 // --- Forecast tab -----------------------------------------------------------
 
-/// The forward P&L from committed demand (`GET /api/forecast?as_of=`): one row per
-/// calendar month from the as-of month to the cliff (Month | Revenue | Cost |
-/// Profit | Margin), capped by a total row summing each money column with the
-/// blended margin. An empty-state when no month carries demand.
+/// The Forecast tab: its loading guard, delegating the loaded render to the tab's
+/// own `page/finance/forecast` module.
 fn view_forecast(data: Data) -> Element(Msg) {
   case data.forecast {
     None -> ui.empty_state(message: "Loading forecast…")
-    Some(forecast) ->
-      case forecast.months {
-        [] ->
-          ui.panel(title: "Forecast", count: "0 months", right: [], body: [
-            ui.empty_state(
-              message: "No committed demand to forecast on this date.",
-            ),
-          ])
-        months -> {
-          let count = list.length(months)
-          let total_revenue =
-            list.fold(months, 0.0, fn(sum, month) { sum +. month.revenue })
-          let total_cost =
-            list.fold(months, 0.0, fn(sum, month) { sum +. month.cost })
-          let total_profit = total_revenue -. total_cost
-          let total_margin = case total_revenue >. 0.0 {
-            True -> total_profit /. total_revenue *. 100.0
-            False -> 0.0
-          }
-          ui.panel(
-            title: "Forecast",
-            count: int.to_string(count) <> " months",
-            right: [
-              html.span([attribute.class("finance__total-note")], [
-                html.text(ui.money(total_revenue) <> " revenue to the cliff"),
-              ]),
-            ],
-            body: [
-              ui.data_table(
-                headers: [
-                  #("Month", False),
-                  #("Revenue", True),
-                  #("Cost", True),
-                  #("Profit", True),
-                  #("Margin", True),
-                ],
-                rows: list.append(list.map(months, forecast_row), [
-                  forecast_total_row(
-                    total_revenue,
-                    total_cost,
-                    total_profit,
-                    total_margin,
-                  ),
-                ]),
-              ),
-            ],
-          )
-        }
-      }
-  }
-}
-
-fn forecast_row(month: ForecastMonth) -> Element(Msg) {
-  let #(profit_class, profit_text) = forecast_profit(month.profit)
-  html.tr([], [
-    html.td([], [html.text(time.format_month(month.month))]),
-    html.td([attribute.class("num")], [html.text(ui.money(month.revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(month.cost))]),
-    html.td([attribute.class(profit_class)], [html.text(profit_text)]),
-    html.td([attribute.class("num")], [html.text(ui.pct(month.margin_pct))]),
-  ])
-}
-
-fn forecast_total_row(
-  revenue: Float,
-  cost: Float,
-  profit: Float,
-  margin: Float,
-) -> Element(Msg) {
-  let #(profit_class, profit_text) = forecast_profit(profit)
-  html.tr([attribute.class("finance__total-row")], [
-    html.td([], [html.text("Total")]),
-    html.td([attribute.class("num")], [html.text(ui.money(revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(cost))]),
-    html.td([attribute.class(profit_class)], [html.text(profit_text)]),
-    html.td([attribute.class("num")], [html.text(ui.pct(margin))]),
-  ])
-}
-
-/// The profit cell's class and signed text, mirroring the P&L table's positive /
-/// negative colouring (a leading minus glyph on a loss).
-fn forecast_profit(profit: Float) -> #(String, String) {
-  case profit >=. 0.0 {
-    True -> #("num pnl__profit--positive", ui.money(profit))
-    False -> #(
-      "num pnl__profit--negative",
-      "−" <> ui.money(float.absolute_value(profit)),
-    )
+    Some(forecast) -> forecast_tab.view(forecast)
   }
 }
 
