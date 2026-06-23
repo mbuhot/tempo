@@ -1544,6 +1544,53 @@ WHERE employment.engineer_id = $1
   |> pog.execute(db)
 }
 
+/// A row you get from running the `engineer_lock` query
+/// defined in `./src/tempo/server/sql/engineer_lock.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerLockRow {
+  EngineerLockRow(id: Int)
+}
+
+/// engineer_lock.sql — take a row lock on the engineer anchor before reading the
+/// leave balance, so the take_leave read-modify-write is serialized per engineer.
+///
+/// Under READ COMMITTED two concurrent leave requests can otherwise both read the
+/// same balance and both commit (issue #2: over-grant) — the leave invariant has no
+/// database backstop. Locking the anchor with `FOR UPDATE` makes the second request
+/// block until the first commits, then re-read the now-reduced balance and be
+/// rejected as InsufficientLeaveBalance. $1 = engineer_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_lock(
+  db: pog.Connection,
+  id: Int,
+) -> Result(pog.Returned(EngineerLockRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(EngineerLockRow(id:))
+  }
+
+  "-- engineer_lock.sql — take a row lock on the engineer anchor before reading the
+-- leave balance, so the take_leave read-modify-write is serialized per engineer.
+--
+-- Under READ COMMITTED two concurrent leave requests can otherwise both read the
+-- same balance and both commit (issue #2: over-grant) — the leave invariant has no
+-- database backstop. Locking the anchor with `FOR UPDATE` makes the second request
+-- block until the first commits, then re-read the now-reduced balance and be
+-- rejected as InsufficientLeaveBalance. $1 = engineer_id.
+SELECT id FROM engineer WHERE id = $1 FOR UPDATE;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `engineer_next_id` query
 /// defined in `./src/tempo/server/sql/engineer_next_id.sql`.
 ///
@@ -2795,6 +2842,51 @@ ORDER BY lower(invoice_subject.billing_period), invoice.id;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `invoice_lock` query
+/// defined in `./src/tempo/server/sql/invoice_lock.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InvoiceLockRow {
+  InvoiceLockRow(id: Int)
+}
+
+/// invoice_lock.sql — take a row lock on the invoice anchor before reading its
+/// status, so a status transition's read-modify-write is serialized per invoice.
+///
+/// Under READ COMMITTED two concurrent transitions can otherwise both read the same
+/// pre-status and both commit (issue #2: double-pay). Locking the anchor with
+/// `FOR UPDATE` makes the second transaction block until the first commits, then
+/// re-read the now-changed status and fail the transition guard. $1 = invoice_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn invoice_lock(
+  db: pog.Connection,
+  id: Int,
+) -> Result(pog.Returned(InvoiceLockRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(InvoiceLockRow(id:))
+  }
+
+  "-- invoice_lock.sql — take a row lock on the invoice anchor before reading its
+-- status, so a status transition's read-modify-write is serialized per invoice.
+--
+-- Under READ COMMITTED two concurrent transitions can otherwise both read the same
+-- pre-status and both commit (issue #2: double-pay). Locking the anchor with
+-- `FOR UPDATE` makes the second transaction block until the first commits, then
+-- re-read the now-changed status and fail the transition guard. $1 = invoice_id.
+SELECT id FROM invoice WHERE id = $1 FOR UPDATE;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

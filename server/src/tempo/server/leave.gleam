@@ -77,6 +77,12 @@ fn take_leave(
 
 /// Reject the leave when the kind is policied and the balance on return is short of
 /// the days requested; a kind with no policy is unlimited and always passes.
+///
+/// Locks the engineer anchor (`FOR UPDATE`) BEFORE reading the balance, so two
+/// concurrent leave requests for the same engineer are serialized (issue #2): the
+/// second blocks until the first commits, then reads the now-reduced balance — the
+/// invariant has no database backstop, so without this lock both could over-grant
+/// under READ COMMITTED.
 fn guard_balance(
   conn: pog.Connection,
   engineer_id: Int,
@@ -84,6 +90,7 @@ fn guard_balance(
   valid_from: Date,
   valid_to: Date,
 ) -> Result(Nil, OperationError) {
+  use _ <- operation.try(sql.engineer_lock(conn, engineer_id))
   use checked <- operation.try(sql.leave_check(
     conn,
     engineer_id,

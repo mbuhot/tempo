@@ -155,12 +155,18 @@ fn pay_invoice(
 /// Guard that the invoice's status covering `at` is exactly `expected` — the
 /// predecessor the transition requires. An out-of-order transition (paying a draft,
 /// re-issuing an issued invoice) is rejected as `InvalidValue`, not silently applied.
+///
+/// Locks the invoice anchor (`FOR UPDATE`) BEFORE reading the status, so two
+/// concurrent transitions on the same invoice are serialized (issue #2): the second
+/// blocks until the first commits, then reads the now-changed status and is rejected
+/// — never double-paid under READ COMMITTED.
 fn validate_invoice_status(
   conn: pog.Connection,
   invoice_id: Int,
   expected: String,
   at: Date,
 ) -> Result(Nil, OperationError) {
+  use _ <- operation.try(sql.invoice_lock(conn, invoice_id))
   use current <- operation.try(sql.invoice_status_current(conn, invoice_id, at))
   case list.map(current.rows, fn(row) { row.status }) == [expected] {
     True -> Ok(Nil)

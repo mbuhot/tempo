@@ -1,9 +1,11 @@
+import concurrency_pool
 import gleeunit
 import tempo/server/context
 import test_pool
 
 pub fn main() -> Nil {
   test_pool.start()
+  concurrency_pool.start()
   gleeunit.main()
 }
 
