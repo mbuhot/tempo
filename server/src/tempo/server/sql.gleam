@@ -577,20 +577,24 @@ pub type ClientListRow {
   )
 }
 
-/// client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1).
-/// One row per client: name, the earliest contract start (since), the count of
-/// distinct projects ever run for the client, and whether any contract covers $1
-/// (active). Param: $1 = the as-of date (drives the active flag only; the identity
-/// is durable).
+/// client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1;
+/// mirrors project_list's as-of existence). One row per client that has COME INTO
+/// EXISTENCE by $1 — i.e. has a contract whose term STARTS on or before $1: name, the
+/// earliest contract start (since), the count of distinct projects ever run for the
+/// client, and whether any contract covers $1 (active). Param: $1 = the as-of date.
 ///
-/// name from the client_current latest-read view (INNER join — every seeded client
-/// has a profile). `since` is min(lower(term)) over the client's contracts — NULL for
-/// a contractless client (the schema does not guarantee >=1). The seed has no
-/// contractless client, so Squirrel would infer a non-null Date off the road and
-/// decode-fail the first contractless client; the `"since?"` alias forces the
-/// generated column to Option(Date), matching the shared ClientListRow.since. `active`
-/// is a correlated bool_or(term @> $1) coalesced to false (contractless or no covering
-/// term). The project count is a correlated count of distinct project ids reachable
+/// EXISTENCE. A client whose first contract starts AFTER $1 is absent, not rendered as
+/// 'ended' (the WHERE EXISTS lower(term) <= $1) — the timeline-scrub mirror of
+/// project_list (#19). A client that HAS started but whose contracts have all ended by
+/// $1 still lists, with active=false → the 'ended' pill, which is now shown only for a
+/// genuinely-ended client.
+///
+/// name from the client_current latest-read view (INNER join — every seeded client has
+/// a profile). `since` is min(lower(term)) over the client's contracts (always <= $1
+/// for a listed client). The `"since?"` alias forces the generated column to
+/// Option(Date) (the schema does not guarantee >=1 contract), matching the shared
+/// ClientListRow.since. `active` is a correlated bool_or(term @> $1) coalesced to
+/// false. The project count is a correlated count of distinct project ids reachable
 /// through the client's contracts' runs. Ordered by name for a stable directory.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -615,20 +619,24 @@ pub fn client_list(
     ))
   }
 
-  "-- client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1).
--- One row per client: name, the earliest contract start (since), the count of
--- distinct projects ever run for the client, and whether any contract covers $1
--- (active). Param: $1 = the as-of date (drives the active flag only; the identity
--- is durable).
+  "-- client_list.sql — the clients-directory read model (GET /api/clients?as_of=$1;
+-- mirrors project_list's as-of existence). One row per client that has COME INTO
+-- EXISTENCE by $1 — i.e. has a contract whose term STARTS on or before $1: name, the
+-- earliest contract start (since), the count of distinct projects ever run for the
+-- client, and whether any contract covers $1 (active). Param: $1 = the as-of date.
 --
--- name from the client_current latest-read view (INNER join — every seeded client
--- has a profile). `since` is min(lower(term)) over the client's contracts — NULL for
--- a contractless client (the schema does not guarantee >=1). The seed has no
--- contractless client, so Squirrel would infer a non-null Date off the road and
--- decode-fail the first contractless client; the `\"since?\"` alias forces the
--- generated column to Option(Date), matching the shared ClientListRow.since. `active`
--- is a correlated bool_or(term @> $1) coalesced to false (contractless or no covering
--- term). The project count is a correlated count of distinct project ids reachable
+-- EXISTENCE. A client whose first contract starts AFTER $1 is absent, not rendered as
+-- 'ended' (the WHERE EXISTS lower(term) <= $1) — the timeline-scrub mirror of
+-- project_list (#19). A client that HAS started but whose contracts have all ended by
+-- $1 still lists, with active=false → the 'ended' pill, which is now shown only for a
+-- genuinely-ended client.
+--
+-- name from the client_current latest-read view (INNER join — every seeded client has
+-- a profile). `since` is min(lower(term)) over the client's contracts (always <= $1
+-- for a listed client). The `\"since?\"` alias forces the generated column to
+-- Option(Date) (the schema does not guarantee >=1 contract), matching the shared
+-- ClientListRow.since. `active` is a correlated bool_or(term @> $1) coalesced to
+-- false. The project count is a correlated count of distinct project ids reachable
 -- through the client's contracts' runs. Ordered by name for a stable directory.
 SELECT
   client.id AS client_id,
@@ -651,6 +659,12 @@ SELECT
   ), false) AS active
 FROM client
 JOIN client_current ON client_current.id = client.id
+WHERE EXISTS (
+  SELECT 1
+    FROM contract_terms
+   WHERE contract_terms.client_id = client.id
+     AND lower(contract_terms.term) <= $1::date
+)
 ORDER BY name;
 "
   |> pog.query

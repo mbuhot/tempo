@@ -587,6 +587,23 @@ pub fn clients_list_now_returns_rows_test() {
   assert northwind.active
 }
 
+// On the timeline scrub, a client whose first contract starts AFTER the as-of date
+// has not come into existence yet: it is absent from the directory, not listed with
+// an 'ended' pill (the clients mirror of the projects #19 rule). At 2024-06-04 only
+// Northwind (contract from 2024-01-01) has started; Globex (2025-01-01) and Initech
+// (2026-06-01) are not yet shown.
+pub fn clients_list_excludes_not_yet_started_clients_test() {
+  let response =
+    simulate.request(http.Get, "/api/clients?as_of=2024-06-04")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let bundle = decode_client_list(response)
+  let ids = list.map(bundle.clients, fn(client) { client.client_id })
+  assert ids == [1]
+}
+
 // --- GET /api/clients/:id ---------------------------------------------------
 
 // Northwind (client 1) resolves to its profile with its contract since-date.
