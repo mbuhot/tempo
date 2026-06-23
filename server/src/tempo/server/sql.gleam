@@ -3993,8 +3993,12 @@ pub type PnlRowsRow {
 /// worked, recognized as the work is performed — the SAME basis
 /// as utilization and cost, independent of invoicing. Leave does
 /// not reduce it.
-/// cost             — Σ payroll_line.amount over payroll_runs whose period
-/// OVERLAPS the period.
+/// cost             — settled MONTH BY MONTH over the (month-aligned) period: the
+/// SNAPSHOT Σ payroll_line.amount where a payroll run covers the
+/// month (actuals, carrying any back-dated variance), the EXPECTED
+/// salary per employed engineer (the payroll_amounts proration)
+/// where no run covers it yet — so a not-yet-run/future month
+/// shows its expected cost rather than $0. Summed across months.
 /// utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
 /// period). Capacity-share numerator (PRD §8: capacity-based,
 /// not hours-based — the timesheet is not consulted; leave does
@@ -4020,11 +4024,13 @@ pub type PnlRowsRow {
 /// clipped to the period, so it reflects the work performed regardless of the
 /// invoice lifecycle; it equals the billed amount once a month is invoiced at the
 /// agreed rates, but does not wait on (or require) an invoice.
-/// * Cost is "overlaps the period" (&&) for payroll runs, NOT containment: a run
-/// period that straddles the window contributes in full (month-grained payroll;
-/// the caller chooses month/YTD windows aligned to month boundaries).
-/// * Cost is summed from the SNAPSHOT payroll_line (what was paid), not a
-/// recomputation (PRD §8).
+/// * Cost is settled MONTH BY MONTH over the (month-aligned) window. A month with a
+/// payroll run contributes its SNAPSHOT payroll_line (what was paid — NOT a
+/// recomputation, so a back-dated variance shows; PRD §8). A month with no run yet
+/// contributes the EXPECTED salary (the payroll_amounts proration), so a future /
+/// not-yet-run month reads its expected cost, not $0 — the cost-side mirror of the
+/// capacity revenue. The two are mutually exclusive per month (NOT EXISTS), so
+/// they never double-count. The caller's windows are month-aligned (month / YTD).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -4065,8 +4071,12 @@ pub fn pnl_rows(
 --                      worked, recognized as the work is performed — the SAME basis
 --                      as utilization and cost, independent of invoicing. Leave does
 --                      not reduce it.
---   cost             — Σ payroll_line.amount over payroll_runs whose period
---                      OVERLAPS the period.
+--   cost             — settled MONTH BY MONTH over the (month-aligned) period: the
+--                      SNAPSHOT Σ payroll_line.amount where a payroll run covers the
+--                      month (actuals, carrying any back-dated variance), the EXPECTED
+--                      salary per employed engineer (the payroll_amounts proration)
+--                      where no run covers it yet — so a not-yet-run/future month
+--                      shows its expected cost rather than $0. Summed across months.
 --   utilization_days — Σ allocation.fraction × days in (allocation ∩ employment ∩
 --                      period). Capacity-share numerator (PRD §8: capacity-based,
 --                      not hours-based — the timesheet is not consulted; leave does
@@ -4092,13 +4102,33 @@ pub fn pnl_rows(
 --     clipped to the period, so it reflects the work performed regardless of the
 --     invoice lifecycle; it equals the billed amount once a month is invoiced at the
 --     agreed rates, but does not wait on (or require) an invoice.
---   * Cost is \"overlaps the period\" (&&) for payroll runs, NOT containment: a run
---     period that straddles the window contributes in full (month-grained payroll;
---     the caller chooses month/YTD windows aligned to month boundaries).
---   * Cost is summed from the SNAPSHOT payroll_line (what was paid), not a
---     recomputation (PRD §8).
+--   * Cost is settled MONTH BY MONTH over the (month-aligned) window. A month with a
+--     payroll run contributes its SNAPSHOT payroll_line (what was paid — NOT a
+--     recomputation, so a back-dated variance shows; PRD §8). A month with no run yet
+--     contributes the EXPECTED salary (the payroll_amounts proration), so a future /
+--     not-yet-run month reads its expected cost, not $0 — the cost-side mirror of the
+--     capacity revenue. The two are mutually exclusive per month (NOT EXISTS), so
+--     they never double-count. The caller's windows are month-aligned (month / YTD).
 WITH params AS (
   SELECT daterange($1::date, $2::date, '[)') AS period
+),
+months AS (
+  -- one calendar-month bucket per month in the period. The period is month-aligned
+  -- (the caller passes first-of-month .. first-of-next-month, or first-of-year ..
+  -- first-of-next-month), so cost can be settled per month: actuals where a payroll
+  -- run covers the month, an estimate where none does yet.
+  SELECT
+    daterange(
+      month_start::date,
+      (month_start + interval '1 month')::date,
+      '[)'
+    ) AS span
+  FROM params,
+    generate_series(
+      date_trunc('month', lower(params.period)),
+      date_trunc('month', upper(params.period) - 1),
+      interval '1 month'
+    ) AS month_start
 ),
 emp AS (
   -- employed days in the period per engineer (employment ∩ period)
@@ -4159,15 +4189,55 @@ rev AS (
                     * rate_card.effective_during * params.period)
   GROUP BY allocation.engineer_id
 ),
-cost AS (
-  -- cost: payroll_line.amount for payroll runs overlapping the period
+actual_cost AS (
+  -- months WITH a payroll run: the SNAPSHOT amount paid each engineer (what was
+  -- actually paid, carrying any back-dated variance).
   SELECT
     payroll_line.engineer_id,
     sum(payroll_line.amount)::numeric AS cost
-  FROM params
-  JOIN payroll_period ON payroll_period.period && params.period
+  FROM months
+  JOIN payroll_period ON payroll_period.period && months.span
   JOIN payroll_line   ON payroll_line.run_id = payroll_period.run_id
   GROUP BY payroll_line.engineer_id
+),
+estimated_cost AS (
+  -- months with NO payroll run yet (a future / not-yet-run month, or a gap): the
+  -- EXPECTED salary per employed engineer — the SAME proration as payroll_amounts
+  -- (employment ∩ role-version ∩ salary-version ∩ month, full salary, leave-blind),
+  -- so the estimate equals the run that later materializes the month. The NOT EXISTS
+  -- excludes any month a run already covers, so actual and estimate never double-count.
+  SELECT
+    employment.engineer_id,
+    sum(salary.monthly_salary
+        * (upper(employment.employed_during * engineer_role.held_during
+                 * salary.effective_during * months.span)
+           - lower(employment.employed_during * engineer_role.held_during
+                   * salary.effective_during * months.span))
+        / (upper(months.span) - lower(months.span)))::numeric AS cost
+  FROM months
+  JOIN employment    ON employment.employed_during && months.span
+  JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
+                    AND engineer_role.held_during && employment.employed_during
+                    AND engineer_role.held_during && months.span
+  JOIN salary        ON salary.level = engineer_role.level
+                    AND salary.effective_during && engineer_role.held_during
+                    AND salary.effective_during && months.span
+  WHERE NOT EXISTS (
+    SELECT 1 FROM payroll_period WHERE payroll_period.period && months.span
+  )
+  AND NOT isempty(employment.employed_during * engineer_role.held_during
+                  * salary.effective_during * months.span)
+  GROUP BY employment.engineer_id
+),
+cost AS (
+  -- per engineer: actuals for run-covered months + estimates for the rest
+  SELECT engineer_id, sum(cost)::numeric AS cost
+  FROM (
+    SELECT engineer_id, cost FROM actual_cost
+    UNION ALL
+    SELECT engineer_id, cost FROM estimated_cost
+  ) per_engineer
+  GROUP BY engineer_id
 )
 SELECT
   emp.engineer_id,

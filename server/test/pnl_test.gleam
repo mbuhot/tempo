@@ -24,7 +24,7 @@
 import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/time/calendar.{type Date, Date, July, June}
+import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
 import shared/types.{
   type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceDetail, InvoiceLine,
@@ -262,10 +262,13 @@ pub fn pnl_totals_and_per_engineer_row_test() {
   assert pnl.month_profit == 88_000.0
   // YTD revenue is CAPACITY-based (ADR-043): the billable value of the work over
   // Jan–June from the seed allocations, not just June's issued invoices — so it far
-  // exceeds the single month. Cost is still the payroll snapshot (only June ran).
+  // exceeds the single month. YTD cost blends ACTUALS and ESTIMATE month by month:
+  // June ran (snapshot 32000), and Jan–May have no run so each shows the EXPECTED
+  // salary per employed engineer (Priya L5 10000 + Marcus L4 8000 + Aisha L6 14000 =
+  // 32000/month × 5 = 160000) — 192000 in all.
   assert pnl.ytd_revenue == 724_000.0
-  assert pnl.ytd_cost == 32_000.0
-  assert pnl.ytd_profit == 692_000.0
+  assert pnl.ytd_cost == 192_000.0
+  assert pnl.ytd_profit == 532_000.0
 
   // Aisha's per-engineer month row (revenue/cost/profit/margin/utilization). The
   // margin uses the same float arithmetic the domain does, so the comparison is
@@ -308,4 +311,24 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
   assert pnl.month_revenue == 120_000.0
   assert pnl.month_cost == 32_000.0
   assert pnl.month_profit == 88_000.0
+}
+
+// FORECASTED COST (the cost-side mirror of capacity revenue): scrubbing the P&L to a
+// FUTURE month — one with no payroll run yet — must NOT read $0 cost against accrued
+// revenue. With no run, each employed engineer's cost is the EXPECTED salary (the
+// payroll_amounts proration), so the month shows a real profit. For September 2026
+// (no run on record): Priya L5 10000 + Marcus L5 10000 (promoted to L5 from
+// 2026-07-01) + Aisha L6 14000 = 34000.
+pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
+  let pnl =
+    rolling_back(fn(conn) {
+      let assert Ok(pnl) =
+        finance_query.pnl(Context(db: conn), Date(2026, September, 15))
+      pnl
+    })
+
+  assert pnl.month_cost == 34_000.0
+  assert row_for(pnl.rows, "Priya Sharma").cost == 10_000.0
+  assert row_for(pnl.rows, "Marcus Chen").cost == 10_000.0
+  assert row_for(pnl.rows, "Aisha Okafor").cost == 14_000.0
 }
