@@ -22,10 +22,15 @@ import gleam/result
 import gleam/time/calendar.{Date, July, June}
 import pog
 import shared/types.{type Command, type Event, PayInvoice, TakeLeave}
+import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/operation.{
   type OperationError, InsufficientLeaveBalance, InvalidValue,
 }
+
+/// The principal the race commands dispatch as: actor "racer" with the `Admin`
+/// role, so a financial command (PayInvoice) passes the authorization gate.
+const racer = Principal(actor: "racer", role: Admin)
 
 /// The pair of outcomes from a race, in launch order.
 type Outcomes =
@@ -41,14 +46,14 @@ fn race(first: Command, second: Command) -> Outcomes {
     process.spawn(fn() {
       process.send(mailbox, #(
         0,
-        command.dispatch(concurrency_pool.ctx(), "racer", first),
+        command.dispatch(concurrency_pool.ctx(), racer, first),
       ))
     })
   let _ =
     process.spawn(fn() {
       process.send(mailbox, #(
         1,
-        command.dispatch(concurrency_pool.ctx(), "racer", second),
+        command.dispatch(concurrency_pool.ctx(), racer, second),
       ))
     })
   let assert Ok(one) = process.receive(mailbox, 5000)

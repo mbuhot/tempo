@@ -26,6 +26,7 @@ import shared/types.{
   UpdateProjectProfile,
 }
 import tempo/server/allocation
+import tempo/server/auth.{type Principal, Forbidden}
 import tempo/server/client_details
 import tempo/server/context.{type Context}
 import tempo/server/engagement
@@ -43,16 +44,22 @@ import tempo/server/repository
 import tempo/server/salary
 import tempo/server/timesheet
 
-/// Apply a command: open one transaction, route to the aggregate for its audit entry
-/// and facts, and record them all (the journal entry then the temporal facts,
-/// stamped with its id) — together or not at all. A database rejection is classified
-/// into a typed `OperationError`. Returns the persisted journal event (with its
-/// minted id/occurred_at).
+/// Apply a command on an authenticated `principal`'s behalf: the authorization
+/// gate runs FIRST — keyed on principal + command, ONE place covering all 24
+/// commands (issue #6) — and refuses with `Unauthorized` BEFORE any transaction
+/// opens, so a denied command never touches the database. When allowed, the
+/// `actor` stamped on the journal is the principal's, never the request body. Then
+/// open one transaction, route to the aggregate for its audit entry and facts, and
+/// record them all (the journal entry then the temporal facts, stamped with its
+/// id) — together or not at all. A database rejection is classified into a typed
+/// `OperationError`. Returns the persisted journal event (with its minted
+/// id/occurred_at).
 pub fn dispatch(
   context: Context,
-  actor actor: String,
+  principal principal: Principal,
   command command: Command,
 ) -> Result(Event, OperationError) {
+  use actor <- result.try(authorize(principal, command))
   let outcome =
     pog.transaction(context.db, fn(conn) { dispatch_in(conn, actor, command) })
   case outcome {
@@ -60,6 +67,20 @@ pub fn dispatch(
     Error(pog.TransactionQueryError(query_error)) ->
       Error(operation.classify(query_error))
     Error(pog.TransactionRolledBack(operation_error)) -> Error(operation_error)
+  }
+}
+
+/// Consult the authorization gate for this principal + command, mapping a refusal
+/// to the web layer's typed `Unauthorized` (a 403). Returns the principal's actor
+/// to stamp on the journal when allowed.
+fn authorize(
+  principal: Principal,
+  command: Command,
+) -> Result(String, OperationError) {
+  case auth.authorize(principal, command) {
+    Ok(actor) -> Ok(actor)
+    Error(Forbidden(actor:, command:)) ->
+      Error(operation.Unauthorized(actor:, command:))
   }
 }
 

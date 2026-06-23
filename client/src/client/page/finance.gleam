@@ -483,7 +483,7 @@ fn on_op_submitted(model: Model) -> #(Model, Effect(Msg), List(OutMsg)) {
       case ui.build_command(op.kind, op.form) {
         Ok(command) -> #(
           model,
-          api.submit_operation(data.actor, command, OpReplied),
+          api.submit_operation(command, OpReplied),
           [],
         )
         Error(message) -> #(

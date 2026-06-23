@@ -1073,26 +1073,23 @@ fn zero_date() -> Date {
 }
 
 // --- OperationRequest --------------------------------------------------------
-// The POST /api/operations envelope: `{actor, command}`. The client encodes it
-// and the server decodes it before dispatching. The nested `command` reuses the
-// same tagged `Command` encoding (`op` + parameters) used for the event_log
-// payload, so one codec serves the wire body and the journal.
+// The POST /api/operations envelope: `{command}`. The client encodes it and the
+// server decodes it before dispatching. The `actor` is NO LONGER on the wire — the
+// server derives it from the authenticated session (issue #6). The nested
+// `command` reuses the same tagged `Command` encoding (`op` + parameters) used for
+// the event_log payload, so one codec serves the wire body and the journal.
 
-/// Encode an `OperationRequest` as `{actor, command}` for POST /api/operations.
+/// Encode an `OperationRequest` as `{command}` for POST /api/operations.
 pub fn encode_operation_request(request: OperationRequest) -> Json {
-  let OperationRequest(actor:, command:) = request
-  json.object([
-    #("actor", json.string(actor)),
-    #("command", encode_command(command)),
-  ])
+  let OperationRequest(command:) = request
+  json.object([#("command", encode_command(command))])
 }
 
 /// Decode an `OperationRequest` from the POST /api/operations body. Pairs with
 /// `encode_operation_request`: `command` is read through `command_decoder`.
 pub fn operation_request_decoder() -> Decoder(OperationRequest) {
-  use actor <- decode.field("actor", decode.string)
   use command <- decode.field("command", command_decoder())
-  decode.success(OperationRequest(actor:, command:))
+  decode.success(OperationRequest(command:))
 }
 
 // --- Event ------------------------------------------------------------------

@@ -25,6 +25,7 @@ import tempo/server/web/engineers
 import tempo/server/web/events
 import tempo/server/web/forecast
 import tempo/server/web/invoices
+import tempo/server/web/login
 import tempo/server/web/operations
 import tempo/server/web/payroll
 import tempo/server/web/people
@@ -47,6 +48,7 @@ pub fn handle_request(
   use <- serve_static_no_cache(request)
 
   case wisp.path_segments(request) {
+    ["api", "login"] -> login.handle(request, context)
     ["api", "board"] -> board.handle(request, context)
     ["api", "timesheet"] -> timesheet.handle_read(request, context)
     ["api", "operations"] -> operations.handle(request, context)

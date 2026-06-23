@@ -213,7 +213,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           case ui.build_command(state.kind, state.form) {
             Ok(command) -> #(
               model,
-              api.submit_operation(actor, command, OpResponded),
+              api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(

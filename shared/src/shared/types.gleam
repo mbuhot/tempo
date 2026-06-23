@@ -352,12 +352,13 @@ pub type Command {
   )
 }
 
-/// The POST /api/operations request body: an `actor` (who is applying the
-/// operation — nominal, no auth) and the `Command` to apply. The client encodes
-/// this envelope and the server decodes it, then dispatches the command on the
-/// actor's behalf. Defined in `shared` so both ends agree on the contract.
+/// The POST /api/operations request body: just the `Command` to apply. The
+/// `actor` is NO LONGER carried here — it would be forgeable (issue #6). The
+/// server derives the actor from the authenticated session (a signed cookie) and
+/// stamps it on the journal, so the body cannot dictate who a change is
+/// attributed to. Defined in `shared` so both ends agree on the contract.
 pub type OperationRequest {
-  OperationRequest(actor: String, command: Command)
+  OperationRequest(command: Command)
 }
 
 /// One row of the provenance journal read model. The server appends an `Event`

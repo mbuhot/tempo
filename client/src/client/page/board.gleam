@@ -242,7 +242,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             )
             Ok(command) -> #(
               model,
-              api.submit_operation(model.actor, command, OpResolved),
+              api.submit_operation(command, OpResolved),
               [],
             )
           }

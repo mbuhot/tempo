@@ -57,14 +57,17 @@ import shared/types.{
   type Command, type Invoice, type TimesheetEntry, DraftInvoice, IssueInvoice,
   LogWeek, PayInvoice, Promote, RunPayroll, TimesheetEntry,
 }
+import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/finance_query
 import tempo/server/sql
 
-/// The actor recorded against every demo `event_log` row.
-const seed_actor = "seed"
+/// The principal every demo command is dispatched as: actor "seed" (stamped on
+/// every `event_log` row), with the `Admin` role so the financial demo commands
+/// (invoices, payroll, salary) pass the authorization gate.
+const seed_principal = Principal(actor: "seed", role: Admin)
 
 /// The back-dated variance demo: promote Priya (engineer 1) from her seeded L5 to L6,
 /// effective the start of the already-run MAY month. The L6 salary band ($14,000)
@@ -448,13 +451,14 @@ fn variance_promotion_present(ctx: Context) -> Bool {
 
 // --- helpers -----------------------------------------------------------------
 
-/// Dispatch one demo command through `command.dispatch` (actor "seed"), then
+/// Dispatch one demo command through `command.dispatch` (as the seed principal,
+/// actor "seed"), then
 /// backdate the journal event it appended to `occurred_on` — the date the
 /// operation would naturally have been entered — so the demo journal reads as a
 /// realistic timeline rather than all at the instant the seed ran. A failure
 /// `panic`s with the operation error so the seed gates loudly.
 fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
-  case command.dispatch(ctx, actor: seed_actor, command: command) {
+  case command.dispatch(ctx, principal: seed_principal, command: command) {
     Error(error) ->
       panic as {
         "seed-financials: dispatching "

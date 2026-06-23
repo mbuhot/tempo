@@ -4,23 +4,27 @@
 //// same frozen interface (Model/Msg/OutMsg/init/update/view/refetch), so the
 //// per-page work never touches this file.
 ////
-//// The shell owns the cross-cutting messages — SignedIn/SignedOut (the login
-//// gate, ADR-035), AsOfChanged (a discrete as-of change), AsOfScrubbed +
-//// AsOfScrubSettled (the debounced slider scrub), RouteChanged (URL change) —
-//// plus one wrapper per page. The time rail (`client/time`) maps its messages
-//// into these via `element.map` (Gleam has no constructor re-export). A discrete
-//// change (step/pick/Today) applies at once: refetch + `modem.replace` the new
-//// `?date=`. A scrub updates the as-of and `?date=` INSTANTLY (so the readout
-//// tracks the thumb and the URL stays shareable) but defers the refetch to a
-//// settle, debounced via `scheduler.after` and guarded by a generation token so
-//// only the final position fetches (a scrub does not flood the network). The URL
-//// is synced on the scrub tick rather than the settle so its same-route
-//// RouteChanged echo is a clean no-op, never a settle's `replace` racing a
-//// navigation. Sidebar and drill-in navigation `push`. The signed-in actor flows
-//// into every `api.submit_operation(actor, ...)`, replacing the old console actor.
+//// The shell owns the cross-cutting messages — LoginRequested/LoginReturned/
+//// SignedOut (the login gate, ADR-035 + the real auth of issue #6), AsOfChanged (a
+//// discrete as-of change), AsOfScrubbed + AsOfScrubSettled (the debounced slider
+//// scrub), RouteChanged (URL change) — plus one wrapper per page. The time rail
+//// (`client/time`) maps its messages into these via `element.map` (Gleam has no
+//// constructor re-export). A discrete change (step/pick/Today) applies at once:
+//// refetch + `modem.replace` the new `?date=`. A scrub updates the as-of and
+//// `?date=` INSTANTLY (so the readout tracks the thumb and the URL stays
+//// shareable) but defers the refetch to a settle, debounced via `scheduler.after`
+//// and guarded by a generation token so only the final position fetches (a scrub
+//// does not flood the network). The URL is synced on the scrub tick rather than
+//// the settle so its same-route RouteChanged echo is a clean no-op, never a
+//// settle's `replace` racing a navigation. Sidebar and drill-in navigation `push`.
+//// Picking an identity AUTHENTICATES it server-side (`api.login`, which issues a
+//// signed session cookie); the actor is then the server-confirmed name, and the
+//// browser carries the cookie on every `api.submit_operation(...)` so the server
+//// derives the journal actor from the session, never the request body (issue #6).
 ////
 //// Imports `client/*` and `shared/*` only — never `server/*`.
 
+import client/api
 import client/page/activity
 import client/page/board
 import client/page/clients
@@ -42,6 +46,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import modem
+import rsvp
 
 /// The active page and its opaque sub-model. The shell never inspects a page
 /// model; it only routes the matching `*Msg` into the matching `*Page`.
@@ -79,8 +84,13 @@ const scrub_refetch_ms = 150
 /// constructor; the rail's `time.Msg(AsOfChanged)` is mapped into it at the view
 /// boundary via `element.map` (not re-exported).
 pub type Msg {
-  /// An identity was chosen on the login gate; its name becomes the actor.
-  SignedIn(actor: String)
+  /// An identity was chosen on the login gate: authenticate it server-side
+  /// (POST /api/login, which issues the signed session cookie) before entering.
+  LoginRequested(actor: String)
+  /// The login POST returned: `Ok(actor)` is the server-authenticated identity
+  /// (now becomes the shell's actor and enters the app); an `Error` keeps the gate
+  /// up so an unknown identity cannot pretend to sign in.
+  LoginReturned(result: Result(String, rsvp.Error(String)))
   /// The signed-in actor signed out, returning to the login gate.
   SignedOut
   /// A discrete as-of change (rail step/pick/Today). The shell stores it,
@@ -159,10 +169,16 @@ fn initial_route() -> Route {
 /// Fold a message into the model.
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    SignedIn(actor:) -> {
-      let #(page, page_effect) = init_page(model.route, model.as_of, actor)
-      #(Model(..model, actor: Some(actor), page:), page_effect)
-    }
+    LoginRequested(actor:) -> #(model, api.login(actor, LoginReturned))
+
+    LoginReturned(result:) ->
+      case result {
+        Ok(actor) -> {
+          let #(page, page_effect) = init_page(model.route, model.as_of, actor)
+          #(Model(..model, actor: Some(actor), page:), page_effect)
+        }
+        Error(_) -> #(model, effect.none())
+      }
 
     SignedOut -> #(Model(..model, actor: None), effect.none())
 
@@ -636,7 +652,7 @@ fn view_identity(
     False -> []
   }
   html.button(
-    [attribute.class("identity"), event.on_click(SignedIn(actor: name))],
+    [attribute.class("identity"), event.on_click(LoginRequested(actor: name))],
     [
       html.div([attribute.class("identity__meta")], [
         html.div([attribute.class("identity__name")], [html.text(name)]),

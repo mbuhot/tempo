@@ -414,7 +414,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           case ui.build_command(kind, form) {
             Ok(command) -> #(
               model,
-              api.submit_operation(actor_of(model), command, OperationReturned),
+              api.submit_operation(command, OperationReturned),
               [],
             )
             Error(prompt) -> #(
@@ -437,7 +437,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         DetailView(engineer_id:, timesheet: TimesheetLoaded(week:, edits:), ..) -> #(
           model,
           api.submit_operation(
-            actor_of(model),
             LogWeek(engineer_id:, entries: week_entries(week, edits)),
             OperationReturned,
           ),
@@ -720,15 +719,6 @@ fn as_of_of(model: Model) -> calendar.Date {
   case model {
     ListView(as_of:, ..) -> as_of
     DetailView(as_of:, ..) -> as_of
-  }
-}
-
-/// The signed-in actor the page stashed at init/refetch, stamped onto every
-/// write it raises in `update`.
-fn actor_of(model: Model) -> String {
-  case model {
-    ListView(actor:, ..) -> actor
-    DetailView(actor:, ..) -> actor
   }
 }
 

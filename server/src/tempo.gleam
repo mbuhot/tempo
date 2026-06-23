@@ -16,7 +16,7 @@ pub fn main() -> Nil {
   wisp.configure_logger()
 
   let assert Ok(ctx) = context.start()
-  let secret_key_base = wisp.random_string(64)
+  let secret_key_base = secret_key_base()
   let port = 8000
 
   let handler = fn(request) { router.handle_request(request, ctx) }
@@ -31,4 +31,12 @@ pub fn main() -> Nil {
 
   wisp.log_info("tempo listening on http://0.0.0.0:" <> int.to_string(port))
   process.sleep_forever()
+}
+
+/// The secret key base used to sign session cookies (issue #6). Read from
+/// `TEMPO_SECRET_KEY_BASE` when set, so sessions survive a restart and verify
+/// across multiple instances; otherwise a fresh random key per boot — fine for
+/// dev (a restart simply forces re-login), but a deployment must set the env var.
+fn secret_key_base() -> String {
+  context.env_string("TEMPO_SECRET_KEY_BASE", wisp.random_string(64))
 }

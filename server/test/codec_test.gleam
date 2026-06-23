@@ -660,15 +660,17 @@ pub fn command_run_payroll_round_trips_test() {
 
 // --- OperationRequest --------------------------------------------------------
 
-// The POST /api/operations envelope: the actor plus the nested `Command`. The
-// `command` field must round-trip through the same tagged encoding, so the
-// envelope reconstructs the exact variant it carried.
+// The POST /api/operations envelope: the nested `Command` (the actor is no longer
+// on the wire — it is derived from the session, issue #6). The `command` field
+// must round-trip through the same tagged encoding, so the envelope reconstructs
+// the exact variant it carried.
 pub fn operation_request_round_trips_test() {
   let original =
-    OperationRequest(
-      actor: "mike@alembic.com.au",
-      command: Promote(engineer_id: 2, level: 5, effective: Date(2026, July, 1)),
-    )
+    OperationRequest(command: Promote(
+      engineer_id: 2,
+      level: 5,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(
       original,

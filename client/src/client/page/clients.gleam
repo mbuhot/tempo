@@ -277,11 +277,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case model {
-        Loaded(actor:, op: Some(op), ..) ->
+        Loaded(op: Some(op), ..) ->
           case ui.build_command(op.kind, op.form) {
             Ok(command) -> #(
               model,
-              api.submit_operation(actor, command, OpResponded),
+              api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(

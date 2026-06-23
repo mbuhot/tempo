@@ -28,6 +28,7 @@ import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/web/router
 import test_pool
+import wisp
 import wisp/simulate
 
 // --- context ----------------------------------------------------------------
@@ -35,6 +36,32 @@ import wisp/simulate
 /// A `Context` over the suite's shared pool.
 fn ctx() -> Context {
   test_pool.ctx()
+}
+
+// --- auth helpers -----------------------------------------------------------
+
+/// Sign in as `actor` through POST /api/login against `context`, returning the
+/// login request and its response so a follow-up call can carry the issued session
+/// cookie via `simulate.session`. The write-path tests authenticate as "Admin"
+/// (full access) so authorization never masks the behaviour under test.
+fn sign_in(context: Context, actor: String) -> #(wisp.Request, wisp.Response) {
+  let request =
+    simulate.request(http.Post, "/api/login")
+    |> simulate.json_body(json.object([#("actor", json.string(actor))]))
+  #(request, router.handle_request(request, context))
+}
+
+/// POST a command to /api/operations on an authenticated "Admin" session: sign in,
+/// then send the `{command}` envelope carrying the issued session cookie. The
+/// server derives the actor from the session, never the body.
+fn post_operation(context: Context, command: types.Command) -> wisp.Response {
+  let #(login_request, login_response) = sign_in(context, "Admin")
+  simulate.request(http.Post, "/api/operations")
+  |> simulate.json_body(
+    codecs.encode_operation_request(types.OperationRequest(command:)),
+  )
+  |> simulate.session(login_request, login_response)
+  |> router.handle_request(context)
 }
 
 // --- GET /api/board ---------------------------------------------------------
@@ -209,19 +236,15 @@ pub fn log_timesheet_operation_logs_hours_test() {
   let context = ctx()
 
   let response =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: types.LogTimesheet(
-          engineer_id: 2,
-          project_id: 300,
-          day: calendar.Date(2026, calendar.June, 10),
-          hours: 7.5,
-        ),
-      )),
+    post_operation(
+      context,
+      types.LogTimesheet(
+        engineer_id: 2,
+        project_id: 300,
+        day: calendar.Date(2026, calendar.June, 10),
+        hours: 7.5,
+      ),
     )
-    |> router.handle_request(context)
 
   let status = response.status
   let assert [event] = decode_events(response)
@@ -261,25 +284,21 @@ pub fn log_week_operation_logs_two_cells_test() {
   let context = ctx()
 
   let response =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: types.LogWeek(engineer_id: 2, entries: [
-          types.TimesheetEntry(
-            project_id: 300,
-            day: calendar.Date(2026, calendar.June, 8),
-            hours: 5.0,
-          ),
-          types.TimesheetEntry(
-            project_id: 300,
-            day: calendar.Date(2026, calendar.June, 9),
-            hours: 6.0,
-          ),
-        ]),
-      )),
+    post_operation(
+      context,
+      types.LogWeek(engineer_id: 2, entries: [
+        types.TimesheetEntry(
+          project_id: 300,
+          day: calendar.Date(2026, calendar.June, 8),
+          hours: 5.0,
+        ),
+        types.TimesheetEntry(
+          project_id: 300,
+          day: calendar.Date(2026, calendar.June, 9),
+          hours: 6.0,
+        ),
+      ]),
     )
-    |> router.handle_request(context)
 
   let status = response.status
   let assert [event] = decode_events(response)
@@ -324,18 +343,14 @@ pub fn operation_promote_returns_created_event_test() {
   let before = event_count(context)
 
   let response =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        ),
-      )),
+    post_operation(
+      context,
+      Promote(
+        engineer_id: 2,
+        level: 6,
+        effective: calendar.Date(2026, calendar.September, 1),
+      ),
     )
-    |> router.handle_request(context)
 
   let status = response.status
   // The handler returns the created events as an array; a Promote produces one.
@@ -349,7 +364,9 @@ pub fn operation_promote_returns_created_event_test() {
 
   assert status == 200
   assert event.operation == "promote"
-  assert event.actor == "mike@alembic.com.au"
+  // The actor is derived from the authenticated session ("Admin"), NOT the request
+  // body — the forgeable-actor fix (issue #6).
+  assert event.actor == "Admin"
   assert event.summary == "Promote engineer 2 to L6 from 2026-09-01"
   assert event.payload
     == "{\"op\": \"promote\", \"level\": 6, \"effective\": \"2026-09-01\", \"engineer_id\": 2}"
@@ -366,19 +383,15 @@ pub fn operation_containment_violation_is_conflict_test() {
   let before = event_count(context)
 
   let response =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: types.LogTimesheet(
-          engineer_id: 2,
-          project_id: 100,
-          day: calendar.Date(2026, calendar.June, 10),
-          hours: 8.0,
-        ),
-      )),
+    post_operation(
+      context,
+      types.LogTimesheet(
+        engineer_id: 2,
+        project_id: 100,
+        day: calendar.Date(2026, calendar.June, 10),
+        hours: 8.0,
+      ),
     )
-    |> router.handle_request(context)
 
   assert response.status == 409
   assert decode_error_code(response) == "containment_violated"
@@ -386,14 +399,139 @@ pub fn operation_containment_violation_is_conflict_test() {
   assert event_count(context) == before
 }
 
-// A malformed body is a 400, not a 500.
+// On an authenticated session, a body missing the `command` is a 400, not a 500.
 pub fn operation_bad_body_is_bad_request_test() {
+  let context = ctx()
+  let #(login_request, login_response) = sign_in(context, "Admin")
   let response =
     simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(json.object([#("actor", json.string("nobody"))]))
-    |> router.handle_request(ctx())
+    |> simulate.json_body(json.object([#("not_a_command", json.string("x"))]))
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
 
   assert response.status == 400
+}
+
+// --- authentication & authorization (issue #6) ------------------------------
+
+// An operation with NO session is rejected with 401 before any command runs: the
+// actor can no longer be forged through the body. The journal does not grow.
+pub fn operation_without_session_is_unauthenticated_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(
+        types.OperationRequest(command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        )),
+      ),
+    )
+    |> router.handle_request(context)
+
+  assert response.status == 401
+  assert decode_error_code(response) == "unauthenticated"
+  assert event_count(context) == before
+}
+
+// A session cookie the client tampered with (re-signed under a different key) does
+// not verify, so the request is treated as unauthenticated — a forged session
+// cannot impersonate an actor. A bogus cookie value yields a 401.
+pub fn operation_with_forged_session_is_unauthenticated_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(
+        types.OperationRequest(command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        )),
+      ),
+    )
+    |> simulate.header("cookie", "tempo_session=Admin%7Cadmin")
+    |> router.handle_request(context)
+
+  assert response.status == 401
+  assert event_count(context) == before
+}
+
+// The journal actor is DERIVED FROM THE SESSION, not the body. Authenticate as a
+// specific identity and assert the recorded event carries THAT actor, regardless
+// of what a body could have claimed (the body no longer carries an actor at all).
+pub fn operation_actor_is_derived_from_session_test() {
+  let context = ctx()
+
+  let #(login_request, login_response) = sign_in(context, "Marcus Chen")
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(
+        types.OperationRequest(command: Promote(
+          engineer_id: 2,
+          level: 6,
+          effective: calendar.Date(2026, calendar.September, 1),
+        )),
+      ),
+    )
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  let status = response.status
+  let assert [event] = decode_events(response)
+
+  restore_engineer_2_roles(context)
+  delete_event(context, event.id)
+
+  assert status == 200
+  assert event.actor == "Marcus Chen"
+}
+
+// The authorization gate refuses a financial command for a non-Admin principal
+// with 403, before any transaction opens: Ops may not run payroll. The journal
+// does not grow.
+pub fn operation_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let #(login_request, login_response) = sign_in(context, "Ops")
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      codecs.encode_operation_request(
+        types.OperationRequest(command: types.RunPayroll(
+          period_from: calendar.Date(2026, calendar.June, 1),
+          period_to: calendar.Date(2026, calendar.July, 1),
+        )),
+      ),
+    )
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "unauthorized"
+  assert event_count(context) == before
+}
+
+// Login of a KNOWN identity succeeds (200) and issues a session; login of an
+// UNKNOWN identity is refused with 401, so the journal can never be stamped with a
+// junk actor.
+pub fn login_accepts_known_identity_and_rejects_unknown_test() {
+  let context = ctx()
+
+  let #(_, known) = sign_in(context, "Admin")
+  assert known.status == 200
+
+  let #(_, unknown) = sign_in(context, "Mallory")
+  assert unknown.status == 401
+  assert decode_error_code(unknown) == "unauthenticated"
 }
 
 // --- GET /api/events --------------------------------------------------------
@@ -408,18 +546,14 @@ pub fn events_window_filters_by_occurred_at_test() {
   let context = ctx()
 
   let post =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        ),
-      )),
+    post_operation(
+      context,
+      Promote(
+        engineer_id: 2,
+        level: 6,
+        effective: calendar.Date(2026, calendar.September, 1),
+      ),
     )
-    |> router.handle_request(context)
   let assert [created] = decode_events(post)
   // Record it as entered on 2026-02-10, so the assertion is independent of the wall
   // clock that stamped occurred_at on the write.
@@ -462,18 +596,14 @@ pub fn events_without_params_returns_the_whole_journal_test() {
   let context = ctx()
 
   let post =
-    simulate.request(http.Post, "/api/operations")
-    |> simulate.json_body(
-      codecs.encode_operation_request(types.OperationRequest(
-        actor: "mike@alembic.com.au",
-        command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        ),
-      )),
+    post_operation(
+      context,
+      Promote(
+        engineer_id: 2,
+        level: 6,
+        effective: calendar.Date(2026, calendar.September, 1),
+      ),
     )
-    |> router.handle_request(context)
   let assert [created] = decode_events(post)
 
   let response =

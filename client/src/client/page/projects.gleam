@@ -291,7 +291,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           case ui.build_command(kind, form) {
             Ok(command) -> #(
               model,
-              api.submit_operation(actor_of(model), command, OpResponded),
+              api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(
@@ -356,13 +356,6 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
       ),
       effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
-  }
-}
-
-fn actor_of(model: Model) -> String {
-  case model {
-    ListView(actor:, ..) -> actor
-    DetailView(actor:, ..) -> actor
   }
 }
 
