@@ -7,12 +7,11 @@
 //// sends to parse. Keeping this parsing here keeps the handlers thin and the
 //// domain free of `wisp.Request` (web passes already-parsed values inward).
 
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import gleam/string
-import gleam/time/calendar.{type Date, Date}
+import gleam/time/calendar.{type Date}
+import shared/codecs
 import wisp
 
 /// Read a "YYYY-MM-DD" query parameter as a `calendar.Date`. Returns a detail
@@ -64,16 +63,9 @@ pub fn optional_string_from_query(
   }
 }
 
-/// Parse an ISO-8601 "YYYY-MM-DD" string into a `calendar.Date`.
+/// Parse an ISO-8601 "YYYY-MM-DD" string into a `calendar.Date`, rejecting
+/// calendar-impossible days. Delegates to the shared codec so the query-string
+/// boundary and the JSON boundary share one validation.
 pub fn parse_iso(text: String) -> Result(Date, Nil) {
-  case string.split(text, "-") {
-    [year, month, day] -> {
-      use year <- result.try(int.parse(year))
-      use month <- result.try(int.parse(month))
-      use month <- result.try(calendar.month_from_int(month))
-      use day <- result.try(int.parse(day))
-      Ok(Date(year:, month:, day:))
-    }
-    _ -> Error(Nil)
-  }
+  codecs.parse_iso_date(text)
 }

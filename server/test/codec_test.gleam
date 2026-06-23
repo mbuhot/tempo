@@ -13,6 +13,7 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/time/calendar.{August, Date, January, July, June, May, September}
 import shared/codecs
 import shared/types.{
@@ -48,6 +49,34 @@ pub fn date_round_trips_test() {
 
   assert round_trip(original, codecs.encode_date, codecs.date_decoder())
     == original
+}
+
+/// Decode an ISO date string straight through `date_decoder` (skipping any
+/// encode step, so we can feed strings no encoder would ever produce).
+fn decode_iso(text: String) -> Result(calendar.Date, Nil) {
+  json.parse(json.to_string(json.string(text)), codecs.date_decoder())
+  |> result.replace_error(Nil)
+}
+
+// February only has 28 days in 2026 (not a leap year): the 31st is rejected.
+pub fn date_rejects_february_31_test() {
+  assert decode_iso("2026-02-31") == Error(Nil)
+}
+
+// A day past the end of June (30 days) is rejected.
+pub fn date_rejects_june_99_test() {
+  assert decode_iso("2026-06-99") == Error(Nil)
+}
+
+// Day numbers below 1 are rejected.
+pub fn date_rejects_day_below_one_test() {
+  assert decode_iso("2026-06-00") == Error(Nil)
+}
+
+// A valid leap-day still decodes (2024 is a leap year): the guard rejects only
+// the impossible dates, not the calendar-legal edge.
+pub fn date_accepts_leap_day_test() {
+  assert decode_iso("2024-02-29") == Ok(Date(2024, calendar.February, 29))
 }
 
 // --- Engagement -------------------------------------------------------------

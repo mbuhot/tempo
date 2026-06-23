@@ -66,14 +66,21 @@ pub fn date_decoder() -> Decoder(Date) {
   }
 }
 
-fn parse_iso_date(text: String) -> Result(Date, Nil) {
+/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date`, rejecting any
+/// calendar-impossible day (day < 1, a day past the month's length, or Feb 29 in
+/// a non-leap year) so a nonsensical `Date` never reaches daterange/money math.
+pub fn parse_iso_date(text: String) -> Result(Date, Nil) {
   case string.split(text, "-") {
     [year, month, day] -> {
       use year <- result.try(int.parse(year))
       use month <- result.try(int.parse(month))
       use month <- result.try(calendar.month_from_int(month))
       use day <- result.try(int.parse(day))
-      Ok(Date(year:, month:, day:))
+      let date = Date(year:, month:, day:)
+      case calendar.is_valid_date(date) {
+        True -> Ok(date)
+        False -> Error(Nil)
+      }
     }
     _ -> Error(Nil)
   }
