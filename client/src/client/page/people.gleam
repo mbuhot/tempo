@@ -21,6 +21,8 @@
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
+import client/page/people/roster as roster_tab
+import client/page/people/timesheet as timesheet_grid
 import client/route
 import client/time
 import client/ui
@@ -40,11 +42,10 @@ import rsvp
 import shared/codecs
 import shared/types.{
   type EngineerDetail, type PeopleList, type PersonRow, type Ref, type Roster,
-  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
-  type TimesheetWeekRow, AllocationRow, Employment, EngineerBanking,
-  EngineerContact, EngineerDetail, EngineerEmergency, LeaveBalance, LogWeek,
-  PeopleList, PersonRow, RosterOnLeave, RosterOnProjects, RosterUnassigned,
-  TimesheetCell, TimesheetEntry, TimesheetWeekRow,
+  type TimesheetEntry, type TimesheetWeek, AllocationRow, Employment,
+  EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency,
+  LeaveBalance, LogWeek, PeopleList, TimesheetCell, TimesheetEntry,
+  TimesheetWeekRow,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -745,94 +746,8 @@ fn view_list(
         op_modal,
         ui.empty_state("Could not load the roster: " <> message),
       ])
-    ListLoaded(people:) -> column([head, op_modal, roster_panel(people)])
-  }
-}
-
-fn roster_panel(people: List(PersonRow)) -> Element(Msg) {
-  let rows = list.map(people, roster_row)
-  let body = case people {
-    [] -> [ui.empty_state("No engineers employed on this date.")]
-    _ -> [
-      ui.data_table(
-        headers: [
-          #("Engineer", False),
-          #("Level", False),
-          #("Status", False),
-          #("Allocated", True),
-          #("Annual lv.", True),
-          #("Day rate", True),
-        ],
-        rows:,
-      ),
-    ]
-  }
-  ui.panel(
-    title: "Roster",
-    count: int.to_string(list.length(people)),
-    right: [],
-    body:,
-  )
-}
-
-fn roster_row(person: PersonRow) -> Element(Msg) {
-  let PersonRow(
-    engineer_id:,
-    name:,
-    email:,
-    level:,
-    status:,
-    allocated_fraction:,
-    annual_balance:,
-    day_rate:,
-  ) = person
-  let #(variant, label) = status_pill(status)
-  let allocated = case status {
-    RosterOnProjects(..) -> ui.fraction(allocated_fraction)
-    _ -> "—"
-  }
-  html.tr(
-    [attribute.class("clickable"), event.on_click(RowClicked(engineer_id))],
-    [
-      html.td([], [name_cell(engineer_id, name, email)]),
-      html.td([], [
-        html.span([attribute.class("level-pill")], [
-          html.text(ui.level_band(level)),
-        ]),
-      ]),
-      html.td([], [ui.pill(variant:, label:)]),
-      html.td([attribute.class("num")], [html.text(allocated)]),
-      html.td([attribute.class("num")], [html.text(ui.days(annual_balance))]),
-      html.td([attribute.class("num")], [html.text(ui.money(day_rate))]),
-    ],
-  )
-}
-
-fn name_cell(engineer_id: Int, name: String, email: String) -> Element(Msg) {
-  html.div([attribute.class("cell-name")], [
-    ui.avatar(name:, category: engineer_id, class: "avatar"),
-    html.div([], [
-      html.div([attribute.class("cell-name__name")], [html.text(name)]),
-      html.div([attribute.class("cell-sub")], [html.text(email)]),
-    ]),
-  ])
-}
-
-/// The pill variant and label for a roster status: on-projects is "active" with
-/// the project titles, on-leave is "issued" (the amber pill) with the leave
-/// kind, unassigned is "ended". Mirrors the prototype's status classes.
-fn status_pill(status: types.RosterStatus) -> #(String, String) {
-  case status {
-    RosterOnProjects(projects:) -> #("active", join_titles(projects))
-    RosterOnLeave(kind:) -> #("issued", "On " <> kind <> " leave")
-    RosterUnassigned -> #("ended", "Unassigned")
-  }
-}
-
-fn join_titles(titles: List(String)) -> String {
-  case titles {
-    [] -> "On projects"
-    _ -> string_join(titles, ", ")
+    ListLoaded(people:) ->
+      column([head, op_modal, roster_tab.panel(people, on_open: RowClicked)])
   }
 }
 
@@ -967,6 +882,9 @@ fn allocation_row(allocation: types.AllocationRow) -> Element(Msg) {
 
 // --- Timesheet grid ---------------------------------------------------------
 
+/// The detail's timesheet panel: its Loading/Failed guards, delegating the loaded
+/// week's grid to the self-contained `page/people/timesheet` module. The grid's
+/// two actions (submit the week, edit a cell) are wired from this page's `Msg`.
 fn timesheet_panel(timesheet: TimesheetData) -> Element(Msg) {
   case timesheet {
     TimesheetLoading ->
@@ -978,115 +896,14 @@ fn timesheet_panel(timesheet: TimesheetData) -> Element(Msg) {
         ui.empty_state("Could not load the timesheet: " <> message),
       ])
     TimesheetLoaded(week:, edits:) ->
-      ui.panel(
-        title: "Timesheet",
-        count: "week of " <> time.iso_date(week.week_start),
-        right: [submit_week_button(week)],
-        body: [
-          html.div([attribute.class("pad-block")], [timesheet_grid(week, edits)]),
-        ],
+      timesheet_grid.view(
+        week,
+        edits,
+        on_submit: TimesheetSubmitted,
+        on_cell_edit: fn(project_id, day, value) {
+          CellEdited(project_id:, day:, value:)
+        },
       )
-  }
-}
-
-fn submit_week_button(week: TimesheetWeek) -> Element(Msg) {
-  case week.rows {
-    [] -> element.none()
-    _ ->
-      ui.button(
-        label: "Log week",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: TimesheetSubmitted,
-      )
-  }
-}
-
-fn timesheet_grid(
-  week: TimesheetWeek,
-  edits: Dict(#(Int, Int), String),
-) -> Element(Msg) {
-  let header =
-    html.tr([], [
-      html.th([], [html.text("Project")]),
-      ..list.map(week.days, day_header)
-    ])
-  let body = case week.rows {
-    [] -> [
-      html.tr([], [
-        html.td([attribute.attribute("colspan", "8")], [
-          ui.empty_state("Nothing to log this week."),
-        ]),
-      ]),
-    ]
-    rows -> list.map(rows, fn(row) { timesheet_row(row, edits) })
-  }
-  html.table([attribute.class("timesheet")], [
-    html.thead([], [header]),
-    html.tbody([], body),
-  ])
-}
-
-fn day_header(date: calendar.Date) -> Element(Msg) {
-  let weekday = day_of_week(date)
-  let class = case weekday >= 5 {
-    True -> "timesheet__weekend"
-    False -> ""
-  }
-  html.th([attribute.class(class)], [
-    html.text(weekday_label(weekday)),
-    html.br([]),
-    html.span([attribute.class("timesheet__daynum")], [
-      html.text(int.to_string(date.day)),
-    ]),
-  ])
-}
-
-fn timesheet_row(
-  row: TimesheetWeekRow,
-  edits: Dict(#(Int, Int), String),
-) -> Element(Msg) {
-  let TimesheetWeekRow(project_id:, project:, cells:) = row
-  html.tr([], [
-    html.td([], [
-      ui.swatch(category: project_id, inline: True),
-      html.text(project),
-    ]),
-    ..list.map(cells, fn(cell) { timesheet_cell(project_id, cell, edits) })
-  ])
-}
-
-fn timesheet_cell(
-  project_id: Int,
-  cell: TimesheetCell,
-  edits: Dict(#(Int, Int), String),
-) -> Element(Msg) {
-  let TimesheetCell(date:, allocated:, hours:) = cell
-  let key = #(project_id, time.date_to_day_index(date))
-  let value = case dict.get(edits, key) {
-    Ok(typed) -> typed
-    Error(Nil) -> hours_display(hours)
-  }
-  let #(class, disabled) = case allocated {
-    True -> #("timesheet__cell", False)
-    False -> #("timesheet__cell timesheet__cell--disabled", True)
-  }
-  html.td([attribute.class(class)], [
-    html.input([
-      attribute.value(value),
-      attribute.disabled(disabled),
-      attribute.attribute("aria-label", "Hours"),
-      event.on_input(fn(value) { CellEdited(project_id:, day: date, value:) }),
-    ]),
-  ])
-}
-
-/// A logged-hours value for display in a grid cell: empty when zero (so an
-/// unlogged cell shows blank, matching the prototype), otherwise the number.
-fn hours_display(hours: Float) -> String {
-  case hours == 0.0 {
-    True -> ""
-    False -> ui.days(hours)
   }
 }
 
@@ -1374,36 +1191,10 @@ fn column(children: List(Element(Msg))) -> Element(Msg) {
   html.div([], children)
 }
 
-/// The Mon=0..Sun=6 weekday index of a date, via its unix-day index (unix-day 0
-/// is a Thursday = index 3 in this scheme).
-fn day_of_week(date: calendar.Date) -> Int {
-  let index = time.date_to_day_index(date)
-  int.modulo(index + 3, 7) |> result_unwrap(0)
-}
-
-fn weekday_label(weekday: Int) -> String {
-  case weekday {
-    0 -> "Mon"
-    1 -> "Tue"
-    2 -> "Wed"
-    3 -> "Thu"
-    4 -> "Fri"
-    5 -> "Sat"
-    _ -> "Sun"
-  }
-}
-
 fn float_round(value: Float) -> Int {
   float.round(value)
 }
 
 fn string_join(parts: List(String), with separator: String) -> String {
   string.join(parts, separator)
-}
-
-fn result_unwrap(result: Result(Int, Nil), default: Int) -> Int {
-  case result {
-    Ok(value) -> value
-    Error(Nil) -> default
-  }
 }
