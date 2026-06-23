@@ -1,4 +1,6 @@
+import gleam/dynamic/decode
 import gleam/list
+import pog
 import tempo/server/migrate
 import test_pool
 
@@ -60,4 +62,66 @@ pub fn run_is_idempotent_test() {
   assert second.applied == []
   assert second.already_applied
     == list.append(first.applied, first.already_applied)
+}
+
+// The performance-index migration gives the two snapshot line tables a real
+// surrogate primary key (they shipped as PK-less heaps). A fully-migrated DB
+// has exactly one PRIMARY KEY index on each.
+pub fn line_tables_have_surrogate_primary_keys_test() {
+  let assert Ok(_) = migrate.run(test_pool.ctx())
+
+  assert primary_key_index("invoice_line") == "invoice_line_pkey"
+  assert primary_key_index("payroll_line") == "payroll_line_pkey"
+}
+
+// The same migration adds GiST indexes on the semantic-period range columns the
+// as-of joins probe with @>/&&. A fully-migrated DB has them on disk.
+pub fn as_of_range_columns_have_gist_indexes_test() {
+  let assert Ok(_) = migrate.run(test_pool.ctx())
+
+  assert has_index("allocation_allocated_during_gist") == True
+  assert has_index("employment_employed_during_gist") == True
+  assert has_index("engineer_role_held_during_gist") == True
+  assert has_index("rate_card_effective_during_gist") == True
+  assert has_index("salary_effective_during_gist") == True
+  assert has_index("project_run_active_during_gist") == True
+}
+
+/// The name of the PRIMARY KEY index on `table`, read from the catalog.
+fn primary_key_index(table: String) -> String {
+  let row_decoder = {
+    use name <- decode.field(0, decode.string)
+    decode.success(name)
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "SELECT i.relname
+         FROM pg_index x
+         JOIN pg_class c ON c.oid = x.indrelid
+         JOIN pg_class i ON i.oid = x.indexrelid
+        WHERE c.relname = $1 AND x.indisprimary",
+    )
+    |> pog.parameter(pog.text(table))
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: test_pool.db())
+  let assert [name] = returned.rows
+  name
+}
+
+/// Whether an index of the given name exists in the public schema.
+fn has_index(name: String) -> Bool {
+  let row_decoder = {
+    use count <- decode.field(0, decode.int)
+    decode.success(count)
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "SELECT count(*)::int FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = $1",
+    )
+    |> pog.parameter(pog.text(name))
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: test_pool.db())
+  let assert [count] = returned.rows
+  count == 1
 }
