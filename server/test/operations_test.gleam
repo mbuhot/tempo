@@ -33,7 +33,7 @@ import shared/types.{
   type Command, AdjustRateForPortion, AssignToProject, ChangeAllocationFraction,
   LogTimesheet, OnboardEngineer, Promote, ReviseRateCard, RollOff,
   SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TerminateEmployment,
+  TerminateEmployment, UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -1026,6 +1026,44 @@ pub fn start_project_outside_contract_term_is_containment_violated_test() {
 
   assert outcome
     == Error(operation.ContainmentViolated("project_within_contract"))
+}
+
+// --- client_details aggregate (Change; the single-variant route arm) --------
+
+// UpdateClientProfile routes through the client_details aggregate — a
+// single-variant arm whose handler had no command shape left to disambiguate.
+// It re-states the client's name from the effective date onward (the Change
+// pattern), splitting the version covering that date, and records one journal
+// row tagged update_client_profile. This pins that the narrowed route arm still
+// reaches the right handler and records the right fact.
+pub fn update_client_profile_changes_name_and_journals_test() {
+  let #(profiles, journal_ops) =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      // Re-state the name from Apr — splits the open-ended Initech row at Apr.
+      apply(
+        conn,
+        UpdateClientProfile(client_id, "Initrode", Date(2026, April, 1)),
+      )
+      #(
+        read_periods(
+          conn,
+          "client_profile",
+          "name",
+          "recorded_during",
+          "client_id = " <> int.to_string(client_id),
+        ),
+        list.map(read_journal(conn), fn(row) { row.operation }),
+      )
+    })
+
+  // Initech leftover [Jan,Apr), renamed Initrode [Apr,∞).
+  assert profiles
+    == [
+      Period("Initech", "2024-01-01", "2026-04-01"),
+      Period("Initrode", "2026-04-01", ""),
+    ]
+  assert journal_ops == ["update_client_profile"]
 }
 
 // --- helpers ----------------------------------------------------------------

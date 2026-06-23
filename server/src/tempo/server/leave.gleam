@@ -1,8 +1,9 @@
 //// Domain: the leave aggregate — an engineer on leave of a kind over a period,
-//// contained by their employment. `handle` routes the leave command to a named
-//// operation that returns the audit entry and the `Fact`s it records;
-//// `command.dispatch` records them (through `repository`) in ONE transaction. No
-//// HTTP — never imports `wisp`.
+//// contained by their employment. `command.route` destructures the leave command
+//// and calls the operation here with its already-narrowed fields; the operation
+//// returns the audit entry and the `Fact`s it records, and `command.dispatch`
+//// records them (through `repository`) in ONE transaction. No HTTP — never imports
+//// `wisp`.
 ////
 //// `take_leave` first guards the leave balance: for a kind WITH a policy, the
 //// accrued-minus-taken balance on return (`leave_check` as of `valid_to`) must cover
@@ -16,34 +17,23 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command, TakeLeave}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{
   type OperationError, Event, InsufficientLeaveBalance,
 }
 import tempo/server/sql
 
-/// Apply a leave-aggregate command: route it to its named operation, which returns
-/// the audit entry and facts it records. The dispatch `route` only ever sends leave
-/// commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    TakeLeave(..) -> take_leave(conn, command)
-    _ ->
-      panic as "leave.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Record an engineer on leave of a kind over `[valid_from, valid_to)`, with the
 /// journal entry — once the balance guard passes.
-fn take_leave(
+pub fn take_leave(
   conn: pog.Connection,
   command: Command,
+  engineer_id engineer_id: Int,
+  kind kind: String,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) = command
   use _ <- result.try(guard_balance(
     conn,
     engineer_id,

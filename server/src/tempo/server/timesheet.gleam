@@ -1,6 +1,7 @@
-//// Domain: the timesheet aggregate — read (the weekly grid) and write. `handle`
-//// routes `LogTimesheet` (one day) and `LogWeek` (a whole week, atomically) to
-//// named operations that return the `EngineerWorkedHours` facts they record;
+//// Domain: the timesheet aggregate — read (the weekly grid) and write.
+//// `command.route` destructures `LogTimesheet` (one day) and `LogWeek` (a whole
+//// week, atomically) and calls the matching operation here with its already-narrowed
+//// fields; the operation returns the `EngineerWorkedHours` facts it records, and
 //// `command.dispatch` records them (through `repository`, a per-day delete-then-
 //// insert upsert; 0 hours clears the day) and persists the journal in ONE
 //// transaction. No HTTP — never imports `wisp`.
@@ -19,7 +20,7 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, type TimesheetWeek, type TimesheetWeekRow, LogTimesheet, LogWeek,
+  type Command, type TimesheetEntry, type TimesheetWeek, type TimesheetWeekRow,
   TimesheetCell, TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
@@ -29,26 +30,16 @@ import tempo/server/sql
 
 // --- dispatch ---------------------------------------------------------------
 
-/// Apply a timesheet-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends timesheet commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  _conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    LogTimesheet(..) -> log_timesheet(command)
-    LogWeek(..) -> log_week(command)
-    _ ->
-      panic as "timesheet.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Record one `EngineerWorkedHours` fact, with its journal entry. A day not covered
 /// by an allocation trips the timesheet PERIOD FK, which `repository` classifies as
 /// the unified `ContainmentViolated`.
-fn log_timesheet(command: Command) -> Result(Recorded, OperationError) {
-  let assert LogTimesheet(engineer_id:, project_id:, day:, hours:) = command
+pub fn log_timesheet(
+  command: Command,
+  engineer_id engineer_id: Int,
+  project_id project_id: Int,
+  day day: Date,
+  hours hours: Float,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(
@@ -78,8 +69,11 @@ fn log_timesheet(command: Command) -> Result(Recorded, OperationError) {
 /// Record a whole week's worked-hours facts, with one `log_week` journal entry.
 /// `command.dispatch` records them in its single transaction (short-circuiting on
 /// the first rejection), so every entry commits or none.
-fn log_week(command: Command) -> Result(Recorded, OperationError) {
-  let assert LogWeek(engineer_id:, entries:) = command
+pub fn log_week(
+  command: Command,
+  engineer_id engineer_id: Int,
+  entries entries: List(TimesheetEntry),
+) -> Result(Recorded, OperationError) {
   let worked_hours =
     list.map(entries, fn(entry) {
       let TimesheetEntry(project_id:, day:, hours:) = entry

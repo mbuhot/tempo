@@ -1,7 +1,8 @@
 //// Domain: the rate-card aggregate — a level's day rate versioned over time.
-//// `handle` routes each rate-card command to a named operation that returns the
-//// `Fact`s it records; `command.dispatch` records them (through `repository`) and
-//// persists the journal in ONE transaction. No HTTP — never imports `wisp`.
+//// `command.route` destructures each rate-card command and calls the matching
+//// operation here with its already-narrowed fields; the operation returns the
+//// `Fact`s it records, and `command.dispatch` records them (through `repository`)
+//// and persists the journal in ONE transaction. No HTTP — never imports `wisp`.
 ////
 //// `revise_rate_card` re-rates from a date onward (`to: None`, the repository's
 //// change); `adjust_rate_for_portion` is the bounded surgical edit (`to: Some`,
@@ -10,30 +11,19 @@
 import gleam/float
 import gleam/int
 import gleam/option.{None, Some}
-import pog
+import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command, AdjustRateForPortion, ReviseRateCard}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
-/// Apply a rate-card-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends rate-card commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  _conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    ReviseRateCard(..) -> revise_rate_card(command)
-    AdjustRateForPortion(..) -> adjust_rate_for_portion(command)
-    _ ->
-      panic as "rate_card.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Revise a level's day rate from `effective` onward, with the journal entry.
-fn revise_rate_card(command: Command) -> Result(Recorded, OperationError) {
-  let assert ReviseRateCard(level:, day_rate:, effective:) = command
+pub fn revise_rate_card(
+  command: Command,
+  level level: Int,
+  day_rate day_rate: Float,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(
@@ -53,11 +43,13 @@ fn revise_rate_card(command: Command) -> Result(Recorded, OperationError) {
 
 /// Adjust a level's day rate for a bounded window `[valid_from, valid_to)`, with the
 /// journal entry.
-fn adjust_rate_for_portion(
+pub fn adjust_rate_for_portion(
   command: Command,
+  level level: Int,
+  day_rate day_rate: Float,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) =
-    command
   Ok(
     Recorded(
       entry: Event(

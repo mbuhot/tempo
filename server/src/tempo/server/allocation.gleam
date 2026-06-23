@@ -1,8 +1,9 @@
 //// Domain: the allocation aggregate — an engineer's fractional assignment to a
-//// project over time. `handle` routes each allocation command to a named operation
-//// that returns the `Fact`s it records; `command.dispatch` records them (through
-//// `repository`) and persists the journal in ONE transaction. No HTTP — never
-//// imports `wisp`.
+//// project over time. `command.route` destructures each allocation command and
+//// calls the matching operation here with its already-narrowed fields; the
+//// operation returns the `Fact`s it records, and `command.dispatch` records them
+//// (through `repository`) and persists the journal in ONE transaction. No HTTP —
+//// never imports `wisp`.
 ////
 //// `assign_to_project` records a fresh bounded allocation (`to: Some`);
 //// `change_allocation_fraction` re-fractions the version in effect (`to: None`, the
@@ -12,41 +13,23 @@
 import gleam/float
 import gleam/int
 import gleam/option.{None, Some}
-import pog
+import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{
-  type Command, AssignToProject, ChangeAllocationFraction, RollOff,
-}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
-
-/// Apply an allocation-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends allocation commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  _conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    AssignToProject(..) -> assign_to_project(command)
-    ChangeAllocationFraction(..) -> change_allocation_fraction(command)
-    RollOff(..) -> roll_off(command)
-    _ ->
-      panic as "allocation.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
 
 /// Record a fresh bounded allocation over `[valid_from, valid_to)`, with the journal
 /// entry; the allocation is contained by both employment and the project via PERIOD
 /// FKs.
-fn assign_to_project(command: Command) -> Result(Recorded, OperationError) {
-  let assert AssignToProject(
-    engineer_id:,
-    project_id:,
-    fraction:,
-    valid_from:,
-    valid_to:,
-  ) = command
+pub fn assign_to_project(
+  command: Command,
+  engineer_id engineer_id: Int,
+  project_id project_id: Int,
+  fraction fraction: Float,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(
@@ -76,15 +59,13 @@ fn assign_to_project(command: Command) -> Result(Recorded, OperationError) {
 
 /// Re-fraction an engineer's allocation from `effective` onward, with the journal
 /// entry.
-fn change_allocation_fraction(
+pub fn change_allocation_fraction(
   command: Command,
+  engineer_id engineer_id: Int,
+  project_id project_id: Int,
+  fraction fraction: Float,
+  effective effective: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert ChangeAllocationFraction(
-    engineer_id:,
-    project_id:,
-    fraction:,
-    effective:,
-  ) = command
   Ok(
     Recorded(
       entry: Event(
@@ -113,8 +94,12 @@ fn change_allocation_fraction(
 }
 
 /// Roll an engineer off a project from `effective`, with the journal entry.
-fn roll_off(command: Command) -> Result(Recorded, OperationError) {
-  let assert RollOff(engineer_id:, project_id:, effective:) = command
+pub fn roll_off(
+  command: Command,
+  engineer_id engineer_id: Int,
+  project_id project_id: Int,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(

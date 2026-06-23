@@ -1,6 +1,7 @@
 //// Domain: the engagement aggregate — the client engagements (contracts) and the
-//// projects contained by them. `handle` routes each engagement command to a named
-//// operation that returns the `Fact`s it records; `command.dispatch` records them
+//// projects contained by them. `command.route` destructures each engagement command
+//// and calls the matching operation here with its already-narrowed fields; the
+//// operation returns the `Fact`s it records, and `command.dispatch` records them
 //// (through `repository`) and persists the journal in ONE transaction. No HTTP —
 //// never imports `wisp`.
 ////
@@ -15,36 +16,24 @@
 
 import gleam/int
 import gleam/result
+import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command, SignContract, StartProject}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
 
-/// Apply an engagement-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends engagement commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    SignContract(..) -> sign_contract(conn, command)
-    StartProject(..) -> start_project(conn, command)
-    _ ->
-      panic as "engagement.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Sign a contract for a client over a term: reserve the contract id, then record
 /// the anchor and its founding terms (resolving the client by name), with the
 /// journal entry.
-fn sign_contract(
+pub fn sign_contract(
   conn: pog.Connection,
   command: Command,
+  client client: String,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert SignContract(client:, valid_from:, valid_to:) = command
   use contract_id <- result.try(repository.create_contract(conn))
   let fact.ContractId(id) = contract_id
   Ok(
@@ -74,11 +63,14 @@ fn sign_contract(
 /// Start a project under a contract over its active period: reserve the project id,
 /// then record the anchor, its run, and the founding profile and plan, with the
 /// journal entry.
-fn start_project(
+pub fn start_project(
   conn: pog.Connection,
   command: Command,
+  name name: String,
+  contract_id contract_id: Int,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert StartProject(name:, contract_id:, valid_from:, valid_to:) = command
   use project_id <- result.try(repository.create_project(conn))
   let fact.ProjectId(id) = project_id
   Ok(

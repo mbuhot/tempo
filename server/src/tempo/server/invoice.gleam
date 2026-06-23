@@ -1,8 +1,9 @@
 //// Domain: the invoice aggregate — a per-project, per-month invoice whose lines are
 //// snapshotted at draft and whose status (draft → issued → paid) is a temporal fact.
-//// `handle` routes each invoice command to a named operation that returns the
-//// `Fact`s it records; `command.dispatch` records them (through `repository`) and
-//// persists the journal in ONE transaction. No HTTP — never imports `wisp`.
+//// `command.route` destructures each invoice command and calls the matching
+//// operation here with its already-narrowed fields; the operation returns the
+//// `Fact`s it records, and `command.dispatch` records them (through `repository`)
+//// and persists the journal in ONE transaction. No HTTP — never imports `wisp`.
 ////
 //// `draft_invoice` reserves the invoice id, computes its lines (one per (engineer,
 //// level) who worked the project that month, at the CONTRACT-agreed rate —
@@ -18,37 +19,23 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command, DraftInvoice, IssueInvoice, PayInvoice}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
 import tempo/server/sql
 
-/// Apply an invoice-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends invoice commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    DraftInvoice(..) -> draft_invoice(conn, command)
-    IssueInvoice(..) -> issue_invoice(conn, command)
-    PayInvoice(..) -> pay_invoice(conn, command)
-    _ ->
-      panic as "invoice.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Draft an invoice: reserve the id, compute the contract-agreed lines for the
 /// month, and record the anchor, subject, opening `draft` status (from
 /// `billing_from`, so an as-of query within or after the month reads `draft`,
 /// FR-F4), and one line per row, with the journal entry.
-fn draft_invoice(
+pub fn draft_invoice(
   conn: pog.Connection,
   command: Command,
+  project_id project_id: Int,
+  billing_from billing_from: Date,
+  billing_to billing_to: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert DraftInvoice(project_id:, billing_from:, billing_to:) = command
   use invoice_id <- result.try(repository.create_invoice(conn))
   let fact.InvoiceId(id) = invoice_id
   use lines <- operation.try(sql.invoice_billing_lines(
@@ -96,11 +83,12 @@ fn draft_invoice(
 
 /// Issue an invoice: guard it is currently `draft` at `at`, then record `issued`
 /// from `at`, with the journal entry.
-fn issue_invoice(
+pub fn issue_invoice(
   conn: pog.Connection,
   command: Command,
+  invoice_id invoice_id: Int,
+  at at: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert IssueInvoice(invoice_id:, at:) = command
   use _ <- result.try(validate_invoice_status(conn, invoice_id, "draft", at))
   Ok(
     Recorded(
@@ -125,11 +113,12 @@ fn issue_invoice(
 
 /// Pay an invoice: guard it is currently `issued` at `at`, then record `paid` from
 /// `at`, with the journal entry.
-fn pay_invoice(
+pub fn pay_invoice(
   conn: pog.Connection,
   command: Command,
+  invoice_id invoice_id: Int,
+  at at: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert PayInvoice(invoice_id:, at:) = command
   use _ <- result.try(validate_invoice_status(conn, invoice_id, "issued", at))
   Ok(
     Recorded(

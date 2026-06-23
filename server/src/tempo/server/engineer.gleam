@@ -1,6 +1,7 @@
 //// Domain: the engineer aggregate — the engineer-identity lifecycle and the facts
-//// contained by it (employment, role, the founding contact). `handle` routes each
-//// engineer command to a named operation that returns the `Fact`s it records;
+//// contained by it (employment, role, the founding contact). `command.route`
+//// destructures each engineer command and calls the matching operation here with
+//// its already-narrowed fields; the operation returns the `Fact`s it records, and
 //// `command.dispatch` records them (through `repository`) and persists the journal
 //// in ONE transaction. No HTTP — never imports `wisp`.
 ////
@@ -13,37 +14,24 @@
 
 import gleam/int
 import gleam/result
+import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command, OnboardEngineer, Promote, TerminateEmployment}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
 
-/// Apply an engineer-aggregate command: route it to its named operation, which
-/// returns the audit entry and facts it records. The dispatch `route` only ever
-/// sends engineer commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    OnboardEngineer(..) -> onboard_engineer(conn, command)
-    Promote(..) -> promote(command)
-    TerminateEmployment(..) -> terminate_employment(command)
-    _ ->
-      panic as "engineer.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Hire an engineer: reserve the id, then record the anchor, ongoing employment, the
 /// opening role, and the founding contact (email/phone/postal default to '' and are
 /// fillable later via UpdateContactDetails), with the journal entry.
-fn onboard_engineer(
+pub fn onboard_engineer(
   conn: pog.Connection,
   command: Command,
+  name name: String,
+  level level: Int,
+  effective effective: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert OnboardEngineer(name:, level:, effective:) = command
   use engineer_id <- result.try(repository.create_engineer(conn))
   let fact.EngineerId(id) = engineer_id
   Ok(
@@ -78,8 +66,12 @@ fn onboard_engineer(
 
 /// Promote an engineer to a new level from `effective` onward, with the journal
 /// entry.
-fn promote(command: Command) -> Result(Recorded, OperationError) {
-  let assert Promote(engineer_id:, level:, effective:) = command
+pub fn promote(
+  command: Command,
+  engineer_id engineer_id: Int,
+  level level: Int,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(
@@ -106,8 +98,11 @@ fn promote(command: Command) -> Result(Recorded, OperationError) {
 /// Terminate an engineer's employment from `effective`, with the journal entry. The
 /// `EngineerDeparted` fact caps employment and cascades the cap to every contained
 /// fact (allocation, leave, role) in the repository.
-fn terminate_employment(command: Command) -> Result(Recorded, OperationError) {
-  let assert TerminateEmployment(engineer_id:, effective:) = command
+pub fn terminate_employment(
+  command: Command,
+  engineer_id engineer_id: Int,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(

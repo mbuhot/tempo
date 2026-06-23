@@ -10,9 +10,13 @@
 //// the transaction-free core: it runs on an already-open connection so a test can
 //// drive it inside its own rolled-back transaction.
 ////
-//// `route` carries the WHOLE command to its aggregate `handle` — no destructuring,
-//// no fact building here; the aggregate owns WHICH facts a command records, and the
-//// `repository` owns HOW each is written.
+//// `route` destructures each `Command` ONCE — the only place the command's shape is
+//// matched — and hands each aggregate operation its already-narrowed fields (plus the
+//// whole command, opaquely, for the journal payload). The `case` is exhaustive over
+//// every variant, so the compiler rejects a new command that has no route arm and
+//// there is no catch-all to absorb a mis-route: an unhandled command is a COMPILE
+//// error, never a runtime panic. The aggregate owns WHICH facts a command records,
+//// and the `repository` owns HOW each is written.
 
 import gleam/result
 import pog
@@ -98,46 +102,198 @@ pub fn dispatch_in(
   repository.record_facts(conn, actor:, entry:, facts:)
 }
 
-/// Route a command to its aggregate handler, which returns the audit entry and facts
-/// the command records (recording them is `dispatch`'s job). Each arm groups the
-/// variants one aggregate owns via alternative patterns and hands the WHOLE command
-/// to that aggregate's `handle`.
+/// Route a command to its aggregate operation, which returns the audit entry and the
+/// facts the command records (recording them is `dispatch`'s job). This is the ONE
+/// place the command's shape is matched: each arm destructures the variant and hands
+/// the operation its already-narrowed fields, plus the whole `command` for the
+/// journal payload (encoded opaquely, never re-matched). The `case` is exhaustive, so
+/// a new command with no arm — or a mis-route — is a compile error, not a panic.
 fn route(
   conn: pog.Connection,
   command: Command,
 ) -> Result(Recorded, OperationError) {
   case command {
-    OnboardEngineer(..) | Promote(..) | TerminateEmployment(..) ->
-      engineer.handle(conn, command)
+    OnboardEngineer(name:, level:, effective:) ->
+      engineer.onboard_engineer(conn, command, name:, level:, effective:)
+    Promote(engineer_id:, level:, effective:) ->
+      engineer.promote(command, engineer_id:, level:, effective:)
+    TerminateEmployment(engineer_id:, effective:) ->
+      engineer.terminate_employment(command, engineer_id:, effective:)
 
-    UpdateContactDetails(..)
-    | UpdateBankingDetails(..)
-    | UpdateEmergencyContact(..) -> engineer_details.handle(conn, command)
+    UpdateContactDetails(
+      engineer_id:,
+      name:,
+      email:,
+      phone:,
+      postal_address:,
+      effective:,
+    ) ->
+      engineer_details.update_contact_details(
+        command,
+        engineer_id:,
+        name:,
+        email:,
+        phone:,
+        postal_address:,
+        effective:,
+      )
+    UpdateBankingDetails(
+      engineer_id:,
+      bank:,
+      branch:,
+      account_no:,
+      account_name:,
+      effective:,
+    ) ->
+      engineer_details.update_banking_details(
+        command,
+        engineer_id:,
+        bank:,
+        branch:,
+        account_no:,
+        account_name:,
+        effective:,
+      )
+    UpdateEmergencyContact(
+      engineer_id:,
+      relation:,
+      name:,
+      phone:,
+      email:,
+      effective:,
+    ) ->
+      engineer_details.update_emergency_contact(
+        command,
+        engineer_id:,
+        relation:,
+        name:,
+        phone:,
+        email:,
+        effective:,
+      )
 
-    UpdateClientProfile(..) -> client_details.handle(conn, command)
+    UpdateClientProfile(client_id:, name:, effective:) ->
+      client_details.update_client_profile(
+        command,
+        client_id:,
+        name:,
+        effective:,
+      )
 
-    UpdateProjectProfile(..) | UpdateProjectPlan(..) ->
-      project_details.handle(conn, command)
+    UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
+      project_details.update_project_profile(
+        command,
+        project_id:,
+        title:,
+        summary:,
+        effective:,
+      )
+    UpdateProjectPlan(project_id:, budget:, target_completion:, effective:) ->
+      project_details.update_project_plan(
+        command,
+        project_id:,
+        budget:,
+        target_completion:,
+        effective:,
+      )
 
-    AssignToProject(..) | ChangeAllocationFraction(..) | RollOff(..) ->
-      allocation.handle(conn, command)
+    AssignToProject(
+      engineer_id:,
+      project_id:,
+      fraction:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      allocation.assign_to_project(
+        command,
+        engineer_id:,
+        project_id:,
+        fraction:,
+        valid_from:,
+        valid_to:,
+      )
+    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) ->
+      allocation.change_allocation_fraction(
+        command,
+        engineer_id:,
+        project_id:,
+        fraction:,
+        effective:,
+      )
+    RollOff(engineer_id:, project_id:, effective:) ->
+      allocation.roll_off(command, engineer_id:, project_id:, effective:)
 
-    ReviseRateCard(..) | AdjustRateForPortion(..) ->
-      rate_card.handle(conn, command)
+    ReviseRateCard(level:, day_rate:, effective:) ->
+      rate_card.revise_rate_card(command, level:, day_rate:, effective:)
+    AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
+      rate_card.adjust_rate_for_portion(
+        command,
+        level:,
+        day_rate:,
+        valid_from:,
+        valid_to:,
+      )
 
-    SetProjectRequirement(..) -> project_requirement.handle(conn, command)
+    SetProjectRequirement(
+      project_id:,
+      level:,
+      quantity:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      project_requirement.set_project_requirement(
+        command,
+        project_id:,
+        level:,
+        quantity:,
+        valid_from:,
+        valid_to:,
+      )
 
-    SignContract(..) | StartProject(..) -> engagement.handle(conn, command)
+    SignContract(client:, valid_from:, valid_to:) ->
+      engagement.sign_contract(conn, command, client:, valid_from:, valid_to:)
+    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
+      engagement.start_project(
+        conn,
+        command,
+        name:,
+        contract_id:,
+        valid_from:,
+        valid_to:,
+      )
 
-    TakeLeave(..) -> leave.handle(conn, command)
+    TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
+      leave.take_leave(
+        conn,
+        command,
+        engineer_id:,
+        kind:,
+        valid_from:,
+        valid_to:,
+      )
 
-    LogTimesheet(..) | LogWeek(..) -> timesheet.handle(conn, command)
+    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
+      timesheet.log_timesheet(command, engineer_id:, project_id:, day:, hours:)
+    LogWeek(engineer_id:, entries:) ->
+      timesheet.log_week(command, engineer_id:, entries:)
 
-    SetSalary(..) -> salary.handle(conn, command)
+    SetSalary(level:, monthly_salary:, effective:) ->
+      salary.set_salary(command, level:, monthly_salary:, effective:)
 
-    DraftInvoice(..) | IssueInvoice(..) | PayInvoice(..) ->
-      invoice.handle(conn, command)
+    DraftInvoice(project_id:, billing_from:, billing_to:) ->
+      invoice.draft_invoice(
+        conn,
+        command,
+        project_id:,
+        billing_from:,
+        billing_to:,
+      )
+    IssueInvoice(invoice_id:, at:) ->
+      invoice.issue_invoice(conn, command, invoice_id:, at:)
+    PayInvoice(invoice_id:, at:) ->
+      invoice.pay_invoice(conn, command, invoice_id:, at:)
 
-    RunPayroll(..) -> payroll.handle(conn, command)
+    RunPayroll(period_from:, period_to:) ->
+      payroll.run_payroll(conn, command, period_from:, period_to:)
   }
 }

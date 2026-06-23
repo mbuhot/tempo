@@ -1,7 +1,8 @@
 //// Domain: the project-details aggregate — the two edit-grouped facts that hang
 //// off the project anchor (profile = title + summary; plan = budget +
-//// target_completion). `handle` routes each Update* command to a named operation
-//// that returns the audit entry and the `Fact`s it records; `command.dispatch` hands
+//// target_completion). `command.route` destructures each Update* command and calls
+//// the matching operation here with its already-narrowed fields; the operation
+//// returns the audit entry and the `Fact`s it records, and `command.dispatch` hands
 //// both to `repository` in ONE transaction. No HTTP — never imports `wisp`.
 ////
 //// Each is recorded from `effective` onward; the repository makes that the current
@@ -9,33 +10,20 @@
 
 import gleam/float
 import gleam/int
-import pog
+import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command, UpdateProjectPlan, UpdateProjectProfile}
+import shared/types.{type Command}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
-/// Apply a project-details command: route it to its named operation, which returns
-/// the audit entry and facts it records. The dispatch `route` only ever sends these
-/// two commands here, so any other variant is a routing bug — `panic`.
-pub fn handle(
-  _conn: pog.Connection,
-  command: Command,
-) -> Result(Recorded, OperationError) {
-  case command {
-    UpdateProjectProfile(..) -> update_project_profile(command)
-    UpdateProjectPlan(..) -> update_project_plan(command)
-    _ ->
-      panic as "project_details.handle: command not owned by this aggregate (dispatch bug)"
-  }
-}
-
 /// Record a new project profile from `effective` onward, with its journal entry.
-fn update_project_profile(
+pub fn update_project_profile(
   command: Command,
+  project_id project_id: Int,
+  title title: String,
+  summary summary: String,
+  effective effective: Date,
 ) -> Result(Recorded, OperationError) {
-  let assert UpdateProjectProfile(project_id:, title:, summary:, effective:) =
-    command
   Ok(
     Recorded(
       entry: Event(
@@ -61,13 +49,13 @@ fn update_project_profile(
 }
 
 /// Record a new project plan from `effective` onward, with its journal entry.
-fn update_project_plan(command: Command) -> Result(Recorded, OperationError) {
-  let assert UpdateProjectPlan(
-    project_id:,
-    budget:,
-    target_completion:,
-    effective:,
-  ) = command
+pub fn update_project_plan(
+  command: Command,
+  project_id project_id: Int,
+  budget budget: Float,
+  target_completion target_completion: Date,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
   Ok(
     Recorded(
       entry: Event(
