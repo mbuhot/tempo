@@ -21,7 +21,9 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{Date, July, June}
 import pog
-import shared/types.{type Command, type Event, PayInvoice, TakeLeave}
+import shared/types.{
+  type Command, type Event, LeaveCommand, PayInvoice, TakeLeave,
+}
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/operation.{
@@ -114,7 +116,13 @@ pub fn concurrent_pay_invoice_only_one_wins_test() {
 // now-reduced balance (~16.5 < 40), and is rejected as InsufficientLeaveBalance — by
 // the balance guard, before the leave_no_overlap PK is even reached.
 pub fn concurrent_take_leave_only_one_wins_test() {
-  let take = TakeLeave(1, "annual", Date(2026, June, 15), Date(2026, July, 25))
+  let take =
+    LeaveCommand(TakeLeave(
+      1,
+      "annual",
+      Date(2026, June, 15),
+      Date(2026, July, 25),
+    ))
   let outcomes = race(take, take)
 
   assert winners(outcomes) == 1

@@ -34,11 +34,12 @@ import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
   AssignToProject, ChangeAllocationFraction, DraftInvoice, EngagementCommand,
-  EngineerCommand, IssueInvoice, LogWeek, OnboardEngineer, PayInvoice, Promote,
-  ReviseRateCard, RollOff, RunPayroll, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
+  EngineerCommand, IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer,
+  PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
+  UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -587,7 +588,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use kind <- result.try(require_text(form.kind, "leave kind"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:))
+      Ok(LeaveCommand(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:)))
     }
     OpRollOff -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))

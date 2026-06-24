@@ -12,6 +12,7 @@ import shared/codecs/allocation as allocation_codec
 import shared/codecs/base
 import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
+import shared/codecs/leave as leave_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
   type ClientList, type ClientListRow, type ClientProfile, type ClientProjectRow,
@@ -32,13 +33,13 @@ import shared/types.{
   ClientProjectRow, ContractRow, DraftInvoice, Employment, EngagementCommand,
   EngineerBanking, EngineerCommand, EngineerContact, EngineerDetail,
   EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LeaveBalance, LeavePolicyRow, LeaveRecord,
-  LogTimesheet, LogWeek, OnLeave, OnProject, OperationRequest, PayInvoice,
-  Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow,
-  ProjectDetail, ProjectList, ProjectListRow, ProjectPlan, ProjectProfile,
-  ProjectRequirement, RateCardRow, Ref, ReviseRateCard, RoleVersion, Roster,
-  RosterOnLeave, RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
-  SetProjectRequirement, SetSalary, Settings, TakeLeave, TeamMember,
+  InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow,
+  LeaveRecord, LogTimesheet, LogWeek, OnLeave, OnProject, OperationRequest,
+  PayInvoice, Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl,
+  PnlRow, ProjectDetail, ProjectList, ProjectListRow, ProjectPlan,
+  ProjectProfile, ProjectRequirement, RateCardRow, Ref, ReviseRateCard,
+  RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
+  RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, TeamMember,
   TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
   TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
   UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
@@ -578,14 +579,7 @@ pub fn encode_command(command: Command) -> Json {
     EngineerCommand(command) -> engineer_codec.encode(command)
     AllocationCommand(command) -> allocation_codec.encode(command)
     EngagementCommand(command) -> engagement_codec.encode(command)
-    TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
-      json.object([
-        #("op", json.string("take_leave")),
-        #("engineer_id", json.int(engineer_id)),
-        #("kind", json.string(kind)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
+    LeaveCommand(command) -> leave_codec.encode(command)
     LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
       json.object([
         #("op", json.string("log_timesheet")),
@@ -749,6 +743,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engineer_codec.decoder(op), EngineerCommand)
   use <- try_group(allocation_codec.decoder(op), AllocationCommand)
   use <- try_group(engagement_codec.decoder(op), EngagementCommand)
+  use <- try_group(leave_codec.decoder(op), LeaveCommand)
   Error(Nil)
 }
 
@@ -775,13 +770,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "take_leave" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use kind <- decode.field("kind", decode.string)
-          use valid_from <- decode.field("valid_from", date_decoder())
-          use valid_to <- decode.field("valid_to", date_decoder())
-          decode.success(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:))
-        }
         "log_timesheet" -> {
           use engineer_id <- decode.field("engineer_id", decode.int)
           use project_id <- decode.field("project_id", decode.int)

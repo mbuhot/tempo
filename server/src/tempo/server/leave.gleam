@@ -17,18 +17,30 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{type LeaveCommand, LeaveCommand, TakeLeave}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{
   type OperationError, Event, InsufficientLeaveBalance,
 }
 import tempo/server/sql
 
+/// Route a leave command to its operation, returning the audit entry and the facts
+/// it records. Exhaustive over `LeaveCommand`.
+pub fn route(
+  conn: pog.Connection,
+  command: LeaveCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
+      take_leave(conn, command, engineer_id:, kind:, valid_from:, valid_to:)
+  }
+}
+
 /// Record an engineer on leave of a kind over `[valid_from, valid_to)`, with the
 /// journal entry — once the balance guard passes.
 pub fn take_leave(
   conn: pog.Connection,
-  command: Command,
+  command: LeaveCommand,
   engineer_id engineer_id: Int,
   kind kind: String,
   valid_from valid_from: Date,
@@ -51,7 +63,7 @@ pub fn take_leave(
           <> kind
           <> " leave over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(LeaveCommand(command)),
       ),
       facts: [
         fact.EngineerOnLeave(

@@ -231,6 +231,11 @@ pub type EngagementCommand {
   StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
 }
 
+pub type LeaveCommand {
+  /// Put an engineer on leave of a kind for a period.
+  TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -257,9 +262,8 @@ pub type Command {
   EngineerCommand(EngineerCommand)
   AllocationCommand(AllocationCommand)
   EngagementCommand(EngagementCommand)
+  LeaveCommand(LeaveCommand)
 
-  /// Put an engineer on leave of a kind for a period.
-  TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
   /// Log hours an engineer worked on a project on a day.
   LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
   /// Record new contact details for an engineer effective from a date: close

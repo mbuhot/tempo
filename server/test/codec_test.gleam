@@ -21,12 +21,12 @@ import shared/types.{
   BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
   EngagementCommand, EngineerBanking, EngineerCommand, EngineerContact,
   EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave,
-  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
-  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek,
+  OnLeave, OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
+  PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref,
+  ReviseRateCard, RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact,
 }
@@ -452,12 +452,12 @@ pub fn command_assign_to_project_round_trips_test() {
 
 pub fn command_take_leave_round_trips_test() {
   let original =
-    TakeLeave(
+    LeaveCommand(TakeLeave(
       engineer_id: 3,
       kind: "annual",
       valid_from: Date(2026, June, 8),
       valid_to: Date(2026, June, 22),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

@@ -13,7 +13,7 @@
 
 import gleam/time/calendar.{type Date, Date, January, March, September}
 import pog
-import shared/types.{EngineerCommand, Promote, TakeLeave}
+import shared/types.{EngineerCommand, LeaveCommand, Promote, TakeLeave}
 import tempo/server/command
 import tempo/server/operation.{InsufficientLeaveBalance}
 import tempo/server/sql
@@ -121,7 +121,12 @@ pub fn take_leave_within_balance_is_allowed_test() {
       command.dispatch_in(
         conn,
         "tester",
-        TakeLeave(1, "annual", Date(2026, January, 1), Date(2026, January, 31)),
+        LeaveCommand(TakeLeave(
+          1,
+          "annual",
+          Date(2026, January, 1),
+          Date(2026, January, 31),
+        )),
       )
   })
 }
@@ -134,7 +139,12 @@ pub fn take_leave_exceeding_balance_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        TakeLeave(1, "annual", Date(2026, January, 1), Date(2026, March, 2)),
+        LeaveCommand(TakeLeave(
+          1,
+          "annual",
+          Date(2026, January, 1),
+          Date(2026, March, 2),
+        )),
       )
     let assert Error(InsufficientLeaveBalance(kind:, ..)) = result
     assert kind == "annual"
@@ -149,7 +159,12 @@ pub fn take_leave_unpolicied_kind_is_unlimited_test() {
       command.dispatch_in(
         conn,
         "tester",
-        TakeLeave(1, "unpaid", Date(2026, January, 1), Date(2026, September, 1)),
+        LeaveCommand(TakeLeave(
+          1,
+          "unpaid",
+          Date(2026, January, 1),
+          Date(2026, September, 1),
+        )),
       )
   })
 }
