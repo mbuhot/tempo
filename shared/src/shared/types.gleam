@@ -330,6 +330,12 @@ pub type RateCardCommand {
   )
 }
 
+pub type SalaryCommand {
+  /// Publish a new monthly salary for a level effective from a date (the cost
+  /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
+  SetSalary(level: Int, monthly_salary: Float, effective: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -362,10 +368,8 @@ pub type Command {
   ClientDetailsCommand(ClientDetailsCommand)
   ProjectDetailsCommand(ProjectDetailsCommand)
   RateCardCommand(RateCardCommand)
+  SalaryCommand(SalaryCommand)
 
-  /// Publish a new monthly salary for a level effective from a date (the cost
-  /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
-  SetSalary(level: Int, monthly_salary: Float, effective: Date)
   /// Draft an invoice for a project's billing month, computing its lines at the
   /// contract-agreed rate (`rate_card` as of the contract's signing date).
   DraftInvoice(project_id: Int, billing_from: Date, billing_to: Date)

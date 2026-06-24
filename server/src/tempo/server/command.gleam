@@ -24,7 +24,7 @@ import shared/types.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   DraftInvoice, EngagementCommand, EngineerCommand, EngineerDetailsCommand,
   IssueInvoice, LeaveCommand, PayInvoice, ProjectDetailsCommand, RateCardCommand,
-  RunPayroll, SetProjectRequirement, SetSalary, TimesheetCommand,
+  RunPayroll, SalaryCommand, SetProjectRequirement, TimesheetCommand,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -136,8 +136,7 @@ fn route(
         valid_to:,
       )
 
-    SetSalary(level:, monthly_salary:, effective:) ->
-      salary.set_salary(command, level:, monthly_salary:, effective:)
+    SalaryCommand(command) -> salary.route(command)
 
     DraftInvoice(project_id:, billing_from:, billing_to:) ->
       invoice.draft_invoice(

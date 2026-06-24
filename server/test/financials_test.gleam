@@ -24,7 +24,7 @@ import pog
 import shared/codecs
 import shared/types.{
   type Command, DraftInvoice, IssueInvoice, PayInvoice, RateCardCommand,
-  ReviseRateCard, RunPayroll, SetSalary,
+  ReviseRateCard, RunPayroll, SalaryCommand, SetSalary,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -379,7 +379,7 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
           <> "(1, 3000.00, daterange('2026-01-01', NULL, '[)'))",
       )
       // Raise L1 to 3500 effective Jul — splits the open version at Jul.
-      apply(conn, SetSalary(1, 3500.0, Date(2026, July, 1)))
+      apply(conn, SalaryCommand(SetSalary(1, 3500.0, Date(2026, July, 1))))
       #(read_salary(conn, 1), read_journal(conn))
     })
 
@@ -396,7 +396,7 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
   // float.to_string renders 3500.0 in scientific form (matching rate_card summaries).
   assert row.summary == "Set L1 salary to 3.5e3 from 2026-07-01"
   assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(SetSalary(1, 3500.0, Date(2026, July, 1)))
+    == Ok(SalaryCommand(SetSalary(1, 3500.0, Date(2026, July, 1))))
 }
 
 // --- DraftInvoice — agreed-rate billing (FR-F2, the temporal centerpiece) ----

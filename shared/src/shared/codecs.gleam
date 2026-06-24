@@ -17,6 +17,7 @@ import shared/codecs/engineer_details as engineer_details_codec
 import shared/codecs/leave as leave_codec
 import shared/codecs/project_details as project_details_codec
 import shared/codecs/rate_card as rate_card_codec
+import shared/codecs/salary as salary_codec
 import shared/codecs/timesheet as timesheet_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
@@ -43,8 +44,8 @@ import shared/types.{
   PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand,
   ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
   RateCardCommand, RateCardRow, Ref, RoleVersion, Roster, RosterOnLeave,
-  RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
-  SetProjectRequirement, SetSalary, Settings, TeamMember, TerminateEmployment,
+  RosterOnProjects, RosterUnassigned, RunPayroll, SalaryCommand, SalaryRow,
+  SetProjectRequirement, Settings, TeamMember, TerminateEmployment,
   TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
   UnstaffedProject, WriteRequest,
 }
@@ -566,14 +567,7 @@ pub fn encode_command(command: Command) -> Json {
     ClientDetailsCommand(command) -> client_details_codec.encode(command)
     ProjectDetailsCommand(command) -> project_details_codec.encode(command)
     RateCardCommand(command) -> rate_card_codec.encode(command)
-
-    SetSalary(level:, monthly_salary:, effective:) ->
-      json.object([
-        #("op", json.string("set_salary")),
-        #("level", json.int(level)),
-        #("monthly_salary", json.float(monthly_salary)),
-        #("effective", encode_date(effective)),
-      ])
+    SalaryCommand(command) -> salary_codec.encode(command)
     DraftInvoice(project_id:, billing_from:, billing_to:) ->
       json.object([
         #("op", json.string("draft_invoice")),
@@ -631,6 +625,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(client_details_codec.decoder(op), ClientDetailsCommand)
   use <- try_group(project_details_codec.decoder(op), ProjectDetailsCommand)
   use <- try_group(rate_card_codec.decoder(op), RateCardCommand)
+  use <- try_group(salary_codec.decoder(op), SalaryCommand)
   Error(Nil)
 }
 
@@ -657,15 +652,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "set_salary" -> {
-          use level <- decode.field("level", decode.int)
-          use monthly_salary <- decode.field(
-            "monthly_salary",
-            lenient_float_decoder(),
-          )
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(SetSalary(level:, monthly_salary:, effective:))
-        }
         "draft_invoice" -> {
           use project_id <- decode.field("project_id", decode.int)
           use billing_from <- decode.field("billing_from", date_decoder())

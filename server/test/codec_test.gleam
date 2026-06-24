@@ -25,11 +25,11 @@ import shared/types.{
   LeaveCommand, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
   OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
   PnlRow, ProjectRequirement, Promote, RateCardCommand, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  RollOff, Roster, RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -637,11 +637,11 @@ pub fn command_update_client_profile_round_trips_test() {
 
 pub fn command_set_salary_round_trips_test() {
   let original =
-    SetSalary(
+    SalaryCommand(SetSalary(
       level: 5,
       monthly_salary: 10_000.0,
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

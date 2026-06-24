@@ -12,13 +12,22 @@ import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{type SalaryCommand, SalaryCommand, SetSalary}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
+/// Route a salary command to its operation, returning the audit entry and the facts
+/// it records. Exhaustive over `SalaryCommand`.
+pub fn route(command: SalaryCommand) -> Result(Recorded, OperationError) {
+  case command {
+    SetSalary(level:, monthly_salary:, effective:) ->
+      set_salary(command, level:, monthly_salary:, effective:)
+  }
+}
+
 /// Set a level's monthly salary from `effective` onward, with the journal entry.
 pub fn set_salary(
-  command: Command,
+  command: SalaryCommand,
   level level: Int,
   monthly_salary monthly_salary: Float,
   effective effective: Date,
@@ -33,7 +42,7 @@ pub fn set_salary(
           <> float.to_string(monthly_salary)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(SalaryCommand(command)),
       ),
       facts: [fact.Salary(level:, monthly_salary:, from: effective)],
     ),

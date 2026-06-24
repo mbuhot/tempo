@@ -18,7 +18,8 @@
 import gleam/list
 import gleam/string
 import shared/types.{
-  type Command, DraftInvoice, IssueInvoice, PayInvoice, RunPayroll, SetSalary,
+  type Command, DraftInvoice, IssueInvoice, PayInvoice, RunPayroll,
+  SalaryCommand, SetSalary,
 }
 
 /// A role bundles the commands a principal may run. `Admin` is unrestricted; `Ops`
@@ -81,7 +82,7 @@ pub fn authorize(
 /// invoice-lifecycle transition. These are the commands only `Admin` may run.
 fn is_financial(command: Command) -> Bool {
   case command {
-    SetSalary(..)
+    SalaryCommand(SetSalary(..))
     | RunPayroll(..)
     | DraftInvoice(..)
     | IssueInvoice(..)
@@ -131,7 +132,7 @@ fn role_to_string(role: Role) -> String {
 /// can say which command was refused without leaking its parameters).
 fn command_tag(command: Command) -> String {
   case command {
-    SetSalary(..) -> "set_salary"
+    SalaryCommand(SetSalary(..)) -> "set_salary"
     RunPayroll(..) -> "run_payroll"
     DraftInvoice(..) -> "draft_invoice"
     IssueInvoice(..) -> "issue_invoice"

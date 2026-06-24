@@ -5,7 +5,7 @@
 
 import gleam/time/calendar
 import shared/types.{
-  EngineerCommand, LogTimesheet, Promote, RunPayroll, SetSalary,
+  EngineerCommand, LogTimesheet, Promote, RunPayroll, SalaryCommand, SetSalary,
   TimesheetCommand,
 }
 import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
@@ -25,7 +25,10 @@ pub fn lookup_resolves_known_identity_test() {
 // Admin may run a financial command.
 pub fn admin_may_run_financial_command_test() {
   let principal = Principal(actor: "Admin", role: Admin)
-  assert auth.authorize(principal, SetSalary(5, 12_000.0, date()))
+  assert auth.authorize(
+      principal,
+      SalaryCommand(SetSalary(5, 12_000.0, date())),
+    )
     == Ok("Admin")
 }
 
@@ -49,7 +52,10 @@ pub fn ops_is_denied_financial_but_allowed_operational_test() {
 // An engineer is denied a financial command too (only Admin moves money).
 pub fn engineer_is_denied_financial_command_test() {
   let principal = Principal(actor: "Priya Sharma", role: Engineer)
-  assert auth.authorize(principal, SetSalary(5, 12_000.0, date()))
+  assert auth.authorize(
+      principal,
+      SalaryCommand(SetSalary(5, 12_000.0, date())),
+    )
     == Error(Forbidden(actor: "Priya Sharma", command: "set_salary"))
   assert auth.authorize(
       principal,

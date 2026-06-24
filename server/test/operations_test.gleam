@@ -33,8 +33,9 @@ import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
   ChangeAllocationFraction, ClientDetailsCommand, EngagementCommand,
   EngineerCommand, LogTimesheet, OnboardEngineer, Promote, RateCardCommand,
-  ReviseRateCard, RollOff, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TerminateEmployment, TimesheetCommand, UpdateClientProfile,
+  ReviseRateCard, RollOff, SalaryCommand, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TerminateEmployment, TimesheetCommand,
+  UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -1090,7 +1091,7 @@ pub fn set_salary_caps_from_date_splitting_covering_version_test() {
           <> "(2, 4000.00, daterange('2026-01-01', NULL, '[)'))",
       )
       // Set 5000 effective Apr — splits the 4000 version at Apr.
-      apply(conn, SetSalary(2, 5000.0, Date(2026, April, 1)))
+      apply(conn, SalaryCommand(SetSalary(2, 5000.0, Date(2026, April, 1))))
       read_periods(
         conn,
         "salary",
@@ -1120,7 +1121,7 @@ pub fn set_salary_with_no_covering_version_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        SetSalary(1, 5000.0, Date(2026, April, 1)),
+        SalaryCommand(SetSalary(1, 5000.0, Date(2026, April, 1))),
       )
     })
 

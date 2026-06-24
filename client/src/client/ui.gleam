@@ -36,7 +36,7 @@ import shared/types.{
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, IssueInvoice,
   LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, ProjectDetailsCommand,
-  Promote, RateCardCommand, ReviseRateCard, RollOff, RunPayroll,
+  Promote, RateCardCommand, ReviseRateCard, RollOff, RunPayroll, SalaryCommand,
   SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
   TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
   UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
@@ -809,7 +809,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "monthly salary",
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(SetSalary(level:, monthly_salary:, effective:))
+      Ok(SalaryCommand(SetSalary(level:, monthly_salary:, effective:)))
     }
     OpSetProjectRequirement -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))
