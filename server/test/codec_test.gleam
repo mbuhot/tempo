@@ -24,9 +24,9 @@ import shared/types.{
   ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
   LeaveCommand, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
   OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
-  PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster,
-  RunPayroll, SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
+  PnlRow, ProjectRequirement, Promote, RateCardCommand, Ref, ReviseRateCard,
+  RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
   TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact,
@@ -519,7 +519,11 @@ pub fn command_change_allocation_fraction_round_trips_test() {
 
 pub fn command_revise_rate_card_round_trips_test() {
   let original =
-    ReviseRateCard(level: 5, day_rate: 1400.0, effective: Date(2026, July, 1))
+    RateCardCommand(ReviseRateCard(
+      level: 5,
+      day_rate: 1400.0,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -527,12 +531,12 @@ pub fn command_revise_rate_card_round_trips_test() {
 
 pub fn command_adjust_rate_for_portion_round_trips_test() {
   let original =
-    AdjustRateForPortion(
+    RateCardCommand(AdjustRateForPortion(
       level: 5,
       day_rate: 1500.0,
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

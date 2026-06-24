@@ -23,8 +23,8 @@ import gleam/time/calendar.{type Date, August, Date, July, June, March}
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, DraftInvoice, IssueInvoice, PayInvoice, ReviseRateCard,
-  RunPayroll, SetSalary,
+  type Command, DraftInvoice, IssueInvoice, PayInvoice, RateCardCommand,
+  ReviseRateCard, RunPayroll, SetSalary,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -418,7 +418,10 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
           "800.00",
         )
       // Raise L1 to 9999 effective March 2026 — AFTER the contract's agreed date.
-      apply(conn, ReviseRateCard(1, 9999.0, Date(2026, March, 1)))
+      apply(
+        conn,
+        RateCardCommand(ReviseRateCard(1, 9999.0, Date(2026, March, 1))),
+      )
       // Draft June 2026 — billed at the agreed (older) 800, not 9999.
       apply(
         conn,

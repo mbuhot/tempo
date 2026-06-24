@@ -317,6 +317,19 @@ pub type ProjectDetailsCommand {
   )
 }
 
+pub type RateCardCommand {
+  /// Publish a new day rate for a level effective from a date.
+  ReviseRateCard(level: Int, day_rate: Float, effective: Date)
+  /// Bump a level's day rate for a bounded window, splitting the rate-card row
+  /// into before/during/after.
+  AdjustRateForPortion(
+    level: Int,
+    day_rate: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -348,17 +361,7 @@ pub type Command {
   EngineerDetailsCommand(EngineerDetailsCommand)
   ClientDetailsCommand(ClientDetailsCommand)
   ProjectDetailsCommand(ProjectDetailsCommand)
-
-  /// Publish a new day rate for a level effective from a date.
-  ReviseRateCard(level: Int, day_rate: Float, effective: Date)
-  /// Bump a level's day rate for a bounded window, splitting the rate-card row
-  /// into before/during/after.
-  AdjustRateForPortion(
-    level: Int,
-    day_rate: Float,
-    valid_from: Date,
-    valid_to: Date,
-  )
+  RateCardCommand(RateCardCommand)
 
   /// Publish a new monthly salary for a level effective from a date (the cost
   /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).

@@ -16,6 +16,7 @@ import shared/codecs/engineer as engineer_codec
 import shared/codecs/engineer_details as engineer_details_codec
 import shared/codecs/leave as leave_codec
 import shared/codecs/project_details as project_details_codec
+import shared/codecs/rate_card as rate_card_codec
 import shared/codecs/timesheet as timesheet_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
@@ -31,21 +32,21 @@ import shared/types.{
   type ProjectRequirement, type RateCardRow, type Ref, type RoleVersion,
   type Roster, type RosterStatus, type SalaryRow, type Settings, type TeamMember,
   type TimesheetCell, type TimesheetWeek, type TimesheetWeekRow,
-  type UnstaffedProject, type WriteRequest, AdjustRateForPortion,
-  AllocationCommand, AllocationRow, BoardRow, BoardSnapshot, ClientDetail,
-  ClientDetailsCommand, ClientList, ClientListRow, ClientProfile,
-  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngagementCommand,
-  EngineerBanking, EngineerCommand, EngineerContact, EngineerDetail,
-  EngineerDetailsCommand, EngineerEmergency, Event, Forecast, ForecastMonth,
-  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand,
-  LeavePolicyRow, LeaveRecord, OnLeave, OnProject, OperationRequest, PayInvoice,
-  Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow,
-  ProjectDetail, ProjectDetailsCommand, ProjectList, ProjectListRow, ProjectPlan,
-  ProjectProfile, ProjectRequirement, RateCardRow, Ref, ReviseRateCard,
-  RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
-  RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, TeamMember,
-  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UnstaffedProject, WriteRequest,
+  type UnstaffedProject, type WriteRequest, AllocationCommand, AllocationRow,
+  BoardRow, BoardSnapshot, ClientDetail, ClientDetailsCommand, ClientList,
+  ClientListRow, ClientProfile, ClientProjectRow, ContractRow, DraftInvoice,
+  Employment, EngagementCommand, EngineerBanking, EngineerCommand,
+  EngineerContact, EngineerDetail, EngineerDetailsCommand, EngineerEmergency,
+  Event, Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine,
+  IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave,
+  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
+  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand,
+  ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
+  RateCardCommand, RateCardRow, Ref, RoleVersion, Roster, RosterOnLeave,
+  RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
+  SetProjectRequirement, SetSalary, Settings, TeamMember, TerminateEmployment,
+  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -564,22 +565,7 @@ pub fn encode_command(command: Command) -> Json {
     EngineerDetailsCommand(command) -> engineer_details_codec.encode(command)
     ClientDetailsCommand(command) -> client_details_codec.encode(command)
     ProjectDetailsCommand(command) -> project_details_codec.encode(command)
-
-    ReviseRateCard(level:, day_rate:, effective:) ->
-      json.object([
-        #("op", json.string("revise_rate_card")),
-        #("level", json.int(level)),
-        #("day_rate", json.float(day_rate)),
-        #("effective", encode_date(effective)),
-      ])
-    AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
-      json.object([
-        #("op", json.string("adjust_rate_for_portion")),
-        #("level", json.int(level)),
-        #("day_rate", json.float(day_rate)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
+    RateCardCommand(command) -> rate_card_codec.encode(command)
 
     SetSalary(level:, monthly_salary:, effective:) ->
       json.object([
@@ -644,6 +630,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engineer_details_codec.decoder(op), EngineerDetailsCommand)
   use <- try_group(client_details_codec.decoder(op), ClientDetailsCommand)
   use <- try_group(project_details_codec.decoder(op), ProjectDetailsCommand)
+  use <- try_group(rate_card_codec.decoder(op), RateCardCommand)
   Error(Nil)
 }
 
@@ -670,25 +657,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "revise_rate_card" -> {
-          use level <- decode.field("level", decode.int)
-          use day_rate <- decode.field("day_rate", lenient_float_decoder())
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(ReviseRateCard(level:, day_rate:, effective:))
-        }
-        "adjust_rate_for_portion" -> {
-          use level <- decode.field("level", decode.int)
-          use day_rate <- decode.field("day_rate", lenient_float_decoder())
-          use valid_from <- decode.field("valid_from", date_decoder())
-          use valid_to <- decode.field("valid_to", date_decoder())
-          decode.success(AdjustRateForPortion(
-            level:,
-            day_rate:,
-            valid_from:,
-            valid_to:,
-          ))
-        }
-
         "set_salary" -> {
           use level <- decode.field("level", decode.int)
           use monthly_salary <- decode.field(

@@ -13,13 +13,32 @@ import gleam/int
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type RateCardCommand, AdjustRateForPortion, RateCardCommand, ReviseRateCard,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
+/// Route a rate-card command to its operation, returning the audit entry and the
+/// facts it records. Exhaustive over `RateCardCommand`.
+pub fn route(command: RateCardCommand) -> Result(Recorded, OperationError) {
+  case command {
+    ReviseRateCard(level:, day_rate:, effective:) ->
+      revise_rate_card(command, level:, day_rate:, effective:)
+    AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
+      adjust_rate_for_portion(
+        command,
+        level:,
+        day_rate:,
+        valid_from:,
+        valid_to:,
+      )
+  }
+}
+
 /// Revise a level's day rate from `effective` onward, with the journal entry.
 pub fn revise_rate_card(
-  command: Command,
+  command: RateCardCommand,
   level level: Int,
   day_rate day_rate: Float,
   effective effective: Date,
@@ -34,7 +53,7 @@ pub fn revise_rate_card(
           <> float.to_string(day_rate)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(RateCardCommand(command)),
       ),
       facts: [fact.RateCard(level:, day_rate:, from: effective, to: None)],
     ),
@@ -44,7 +63,7 @@ pub fn revise_rate_card(
 /// Adjust a level's day rate for a bounded window `[valid_from, valid_to)`, with the
 /// journal entry.
 pub fn adjust_rate_for_portion(
-  command: Command,
+  command: RateCardCommand,
   level level: Int,
   day_rate day_rate: Float,
   valid_from valid_from: Date,
@@ -60,7 +79,7 @@ pub fn adjust_rate_for_portion(
           <> float.to_string(day_rate)
           <> " over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(RateCardCommand(command)),
       ),
       facts: [
         fact.RateCard(level:, day_rate:, from: valid_from, to: Some(valid_to)),

@@ -21,11 +21,10 @@
 import gleam/result
 import pog
 import shared/types.{
-  type Command, type Event, AdjustRateForPortion, AllocationCommand,
-  ClientDetailsCommand, DraftInvoice, EngagementCommand, EngineerCommand,
-  EngineerDetailsCommand, IssueInvoice, LeaveCommand, PayInvoice,
-  ProjectDetailsCommand, ReviseRateCard, RunPayroll, SetProjectRequirement,
-  SetSalary, TimesheetCommand,
+  type Command, type Event, AllocationCommand, ClientDetailsCommand,
+  DraftInvoice, EngagementCommand, EngineerCommand, EngineerDetailsCommand,
+  IssueInvoice, LeaveCommand, PayInvoice, ProjectDetailsCommand, RateCardCommand,
+  RunPayroll, SetProjectRequirement, SetSalary, TimesheetCommand,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -119,17 +118,7 @@ fn route(
     EngineerDetailsCommand(command) -> engineer_details.route(command)
     ClientDetailsCommand(command) -> client_details.route(command)
     ProjectDetailsCommand(command) -> project_details.route(command)
-
-    ReviseRateCard(level:, day_rate:, effective:) ->
-      rate_card.revise_rate_card(command, level:, day_rate:, effective:)
-    AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
-      rate_card.adjust_rate_for_portion(
-        command,
-        level:,
-        day_rate:,
-        valid_from:,
-        valid_to:,
-      )
+    RateCardCommand(command) -> rate_card.route(command)
 
     SetProjectRequirement(
       project_id:,

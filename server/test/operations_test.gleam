@@ -32,9 +32,9 @@ import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
   ChangeAllocationFraction, ClientDetailsCommand, EngagementCommand,
-  EngineerCommand, LogTimesheet, OnboardEngineer, Promote, ReviseRateCard,
-  RollOff, SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TerminateEmployment, TimesheetCommand, UpdateClientProfile,
+  EngineerCommand, LogTimesheet, OnboardEngineer, Promote, RateCardCommand,
+  ReviseRateCard, RollOff, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TerminateEmployment, TimesheetCommand, UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -990,12 +990,12 @@ pub fn adjust_rate_for_portion_splits_three_ways_test() {
       // Bump to 600 for the bounded window [Apr, Jul) only.
       apply(
         conn,
-        AdjustRateForPortion(
+        RateCardCommand(AdjustRateForPortion(
           1,
           600.0,
           Date(2026, April, 1),
           Date(2026, July, 1),
-        ),
+        )),
       )
       read_periods(
         conn,
@@ -1032,7 +1032,10 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
           <> "(2, 900.00, daterange('2026-10-01', NULL, '[)'))",
       )
       // Revise to 800 effective Apr — lands inside the 700 version only.
-      apply(conn, ReviseRateCard(2, 800.0, Date(2026, April, 1)))
+      apply(
+        conn,
+        RateCardCommand(ReviseRateCard(2, 800.0, Date(2026, April, 1))),
+      )
       read_periods(
         conn,
         "rate_card",
@@ -1063,7 +1066,7 @@ pub fn revise_rate_card_with_no_covering_version_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        ReviseRateCard(1, 800.0, Date(2026, April, 1)),
+        RateCardCommand(ReviseRateCard(1, 800.0, Date(2026, April, 1))),
       )
     })
 

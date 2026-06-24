@@ -36,10 +36,11 @@ import shared/types.{
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, IssueInvoice,
   LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, ProjectDetailsCommand,
-  Promote, ReviseRateCard, RollOff, RunPayroll, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
+  Promote, RateCardCommand, ReviseRateCard, RollOff, RunPayroll,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -785,14 +786,21 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use level <- result.try(require_int(form.level, "level"))
       use day_rate <- result.try(require_float(form.day_rate, "day rate"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(ReviseRateCard(level:, day_rate:, effective:))
+      Ok(RateCardCommand(ReviseRateCard(level:, day_rate:, effective:)))
     }
     OpAdjustRateForPortion -> {
       use level <- result.try(require_int(form.level, "level"))
       use day_rate <- result.try(require_float(form.day_rate, "day rate"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:))
+      Ok(
+        RateCardCommand(AdjustRateForPortion(
+          level:,
+          day_rate:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
     OpSetSalary -> {
       use level <- result.try(require_int(form.level, "level"))
