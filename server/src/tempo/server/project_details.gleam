@@ -12,13 +12,35 @@ import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type ProjectDetailsCommand, ProjectDetailsCommand, UpdateProjectPlan,
+  UpdateProjectProfile,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
+/// Route a project-details command to its operation, returning the audit entry and
+/// the facts it records. Exhaustive over `ProjectDetailsCommand`.
+pub fn route(
+  command: ProjectDetailsCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
+      update_project_profile(command, project_id:, title:, summary:, effective:)
+    UpdateProjectPlan(project_id:, budget:, target_completion:, effective:) ->
+      update_project_plan(
+        command,
+        project_id:,
+        budget:,
+        target_completion:,
+        effective:,
+      )
+  }
+}
+
 /// Record a new project profile from `effective` onward, with its journal entry.
 pub fn update_project_profile(
-  command: Command,
+  command: ProjectDetailsCommand,
   project_id project_id: Int,
   title title: String,
   summary summary: String,
@@ -34,7 +56,7 @@ pub fn update_project_profile(
           <> title
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(ProjectDetailsCommand(command)),
       ),
       facts: [
         fact.ProjectProfile(
@@ -50,7 +72,7 @@ pub fn update_project_profile(
 
 /// Record a new project plan from `effective` onward, with its journal entry.
 pub fn update_project_plan(
-  command: Command,
+  command: ProjectDetailsCommand,
   project_id project_id: Int,
   budget budget: Float,
   target_completion target_completion: Date,
@@ -66,7 +88,7 @@ pub fn update_project_plan(
           <> float.to_string(budget)
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(ProjectDetailsCommand(command)),
       ),
       facts: [
         fact.ProjectPlan(

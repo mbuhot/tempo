@@ -23,9 +23,9 @@ import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AllocationCommand,
   ClientDetailsCommand, DraftInvoice, EngagementCommand, EngineerCommand,
-  EngineerDetailsCommand, IssueInvoice, LeaveCommand, PayInvoice, ReviseRateCard,
-  RunPayroll, SetProjectRequirement, SetSalary, TimesheetCommand,
-  UpdateProjectPlan, UpdateProjectProfile,
+  EngineerDetailsCommand, IssueInvoice, LeaveCommand, PayInvoice,
+  ProjectDetailsCommand, ReviseRateCard, RunPayroll, SetProjectRequirement,
+  SetSalary, TimesheetCommand,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -118,22 +118,7 @@ fn route(
     TimesheetCommand(command) -> timesheet.route(command)
     EngineerDetailsCommand(command) -> engineer_details.route(command)
     ClientDetailsCommand(command) -> client_details.route(command)
-    UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
-      project_details.update_project_profile(
-        command,
-        project_id:,
-        title:,
-        summary:,
-        effective:,
-      )
-    UpdateProjectPlan(project_id:, budget:, target_completion:, effective:) ->
-      project_details.update_project_plan(
-        command,
-        project_id:,
-        budget:,
-        target_completion:,
-        effective:,
-      )
+    ProjectDetailsCommand(command) -> project_details.route(command)
 
     ReviseRateCard(level:, day_rate:, effective:) ->
       rate_card.revise_rate_card(command, level:, day_rate:, effective:)

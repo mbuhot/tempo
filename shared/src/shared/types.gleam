@@ -293,6 +293,30 @@ pub type ClientDetailsCommand {
   UpdateClientProfile(client_id: Int, name: String, effective: Date)
 }
 
+pub type ProjectDetailsCommand {
+  /// Record a new profile for a project effective from a date: close the
+  /// `project_profile` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `title`/`summary` (a temporal Change on the
+  /// append-only project_profile fact). `title` is the project's human-facing
+  /// name.
+  UpdateProjectProfile(
+    project_id: Int,
+    title: String,
+    summary: String,
+    effective: Date,
+  )
+  /// Record a new plan for a project effective from a date: close the
+  /// `project_plan` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `budget`/`target_completion` (a temporal
+  /// Change on the append-only project_plan fact). `budget` is a money amount.
+  UpdateProjectPlan(
+    project_id: Int,
+    budget: Float,
+    target_completion: Date,
+    effective: Date,
+  )
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -323,28 +347,8 @@ pub type Command {
   TimesheetCommand(TimesheetCommand)
   EngineerDetailsCommand(EngineerDetailsCommand)
   ClientDetailsCommand(ClientDetailsCommand)
+  ProjectDetailsCommand(ProjectDetailsCommand)
 
-  /// Record a new profile for a project effective from a date: close the
-  /// `project_profile` row covering `effective` and open a new full row
-  /// `[effective, NULL)` carrying `title`/`summary` (a temporal Change on the
-  /// append-only project_profile fact). `title` is the project's human-facing
-  /// name.
-  UpdateProjectProfile(
-    project_id: Int,
-    title: String,
-    summary: String,
-    effective: Date,
-  )
-  /// Record a new plan for a project effective from a date: close the
-  /// `project_plan` row covering `effective` and open a new full row
-  /// `[effective, NULL)` carrying `budget`/`target_completion` (a temporal
-  /// Change on the append-only project_plan fact). `budget` is a money amount.
-  UpdateProjectPlan(
-    project_id: Int,
-    budget: Float,
-    target_completion: Date,
-    effective: Date,
-  )
   /// Publish a new day rate for a level effective from a date.
   ReviseRateCard(level: Int, day_rate: Float, effective: Date)
   /// Bump a level's day rate for a bounded window, splitting the rate-card row

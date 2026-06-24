@@ -35,9 +35,9 @@ import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, IssueInvoice,
-  LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, Promote, ReviseRateCard,
-  RollOff, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
+  LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, ProjectDetailsCommand,
+  Promote, ReviseRateCard, RollOff, RunPayroll, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
 }
@@ -731,7 +731,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use title <- result.try(require_text(form.title, "title"))
       use summary <- result.try(require_text(form.summary, "summary"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateProjectProfile(project_id:, title:, summary:, effective:))
+      Ok(
+        ProjectDetailsCommand(UpdateProjectProfile(
+          project_id:,
+          title:,
+          summary:,
+          effective:,
+        )),
+      )
     }
     OpUpdateProjectPlan -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))
@@ -741,7 +748,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "target completion",
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateProjectPlan(project_id:, budget:, target_completion:, effective:))
+      Ok(
+        ProjectDetailsCommand(UpdateProjectPlan(
+          project_id:,
+          budget:,
+          target_completion:,
+          effective:,
+        )),
+      )
     }
     OpDraftInvoice -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))

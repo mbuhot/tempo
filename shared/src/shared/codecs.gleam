@@ -15,6 +15,7 @@ import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
 import shared/codecs/engineer_details as engineer_details_codec
 import shared/codecs/leave as leave_codec
+import shared/codecs/project_details as project_details_codec
 import shared/codecs/timesheet as timesheet_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
@@ -39,12 +40,12 @@ import shared/types.{
   Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand,
   LeavePolicyRow, LeaveRecord, OnLeave, OnProject, OperationRequest, PayInvoice,
   Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow,
-  ProjectDetail, ProjectList, ProjectListRow, ProjectPlan, ProjectProfile,
-  ProjectRequirement, RateCardRow, Ref, ReviseRateCard, RoleVersion, Roster,
-  RosterOnLeave, RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
-  SetProjectRequirement, SetSalary, Settings, TeamMember, TerminateEmployment,
-  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  ProjectDetail, ProjectDetailsCommand, ProjectList, ProjectListRow, ProjectPlan,
+  ProjectProfile, ProjectRequirement, RateCardRow, Ref, ReviseRateCard,
+  RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
+  RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, TeamMember,
+  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, UnstaffedProject, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -562,22 +563,7 @@ pub fn encode_command(command: Command) -> Json {
     TimesheetCommand(command) -> timesheet_codec.encode(command)
     EngineerDetailsCommand(command) -> engineer_details_codec.encode(command)
     ClientDetailsCommand(command) -> client_details_codec.encode(command)
-    UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
-      json.object([
-        #("op", json.string("update_project_profile")),
-        #("project_id", json.int(project_id)),
-        #("title", json.string(title)),
-        #("summary", json.string(summary)),
-        #("effective", encode_date(effective)),
-      ])
-    UpdateProjectPlan(project_id:, budget:, target_completion:, effective:) ->
-      json.object([
-        #("op", json.string("update_project_plan")),
-        #("project_id", json.int(project_id)),
-        #("budget", json.float(budget)),
-        #("target_completion", encode_date(target_completion)),
-        #("effective", encode_date(effective)),
-      ])
+    ProjectDetailsCommand(command) -> project_details_codec.encode(command)
 
     ReviseRateCard(level:, day_rate:, effective:) ->
       json.object([
@@ -657,6 +643,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(timesheet_codec.decoder(op), TimesheetCommand)
   use <- try_group(engineer_details_codec.decoder(op), EngineerDetailsCommand)
   use <- try_group(client_details_codec.decoder(op), ClientDetailsCommand)
+  use <- try_group(project_details_codec.decoder(op), ProjectDetailsCommand)
   Error(Nil)
 }
 
@@ -683,34 +670,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "update_project_profile" -> {
-          use project_id <- decode.field("project_id", decode.int)
-          use title <- decode.field("title", decode.string)
-          use summary <- decode.field("summary", decode.string)
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateProjectProfile(
-            project_id:,
-            title:,
-            summary:,
-            effective:,
-          ))
-        }
-        "update_project_plan" -> {
-          use project_id <- decode.field("project_id", decode.int)
-          use budget <- decode.field("budget", lenient_float_decoder())
-          use target_completion <- decode.field(
-            "target_completion",
-            date_decoder(),
-          )
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateProjectPlan(
-            project_id:,
-            budget:,
-            target_completion:,
-            effective:,
-          ))
-        }
-
         "revise_rate_card" -> {
           use level <- decode.field("level", decode.int)
           use day_rate <- decode.field("day_rate", lenient_float_decoder())
