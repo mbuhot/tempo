@@ -18,16 +18,16 @@ import gleam/time/calendar.{August, Date, January, July, June, May, September}
 import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AllocationCommand, AssignToProject, BoardRow,
-  BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
-  EngagementCommand, EngineerBanking, EngineerCommand, EngineerContact,
-  EngineerDetailsCommand, EngineerEmergency, Event, Forecast, ForecastMonth,
-  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand,
-  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
-  PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl, PnlRow,
-  ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetEntry,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  BoardSnapshot, ChangeAllocationFraction, ClientDetailsCommand, ClientProfile,
+  DraftInvoice, EngagementCommand, EngineerBanking, EngineerCommand,
+  EngineerContact, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
+  ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
+  LeaveCommand, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
+  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
+  PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster,
+  RunPayroll, SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact,
 }
@@ -617,11 +617,11 @@ pub fn command_update_emergency_contact_round_trips_test() {
 // variant and field.
 pub fn command_update_client_profile_round_trips_test() {
   let original =
-    UpdateClientProfile(
+    ClientDetailsCommand(UpdateClientProfile(
       client_id: 1,
       name: "Northwind Trading",
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

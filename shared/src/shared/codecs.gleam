@@ -10,6 +10,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/codecs/allocation as allocation_codec
 import shared/codecs/base
+import shared/codecs/client_details as client_details_codec
 import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
 import shared/codecs/engineer_details as engineer_details_codec
@@ -31,19 +32,19 @@ import shared/types.{
   type TimesheetCell, type TimesheetWeek, type TimesheetWeekRow,
   type UnstaffedProject, type WriteRequest, AdjustRateForPortion,
   AllocationCommand, AllocationRow, BoardRow, BoardSnapshot, ClientDetail,
-  ClientList, ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
-  DraftInvoice, Employment, EngagementCommand, EngineerBanking, EngineerCommand,
-  EngineerContact, EngineerDetail, EngineerDetailsCommand, EngineerEmergency,
-  Event, Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave,
-  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
-  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
-  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardRow, Ref,
-  ReviseRateCard, RoleVersion, Roster, RosterOnLeave, RosterOnProjects,
-  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary,
-  Settings, TeamMember, TerminateEmployment, TimesheetCell, TimesheetCommand,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateClientProfile, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  ClientDetailsCommand, ClientList, ClientListRow, ClientProfile,
+  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngagementCommand,
+  EngineerBanking, EngineerCommand, EngineerContact, EngineerDetail,
+  EngineerDetailsCommand, EngineerEmergency, Event, Forecast, ForecastMonth,
+  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand,
+  LeavePolicyRow, LeaveRecord, OnLeave, OnProject, OperationRequest, PayInvoice,
+  Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow,
+  ProjectDetail, ProjectList, ProjectListRow, ProjectPlan, ProjectProfile,
+  ProjectRequirement, RateCardRow, Ref, ReviseRateCard, RoleVersion, Roster,
+  RosterOnLeave, RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
+  SetProjectRequirement, SetSalary, Settings, TeamMember, TerminateEmployment,
+  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -560,13 +561,7 @@ pub fn encode_command(command: Command) -> Json {
     LeaveCommand(command) -> leave_codec.encode(command)
     TimesheetCommand(command) -> timesheet_codec.encode(command)
     EngineerDetailsCommand(command) -> engineer_details_codec.encode(command)
-    UpdateClientProfile(client_id:, name:, effective:) ->
-      json.object([
-        #("op", json.string("update_client_profile")),
-        #("client_id", json.int(client_id)),
-        #("name", json.string(name)),
-        #("effective", encode_date(effective)),
-      ])
+    ClientDetailsCommand(command) -> client_details_codec.encode(command)
     UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
       json.object([
         #("op", json.string("update_project_profile")),
@@ -661,6 +656,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(leave_codec.decoder(op), LeaveCommand)
   use <- try_group(timesheet_codec.decoder(op), TimesheetCommand)
   use <- try_group(engineer_details_codec.decoder(op), EngineerDetailsCommand)
+  use <- try_group(client_details_codec.decoder(op), ClientDetailsCommand)
   Error(Nil)
 }
 
@@ -687,12 +683,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "update_client_profile" -> {
-          use client_id <- decode.field("client_id", decode.int)
-          use name <- decode.field("name", decode.string)
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateClientProfile(client_id:, name:, effective:))
-        }
         "update_project_profile" -> {
           use project_id <- decode.field("project_id", decode.int)
           use title <- decode.field("title", decode.string)

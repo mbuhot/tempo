@@ -22,9 +22,9 @@ import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AllocationCommand,
-  DraftInvoice, EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  IssueInvoice, LeaveCommand, PayInvoice, ReviseRateCard, RunPayroll,
-  SetProjectRequirement, SetSalary, TimesheetCommand, UpdateClientProfile,
+  ClientDetailsCommand, DraftInvoice, EngagementCommand, EngineerCommand,
+  EngineerDetailsCommand, IssueInvoice, LeaveCommand, PayInvoice, ReviseRateCard,
+  RunPayroll, SetProjectRequirement, SetSalary, TimesheetCommand,
   UpdateProjectPlan, UpdateProjectProfile,
 }
 import tempo/server/allocation
@@ -117,14 +117,7 @@ fn route(
     LeaveCommand(command) -> leave.route(conn, command)
     TimesheetCommand(command) -> timesheet.route(command)
     EngineerDetailsCommand(command) -> engineer_details.route(command)
-    UpdateClientProfile(client_id:, name:, effective:) ->
-      client_details.update_client_profile(
-        command,
-        client_id:,
-        name:,
-        effective:,
-      )
-
+    ClientDetailsCommand(command) -> client_details.route(command)
     UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
       project_details.update_project_profile(
         command,

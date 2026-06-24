@@ -11,13 +11,26 @@
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type ClientDetailsCommand, ClientDetailsCommand, UpdateClientProfile,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
+/// Route a client-details command to its operation, returning the audit entry and
+/// the facts it records. Exhaustive over `ClientDetailsCommand`.
+pub fn route(
+  command: ClientDetailsCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    UpdateClientProfile(client_id:, name:, effective:) ->
+      update_client_profile(command, client_id:, name:, effective:)
+  }
+}
+
 /// Record a new client profile from `effective` onward, with its journal entry.
 pub fn update_client_profile(
-  command: Command,
+  command: ClientDetailsCommand,
   client_id client_id: Int,
   name name: String,
   effective effective: Date,
@@ -32,7 +45,7 @@ pub fn update_client_profile(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(ClientDetailsCommand(command)),
       ),
       facts: [
         fact.ClientProfile(

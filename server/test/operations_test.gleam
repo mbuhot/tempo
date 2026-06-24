@@ -31,10 +31,10 @@ import pog
 import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
-  ChangeAllocationFraction, EngagementCommand, EngineerCommand, LogTimesheet,
-  OnboardEngineer, Promote, ReviseRateCard, RollOff, SetProjectRequirement,
-  SetSalary, SignContract, StartProject, TerminateEmployment, TimesheetCommand,
-  UpdateClientProfile,
+  ChangeAllocationFraction, ClientDetailsCommand, EngagementCommand,
+  EngineerCommand, LogTimesheet, OnboardEngineer, Promote, ReviseRateCard,
+  RollOff, SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TerminateEmployment, TimesheetCommand, UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -1299,7 +1299,11 @@ pub fn update_client_profile_changes_name_and_journals_test() {
       // Re-state the name from Apr — splits the open-ended Initech row at Apr.
       apply(
         conn,
-        UpdateClientProfile(client_id, "Initrode", Date(2026, April, 1)),
+        ClientDetailsCommand(UpdateClientProfile(
+          client_id,
+          "Initrode",
+          Date(2026, April, 1),
+        )),
       )
       #(
         read_periods(

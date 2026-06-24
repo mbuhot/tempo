@@ -33,13 +33,13 @@ import lustre/element/html
 import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
-  AssignToProject, ChangeAllocationFraction, DraftInvoice, EngagementCommand,
-  EngineerCommand, EngineerDetailsCommand, IssueInvoice, LeaveCommand, LogWeek,
-  OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
-  UpdateProjectPlan, UpdateProjectProfile,
+  AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
+  EngagementCommand, EngineerCommand, EngineerDetailsCommand, IssueInvoice,
+  LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, Promote, ReviseRateCard,
+  RollOff, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -678,7 +678,9 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use client_id <- result.try(require_int(form.client_id, "client id"))
       use name <- result.try(require_text(form.name, "name"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateClientProfile(client_id:, name:, effective:))
+      Ok(
+        ClientDetailsCommand(UpdateClientProfile(client_id:, name:, effective:)),
+      )
     }
     OpStartProject -> {
       use name <- result.try(require_text(form.name, "name"))

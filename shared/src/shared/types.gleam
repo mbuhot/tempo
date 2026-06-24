@@ -284,6 +284,15 @@ pub type EngineerDetailsCommand {
   )
 }
 
+pub type ClientDetailsCommand {
+  /// Record a new profile for a client effective from a date: close the
+  /// `client_profile` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only
+  /// client_profile fact). A client has only a name, so this is its single
+  /// Update command.
+  UpdateClientProfile(client_id: Int, name: String, effective: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -313,13 +322,8 @@ pub type Command {
   LeaveCommand(LeaveCommand)
   TimesheetCommand(TimesheetCommand)
   EngineerDetailsCommand(EngineerDetailsCommand)
+  ClientDetailsCommand(ClientDetailsCommand)
 
-  /// Record a new profile for a client effective from a date: close the
-  /// `client_profile` row covering `effective` and open a new full row
-  /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only
-  /// client_profile fact). A client has only a name, so this is its single
-  /// Update command.
-  UpdateClientProfile(client_id: Int, name: String, effective: Date)
   /// Record a new profile for a project effective from a date: close the
   /// `project_profile` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `title`/`summary` (a temporal Change on the
