@@ -17,18 +17,30 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{type PayrollCommand, PayrollCommand, RunPayroll}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
 import tempo/server/sql
+
+/// Route a payroll command to its operation, returning the audit entry and the facts
+/// it records. Exhaustive over `PayrollCommand`.
+pub fn route(
+  conn: pog.Connection,
+  command: PayrollCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    RunPayroll(period_from:, period_to:) ->
+      run_payroll(conn, command, period_from:, period_to:)
+  }
+}
 
 /// Run payroll for a month: reserve the run id, compute the prorated amount per
 /// employed engineer, and record the anchor, its period, and one line per row, with
 /// the journal entry.
 pub fn run_payroll(
   conn: pog.Connection,
-  command: Command,
+  command: PayrollCommand,
   period_from period_from: Date,
   period_to period_to: Date,
 ) -> Result(Recorded, OperationError) {
@@ -52,7 +64,7 @@ pub fn run_payroll(
         <> " (run "
         <> int.to_string(id)
         <> ")",
-      payload: codecs.encode_command(command),
+      payload: codecs.encode_command(PayrollCommand(command)),
     ),
     facts: list.flatten([
       [fact.PayrollPeriod(run_id:, from: period_from, to: period_to)],

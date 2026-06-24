@@ -346,6 +346,12 @@ pub type InvoiceCommand {
   PayInvoice(invoice_id: Int, at: Date)
 }
 
+pub type PayrollCommand {
+  /// Run payroll for a month, computing one prorated `payroll_line` per employed
+  /// engineer (split by role so a mid-month promotion blends salaries).
+  RunPayroll(period_from: Date, period_to: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -380,10 +386,8 @@ pub type Command {
   RateCardCommand(RateCardCommand)
   SalaryCommand(SalaryCommand)
   InvoiceCommand(InvoiceCommand)
+  PayrollCommand(PayrollCommand)
 
-  /// Run payroll for a month, computing one prorated `payroll_line` per employed
-  /// engineer (split by role so a mid-month promotion blends salaries).
-  RunPayroll(period_from: Date, period_to: Date)
   /// Set a project's capacity requirement (demand) at a level for a bounded
   /// window: a FOR-PORTION-OF write on `(project_id, level)`, splitting the
   /// requirement row into before/during/after. `quantity` is fractional FTE.

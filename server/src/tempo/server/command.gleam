@@ -23,7 +23,7 @@ import pog
 import shared/types.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
-  LeaveCommand, ProjectDetailsCommand, RateCardCommand, RunPayroll,
+  LeaveCommand, PayrollCommand, ProjectDetailsCommand, RateCardCommand,
   SalaryCommand, SetProjectRequirement, TimesheetCommand,
 }
 import tempo/server/allocation
@@ -138,8 +138,6 @@ fn route(
 
     SalaryCommand(command) -> salary.route(command)
     InvoiceCommand(command) -> invoice.route(conn, command)
-
-    RunPayroll(period_from:, period_to:) ->
-      payroll.run_payroll(conn, command, period_from:, period_to:)
+    PayrollCommand(command) -> payroll.route(conn, command)
   }
 }

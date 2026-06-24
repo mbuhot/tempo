@@ -55,8 +55,8 @@ import gleam/time/calendar.{
 import gleam/time/timestamp
 import shared/types.{
   type Command, type Invoice, type TimesheetEntry, DraftInvoice, EngineerCommand,
-  InvoiceCommand, IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll,
-  TimesheetCommand, TimesheetEntry,
+  InvoiceCommand, IssueInvoice, LogWeek, PayInvoice, PayrollCommand, Promote,
+  RunPayroll, TimesheetCommand, TimesheetEntry,
 }
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
@@ -328,7 +328,10 @@ fn run_monthly_payrolls(ctx: Context) -> Nil {
         let month_end = day_index_to_date(date_to_day_index(month_after) - 1)
         apply(
           ctx,
-          RunPayroll(period_from: month_start, period_to: month_after),
+          PayrollCommand(RunPayroll(
+            period_from: month_start,
+            period_to: month_after,
+          )),
           month_end,
         )
       }

@@ -16,6 +16,7 @@ import shared/codecs/engineer as engineer_codec
 import shared/codecs/engineer_details as engineer_details_codec
 import shared/codecs/invoice as invoice_codec
 import shared/codecs/leave as leave_codec
+import shared/codecs/payroll as payroll_codec
 import shared/codecs/project_details as project_details_codec
 import shared/codecs/rate_card as rate_card_codec
 import shared/codecs/salary as salary_codec
@@ -41,13 +42,14 @@ import shared/types.{
   EngineerDetail, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
   ForecastMonth, Invoice, InvoiceCommand, InvoiceDetail, InvoiceLine,
   LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave, OnProject,
-  OperationRequest, Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow,
-  Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand, ProjectList, ProjectListRow,
-  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardCommand, RateCardRow,
-  Ref, RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
-  RunPayroll, SalaryCommand, SalaryRow, SetProjectRequirement, Settings,
-  TeamMember, TerminateEmployment, TimesheetCell, TimesheetCommand,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject, WriteRequest,
+  OperationRequest, Payroll, PayrollCommand, PayrollLine, PayrollRunInfo,
+  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand,
+  ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
+  RateCardCommand, RateCardRow, Ref, RoleVersion, Roster, RosterOnLeave,
+  RosterOnProjects, RosterUnassigned, SalaryCommand, SalaryRow,
+  SetProjectRequirement, Settings, TeamMember, TerminateEmployment,
+  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -569,12 +571,7 @@ pub fn encode_command(command: Command) -> Json {
     RateCardCommand(command) -> rate_card_codec.encode(command)
     SalaryCommand(command) -> salary_codec.encode(command)
     InvoiceCommand(command) -> invoice_codec.encode(command)
-    RunPayroll(period_from:, period_to:) ->
-      json.object([
-        #("op", json.string("run_payroll")),
-        #("period_from", encode_date(period_from)),
-        #("period_to", encode_date(period_to)),
-      ])
+    PayrollCommand(command) -> payroll_codec.encode(command)
     SetProjectRequirement(
       project_id:,
       level:,
@@ -609,6 +606,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(rate_card_codec.decoder(op), RateCardCommand)
   use <- try_group(salary_codec.decoder(op), SalaryCommand)
   use <- try_group(invoice_codec.decoder(op), InvoiceCommand)
+  use <- try_group(payroll_codec.decoder(op), PayrollCommand)
   Error(Nil)
 }
 
@@ -635,11 +633,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "run_payroll" -> {
-          use period_from <- decode.field("period_from", date_decoder())
-          use period_to <- decode.field("period_to", date_decoder())
-          decode.success(RunPayroll(period_from:, period_to:))
-        }
         "set_project_requirement" -> {
           use project_id <- decode.field("project_id", decode.int)
           use level <- decode.field("level", decode.int)

@@ -36,11 +36,12 @@ import shared/types.{
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
   IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer, PayInvoice,
-  ProjectDetailsCommand, Promote, RateCardCommand, ReviseRateCard, RollOff,
-  RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
+  PayrollCommand, ProjectDetailsCommand, Promote, RateCardCommand,
+  ReviseRateCard, RollOff, RunPayroll, SalaryCommand, SetProjectRequirement,
+  SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
+  TimesheetCommand, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
+  UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -780,7 +781,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     OpRunPayroll -> {
       use period_from <- result.try(require_date(form.valid_from, "period from"))
       use period_to <- result.try(require_date(form.valid_to, "period to"))
-      Ok(RunPayroll(period_from:, period_to:))
+      Ok(PayrollCommand(RunPayroll(period_from:, period_to:)))
     }
     OpReviseRateCard -> {
       use level <- result.try(require_int(form.level, "level"))

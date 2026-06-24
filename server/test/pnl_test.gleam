@@ -28,8 +28,8 @@ import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
 import shared/types.{
   type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceCommand,
-  InvoiceDetail, InvoiceLine, IssueInvoice, Payroll, PayrollLine, PayrollRunInfo,
-  PnlRow, RunPayroll,
+  InvoiceDetail, InvoiceLine, IssueInvoice, Payroll, PayrollCommand, PayrollLine,
+  PayrollRunInfo, PnlRow, RunPayroll,
 }
 import tempo/server/command
 import tempo/server/context.{Context}
@@ -216,7 +216,10 @@ pub fn invoice_detail_unknown_id_is_not_found_test() {
 pub fn payroll_run_reconciles_preview_against_paid_test() {
   let run =
     rolling_back(fn(conn) {
-      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+      )
       let assert Ok(run) =
         finance_query.payroll(
           Context(db: conn),
@@ -252,7 +255,10 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
 pub fn pnl_totals_and_per_engineer_row_test() {
   let pnl =
     rolling_back(fn(conn) {
-      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+      )
       let _ = draft_and_issue(conn, 100, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
@@ -302,7 +308,10 @@ pub fn pnl_totals_and_per_engineer_row_test() {
 pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
   let pnl =
     rolling_back(fn(conn) {
-      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+      )
       // Draft the three invoices but DO NOT issue them.
       apply(
         conn,

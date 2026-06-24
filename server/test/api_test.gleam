@@ -515,10 +515,12 @@ pub fn operation_forbidden_for_unauthorized_role_is_403_test() {
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
       codecs.encode_operation_request(
-        types.OperationRequest(command: types.RunPayroll(
-          period_from: calendar.Date(2026, calendar.June, 1),
-          period_to: calendar.Date(2026, calendar.July, 1),
-        )),
+        types.OperationRequest(
+          command: types.PayrollCommand(types.RunPayroll(
+            period_from: calendar.Date(2026, calendar.June, 1),
+            period_to: calendar.Date(2026, calendar.July, 1),
+          )),
+        ),
       ),
     )
     |> simulate.session(login_request, login_response)

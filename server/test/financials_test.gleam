@@ -24,7 +24,8 @@ import pog
 import shared/codecs
 import shared/types.{
   type Command, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
-  RateCardCommand, ReviseRateCard, RunPayroll, SalaryCommand, SetSalary,
+  PayrollCommand, RateCardCommand, ReviseRateCard, RunPayroll, SalaryCommand,
+  SetSalary,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -628,7 +629,10 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
           <> ", 'annual', daterange('2026-06-16','2026-07-01'))",
       )
 
-      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+      )
       let run_id = run_id_covering(conn, Date(2026, June, 15))
       #(read_payroll_lines(conn, run_id, names), read_journal(conn), run_id)
     })
@@ -651,7 +655,7 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
     <> int.to_string(run_id)
     <> ")"
   assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+    == Ok(PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))))
 }
 
 // A second run whose period overlaps an existing run is rejected by the
@@ -669,11 +673,14 @@ pub fn running_payroll_twice_for_a_month_is_rejected_test() {
       employed_at(conn, engineer, "2026-01-01", "", level: 1, role_to: "")
 
       // First run for June succeeds; a second run for the same month must be refused.
-      apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+      )
       command.dispatch_in(
         conn,
         "tester",
-        RunPayroll(Date(2026, June, 1), Date(2026, July, 1)),
+        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
       )
     })
 

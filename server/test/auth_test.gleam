@@ -5,8 +5,8 @@
 
 import gleam/time/calendar
 import shared/types.{
-  EngineerCommand, LogTimesheet, Promote, RunPayroll, SalaryCommand, SetSalary,
-  TimesheetCommand,
+  EngineerCommand, LogTimesheet, PayrollCommand, Promote, RunPayroll,
+  SalaryCommand, SetSalary, TimesheetCommand,
 }
 import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
 
@@ -35,7 +35,7 @@ pub fn admin_may_run_financial_command_test() {
 // Ops is denied the financial commands but may run the rest.
 pub fn ops_is_denied_financial_but_allowed_operational_test() {
   let principal = Principal(actor: "Ops", role: Ops)
-  assert auth.authorize(principal, RunPayroll(date(), date()))
+  assert auth.authorize(principal, PayrollCommand(RunPayroll(date(), date())))
     == Error(Forbidden(actor: "Ops", command: "run_payroll"))
   assert auth.authorize(
       principal,

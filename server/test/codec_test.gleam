@@ -23,12 +23,12 @@ import shared/types.{
   EngineerContact, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
   ForecastMonth, Invoice, InvoiceCommand, InvoiceDetail, InvoiceLine,
   IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek, OnLeave,
-  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
-  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, RateCardCommand, Ref,
-  ReviseRateCard, RollOff, Roster, RunPayroll, SalaryCommand,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetEntry,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
+  PayrollCommand, PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement,
+  Promote, RateCardCommand, Ref, ReviseRateCard, RollOff, Roster, RunPayroll,
+  SalaryCommand, SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
   UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
   UpdateEmergencyContact,
 }
@@ -678,7 +678,10 @@ pub fn command_pay_invoice_round_trips_test() {
 
 pub fn command_run_payroll_round_trips_test() {
   let original =
-    RunPayroll(period_from: Date(2026, June, 1), period_to: Date(2026, July, 1))
+    PayrollCommand(RunPayroll(
+      period_from: Date(2026, June, 1),
+      period_to: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
