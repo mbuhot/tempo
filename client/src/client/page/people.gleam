@@ -44,8 +44,8 @@ import shared/types.{
   type EngineerDetail, type PeopleList, type PersonRow, type Ref, type Roster,
   type TimesheetEntry, type TimesheetWeek, AllocationRow, Employment,
   EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency,
-  LeaveBalance, LogWeek, PeopleList, TimesheetCell, TimesheetEntry,
-  TimesheetWeekRow,
+  LeaveBalance, LogWeek, PeopleList, TimesheetCell, TimesheetCommand,
+  TimesheetEntry, TimesheetWeekRow,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -425,7 +425,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         DetailView(engineer_id:, timesheet: TimesheetLoaded(week:, edits:), ..) -> #(
           model,
           api.submit_operation(
-            LogWeek(engineer_id:, entries: week_entries(week, edits)),
+            TimesheetCommand(LogWeek(
+              engineer_id:,
+              entries: week_entries(week, edits),
+            )),
             OperationReturned,
           ),
           [],

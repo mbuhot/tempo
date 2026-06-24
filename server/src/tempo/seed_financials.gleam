@@ -55,7 +55,8 @@ import gleam/time/calendar.{
 import gleam/time/timestamp
 import shared/types.{
   type Command, type Invoice, type TimesheetEntry, DraftInvoice, EngineerCommand,
-  IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll, TimesheetEntry,
+  IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll, TimesheetCommand,
+  TimesheetEntry,
 }
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
@@ -191,7 +192,7 @@ fn log_all_timesheets(ctx: Context) -> Nil {
           let submitted_on = day_index_to_date(int.min(monday + 4, period_end))
           apply(
             ctx,
-            LogWeek(engineer_id: worker.engineer_id, entries:),
+            TimesheetCommand(LogWeek(engineer_id: worker.engineer_id, entries:)),
             submitted_on,
           )
         }

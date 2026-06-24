@@ -6,6 +6,7 @@
 import gleam/time/calendar
 import shared/types.{
   EngineerCommand, LogTimesheet, Promote, RunPayroll, SetSalary,
+  TimesheetCommand,
 }
 import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
 
@@ -35,7 +36,12 @@ pub fn ops_is_denied_financial_but_allowed_operational_test() {
     == Error(Forbidden(actor: "Ops", command: "run_payroll"))
   assert auth.authorize(
       principal,
-      LogTimesheet(engineer_id: 2, project_id: 300, day: date(), hours: 7.5),
+      TimesheetCommand(LogTimesheet(
+        engineer_id: 2,
+        project_id: 300,
+        day: date(),
+        hours: 7.5,
+      )),
     )
     == Ok("Ops")
 }

@@ -20,8 +20,9 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, type TimesheetEntry, type TimesheetWeek, type TimesheetWeekRow,
-  TimesheetCell, TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
+  type TimesheetCommand, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, LogTimesheet, LogWeek, TimesheetCell, TimesheetCommand,
+  TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/fact.{type Recorded, Recorded}
@@ -30,11 +31,21 @@ import tempo/server/sql
 
 // --- dispatch ---------------------------------------------------------------
 
+/// Route a timesheet command to its operation, returning the audit entry and the
+/// facts it records. Exhaustive over `TimesheetCommand`.
+pub fn route(command: TimesheetCommand) -> Result(Recorded, OperationError) {
+  case command {
+    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
+      log_timesheet(command, engineer_id:, project_id:, day:, hours:)
+    LogWeek(engineer_id:, entries:) -> log_week(command, engineer_id:, entries:)
+  }
+}
+
 /// Record one `EngineerWorkedHours` fact, with its journal entry. A day not covered
 /// by an allocation trips the timesheet PERIOD FK, which `repository` classifies as
 /// the unified `ContainmentViolated`.
 pub fn log_timesheet(
-  command: Command,
+  command: TimesheetCommand,
   engineer_id engineer_id: Int,
   project_id project_id: Int,
   day day: Date,
@@ -52,7 +63,7 @@ pub fn log_timesheet(
           <> int.to_string(project_id)
           <> " on "
           <> operation.iso(day),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(TimesheetCommand(command)),
       ),
       facts: [
         fact.EngineerWorkedHours(
@@ -70,7 +81,7 @@ pub fn log_timesheet(
 /// `command.dispatch` records them in its single transaction (short-circuiting on
 /// the first rejection), so every entry commits or none.
 pub fn log_week(
-  command: Command,
+  command: TimesheetCommand,
   engineer_id engineer_id: Int,
   entries entries: List(TimesheetEntry),
 ) -> Result(Recorded, OperationError) {
@@ -92,7 +103,7 @@ pub fn log_week(
         <> " ("
         <> int.to_string(list.length(entries))
         <> " entries)",
-      payload: codecs.encode_command(command),
+      payload: codecs.encode_command(TimesheetCommand(command)),
     ),
     facts: worked_hours,
   ))

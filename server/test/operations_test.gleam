@@ -33,7 +33,7 @@ import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
   ChangeAllocationFraction, EngagementCommand, EngineerCommand, LogTimesheet,
   OnboardEngineer, Promote, ReviseRateCard, RollOff, SetProjectRequirement,
-  SetSalary, SignContract, StartProject, TerminateEmployment,
+  SetSalary, SignContract, StartProject, TerminateEmployment, TimesheetCommand,
   UpdateClientProfile,
 }
 import tempo/server/command
@@ -839,7 +839,15 @@ pub fn log_timesheet_through_dispatch_persists_and_journals_test() {
           Date(2027, January, 1),
         )),
       )
-      apply(conn, LogTimesheet(engineer_id, 80_011, Date(2026, March, 10), 7.5))
+      apply(
+        conn,
+        TimesheetCommand(LogTimesheet(
+          engineer_id,
+          80_011,
+          Date(2026, March, 10),
+          7.5,
+        )),
+      )
       let where_ts =
         "engineer_id = "
         <> int.to_string(engineer_id)
@@ -875,7 +883,12 @@ pub fn log_timesheet_without_allocation_is_containment_violated_test() {
       command.dispatch_in(
         conn,
         "tester",
-        LogTimesheet(engineer_id, 80_012, Date(2026, March, 10), 8.0),
+        TimesheetCommand(LogTimesheet(
+          engineer_id,
+          80_012,
+          Date(2026, March, 10),
+          8.0,
+        )),
       )
     })
 

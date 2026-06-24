@@ -13,6 +13,7 @@ import shared/codecs/base
 import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
 import shared/codecs/leave as leave_codec
+import shared/codecs/timesheet as timesheet_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
   type ClientList, type ClientListRow, type ClientProfile, type ClientProjectRow,
@@ -26,24 +27,23 @@ import shared/types.{
   type ProjectListRow, type ProjectPlan, type ProjectProfile,
   type ProjectRequirement, type RateCardRow, type Ref, type RoleVersion,
   type Roster, type RosterStatus, type SalaryRow, type Settings, type TeamMember,
-  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
-  type TimesheetWeekRow, type UnstaffedProject, type WriteRequest,
-  AdjustRateForPortion, AllocationCommand, AllocationRow, BoardRow,
-  BoardSnapshot, ClientDetail, ClientList, ClientListRow, ClientProfile,
-  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngagementCommand,
-  EngineerBanking, EngineerCommand, EngineerContact, EngineerDetail,
-  EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow,
-  LeaveRecord, LogTimesheet, LogWeek, OnLeave, OnProject, OperationRequest,
-  PayInvoice, Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl,
-  PnlRow, ProjectDetail, ProjectList, ProjectListRow, ProjectPlan,
-  ProjectProfile, ProjectRequirement, RateCardRow, Ref, ReviseRateCard,
-  RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
-  RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, TeamMember,
-  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
-  UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  type TimesheetCell, type TimesheetWeek, type TimesheetWeekRow,
+  type UnstaffedProject, type WriteRequest, AdjustRateForPortion,
+  AllocationCommand, AllocationRow, BoardRow, BoardSnapshot, ClientDetail,
+  ClientList, ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
+  DraftInvoice, Employment, EngagementCommand, EngineerBanking, EngineerCommand,
+  EngineerContact, EngineerDetail, EngineerEmergency, Event, Forecast,
+  ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
+  LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave, OnProject,
+  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, PeopleList,
+  PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
+  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardRow, Ref,
+  ReviseRateCard, RoleVersion, Roster, RosterOnLeave, RosterOnProjects,
+  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary,
+  Settings, TeamMember, TerminateEmployment, TimesheetCell, TimesheetCommand,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -284,28 +284,6 @@ pub fn timesheet_week_decoder() -> Decoder(TimesheetWeek) {
   use days <- decode.field("days", decode.list(date_decoder()))
   use rows <- decode.field("rows", decode.list(timesheet_week_row_decoder()))
   decode.success(TimesheetWeek(engineer_id:, week_start:, days:, rows:))
-}
-
-// --- TimesheetEntry ---------------------------------------------------------
-// One (project, day) cell of a `LogWeek` submission.
-
-/// Encode a `TimesheetEntry` (one cell of a week submission) as a JSON object.
-pub fn encode_timesheet_entry(entry: TimesheetEntry) -> Json {
-  let TimesheetEntry(project_id:, day:, hours:) = entry
-  json.object([
-    #("project_id", json.int(project_id)),
-    #("day", encode_date(day)),
-    #("hours", json.float(hours)),
-  ])
-}
-
-/// Decode a `TimesheetEntry` from a JSON object. `hours` is read leniently (a JS
-/// client may serialise a whole `Float` as an integer-looking number).
-pub fn timesheet_entry_decoder() -> Decoder(TimesheetEntry) {
-  use project_id <- decode.field("project_id", decode.int)
-  use day <- decode.field("day", date_decoder())
-  use hours <- decode.field("hours", lenient_float_decoder())
-  decode.success(TimesheetEntry(project_id:, day:, hours:))
 }
 
 // --- Ref ---------------------------------------------------------------------
@@ -580,14 +558,7 @@ pub fn encode_command(command: Command) -> Json {
     AllocationCommand(command) -> allocation_codec.encode(command)
     EngagementCommand(command) -> engagement_codec.encode(command)
     LeaveCommand(command) -> leave_codec.encode(command)
-    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
-      json.object([
-        #("op", json.string("log_timesheet")),
-        #("engineer_id", json.int(engineer_id)),
-        #("project_id", json.int(project_id)),
-        #("day", encode_date(day)),
-        #("hours", json.float(hours)),
-      ])
+    TimesheetCommand(command) -> timesheet_codec.encode(command)
     UpdateContactDetails(
       engineer_id:,
       name:,
@@ -661,12 +632,6 @@ pub fn encode_command(command: Command) -> Json {
         #("budget", json.float(budget)),
         #("target_completion", encode_date(target_completion)),
         #("effective", encode_date(effective)),
-      ])
-    LogWeek(engineer_id:, entries:) ->
-      json.object([
-        #("op", json.string("log_week")),
-        #("engineer_id", json.int(engineer_id)),
-        #("entries", json.array(entries, encode_timesheet_entry)),
       ])
 
     ReviseRateCard(level:, day_rate:, effective:) ->
@@ -744,6 +709,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(allocation_codec.decoder(op), AllocationCommand)
   use <- try_group(engagement_codec.decoder(op), EngagementCommand)
   use <- try_group(leave_codec.decoder(op), LeaveCommand)
+  use <- try_group(timesheet_codec.decoder(op), TimesheetCommand)
   Error(Nil)
 }
 
@@ -770,13 +736,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "log_timesheet" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use project_id <- decode.field("project_id", decode.int)
-          use day <- decode.field("day", date_decoder())
-          use hours <- decode.field("hours", lenient_float_decoder())
-          decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
-        }
         "update_contact_details" -> {
           use engineer_id <- decode.field("engineer_id", decode.int)
           use name <- decode.field("name", decode.string)
@@ -857,14 +816,6 @@ pub fn command_decoder() -> Decoder(Command) {
             target_completion:,
             effective:,
           ))
-        }
-        "log_week" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use entries <- decode.field(
-            "entries",
-            decode.list(timesheet_entry_decoder()),
-          )
-          decode.success(LogWeek(engineer_id:, entries:))
         }
 
         "revise_rate_card" -> {

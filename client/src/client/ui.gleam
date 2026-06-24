@@ -37,9 +37,9 @@ import shared/types.{
   EngineerCommand, IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer,
   PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
-  UpdateProjectProfile,
+  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -660,7 +660,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     }
     OpLogWeek -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
-      Ok(LogWeek(engineer_id:, entries: []))
+      Ok(TimesheetCommand(LogWeek(engineer_id:, entries: [])))
     }
     OpSignContract -> {
       use client <- result.try(require_text(form.client, "client"))

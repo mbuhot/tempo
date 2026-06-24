@@ -236,6 +236,15 @@ pub type LeaveCommand {
   TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
 }
 
+pub type TimesheetCommand {
+  /// Log hours an engineer worked on a project on a day.
+  LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+  /// Log a whole week's hours atomically: each entry sets one (project, day) cell
+  /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
+  /// none.
+  LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -263,9 +272,8 @@ pub type Command {
   AllocationCommand(AllocationCommand)
   EngagementCommand(EngagementCommand)
   LeaveCommand(LeaveCommand)
+  TimesheetCommand(TimesheetCommand)
 
-  /// Log hours an engineer worked on a project on a day.
-  LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
   /// Record new contact details for an engineer effective from a date: close
   /// the `engineer_contact` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `name`/`email`/`phone`/`postal_address` (a
@@ -329,11 +337,6 @@ pub type Command {
     target_completion: Date,
     effective: Date,
   )
-  /// Log a whole week's hours atomically: each entry sets one (project, day) cell
-  /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
-  /// none.
-  LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
-
   /// Publish a new day rate for a level effective from a date.
   ReviseRateCard(level: Int, day_rate: Float, effective: Date)
   /// Bump a level's day rate for a bounded window, splitting the rate-card row

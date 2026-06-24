@@ -239,12 +239,12 @@ pub fn log_timesheet_operation_logs_hours_test() {
   let response =
     post_operation(
       context,
-      types.LogTimesheet(
+      types.TimesheetCommand(types.LogTimesheet(
         engineer_id: 2,
         project_id: 300,
         day: calendar.Date(2026, calendar.June, 10),
         hours: 7.5,
-      ),
+      )),
     )
 
   let status = response.status
@@ -287,18 +287,20 @@ pub fn log_week_operation_logs_two_cells_test() {
   let response =
     post_operation(
       context,
-      types.LogWeek(engineer_id: 2, entries: [
-        types.TimesheetEntry(
-          project_id: 300,
-          day: calendar.Date(2026, calendar.June, 8),
-          hours: 5.0,
-        ),
-        types.TimesheetEntry(
-          project_id: 300,
-          day: calendar.Date(2026, calendar.June, 9),
-          hours: 6.0,
-        ),
-      ]),
+      types.TimesheetCommand(
+        types.LogWeek(engineer_id: 2, entries: [
+          types.TimesheetEntry(
+            project_id: 300,
+            day: calendar.Date(2026, calendar.June, 8),
+            hours: 5.0,
+          ),
+          types.TimesheetEntry(
+            project_id: 300,
+            day: calendar.Date(2026, calendar.June, 9),
+            hours: 6.0,
+          ),
+        ]),
+      ),
     )
 
   let status = response.status
@@ -386,12 +388,12 @@ pub fn operation_containment_violation_is_conflict_test() {
   let response =
     post_operation(
       context,
-      types.LogTimesheet(
+      types.TimesheetCommand(types.LogTimesheet(
         engineer_id: 2,
         project_id: 100,
         day: calendar.Date(2026, calendar.June, 10),
         hours: 8.0,
-      ),
+      )),
     )
 
   assert response.status == 409

@@ -26,9 +26,9 @@ import shared/types.{
   PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref,
   ReviseRateCard, RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary,
   SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -465,12 +465,12 @@ pub fn command_take_leave_round_trips_test() {
 
 pub fn command_log_timesheet_round_trips_test() {
   let original =
-    LogTimesheet(
+    TimesheetCommand(LogTimesheet(
       engineer_id: 1,
       project_id: 100,
       day: Date(2026, June, 9),
       hours: 4.0,
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -480,10 +480,12 @@ pub fn command_log_timesheet_round_trips_test() {
 // entries. The `op` tag must reconstruct the variant and the nested entry list.
 pub fn command_log_week_round_trips_test() {
   let original =
-    LogWeek(engineer_id: 1, entries: [
-      TimesheetEntry(project_id: 100, day: Date(2026, June, 8), hours: 5.0),
-      TimesheetEntry(project_id: 200, day: Date(2026, June, 9), hours: 0.0),
-    ])
+    TimesheetCommand(
+      LogWeek(engineer_id: 1, entries: [
+        TimesheetEntry(project_id: 100, day: Date(2026, June, 8), hours: 5.0),
+        TimesheetEntry(project_id: 200, day: Date(2026, June, 9), hours: 0.0),
+      ]),
+    )
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

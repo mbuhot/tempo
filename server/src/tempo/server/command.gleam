@@ -23,8 +23,8 @@ import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AllocationCommand,
   DraftInvoice, EngagementCommand, EngineerCommand, IssueInvoice, LeaveCommand,
-  LogTimesheet, LogWeek, PayInvoice, ReviseRateCard, RunPayroll,
-  SetProjectRequirement, SetSalary, UpdateBankingDetails, UpdateClientProfile,
+  PayInvoice, ReviseRateCard, RunPayroll, SetProjectRequirement, SetSalary,
+  TimesheetCommand, UpdateBankingDetails, UpdateClientProfile,
   UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
   UpdateProjectProfile,
 }
@@ -116,6 +116,7 @@ fn route(
     AllocationCommand(command) -> allocation.route(conn, command)
     EngagementCommand(command) -> engagement.route(conn, command)
     LeaveCommand(command) -> leave.route(conn, command)
+    TimesheetCommand(command) -> timesheet.route(command)
     UpdateContactDetails(
       engineer_id:,
       name:,
@@ -219,11 +220,6 @@ fn route(
         valid_from:,
         valid_to:,
       )
-
-    LogTimesheet(engineer_id:, project_id:, day:, hours:) ->
-      timesheet.log_timesheet(command, engineer_id:, project_id:, day:, hours:)
-    LogWeek(engineer_id:, entries:) ->
-      timesheet.log_week(command, engineer_id:, entries:)
 
     SetSalary(level:, monthly_salary:, effective:) ->
       salary.set_salary(command, level:, monthly_salary:, effective:)
