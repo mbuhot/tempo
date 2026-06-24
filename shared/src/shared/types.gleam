@@ -352,6 +352,19 @@ pub type PayrollCommand {
   RunPayroll(period_from: Date, period_to: Date)
 }
 
+pub type ProjectRequirementCommand {
+  /// Set a project's capacity requirement (demand) at a level for a bounded
+  /// window: a FOR-PORTION-OF write on `(project_id, level)`, splitting the
+  /// requirement row into before/during/after. `quantity` is fractional FTE.
+  SetProjectRequirement(
+    project_id: Int,
+    level: Int,
+    quantity: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -387,17 +400,7 @@ pub type Command {
   SalaryCommand(SalaryCommand)
   InvoiceCommand(InvoiceCommand)
   PayrollCommand(PayrollCommand)
-
-  /// Set a project's capacity requirement (demand) at a level for a bounded
-  /// window: a FOR-PORTION-OF write on `(project_id, level)`, splitting the
-  /// requirement row into before/during/after. `quantity` is fractional FTE.
-  SetProjectRequirement(
-    project_id: Int,
-    level: Int,
-    quantity: Float,
-    valid_from: Date,
-    valid_to: Date,
-  )
+  ProjectRequirementCommand(ProjectRequirementCommand)
 }
 
 /// The POST /api/operations request body: just the `Command` to apply. The

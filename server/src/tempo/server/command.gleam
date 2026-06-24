@@ -23,8 +23,8 @@ import pog
 import shared/types.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
-  LeaveCommand, PayrollCommand, ProjectDetailsCommand, RateCardCommand,
-  SalaryCommand, SetProjectRequirement, TimesheetCommand,
+  LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
+  RateCardCommand, SalaryCommand, TimesheetCommand,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -119,25 +119,9 @@ fn route(
     ClientDetailsCommand(command) -> client_details.route(command)
     ProjectDetailsCommand(command) -> project_details.route(command)
     RateCardCommand(command) -> rate_card.route(command)
-
-    SetProjectRequirement(
-      project_id:,
-      level:,
-      quantity:,
-      valid_from:,
-      valid_to:,
-    ) ->
-      project_requirement.set_project_requirement(
-        command,
-        project_id:,
-        level:,
-        quantity:,
-        valid_from:,
-        valid_to:,
-      )
-
     SalaryCommand(command) -> salary.route(command)
     InvoiceCommand(command) -> invoice.route(conn, command)
     PayrollCommand(command) -> payroll.route(conn, command)
+    ProjectRequirementCommand(command) -> project_requirement.route(command)
   }
 }

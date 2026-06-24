@@ -13,14 +13,41 @@ import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type ProjectRequirementCommand, ProjectRequirementCommand,
+  SetProjectRequirement,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
+
+/// Route a project-requirement command to its operation, returning the audit entry
+/// and the facts it records. Exhaustive over `ProjectRequirementCommand`.
+pub fn route(
+  command: ProjectRequirementCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    SetProjectRequirement(
+      project_id:,
+      level:,
+      quantity:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      set_project_requirement(
+        command,
+        project_id:,
+        level:,
+        quantity:,
+        valid_from:,
+        valid_to:,
+      )
+  }
+}
 
 /// Set a project's capacity requirement for a bounded window `[valid_from, valid_to)`,
 /// with the journal entry.
 pub fn set_project_requirement(
-  command: Command,
+  command: ProjectRequirementCommand,
   project_id project_id: Int,
   level level: Int,
   quantity quantity: Float,
@@ -39,7 +66,7 @@ pub fn set_project_requirement(
           <> int.to_string(project_id)
           <> " over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(ProjectRequirementCommand(command)),
       ),
       facts: [
         fact.ProjectRequirement(

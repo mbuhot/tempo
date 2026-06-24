@@ -36,12 +36,12 @@ import shared/types.{
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
   IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer, PayInvoice,
-  PayrollCommand, ProjectDetailsCommand, Promote, RateCardCommand,
-  ReviseRateCard, RollOff, RunPayroll, SalaryCommand, SetProjectRequirement,
-  SetSalary, SignContract, StartProject, TakeLeave, TerminateEmployment,
-  TimesheetCommand, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
-  UpdateProjectProfile,
+  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand, Promote,
+  RateCardCommand, ReviseRateCard, RollOff, RunPayroll, SalaryCommand,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -818,13 +818,15 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use quantity <- result.try(require_float(form.fraction, "quantity"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(SetProjectRequirement(
-        project_id:,
-        level:,
-        quantity:,
-        valid_from:,
-        valid_to:,
-      ))
+      Ok(
+        ProjectRequirementCommand(SetProjectRequirement(
+          project_id:,
+          level:,
+          quantity:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
   }
 }

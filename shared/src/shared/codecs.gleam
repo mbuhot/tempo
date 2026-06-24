@@ -18,6 +18,7 @@ import shared/codecs/invoice as invoice_codec
 import shared/codecs/leave as leave_codec
 import shared/codecs/payroll as payroll_codec
 import shared/codecs/project_details as project_details_codec
+import shared/codecs/project_requirement as project_requirement_codec
 import shared/codecs/rate_card as rate_card_codec
 import shared/codecs/salary as salary_codec
 import shared/codecs/timesheet as timesheet_codec
@@ -45,10 +46,10 @@ import shared/types.{
   OperationRequest, Payroll, PayrollCommand, PayrollLine, PayrollRunInfo,
   PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand,
   ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
-  RateCardCommand, RateCardRow, Ref, RoleVersion, Roster, RosterOnLeave,
-  RosterOnProjects, RosterUnassigned, SalaryCommand, SalaryRow,
-  SetProjectRequirement, Settings, TeamMember, TerminateEmployment,
-  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  ProjectRequirementCommand, RateCardCommand, RateCardRow, Ref, RoleVersion,
+  Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned, SalaryCommand,
+  SalaryRow, Settings, TeamMember, TerminateEmployment, TimesheetCell,
+  TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
   UnstaffedProject, WriteRequest,
 }
 
@@ -572,28 +573,15 @@ pub fn encode_command(command: Command) -> Json {
     SalaryCommand(command) -> salary_codec.encode(command)
     InvoiceCommand(command) -> invoice_codec.encode(command)
     PayrollCommand(command) -> payroll_codec.encode(command)
-    SetProjectRequirement(
-      project_id:,
-      level:,
-      quantity:,
-      valid_from:,
-      valid_to:,
-    ) ->
-      json.object([
-        #("op", json.string("set_project_requirement")),
-        #("project_id", json.int(project_id)),
-        #("level", json.int(level)),
-        #("quantity", json.float(quantity)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
+    ProjectRequirementCommand(command) ->
+      project_requirement_codec.encode(command)
   }
 }
 
 /// Try each per-handler command codec in turn for `op`, wrapping its decoder into
-/// the `Command` union; `Error(Nil)` when no aggregate owns the op (so the caller
-/// falls back to the still-flat commands). Each extracted aggregate adds one
-/// `use <- try_group(...)` line here.
+/// the `Command` union; `Error(Nil)` when no aggregate owns the op. Every command is
+/// owned by a per-aggregate codec, so this is the whole dispatch — one
+/// `use <- try_group(...)` line per aggregate.
 fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engineer_codec.decoder(op), EngineerCommand)
   use <- try_group(allocation_codec.decoder(op), AllocationCommand)
@@ -607,6 +595,10 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(salary_codec.decoder(op), SalaryCommand)
   use <- try_group(invoice_codec.decoder(op), InvoiceCommand)
   use <- try_group(payroll_codec.decoder(op), PayrollCommand)
+  use <- try_group(
+    project_requirement_codec.decoder(op),
+    ProjectRequirementCommand,
+  )
   Error(Nil)
 }
 
@@ -632,30 +624,13 @@ pub fn command_decoder() -> Decoder(Command) {
   case grouped_command_decoder(op) {
     Ok(decoder) -> decoder
     Error(Nil) ->
-      case op {
-        "set_project_requirement" -> {
-          use project_id <- decode.field("project_id", decode.int)
-          use level <- decode.field("level", decode.int)
-          use quantity <- decode.field("quantity", lenient_float_decoder())
-          use valid_from <- decode.field("valid_from", date_decoder())
-          use valid_to <- decode.field("valid_to", date_decoder())
-          decode.success(SetProjectRequirement(
-            project_id:,
-            level:,
-            quantity:,
-            valid_from:,
-            valid_to:,
-          ))
-        }
-        _ ->
-          decode.failure(
-            EngineerCommand(TerminateEmployment(
-              engineer_id: 0,
-              effective: base.zero_date(),
-            )),
-            "Command",
-          )
-      }
+      decode.failure(
+        EngineerCommand(TerminateEmployment(
+          engineer_id: 0,
+          effective: base.zero_date(),
+        )),
+        "Command",
+      )
   }
 }
 

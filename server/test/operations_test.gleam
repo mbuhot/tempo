@@ -32,10 +32,10 @@ import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
   ChangeAllocationFraction, ClientDetailsCommand, EngagementCommand,
-  EngineerCommand, LogTimesheet, OnboardEngineer, Promote, RateCardCommand,
-  ReviseRateCard, RollOff, SalaryCommand, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TerminateEmployment, TimesheetCommand,
-  UpdateClientProfile,
+  EngineerCommand, LogTimesheet, OnboardEngineer, ProjectRequirementCommand,
+  Promote, RateCardCommand, ReviseRateCard, RollOff, SalaryCommand,
+  SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TerminateEmployment, TimesheetCommand, UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -1168,13 +1168,13 @@ pub fn set_project_requirement_for_portion_splits_three_ways_test() {
       // Set 1 FTE for the bounded window [Apr, Jul) only.
       apply(
         conn,
-        SetProjectRequirement(
+        ProjectRequirementCommand(SetProjectRequirement(
           80_020,
           3,
           1.0,
           Date(2026, April, 1),
           Date(2026, July, 1),
-        ),
+        )),
       )
       read_periods(
         conn,

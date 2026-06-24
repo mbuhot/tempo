@@ -25,12 +25,12 @@ import shared/types.{
   IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek, OnLeave,
   OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
   PayrollCommand, PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement,
-  Promote, RateCardCommand, Ref, ReviseRateCard, RollOff, Roster, RunPayroll,
-  SalaryCommand, SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetCommand,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  ProjectRequirementCommand, Promote, RateCardCommand, Ref, ReviseRateCard,
+  RollOff, Roster, RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
+  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
+  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
+  UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -1085,13 +1085,13 @@ pub fn engineer_emergency_round_trips_test() {
 
 pub fn command_set_project_requirement_round_trips_test() {
   let original =
-    SetProjectRequirement(
+    ProjectRequirementCommand(SetProjectRequirement(
       project_id: 500,
       level: 3,
       quantity: 2.0,
       valid_from: Date(2026, August, 1),
       valid_to: Date(2027, January, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
