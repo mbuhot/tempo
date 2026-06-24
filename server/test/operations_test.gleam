@@ -259,7 +259,8 @@ pub fn promote_splits_covering_version_but_preserves_scheduled_future_test() {
           <> int.to_string(engineer_id)
           <> ", 6, daterange('2026-10-01', NULL, '[)'))",
       )
-      // Promote to L5 effective mid-year — lands inside the L4 version only.
+      // Promote to L5 effective mid-year with no upper bound — asserts L5 from
+      // July to infinity, so the scheduled L6 from Oct is superseded.
       apply(conn, Promote(engineer_id, 5, Date(2026, July, 1)))
       #(
         read_periods(
@@ -273,12 +274,12 @@ pub fn promote_splits_covering_version_but_preserves_scheduled_future_test() {
       )
     })
 
-  // L4 leftover [Jan,Jul), bumped L5 [Jul,Oct), untouched scheduled L6 [Oct,∞).
+  // L4 leftover [Jan,Jul), L5 open-ended [Jul,∞) — scheduled L6 superseded
+  // because the promote carries no upper bound (valid to infinity).
   assert roles
     == [
       Period("4", "2026-01-01", "2026-07-01"),
-      Period("5", "2026-07-01", "2026-10-01"),
-      Period("6", "2026-10-01", ""),
+      Period("5", "2026-07-01", ""),
     ]
   // Exactly one journal row (its summary/payload are pinned by the dedicated
   // payload test, which knows the minted engineer id).
@@ -426,6 +427,81 @@ pub fn terminate_employment_rejected_when_timesheet_outlives_end_test() {
 
   assert outcome
     == Error(operation.ContainmentViolated("timesheet_within_allocation"))
+}
+
+// Terminating employment deletes scheduled future role and allocation rows that
+// start after the termination date, not just caps rows straddling the date.
+pub fn terminate_employment_deletes_scheduled_future_facts_test() {
+  let #(roles, allocation, employment) =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Hedy Lamarr")
+      let client_id = insert_client(conn, "Frequency Labs")
+      let where_eng = "engineer_id = " <> int.to_string(engineer_id)
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES "
+          <> "("
+          <> int.to_string(engineer_id)
+          <> ", 5, daterange('2026-01-01','2026-09-01')), "
+          <> "("
+          <> int.to_string(engineer_id)
+          <> ", 6, daterange('2026-09-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO contract (id) VALUES (90003)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90003, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80003)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80003, 'Spread Spectrum', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80003, 90003, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", 80003, 1.00, daterange('2026-01-01', NULL, '[)'))",
+      )
+      // Terminate at Mar 1: clips L5 [Jan,Sep) to [Jan,Mar), deletes the
+      // scheduled L6 [Sep,∞) entirely, and caps the allocation to [Jan,Mar).
+      apply(conn, TerminateEmployment(engineer_id, Date(2026, March, 1)))
+      #(
+        read_periods(
+          conn,
+          "engineer_role",
+          "level::text",
+          "held_during",
+          where_eng,
+        ),
+        read_periods(
+          conn,
+          "allocation",
+          "fraction::text",
+          "allocated_during",
+          where_eng <> " AND project_id = 80003",
+        ),
+        read_periods(conn, "employment", "''", "employed_during", where_eng),
+      )
+    })
+
+  assert roles == [Period("5", "2026-01-01", "2026-03-01")]
+  assert allocation == [Period("1.00", "2026-01-01", "2026-03-01")]
+  assert employment == [Period("", "2026-01-01", "2026-03-01")]
 }
 
 // --- retroactive change covering the whole fact erases the prior value -------

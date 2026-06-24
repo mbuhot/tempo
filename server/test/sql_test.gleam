@@ -17,9 +17,20 @@ import pog
 import tempo/server/sql
 import test_pool
 
-/// A seeded event_log id to satisfy the audit_id FK on the write fixtures below
-/// (these test the SQL mechanics, not provenance). The seed always has entry 1.
-const seed_audit_id = 1
+fn mint_audit_id(conn: pog.Connection) -> Int {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(id)
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "INSERT INTO event_log (actor, operation, summary, payload) VALUES ('test', 'test', 'test', '{}') RETURNING id",
+    )
+    |> pog.returning(decoder)
+    |> pog.execute(on: conn)
+  let assert [id] = returned.rows
+  id
+}
 
 // --- connection -------------------------------------------------------------
 
@@ -299,13 +310,14 @@ pub fn timesheet_write_is_an_upsert_test() {
   let week_start = Date(2026, June, 8)
   let hours_after =
     run_rolling_back(fn(conn) {
+      let audit_id = mint_audit_id(conn)
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
       let assert Ok(_) =
-        sql.timesheet_write(conn, 2, 300, day, 6.0, seed_audit_id)
+        sql.timesheet_write(conn, 2, 300, day, 6.0, audit_id)
       // Re-entry with a corrected value, same code path.
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
       let assert Ok(_) =
-        sql.timesheet_write(conn, 2, 300, day, 8.0, seed_audit_id)
+        sql.timesheet_write(conn, 2, 300, day, 8.0, audit_id)
       let assert Ok(week) = sql.timesheet_week(conn, 2, week_start)
       week.rows
       |> list.filter(fn(row) { row.project_id == 300 && row.day == day })
@@ -336,7 +348,7 @@ pub fn rate_card_for_portion_of_splits_test() {
           Date(2026, August, 1),
           950.0,
           4,
-          seed_audit_id,
+          mint_audit_id(conn),
         )
       Nil
     })

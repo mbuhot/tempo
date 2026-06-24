@@ -673,13 +673,11 @@ ORDER BY name;
   |> pog.execute(db)
 }
 
-/// client_profile_upsert.sql — record a client profile (the NAME) from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new name + audit_id on the [$2, NULL) portion of the covering version, and
-/// PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If
-/// no version covers $2 (the founding write) the Change touches nothing, so the guarded
-/// INSERT opens the first [$2, NULL) span instead. $1 = client_id, $2 = effective,
-/// $3 = name, $4 = audit_id.
+/// client_profile_upsert.sql — record a client profile from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts [$2, NULL) with the new name. Passing NULL
+/// as the upper bound asserts the new name holds to infinity, superseding any scheduled
+/// future versions. $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -689,35 +687,29 @@ pub fn client_profile_upsert(
   client_id: Int,
   arg_2: Date,
   arg_3: String,
-  audit_id: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- client_profile_upsert.sql — record a client profile (the NAME) from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new name + audit_id on the [$2, NULL) portion of the covering version, and
--- PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If
--- no version covers $2 (the founding write) the Change touches nothing, so the guarded
--- INSERT opens the first [$2, NULL) span instead. $1 = client_id, $2 = effective,
--- $3 = name, $4 = audit_id.
-WITH changed AS (
-  UPDATE client_profile
+  "-- client_profile_upsert.sql — record a client profile from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts [$2, NULL) with the new name. Passing NULL
+-- as the upper bound asserts the new name holds to infinity, superseding any scheduled
+-- future versions. $1 = client_id, $2 = effective, $3 = name, $4 = audit_id.
+WITH deleted AS (
+  DELETE FROM client_profile
      FOR PORTION OF recorded_during FROM $2::date TO NULL
-     SET name = $3, audit_id = $4
    WHERE client_id = $1
-     AND recorded_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO client_profile
   (client_id, name, recorded_during, audit_id)
-SELECT $1, $3, daterange($2::date, NULL, '[)'), $4
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, daterange($2::date, NULL, '[)'), $4);
 "
   |> pog.query
   |> pog.parameter(pog.int(client_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1143,14 +1135,12 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_banking_upsert.sql — record banking details from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
-/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
-/// If no version covers $2 (the founding write) the Change touches nothing, so the
-/// guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
-/// $2 = effective, $3 = bank, $4 = branch, $5 = account_no, $6 = account_name,
-/// $7 = audit_id.
+/// engineer_banking_upsert.sql — record banking details from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+/// as the upper bound asserts the new details hold to infinity, superseding any scheduled
+/// future versions. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
+/// $5 = account_no, $6 = account_name, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1163,30 +1153,24 @@ pub fn engineer_banking_upsert(
   arg_4: String,
   arg_5: String,
   arg_6: String,
-  audit_id: Int,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_banking_upsert.sql — record banking details from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
--- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
--- If no version covers $2 (the founding write) the Change touches nothing, so the
--- guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
--- $2 = effective, $3 = bank, $4 = branch, $5 = account_no, $6 = account_name,
--- $7 = audit_id.
-WITH changed AS (
-  UPDATE engineer_banking
+  "-- engineer_banking_upsert.sql — record banking details from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+-- as the upper bound asserts the new details hold to infinity, superseding any scheduled
+-- future versions. $1 = engineer_id, $2 = effective, $3 = bank, $4 = branch,
+-- $5 = account_no, $6 = account_name, $7 = audit_id.
+WITH deleted AS (
+  DELETE FROM engineer_banking
      FOR PORTION OF recorded_during FROM $2::date TO NULL
-     SET bank = $3, branch = $4, account_no = $5, account_name = $6, audit_id = $7
    WHERE engineer_id = $1
-     AND recorded_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO engineer_banking
   (engineer_id, bank, branch, account_no, account_name, recorded_during, audit_id)
-SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1195,7 +1179,7 @@ WHERE NOT EXISTS (SELECT 1 FROM changed);
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.text(arg_6))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1262,13 +1246,12 @@ WHERE id = $1;
   |> pog.execute(db)
 }
 
-/// engineer_contact_upsert.sql — record contact details from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
-/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
-/// If no version covers $2 (the founding write at onboard) the Change touches nothing,
-/// so the guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
-/// $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
+/// engineer_contact_upsert.sql — record contact details from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+/// as the upper bound asserts the new details hold to infinity, superseding any scheduled
+/// future versions. $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone,
+/// $6 = postal, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1281,29 +1264,24 @@ pub fn engineer_contact_upsert(
   arg_4: String,
   arg_5: String,
   arg_6: String,
-  audit_id: Int,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_contact_upsert.sql — record contact details from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
--- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
--- If no version covers $2 (the founding write at onboard) the Change touches nothing,
--- so the guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
--- $2 = effective, $3 = name, $4 = email, $5 = phone, $6 = postal, $7 = audit_id.
-WITH changed AS (
-  UPDATE engineer_contact
+  "-- engineer_contact_upsert.sql — record contact details from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+-- as the upper bound asserts the new details hold to infinity, superseding any scheduled
+-- future versions. $1 = engineer_id, $2 = effective, $3 = name, $4 = email, $5 = phone,
+-- $6 = postal, $7 = audit_id.
+WITH deleted AS (
+  DELETE FROM engineer_contact
      FOR PORTION OF recorded_during FROM $2::date TO NULL
-     SET name = $3, email = $4, phone = $5, postal_address = $6, audit_id = $7
    WHERE engineer_id = $1
-     AND recorded_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO engineer_contact
   (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
-SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1312,7 +1290,7 @@ WHERE NOT EXISTS (SELECT 1 FROM changed);
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.text(arg_6))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1412,13 +1390,12 @@ ORDER BY engineer_id, lower(recorded_during) DESC;
   |> pog.execute(db)
 }
 
-/// engineer_emergency_upsert.sql — record an emergency contact from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
-/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
-/// If no version covers $2 (the founding write) the Change touches nothing, so the
-/// guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
-/// $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
+/// engineer_emergency_upsert.sql — record an emergency contact from $2 onward
+/// (delete-then-insert semantics). The temporal DELETE clips the row covering $2 to
+/// [start, $2) and removes any rows that start at or after $2, then inserts [$2, NULL)
+/// with the new values. Passing NULL as the upper bound asserts the new contact holds to
+/// infinity, superseding any scheduled future versions. $1 = engineer_id, $2 = effective,
+/// $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -1431,29 +1408,24 @@ pub fn engineer_emergency_upsert(
   arg_4: String,
   arg_5: String,
   arg_6: String,
-  audit_id: Int,
+  arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_emergency_upsert.sql — record an emergency contact from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
--- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
--- If no version covers $2 (the founding write) the Change touches nothing, so the
--- guarded INSERT opens the first [$2, NULL) span instead. $1 = engineer_id,
--- $2 = effective, $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
-WITH changed AS (
-  UPDATE engineer_emergency
+  "-- engineer_emergency_upsert.sql — record an emergency contact from $2 onward
+-- (delete-then-insert semantics). The temporal DELETE clips the row covering $2 to
+-- [start, $2) and removes any rows that start at or after $2, then inserts [$2, NULL)
+-- with the new values. Passing NULL as the upper bound asserts the new contact holds to
+-- infinity, superseding any scheduled future versions. $1 = engineer_id, $2 = effective,
+-- $3 = relation, $4 = name, $5 = phone, $6 = email, $7 = audit_id.
+WITH deleted AS (
+  DELETE FROM engineer_emergency
      FOR PORTION OF recorded_during FROM $2::date TO NULL
-     SET relation = $3, name = $4, phone = $5, email = $6, audit_id = $7
    WHERE engineer_id = $1
-     AND recorded_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO engineer_emergency
   (engineer_id, relation, name, phone, email, recorded_during, audit_id)
-SELECT $1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, $4, $5, $6, daterange($2::date, NULL, '[)'), $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -1462,7 +1434,7 @@ WHERE NOT EXISTS (SELECT 1 FROM changed);
   |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.text(arg_5))
   |> pog.parameter(pog.text(arg_6))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1723,12 +1695,10 @@ ORDER BY lower(engineer_role.held_during);
   |> pog.execute(db)
 }
 
-/// engineer_role_upsert.sql — record an engineer's level from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new level + audit_id on the [$2, NULL) portion of the role in effect, and
-/// PG re-inserts the [start, $2) leftover at the OLD level AND its original audit_id. If
-/// no role covers $2 (the founding write at onboard) the Change touches nothing, so the
-/// guarded INSERT opens the first [$2, NULL) span — contained by employment via the
+/// engineer_role_upsert.sql — record an engineer's level from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts a new row bounded by employment's upper end.
+/// This supersedes any scheduled future roles within employment while respecting the
 /// engineer_role_within_employment PERIOD FK. $1 = engineer_id, $2 = effective,
 /// $3 = level, $4 = audit_id.
 ///
@@ -1740,35 +1710,32 @@ pub fn engineer_role_upsert(
   engineer_id: Int,
   arg_2: Date,
   arg_3: Int,
-  audit_id: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- engineer_role_upsert.sql — record an engineer's level from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new level + audit_id on the [$2, NULL) portion of the role in effect, and
--- PG re-inserts the [start, $2) leftover at the OLD level AND its original audit_id. If
--- no role covers $2 (the founding write at onboard) the Change touches nothing, so the
--- guarded INSERT opens the first [$2, NULL) span — contained by employment via the
+  "-- engineer_role_upsert.sql — record an engineer's level from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts a new row bounded by employment's upper end.
+-- This supersedes any scheduled future roles within employment while respecting the
 -- engineer_role_within_employment PERIOD FK. $1 = engineer_id, $2 = effective,
 -- $3 = level, $4 = audit_id.
-WITH changed AS (
-  UPDATE engineer_role
+WITH deleted AS (
+  DELETE FROM engineer_role
      FOR PORTION OF held_during FROM $2::date TO NULL
-     SET level = $3, audit_id = $4
    WHERE engineer_id = $1
-     AND held_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
-SELECT $1, $3, daterange($2::date, NULL, '[)'), $4
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+SELECT $1, $3, daterange($2::date, upper(employed_during), '[)'), $4
+FROM employment
+WHERE engineer_id = $1
+  AND employed_during @> $2::date;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.int(arg_3))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -4746,13 +4713,12 @@ ORDER BY project_id, lower(planned_during) DESC;
   |> pog.execute(db)
 }
 
-/// project_plan_upsert.sql — record a project plan from $2 onward in one statement (the
-/// temporal upsert). The writable CTE runs the Change: FOR PORTION OF sets the new
-/// values + audit_id on the [$2, NULL) portion of the covering version, and PG carves
-/// off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If no version
-/// covers $2 (the founding write at start_project) the Change touches nothing, so the
-/// guarded INSERT opens the first [$2, NULL) span instead. $1 = project_id,
-/// $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
+/// project_plan_upsert.sql — record a project plan from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+/// as the upper bound asserts the new plan holds to infinity, superseding any scheduled
+/// future versions. $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion,
+/// $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -4763,47 +4729,40 @@ pub fn project_plan_upsert(
   arg_2: Date,
   arg_3: Float,
   arg_4: Date,
-  audit_id: Int,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_plan_upsert.sql — record a project plan from $2 onward in one statement (the
--- temporal upsert). The writable CTE runs the Change: FOR PORTION OF sets the new
--- values + audit_id on the [$2, NULL) portion of the covering version, and PG carves
--- off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id. If no version
--- covers $2 (the founding write at start_project) the Change touches nothing, so the
--- guarded INSERT opens the first [$2, NULL) span instead. $1 = project_id,
--- $2 = effective, $3 = budget, $4 = target_completion, $5 = audit_id.
-WITH changed AS (
-  UPDATE project_plan
+  "-- project_plan_upsert.sql — record a project plan from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+-- as the upper bound asserts the new plan holds to infinity, superseding any scheduled
+-- future versions. $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion,
+-- $5 = audit_id.
+WITH deleted AS (
+  DELETE FROM project_plan
      FOR PORTION OF planned_during FROM $2::date TO NULL
-     SET budget = $3, target_completion = $4::date, audit_id = $5
    WHERE project_id = $1
-     AND planned_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO project_plan
   (project_id, budget, target_completion, planned_during, audit_id)
-SELECT $1, $3, $4::date, daterange($2::date, NULL, '[)'), $5
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, $4::date, daterange($2::date, NULL, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.float(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
 
-/// project_profile_upsert.sql — record a project profile from $2 onward in one
-/// statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
-/// sets the new values + audit_id on the [$2, NULL) portion of the covering version,
-/// and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
-/// If no version covers $2 (the founding write at start_project) the Change touches
-/// nothing, so the guarded INSERT opens the first [$2, NULL) span instead.
-/// $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
+/// project_profile_upsert.sql — record a project profile from $2 onward (delete-then-insert
+/// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+/// rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+/// as the upper bound asserts the new profile holds to infinity, superseding any scheduled
+/// future versions. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -4814,36 +4773,30 @@ pub fn project_profile_upsert(
   arg_2: Date,
   arg_3: String,
   arg_4: String,
-  audit_id: Int,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- project_profile_upsert.sql — record a project profile from $2 onward in one
--- statement (the temporal upsert). The writable CTE runs the Change: FOR PORTION OF
--- sets the new values + audit_id on the [$2, NULL) portion of the covering version,
--- and PG carves off the unchanged [start, $2) remainder keeping its ORIGINAL audit_id.
--- If no version covers $2 (the founding write at start_project) the Change touches
--- nothing, so the guarded INSERT opens the first [$2, NULL) span instead.
--- $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
-WITH changed AS (
-  UPDATE project_profile
+  "-- project_profile_upsert.sql — record a project profile from $2 onward (delete-then-insert
+-- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
+-- rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
+-- as the upper bound asserts the new profile holds to infinity, superseding any scheduled
+-- future versions. $1 = project_id, $2 = effective, $3 = title, $4 = summary, $5 = audit_id.
+WITH deleted AS (
+  DELETE FROM project_profile
      FOR PORTION OF recorded_during FROM $2::date TO NULL
-     SET title = $3, summary = $4, audit_id = $5
    WHERE project_id = $1
-     AND recorded_during @> $2::date
-  RETURNING 1
 )
 INSERT INTO project_profile
   (project_id, title, summary, recorded_during, audit_id)
-SELECT $1, $3, $4, daterange($2::date, NULL, '[)'), $5
-WHERE NOT EXISTS (SELECT 1 FROM changed);
+VALUES ($1, $3, $4, daterange($2::date, NULL, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
