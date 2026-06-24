@@ -34,8 +34,8 @@ import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
   AssignToProject, ChangeAllocationFraction, DraftInvoice, EngagementCommand,
-  EngineerCommand, IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer,
-  PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
+  EngineerCommand, EngineerDetailsCommand, IssueInvoice, LeaveCommand, LogWeek,
+  OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
   SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
   TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
   UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
@@ -611,14 +611,16 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "postal address",
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateContactDetails(
-        engineer_id:,
-        name:,
-        email:,
-        phone:,
-        postal_address:,
-        effective:,
-      ))
+      Ok(
+        EngineerDetailsCommand(UpdateContactDetails(
+          engineer_id:,
+          name:,
+          email:,
+          phone:,
+          postal_address:,
+          effective:,
+        )),
+      )
     }
     OpUpdateBanking -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
@@ -633,14 +635,16 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "account name",
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateBankingDetails(
-        engineer_id:,
-        bank:,
-        branch:,
-        account_no:,
-        account_name:,
-        effective:,
-      ))
+      Ok(
+        EngineerDetailsCommand(UpdateBankingDetails(
+          engineer_id:,
+          bank:,
+          branch:,
+          account_no:,
+          account_name:,
+          effective:,
+        )),
+      )
     }
     OpUpdateEmergency -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
@@ -649,14 +653,16 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use phone <- result.try(require_text(form.emergency_phone, "phone"))
       use email <- result.try(require_text(form.emergency_email, "email"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(UpdateEmergencyContact(
-        engineer_id:,
-        relation:,
-        name:,
-        phone:,
-        email:,
-        effective:,
-      ))
+      Ok(
+        EngineerDetailsCommand(UpdateEmergencyContact(
+          engineer_id:,
+          relation:,
+          name:,
+          phone:,
+          email:,
+          effective:,
+        )),
+      )
     }
     OpLogWeek -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))

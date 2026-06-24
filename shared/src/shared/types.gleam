@@ -245,35 +245,7 @@ pub type TimesheetCommand {
   LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
 }
 
-/// The typed command vocabulary (the write model). One variant per business
-/// operation: the client encodes a `Command`, the server decodes the same value
-/// and dispatches it to the matching temporal write, then re-encodes it as the
-/// `event_log` payload. Defined in `shared` so both ends agree on the contract.
-///
-/// The variants group into the four write patterns:
-///   * Assert — `OnboardEngineer`, `SignContract`, `StartProject`,
-///     `AssignToProject`, `TakeLeave`, `LogTimesheet`, `DraftInvoice`,
-///     `RunPayroll`: plain inserts (the financial pair also compute their lines).
-///   * Change — `Promote`, `ChangeAllocationFraction`, `ReviseRateCard`,
-///     `SetSalary`, `IssueInvoice`, `PayInvoice`: "publish a new version effective
-///     from a date" (`FOR PORTION OF … TO NULL`); the invoice transitions cap the
-///     current status row and assert the next.
-///   * Surgical — `AdjustRateForPortion`: bump a level's rate for a bounded
-///     window (`FOR PORTION OF … FROM a TO b`).
-///   * Close / cascade — `RollOff`, `TerminateEmployment`:
-///     `DELETE … FOR PORTION OF`.
-///
-/// Date fields carry domain meaning: `effective` is the open-ended "from here on"
-/// pivot of a change/close; `valid_from`/`valid_to` bound an asserted or surgical
-/// period. Levels and ids are `Int`, fraction/hours/rate/salary are `Float`, and
-/// name/kind/client are `String`.
-pub type Command {
-  EngineerCommand(EngineerCommand)
-  AllocationCommand(AllocationCommand)
-  EngagementCommand(EngagementCommand)
-  LeaveCommand(LeaveCommand)
-  TimesheetCommand(TimesheetCommand)
-
+pub type EngineerDetailsCommand {
   /// Record new contact details for an engineer effective from a date: close
   /// the `engineer_contact` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `name`/`email`/`phone`/`postal_address` (a
@@ -310,6 +282,38 @@ pub type Command {
     email: String,
     effective: Date,
   )
+}
+
+/// The typed command vocabulary (the write model). One variant per business
+/// operation: the client encodes a `Command`, the server decodes the same value
+/// and dispatches it to the matching temporal write, then re-encodes it as the
+/// `event_log` payload. Defined in `shared` so both ends agree on the contract.
+///
+/// The variants group into the four write patterns:
+///   * Assert — `OnboardEngineer`, `SignContract`, `StartProject`,
+///     `AssignToProject`, `TakeLeave`, `LogTimesheet`, `DraftInvoice`,
+///     `RunPayroll`: plain inserts (the financial pair also compute their lines).
+///   * Change — `Promote`, `ChangeAllocationFraction`, `ReviseRateCard`,
+///     `SetSalary`, `IssueInvoice`, `PayInvoice`: "publish a new version effective
+///     from a date" (`FOR PORTION OF … TO NULL`); the invoice transitions cap the
+///     current status row and assert the next.
+///   * Surgical — `AdjustRateForPortion`: bump a level's rate for a bounded
+///     window (`FOR PORTION OF … FROM a TO b`).
+///   * Close / cascade — `RollOff`, `TerminateEmployment`:
+///     `DELETE … FOR PORTION OF`.
+///
+/// Date fields carry domain meaning: `effective` is the open-ended "from here on"
+/// pivot of a change/close; `valid_from`/`valid_to` bound an asserted or surgical
+/// period. Levels and ids are `Int`, fraction/hours/rate/salary are `Float`, and
+/// name/kind/client are `String`.
+pub type Command {
+  EngineerCommand(EngineerCommand)
+  AllocationCommand(AllocationCommand)
+  EngagementCommand(EngagementCommand)
+  LeaveCommand(LeaveCommand)
+  TimesheetCommand(TimesheetCommand)
+  EngineerDetailsCommand(EngineerDetailsCommand)
+
   /// Record a new profile for a client effective from a date: close the
   /// `client_profile` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only

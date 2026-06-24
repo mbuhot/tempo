@@ -22,11 +22,10 @@ import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AllocationCommand,
-  DraftInvoice, EngagementCommand, EngineerCommand, IssueInvoice, LeaveCommand,
-  PayInvoice, ReviseRateCard, RunPayroll, SetProjectRequirement, SetSalary,
-  TimesheetCommand, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
-  UpdateProjectProfile,
+  DraftInvoice, EngagementCommand, EngineerCommand, EngineerDetailsCommand,
+  IssueInvoice, LeaveCommand, PayInvoice, ReviseRateCard, RunPayroll,
+  SetProjectRequirement, SetSalary, TimesheetCommand, UpdateClientProfile,
+  UpdateProjectPlan, UpdateProjectProfile,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -117,58 +116,7 @@ fn route(
     EngagementCommand(command) -> engagement.route(conn, command)
     LeaveCommand(command) -> leave.route(conn, command)
     TimesheetCommand(command) -> timesheet.route(command)
-    UpdateContactDetails(
-      engineer_id:,
-      name:,
-      email:,
-      phone:,
-      postal_address:,
-      effective:,
-    ) ->
-      engineer_details.update_contact_details(
-        command,
-        engineer_id:,
-        name:,
-        email:,
-        phone:,
-        postal_address:,
-        effective:,
-      )
-    UpdateBankingDetails(
-      engineer_id:,
-      bank:,
-      branch:,
-      account_no:,
-      account_name:,
-      effective:,
-    ) ->
-      engineer_details.update_banking_details(
-        command,
-        engineer_id:,
-        bank:,
-        branch:,
-        account_no:,
-        account_name:,
-        effective:,
-      )
-    UpdateEmergencyContact(
-      engineer_id:,
-      relation:,
-      name:,
-      phone:,
-      email:,
-      effective:,
-    ) ->
-      engineer_details.update_emergency_contact(
-        command,
-        engineer_id:,
-        relation:,
-        name:,
-        phone:,
-        email:,
-        effective:,
-      )
-
+    EngineerDetailsCommand(command) -> engineer_details.route(command)
     UpdateClientProfile(client_id:, name:, effective:) ->
       client_details.update_client_profile(
         command,

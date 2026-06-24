@@ -11,13 +11,76 @@
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type EngineerDetailsCommand, EngineerDetailsCommand, UpdateBankingDetails,
+  UpdateContactDetails, UpdateEmergencyContact,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
+/// Route an engineer-details command to its operation, returning the audit entry and
+/// the facts it records. Exhaustive over `EngineerDetailsCommand`.
+pub fn route(
+  command: EngineerDetailsCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    UpdateContactDetails(
+      engineer_id:,
+      name:,
+      email:,
+      phone:,
+      postal_address:,
+      effective:,
+    ) ->
+      update_contact_details(
+        command,
+        engineer_id:,
+        name:,
+        email:,
+        phone:,
+        postal_address:,
+        effective:,
+      )
+    UpdateBankingDetails(
+      engineer_id:,
+      bank:,
+      branch:,
+      account_no:,
+      account_name:,
+      effective:,
+    ) ->
+      update_banking_details(
+        command,
+        engineer_id:,
+        bank:,
+        branch:,
+        account_no:,
+        account_name:,
+        effective:,
+      )
+    UpdateEmergencyContact(
+      engineer_id:,
+      relation:,
+      name:,
+      phone:,
+      email:,
+      effective:,
+    ) ->
+      update_emergency_contact(
+        command,
+        engineer_id:,
+        relation:,
+        name:,
+        phone:,
+        email:,
+        effective:,
+      )
+  }
+}
+
 /// Record new contact details from `effective` onward, with its journal entry.
 pub fn update_contact_details(
-  command: Command,
+  command: EngineerDetailsCommand,
   engineer_id engineer_id: Int,
   name name: String,
   email email: String,
@@ -35,7 +98,7 @@ pub fn update_contact_details(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerContactDetails(
@@ -53,7 +116,7 @@ pub fn update_contact_details(
 
 /// Record new banking details from `effective` onward, with its journal entry.
 pub fn update_banking_details(
-  command: Command,
+  command: EngineerDetailsCommand,
   engineer_id engineer_id: Int,
   bank bank: String,
   branch branch: String,
@@ -71,7 +134,7 @@ pub fn update_banking_details(
           <> bank
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerBankingDetails(
@@ -89,7 +152,7 @@ pub fn update_banking_details(
 
 /// Record a new emergency contact from `effective` onward, with its journal entry.
 pub fn update_emergency_contact(
-  command: Command,
+  command: EngineerDetailsCommand,
   engineer_id engineer_id: Int,
   relation relation: String,
   name name: String,
@@ -109,7 +172,7 @@ pub fn update_emergency_contact(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerEmergencyContact(

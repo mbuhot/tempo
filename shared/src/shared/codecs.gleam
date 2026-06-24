@@ -12,6 +12,7 @@ import shared/codecs/allocation as allocation_codec
 import shared/codecs/base
 import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
+import shared/codecs/engineer_details as engineer_details_codec
 import shared/codecs/leave as leave_codec
 import shared/codecs/timesheet as timesheet_codec
 import shared/types.{
@@ -32,18 +33,17 @@ import shared/types.{
   AllocationCommand, AllocationRow, BoardRow, BoardSnapshot, ClientDetail,
   ClientList, ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
   DraftInvoice, Employment, EngagementCommand, EngineerBanking, EngineerCommand,
-  EngineerContact, EngineerDetail, EngineerEmergency, Event, Forecast,
-  ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
-  LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave, OnProject,
-  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, PeopleList,
-  PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
+  EngineerContact, EngineerDetail, EngineerDetailsCommand, EngineerEmergency,
+  Event, Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine,
+  IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave,
+  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
+  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
   ProjectPlan, ProjectProfile, ProjectRequirement, RateCardRow, Ref,
   ReviseRateCard, RoleVersion, Roster, RosterOnLeave, RosterOnProjects,
   RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary,
   Settings, TeamMember, TerminateEmployment, TimesheetCell, TimesheetCommand,
   TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  UpdateClientProfile, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -559,57 +559,7 @@ pub fn encode_command(command: Command) -> Json {
     EngagementCommand(command) -> engagement_codec.encode(command)
     LeaveCommand(command) -> leave_codec.encode(command)
     TimesheetCommand(command) -> timesheet_codec.encode(command)
-    UpdateContactDetails(
-      engineer_id:,
-      name:,
-      email:,
-      phone:,
-      postal_address:,
-      effective:,
-    ) ->
-      json.object([
-        #("op", json.string("update_contact_details")),
-        #("engineer_id", json.int(engineer_id)),
-        #("name", json.string(name)),
-        #("email", json.string(email)),
-        #("phone", json.string(phone)),
-        #("postal_address", json.string(postal_address)),
-        #("effective", encode_date(effective)),
-      ])
-    UpdateBankingDetails(
-      engineer_id:,
-      bank:,
-      branch:,
-      account_no:,
-      account_name:,
-      effective:,
-    ) ->
-      json.object([
-        #("op", json.string("update_banking_details")),
-        #("engineer_id", json.int(engineer_id)),
-        #("bank", json.string(bank)),
-        #("branch", json.string(branch)),
-        #("account_no", json.string(account_no)),
-        #("account_name", json.string(account_name)),
-        #("effective", encode_date(effective)),
-      ])
-    UpdateEmergencyContact(
-      engineer_id:,
-      relation:,
-      name:,
-      phone:,
-      email:,
-      effective:,
-    ) ->
-      json.object([
-        #("op", json.string("update_emergency_contact")),
-        #("engineer_id", json.int(engineer_id)),
-        #("relation", json.string(relation)),
-        #("name", json.string(name)),
-        #("phone", json.string(phone)),
-        #("email", json.string(email)),
-        #("effective", encode_date(effective)),
-      ])
+    EngineerDetailsCommand(command) -> engineer_details_codec.encode(command)
     UpdateClientProfile(client_id:, name:, effective:) ->
       json.object([
         #("op", json.string("update_client_profile")),
@@ -710,6 +660,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engagement_codec.decoder(op), EngagementCommand)
   use <- try_group(leave_codec.decoder(op), LeaveCommand)
   use <- try_group(timesheet_codec.decoder(op), TimesheetCommand)
+  use <- try_group(engineer_details_codec.decoder(op), EngineerDetailsCommand)
   Error(Nil)
 }
 
@@ -736,54 +687,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "update_contact_details" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use name <- decode.field("name", decode.string)
-          use email <- decode.field("email", decode.string)
-          use phone <- decode.field("phone", decode.string)
-          use postal_address <- decode.field("postal_address", decode.string)
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateContactDetails(
-            engineer_id:,
-            name:,
-            email:,
-            phone:,
-            postal_address:,
-            effective:,
-          ))
-        }
-        "update_banking_details" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use bank <- decode.field("bank", decode.string)
-          use branch <- decode.field("branch", decode.string)
-          use account_no <- decode.field("account_no", decode.string)
-          use account_name <- decode.field("account_name", decode.string)
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateBankingDetails(
-            engineer_id:,
-            bank:,
-            branch:,
-            account_no:,
-            account_name:,
-            effective:,
-          ))
-        }
-        "update_emergency_contact" -> {
-          use engineer_id <- decode.field("engineer_id", decode.int)
-          use relation <- decode.field("relation", decode.string)
-          use name <- decode.field("name", decode.string)
-          use phone <- decode.field("phone", decode.string)
-          use email <- decode.field("email", decode.string)
-          use effective <- decode.field("effective", date_decoder())
-          decode.success(UpdateEmergencyContact(
-            engineer_id:,
-            relation:,
-            name:,
-            phone:,
-            email:,
-            effective:,
-          ))
-        }
         "update_client_profile" -> {
           use client_id <- decode.field("client_id", decode.int)
           use name <- decode.field("name", decode.string)

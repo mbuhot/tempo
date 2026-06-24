@@ -20,15 +20,16 @@ import shared/types.{
   AdjustRateForPortion, AllocationCommand, AssignToProject, BoardRow,
   BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
   EngagementCommand, EngineerBanking, EngineerCommand, EngineerContact,
-  EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
-  InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek,
-  OnLeave, OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
-  PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref,
-  ReviseRateCard, RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact,
+  EngineerDetailsCommand, EngineerEmergency, Event, Forecast, ForecastMonth,
+  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LeaveCommand,
+  LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer, OperationRequest,
+  PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl, PnlRow,
+  ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster, RunPayroll,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetEntry,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -568,14 +569,14 @@ pub fn command_terminate_employment_round_trips_test() {
 
 pub fn command_update_contact_details_round_trips_test() {
   let original =
-    UpdateContactDetails(
+    EngineerDetailsCommand(UpdateContactDetails(
       engineer_id: 1,
       name: "Priya Sharma",
       email: "priya.sharma@alembic.com.au",
       phone: "+61 400 000 001",
       postal_address: "1 Demo St, Brisbane",
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -583,14 +584,14 @@ pub fn command_update_contact_details_round_trips_test() {
 
 pub fn command_update_banking_details_round_trips_test() {
   let original =
-    UpdateBankingDetails(
+    EngineerDetailsCommand(UpdateBankingDetails(
       engineer_id: 2,
       bank: "Big Bank",
       branch: "062",
       account_no: "00123452",
       account_name: "Marcus Chen",
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -598,14 +599,14 @@ pub fn command_update_banking_details_round_trips_test() {
 
 pub fn command_update_emergency_contact_round_trips_test() {
   let original =
-    UpdateEmergencyContact(
+    EngineerDetailsCommand(UpdateEmergencyContact(
       engineer_id: 3,
       relation: "spouse",
       name: "Sam Okafor",
       phone: "+61 400 999 003",
       email: "sam.okafor@example.com",
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
