@@ -22,9 +22,9 @@ import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
-  DraftInvoice, EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  IssueInvoice, LeaveCommand, PayInvoice, ProjectDetailsCommand, RateCardCommand,
-  RunPayroll, SalaryCommand, SetProjectRequirement, TimesheetCommand,
+  EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
+  LeaveCommand, ProjectDetailsCommand, RateCardCommand, RunPayroll,
+  SalaryCommand, SetProjectRequirement, TimesheetCommand,
 }
 import tempo/server/allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -137,19 +137,7 @@ fn route(
       )
 
     SalaryCommand(command) -> salary.route(command)
-
-    DraftInvoice(project_id:, billing_from:, billing_to:) ->
-      invoice.draft_invoice(
-        conn,
-        command,
-        project_id:,
-        billing_from:,
-        billing_to:,
-      )
-    IssueInvoice(invoice_id:, at:) ->
-      invoice.issue_invoice(conn, command, invoice_id:, at:)
-    PayInvoice(invoice_id:, at:) ->
-      invoice.pay_invoice(conn, command, invoice_id:, at:)
+    InvoiceCommand(command) -> invoice.route(conn, command)
 
     RunPayroll(period_from:, period_to:) ->
       payroll.run_payroll(conn, command, period_from:, period_to:)

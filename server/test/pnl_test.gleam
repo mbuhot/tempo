@@ -27,8 +27,9 @@ import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
 import shared/types.{
-  type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, Payroll, PayrollLine, PayrollRunInfo, PnlRow, RunPayroll,
+  type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceCommand,
+  InvoiceDetail, InvoiceLine, IssueInvoice, Payroll, PayrollLine, PayrollRunInfo,
+  PnlRow, RunPayroll,
 }
 import tempo/server/command
 import tempo/server/context.{Context}
@@ -60,10 +61,14 @@ fn draft_and_issue(
 ) -> Int {
   apply(
     conn,
-    DraftInvoice(project_id, Date(2026, June, 1), Date(2026, July, 1)),
+    InvoiceCommand(DraftInvoice(
+      project_id,
+      Date(2026, June, 1),
+      Date(2026, July, 1),
+    )),
   )
   let invoice_id = newest_invoice_for_project(conn, project_id)
-  apply(conn, IssueInvoice(invoice_id, issue_on))
+  apply(conn, InvoiceCommand(IssueInvoice(invoice_id, issue_on)))
   invoice_id
 }
 
@@ -299,9 +304,30 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
     rolling_back(fn(conn) {
       apply(conn, RunPayroll(Date(2026, June, 1), Date(2026, July, 1)))
       // Draft the three invoices but DO NOT issue them.
-      apply(conn, DraftInvoice(100, Date(2026, June, 1), Date(2026, July, 1)))
-      apply(conn, DraftInvoice(200, Date(2026, June, 1), Date(2026, July, 1)))
-      apply(conn, DraftInvoice(300, Date(2026, June, 1), Date(2026, July, 1)))
+      apply(
+        conn,
+        InvoiceCommand(DraftInvoice(
+          100,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      apply(
+        conn,
+        InvoiceCommand(DraftInvoice(
+          200,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      apply(
+        conn,
+        InvoiceCommand(DraftInvoice(
+          300,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
       let assert Ok(pnl) =
         finance_query.pnl(Context(db: conn), Date(2026, June, 15))
       pnl

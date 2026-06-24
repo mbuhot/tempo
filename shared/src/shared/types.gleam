@@ -336,6 +336,16 @@ pub type SalaryCommand {
   SetSalary(level: Int, monthly_salary: Float, effective: Date)
 }
 
+pub type InvoiceCommand {
+  /// Draft an invoice for a project's billing month, computing its lines at the
+  /// contract-agreed rate (`rate_card` as of the contract's signing date).
+  DraftInvoice(project_id: Int, billing_from: Date, billing_to: Date)
+  /// Transition an invoice `draft -> issued` at a date (a temporal status change).
+  IssueInvoice(invoice_id: Int, at: Date)
+  /// Transition an invoice `issued -> paid` at a date (a temporal status change).
+  PayInvoice(invoice_id: Int, at: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -369,14 +379,8 @@ pub type Command {
   ProjectDetailsCommand(ProjectDetailsCommand)
   RateCardCommand(RateCardCommand)
   SalaryCommand(SalaryCommand)
+  InvoiceCommand(InvoiceCommand)
 
-  /// Draft an invoice for a project's billing month, computing its lines at the
-  /// contract-agreed rate (`rate_card` as of the contract's signing date).
-  DraftInvoice(project_id: Int, billing_from: Date, billing_to: Date)
-  /// Transition an invoice `draft -> issued` at a date (a temporal status change).
-  IssueInvoice(invoice_id: Int, at: Date)
-  /// Transition an invoice `issued -> paid` at a date (a temporal status change).
-  PayInvoice(invoice_id: Int, at: Date)
   /// Run payroll for a month, computing one prorated `payroll_line` per employed
   /// engineer (split by role so a mid-month promotion blends salaries).
   RunPayroll(period_from: Date, period_to: Date)

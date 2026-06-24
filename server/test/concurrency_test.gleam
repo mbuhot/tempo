@@ -22,7 +22,7 @@ import gleam/result
 import gleam/time/calendar.{Date, July, June}
 import pog
 import shared/types.{
-  type Command, type Event, LeaveCommand, PayInvoice, TakeLeave,
+  type Command, type Event, InvoiceCommand, LeaveCommand, PayInvoice, TakeLeave,
 }
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
@@ -99,7 +99,8 @@ pub fn concurrent_pay_invoice_only_one_wins_test() {
     <> "(90001, 'issued', daterange('2026-06-01', NULL, '[)'))",
   )
 
-  let pay = PayInvoice(invoice_id: 90_001, at: Date(2026, June, 1))
+  let pay =
+    InvoiceCommand(PayInvoice(invoice_id: 90_001, at: Date(2026, June, 1)))
   let outcomes = race(pay, pay)
 
   assert winners(outcomes) == 1

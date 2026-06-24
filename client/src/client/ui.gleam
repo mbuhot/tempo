@@ -34,13 +34,13 @@ import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
   AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
-  EngagementCommand, EngineerCommand, EngineerDetailsCommand, IssueInvoice,
-  LeaveCommand, LogWeek, OnboardEngineer, PayInvoice, ProjectDetailsCommand,
-  Promote, RateCardCommand, ReviseRateCard, RollOff, RunPayroll, SalaryCommand,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
-  UpdateProjectPlan, UpdateProjectProfile,
+  EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
+  IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer, PayInvoice,
+  ProjectDetailsCommand, Promote, RateCardCommand, ReviseRateCard, RollOff,
+  RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetCommand,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -765,17 +765,17 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "billing from",
       ))
       use billing_to <- result.try(require_date(form.valid_to, "billing to"))
-      Ok(DraftInvoice(project_id:, billing_from:, billing_to:))
+      Ok(InvoiceCommand(DraftInvoice(project_id:, billing_from:, billing_to:)))
     }
     OpIssueInvoice -> {
       use invoice_id <- result.try(require_int(form.invoice_id, "invoice id"))
       use at <- result.try(require_date(form.effective, "date"))
-      Ok(IssueInvoice(invoice_id:, at:))
+      Ok(InvoiceCommand(IssueInvoice(invoice_id:, at:)))
     }
     OpPayInvoice -> {
       use invoice_id <- result.try(require_int(form.invoice_id, "invoice id"))
       use at <- result.try(require_date(form.effective, "date"))
-      Ok(PayInvoice(invoice_id:, at:))
+      Ok(InvoiceCommand(PayInvoice(invoice_id:, at:)))
     }
     OpRunPayroll -> {
       use period_from <- result.try(require_date(form.valid_from, "period from"))

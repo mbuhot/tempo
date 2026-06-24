@@ -55,8 +55,8 @@ import gleam/time/calendar.{
 import gleam/time/timestamp
 import shared/types.{
   type Command, type Invoice, type TimesheetEntry, DraftInvoice, EngineerCommand,
-  IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll, TimesheetCommand,
-  TimesheetEntry,
+  InvoiceCommand, IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll,
+  TimesheetCommand, TimesheetEntry,
 }
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
@@ -347,17 +347,30 @@ fn bill_project(
 ) -> Nil {
   apply(
     ctx,
-    DraftInvoice(project_id:, billing_from: plan.from, billing_to: plan.to),
+    InvoiceCommand(DraftInvoice(
+      project_id:,
+      billing_from: plan.from,
+      billing_to: plan.to,
+    )),
     month_end,
   )
   case plan.issue {
     None -> Nil
     Some(issue_at) -> {
       let invoice_id = drafted_invoice_id(ctx, project_name, plan.from)
-      apply(ctx, IssueInvoice(invoice_id:, at: issue_at), issue_at)
+      apply(
+        ctx,
+        InvoiceCommand(IssueInvoice(invoice_id:, at: issue_at)),
+        issue_at,
+      )
       case plan.pay {
         None -> Nil
-        Some(pay_at) -> apply(ctx, PayInvoice(invoice_id:, at: pay_at), pay_at)
+        Some(pay_at) ->
+          apply(
+            ctx,
+            InvoiceCommand(PayInvoice(invoice_id:, at: pay_at)),
+            pay_at,
+          )
       }
     }
   }

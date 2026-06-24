@@ -19,11 +19,28 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type InvoiceCommand, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
 import tempo/server/sql
+
+/// Route an invoice command to its operation, returning the audit entry and the
+/// facts it records. Exhaustive over `InvoiceCommand`.
+pub fn route(
+  conn: pog.Connection,
+  command: InvoiceCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    DraftInvoice(project_id:, billing_from:, billing_to:) ->
+      draft_invoice(conn, command, project_id:, billing_from:, billing_to:)
+    IssueInvoice(invoice_id:, at:) ->
+      issue_invoice(conn, command, invoice_id:, at:)
+    PayInvoice(invoice_id:, at:) -> pay_invoice(conn, command, invoice_id:, at:)
+  }
+}
 
 /// Draft an invoice: reserve the id, compute the contract-agreed lines for the
 /// month, and record the anchor, subject, opening `draft` status (from
@@ -31,7 +48,7 @@ import tempo/server/sql
 /// FR-F4), and one line per row, with the journal entry.
 pub fn draft_invoice(
   conn: pog.Connection,
-  command: Command,
+  command: InvoiceCommand,
   project_id project_id: Int,
   billing_from billing_from: Date,
   billing_to billing_to: Date,
@@ -64,7 +81,7 @@ pub fn draft_invoice(
         <> int.to_string(id)
         <> ") over "
         <> operation.span(billing_from, billing_to),
-      payload: codecs.encode_command(command),
+      payload: codecs.encode_command(InvoiceCommand(command)),
     ),
     facts: list.flatten([
       [
@@ -85,7 +102,7 @@ pub fn draft_invoice(
 /// from `at`, with the journal entry.
 pub fn issue_invoice(
   conn: pog.Connection,
-  command: Command,
+  command: InvoiceCommand,
   invoice_id invoice_id: Int,
   at at: Date,
 ) -> Result(Recorded, OperationError) {
@@ -98,7 +115,7 @@ pub fn issue_invoice(
           <> int.to_string(invoice_id)
           <> " on "
           <> operation.iso(at),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(InvoiceCommand(command)),
       ),
       facts: [
         fact.InvoiceInStatus(
@@ -115,7 +132,7 @@ pub fn issue_invoice(
 /// `at`, with the journal entry.
 pub fn pay_invoice(
   conn: pog.Connection,
-  command: Command,
+  command: InvoiceCommand,
   invoice_id invoice_id: Int,
   at at: Date,
 ) -> Result(Recorded, OperationError) {
@@ -128,7 +145,7 @@ pub fn pay_invoice(
           <> int.to_string(invoice_id)
           <> " on "
           <> operation.iso(at),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(InvoiceCommand(command)),
       ),
       facts: [
         fact.InvoiceInStatus(

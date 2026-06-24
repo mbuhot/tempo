@@ -14,6 +14,7 @@ import shared/codecs/client_details as client_details_codec
 import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
 import shared/codecs/engineer_details as engineer_details_codec
+import shared/codecs/invoice as invoice_codec
 import shared/codecs/leave as leave_codec
 import shared/codecs/project_details as project_details_codec
 import shared/codecs/rate_card as rate_card_codec
@@ -35,19 +36,18 @@ import shared/types.{
   type TimesheetCell, type TimesheetWeek, type TimesheetWeekRow,
   type UnstaffedProject, type WriteRequest, AllocationCommand, AllocationRow,
   BoardRow, BoardSnapshot, ClientDetail, ClientDetailsCommand, ClientList,
-  ClientListRow, ClientProfile, ClientProjectRow, ContractRow, DraftInvoice,
-  Employment, EngagementCommand, EngineerBanking, EngineerCommand,
-  EngineerContact, EngineerDetail, EngineerDetailsCommand, EngineerEmergency,
-  Event, Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave,
-  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
-  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand,
-  ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
-  RateCardCommand, RateCardRow, Ref, RoleVersion, Roster, RosterOnLeave,
-  RosterOnProjects, RosterUnassigned, RunPayroll, SalaryCommand, SalaryRow,
-  SetProjectRequirement, Settings, TeamMember, TerminateEmployment,
-  TimesheetCell, TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, WriteRequest,
+  ClientListRow, ClientProfile, ClientProjectRow, ContractRow, Employment,
+  EngagementCommand, EngineerBanking, EngineerCommand, EngineerContact,
+  EngineerDetail, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
+  ForecastMonth, Invoice, InvoiceCommand, InvoiceDetail, InvoiceLine,
+  LeaveBalance, LeaveCommand, LeavePolicyRow, LeaveRecord, OnLeave, OnProject,
+  OperationRequest, Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow,
+  Pnl, PnlRow, ProjectDetail, ProjectDetailsCommand, ProjectList, ProjectListRow,
+  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardCommand, RateCardRow,
+  Ref, RoleVersion, Roster, RosterOnLeave, RosterOnProjects, RosterUnassigned,
+  RunPayroll, SalaryCommand, SalaryRow, SetProjectRequirement, Settings,
+  TeamMember, TerminateEmployment, TimesheetCell, TimesheetCommand,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -568,25 +568,7 @@ pub fn encode_command(command: Command) -> Json {
     ProjectDetailsCommand(command) -> project_details_codec.encode(command)
     RateCardCommand(command) -> rate_card_codec.encode(command)
     SalaryCommand(command) -> salary_codec.encode(command)
-    DraftInvoice(project_id:, billing_from:, billing_to:) ->
-      json.object([
-        #("op", json.string("draft_invoice")),
-        #("project_id", json.int(project_id)),
-        #("billing_from", encode_date(billing_from)),
-        #("billing_to", encode_date(billing_to)),
-      ])
-    IssueInvoice(invoice_id:, at:) ->
-      json.object([
-        #("op", json.string("issue_invoice")),
-        #("invoice_id", json.int(invoice_id)),
-        #("at", encode_date(at)),
-      ])
-    PayInvoice(invoice_id:, at:) ->
-      json.object([
-        #("op", json.string("pay_invoice")),
-        #("invoice_id", json.int(invoice_id)),
-        #("at", encode_date(at)),
-      ])
+    InvoiceCommand(command) -> invoice_codec.encode(command)
     RunPayroll(period_from:, period_to:) ->
       json.object([
         #("op", json.string("run_payroll")),
@@ -626,6 +608,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(project_details_codec.decoder(op), ProjectDetailsCommand)
   use <- try_group(rate_card_codec.decoder(op), RateCardCommand)
   use <- try_group(salary_codec.decoder(op), SalaryCommand)
+  use <- try_group(invoice_codec.decoder(op), InvoiceCommand)
   Error(Nil)
 }
 
@@ -652,22 +635,6 @@ pub fn command_decoder() -> Decoder(Command) {
     Ok(decoder) -> decoder
     Error(Nil) ->
       case op {
-        "draft_invoice" -> {
-          use project_id <- decode.field("project_id", decode.int)
-          use billing_from <- decode.field("billing_from", date_decoder())
-          use billing_to <- decode.field("billing_to", date_decoder())
-          decode.success(DraftInvoice(project_id:, billing_from:, billing_to:))
-        }
-        "issue_invoice" -> {
-          use invoice_id <- decode.field("invoice_id", decode.int)
-          use at <- decode.field("at", date_decoder())
-          decode.success(IssueInvoice(invoice_id:, at:))
-        }
-        "pay_invoice" -> {
-          use invoice_id <- decode.field("invoice_id", decode.int)
-          use at <- decode.field("at", date_decoder())
-          decode.success(PayInvoice(invoice_id:, at:))
-        }
         "run_payroll" -> {
           use period_from <- decode.field("period_from", date_decoder())
           use period_to <- decode.field("period_to", date_decoder())

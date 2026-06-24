@@ -23,8 +23,8 @@ import gleam/time/calendar.{type Date, August, Date, July, June, March}
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, DraftInvoice, IssueInvoice, PayInvoice, RateCardCommand,
-  ReviseRateCard, RunPayroll, SalaryCommand, SetSalary,
+  type Command, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
+  RateCardCommand, ReviseRateCard, RunPayroll, SalaryCommand, SetSalary,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -425,7 +425,11 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
       // Draft June 2026 — billed at the agreed (older) 800, not 9999.
       apply(
         conn,
-        DraftInvoice(80_101, Date(2026, June, 1), Date(2026, July, 1)),
+        InvoiceCommand(DraftInvoice(
+          80_101,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let invoice_id = invoice_id_for_project(conn, 80_101)
       #(
@@ -452,7 +456,13 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
     <> int.to_string(invoice_id)
     <> ") over 2026-06-01..2026-07-01"
   assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(DraftInvoice(project_id, Date(2026, June, 1), Date(2026, July, 1)))
+    == Ok(
+      InvoiceCommand(DraftInvoice(
+        project_id,
+        Date(2026, June, 1),
+        Date(2026, July, 1),
+      )),
+    )
 }
 
 // --- Issue / Pay — the temporal status lifecycle (FR-F3, FR-F4) --------------
@@ -475,12 +485,22 @@ pub fn issue_then_pay_moves_status_as_of_the_transition_dates_test() {
         )
       apply(
         conn,
-        DraftInvoice(80_102, Date(2026, June, 1), Date(2026, July, 1)),
+        InvoiceCommand(DraftInvoice(
+          80_102,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let invoice_id = invoice_id_for_project(conn, 80_102)
       // draft from Jun 1; issue Jul 15; pay Aug 15.
-      apply(conn, IssueInvoice(invoice_id, Date(2026, July, 15)))
-      apply(conn, PayInvoice(invoice_id, Date(2026, August, 15)))
+      apply(
+        conn,
+        InvoiceCommand(IssueInvoice(invoice_id, Date(2026, July, 15))),
+      )
+      apply(
+        conn,
+        InvoiceCommand(PayInvoice(invoice_id, Date(2026, August, 15))),
+      )
       #(
         // before the issue date: still draft
         status_as_of(conn, invoice_id, Date(2026, June, 20)),
@@ -516,14 +536,18 @@ pub fn pay_invoice_on_a_draft_is_rejected_as_out_of_order_test() {
         )
       apply(
         conn,
-        DraftInvoice(80_103, Date(2026, June, 1), Date(2026, July, 1)),
+        InvoiceCommand(DraftInvoice(
+          80_103,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let invoice_id = invoice_id_for_project(conn, 80_103)
       // Skip issuing — pay a draft directly.
       command.dispatch_in(
         conn,
         "tester",
-        PayInvoice(invoice_id, Date(2026, July, 15)),
+        InvoiceCommand(PayInvoice(invoice_id, Date(2026, July, 15))),
       )
     })
 

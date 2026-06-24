@@ -21,15 +21,16 @@ import shared/types.{
   BoardSnapshot, ChangeAllocationFraction, ClientDetailsCommand, ClientProfile,
   DraftInvoice, EngagementCommand, EngineerBanking, EngineerCommand,
   EngineerContact, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
-  ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
-  LeaveCommand, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
-  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
-  PnlRow, ProjectRequirement, Promote, RateCardCommand, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact,
+  ForecastMonth, Invoice, InvoiceCommand, InvoiceDetail, InvoiceLine,
+  IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek, OnLeave,
+  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
+  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, RateCardCommand, Ref,
+  ReviseRateCard, RollOff, Roster, RunPayroll, SalaryCommand,
+  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
+  TerminateEmployment, TimesheetCell, TimesheetCommand, TimesheetEntry,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -649,25 +650,27 @@ pub fn command_set_salary_round_trips_test() {
 
 pub fn command_draft_invoice_round_trips_test() {
   let original =
-    DraftInvoice(
+    InvoiceCommand(DraftInvoice(
       project_id: 200,
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
 }
 
 pub fn command_issue_invoice_round_trips_test() {
-  let original = IssueInvoice(invoice_id: 7, at: Date(2026, June, 30))
+  let original =
+    InvoiceCommand(IssueInvoice(invoice_id: 7, at: Date(2026, June, 30)))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
 }
 
 pub fn command_pay_invoice_round_trips_test() {
-  let original = PayInvoice(invoice_id: 7, at: Date(2026, July, 15))
+  let original =
+    InvoiceCommand(PayInvoice(invoice_id: 7, at: Date(2026, July, 15)))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
