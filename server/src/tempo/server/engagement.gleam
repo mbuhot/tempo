@@ -19,17 +19,33 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/codecs
-import shared/types.{type Command}
+import shared/types.{
+  type EngagementCommand, EngagementCommand, SignContract, StartProject,
+}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
+
+/// Route an engagement command to its operation, returning the audit entry and the
+/// facts it records. Exhaustive over `EngagementCommand`.
+pub fn route(
+  conn: pog.Connection,
+  command: EngagementCommand,
+) -> Result(Recorded, OperationError) {
+  case command {
+    SignContract(client:, valid_from:, valid_to:) ->
+      sign_contract(conn, command, client:, valid_from:, valid_to:)
+    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
+      start_project(conn, command, name:, contract_id:, valid_from:, valid_to:)
+  }
+}
 
 /// Sign a contract for a client over a term: reserve the contract id, then record
 /// the anchor and its founding terms (resolving the client by name), with the
 /// journal entry.
 pub fn sign_contract(
   conn: pog.Connection,
-  command: Command,
+  command: EngagementCommand,
   client client: String,
   valid_from valid_from: Date,
   valid_to valid_to: Date,
@@ -46,7 +62,7 @@ pub fn sign_contract(
           <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(EngagementCommand(command)),
       ),
       facts: [
         fact.ContractTerms(
@@ -65,7 +81,7 @@ pub fn sign_contract(
 /// journal entry.
 pub fn start_project(
   conn: pog.Connection,
-  command: Command,
+  command: EngagementCommand,
   name name: String,
   contract_id contract_id: Int,
   valid_from valid_from: Date,
@@ -85,7 +101,7 @@ pub fn start_project(
           <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(command),
+        payload: codecs.encode_command(EngagementCommand(command)),
       ),
       facts: [
         fact.ProjectRun(

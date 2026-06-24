@@ -224,6 +224,13 @@ pub type AllocationCommand {
   RollOff(engineer_id: Int, project_id: Int, effective: Date)
 }
 
+pub type EngagementCommand {
+  /// Open a contract term for a client.
+  SignContract(client: String, valid_from: Date, valid_to: Date)
+  /// Start a project under a contract for a bounded active period.
+  StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -249,13 +256,7 @@ pub type AllocationCommand {
 pub type Command {
   EngineerCommand(EngineerCommand)
   AllocationCommand(AllocationCommand)
-
-  /// Hire an engineer: create their identity, open-ended employment, and initial
-  /// role, all from `effective`.
-  /// Open a contract term for a client.
-  SignContract(client: String, valid_from: Date, valid_to: Date)
-  /// Start a project under a contract for a bounded active period.
-  StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
+  EngagementCommand(EngagementCommand)
 
   /// Put an engineer on leave of a kind for a period.
   TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)

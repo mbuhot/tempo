@@ -10,6 +10,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/codecs/allocation as allocation_codec
 import shared/codecs/base
+import shared/codecs/engagement as engagement_codec
 import shared/codecs/engineer as engineer_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
@@ -28,16 +29,16 @@ import shared/types.{
   type TimesheetWeekRow, type UnstaffedProject, type WriteRequest,
   AdjustRateForPortion, AllocationCommand, AllocationRow, BoardRow,
   BoardSnapshot, ClientDetail, ClientList, ClientListRow, ClientProfile,
-  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngineerBanking,
-  EngineerCommand, EngineerContact, EngineerDetail, EngineerEmergency, Event,
-  Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LeaveBalance, LeavePolicyRow, LeaveRecord, LogTimesheet, LogWeek, OnLeave,
-  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
-  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
-  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardRow, Ref,
-  ReviseRateCard, RoleVersion, Roster, RosterOnLeave, RosterOnProjects,
-  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary,
-  Settings, SignContract, StartProject, TakeLeave, TeamMember,
+  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngagementCommand,
+  EngineerBanking, EngineerCommand, EngineerContact, EngineerDetail,
+  EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
+  InvoiceLine, IssueInvoice, LeaveBalance, LeavePolicyRow, LeaveRecord,
+  LogTimesheet, LogWeek, OnLeave, OnProject, OperationRequest, PayInvoice,
+  Payroll, PayrollLine, PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow,
+  ProjectDetail, ProjectList, ProjectListRow, ProjectPlan, ProjectProfile,
+  ProjectRequirement, RateCardRow, Ref, ReviseRateCard, RoleVersion, Roster,
+  RosterOnLeave, RosterOnProjects, RosterUnassigned, RunPayroll, SalaryRow,
+  SetProjectRequirement, SetSalary, Settings, TakeLeave, TeamMember,
   TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
   TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
   UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
@@ -576,22 +577,7 @@ pub fn encode_command(command: Command) -> Json {
   case command {
     EngineerCommand(command) -> engineer_codec.encode(command)
     AllocationCommand(command) -> allocation_codec.encode(command)
-    SignContract(client:, valid_from:, valid_to:) ->
-      json.object([
-        #("op", json.string("sign_contract")),
-        #("client", json.string(client)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
-    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
-      json.object([
-        #("op", json.string("start_project")),
-        #("name", json.string(name)),
-        #("contract_id", json.int(contract_id)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
-
+    EngagementCommand(command) -> engagement_codec.encode(command)
     TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
       json.object([
         #("op", json.string("take_leave")),
@@ -755,35 +741,40 @@ pub fn encode_command(command: Command) -> Json {
   }
 }
 
+/// Try each per-handler command codec in turn for `op`, wrapping its decoder into
+/// the `Command` union; `Error(Nil)` when no aggregate owns the op (so the caller
+/// falls back to the still-flat commands). Each extracted aggregate adds one
+/// `use <- try_group(...)` line here.
+fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
+  use <- try_group(engineer_codec.decoder(op), EngineerCommand)
+  use <- try_group(allocation_codec.decoder(op), AllocationCommand)
+  use <- try_group(engagement_codec.decoder(op), EngagementCommand)
+  Error(Nil)
+}
+
+/// If `result` is a sub-codec decoder, wrap it into `Command` via `wrap`; otherwise
+/// run `otherwise` (the next group, or the flat fallback).
+fn try_group(
+  result: Result(Decoder(a), Nil),
+  wrap: fn(a) -> Command,
+  otherwise: fn() -> Result(Decoder(Command), Nil),
+) -> Result(Decoder(Command), Nil) {
+  case result {
+    Ok(decoder) -> Ok(decode.map(decoder, wrap))
+    Error(Nil) -> otherwise()
+  }
+}
+
 /// Decode a `Command` from its tagged JSON object. Pairs with `encode_command`:
 /// the `op` field selects the variant, and the remaining fields are read with the
 /// matching types (`Float`s leniently, since a JS client may serialise a whole
 /// `Float` as an integer-looking number).
 pub fn command_decoder() -> Decoder(Command) {
   use op <- decode.field("op", decode.string)
-  case engineer_codec.decoder(op), allocation_codec.decoder(op) {
-    Ok(decoder), _ -> decode.map(decoder, EngineerCommand)
-    _, Ok(decoder) -> decode.map(decoder, AllocationCommand)
-    Error(Nil), Error(Nil) ->
+  case grouped_command_decoder(op) {
+    Ok(decoder) -> decoder
+    Error(Nil) ->
       case op {
-        "sign_contract" -> {
-          use client <- decode.field("client", decode.string)
-          use valid_from <- decode.field("valid_from", date_decoder())
-          use valid_to <- decode.field("valid_to", date_decoder())
-          decode.success(SignContract(client:, valid_from:, valid_to:))
-        }
-        "start_project" -> {
-          use name <- decode.field("name", decode.string)
-          use contract_id <- decode.field("contract_id", decode.int)
-          use valid_from <- decode.field("valid_from", date_decoder())
-          use valid_to <- decode.field("valid_to", date_decoder())
-          decode.success(StartProject(
-            name:,
-            contract_id:,
-            valid_from:,
-            valid_to:,
-          ))
-        }
         "take_leave" -> {
           use engineer_id <- decode.field("engineer_id", decode.int)
           use kind <- decode.field("kind", decode.string)

@@ -31,9 +31,10 @@ import pog
 import shared/codecs
 import shared/types.{
   type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
-  ChangeAllocationFraction, EngineerCommand, LogTimesheet, OnboardEngineer,
-  Promote, ReviseRateCard, RollOff, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TerminateEmployment, UpdateClientProfile,
+  ChangeAllocationFraction, EngagementCommand, EngineerCommand, LogTimesheet,
+  OnboardEngineer, Promote, ReviseRateCard, RollOff, SetProjectRequirement,
+  SetSalary, SignContract, StartProject, TerminateEmployment,
+  UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -1189,18 +1190,22 @@ pub fn sign_contract_then_start_project_within_term_persists_test() {
       // Contract over [Jan 2026, Jan 2027).
       apply(
         conn,
-        SignContract("Initech", Date(2026, January, 1), Date(2027, January, 1)),
+        EngagementCommand(SignContract(
+          "Initech",
+          Date(2026, January, 1),
+          Date(2027, January, 1),
+        )),
       )
       let contract_id = contract_id_for_client(conn, client_id)
       // Project active [Mar, Oct) — inside the contract term.
       apply(
         conn,
-        StartProject(
+        EngagementCommand(StartProject(
           "TPS Reports",
           contract_id,
           Date(2026, March, 1),
           Date(2026, October, 1),
-        ),
+        )),
       )
       #(
         read_periods(
@@ -1242,19 +1247,23 @@ pub fn start_project_outside_contract_term_is_containment_violated_test() {
       // Contract bounded to [Jan, Jul) 2026.
       apply(
         conn,
-        SignContract("Hooli", Date(2026, January, 1), Date(2026, July, 1)),
+        EngagementCommand(SignContract(
+          "Hooli",
+          Date(2026, January, 1),
+          Date(2026, July, 1),
+        )),
       )
       let contract_id = contract_id_for_client(conn, client_id)
       // Project active [Mar, Oct) — runs past the contract's Jul end.
       command.dispatch_in(
         conn,
         "tester",
-        StartProject(
+        EngagementCommand(StartProject(
           "Nucleus",
           contract_id,
           Date(2026, March, 1),
           Date(2026, October, 1),
-        ),
+        )),
       )
     })
 

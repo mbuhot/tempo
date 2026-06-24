@@ -19,15 +19,16 @@ import shared/codecs
 import shared/types.{
   AdjustRateForPortion, AllocationCommand, AssignToProject, BoardRow,
   BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
-  EngineerBanking, EngineerCommand, EngineerContact, EngineerEmergency, Event,
-  Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
-  LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
-  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
-  PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster,
-  RunPayroll, SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
-  TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  EngagementCommand, EngineerBanking, EngineerCommand, EngineerContact,
+  EngineerEmergency, Event, Forecast, ForecastMonth, Invoice, InvoiceDetail,
+  InvoiceLine, IssueInvoice, LeaveBalance, LogTimesheet, LogWeek, OnLeave,
+  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
+  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard,
+  RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -412,11 +413,11 @@ pub fn command_onboard_engineer_round_trips_test() {
 
 pub fn command_sign_contract_round_trips_test() {
   let original =
-    SignContract(
+    EngagementCommand(SignContract(
       client: "Northwind Trading",
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -424,12 +425,12 @@ pub fn command_sign_contract_round_trips_test() {
 
 pub fn command_start_project_round_trips_test() {
   let original =
-    StartProject(
+    EngagementCommand(StartProject(
       name: "Billing Revamp",
       contract_id: 10,
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original

@@ -33,12 +33,12 @@ import lustre/element/html
 import lustre/event
 import shared/types.{
   type Command, type Ref, AdjustRateForPortion, AllocationCommand,
-  AssignToProject, ChangeAllocationFraction, DraftInvoice, EngineerCommand,
-  IssueInvoice, LogWeek, OnboardEngineer, PayInvoice, Promote, ReviseRateCard,
-  RollOff, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, TerminateEmployment, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
-  UpdateProjectPlan, UpdateProjectProfile,
+  AssignToProject, ChangeAllocationFraction, DraftInvoice, EngagementCommand,
+  EngineerCommand, IssueInvoice, LogWeek, OnboardEngineer, PayInvoice, Promote,
+  ReviseRateCard, RollOff, RunPayroll, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TakeLeave, TerminateEmployment,
+  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
+  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -665,7 +665,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use client <- result.try(require_text(form.client, "client"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(SignContract(client:, valid_from:, valid_to:))
+      Ok(EngagementCommand(SignContract(client:, valid_from:, valid_to:)))
     }
     OpUpdateClientProfile -> {
       use client_id <- result.try(require_int(form.client_id, "client id"))
@@ -678,7 +678,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use contract_id <- result.try(require_int(form.contract_id, "contract id"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(StartProject(name:, contract_id:, valid_from:, valid_to:))
+      Ok(
+        EngagementCommand(StartProject(
+          name:,
+          contract_id:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
     OpAssignToProject -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))

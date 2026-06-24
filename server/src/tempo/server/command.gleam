@@ -22,9 +22,9 @@ import gleam/result
 import pog
 import shared/types.{
   type Command, type Event, AdjustRateForPortion, AllocationCommand,
-  DraftInvoice, EngineerCommand, IssueInvoice, LogTimesheet, LogWeek, PayInvoice,
-  ReviseRateCard, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
-  StartProject, TakeLeave, UpdateBankingDetails, UpdateClientProfile,
+  DraftInvoice, EngagementCommand, EngineerCommand, IssueInvoice, LogTimesheet,
+  LogWeek, PayInvoice, ReviseRateCard, RunPayroll, SetProjectRequirement,
+  SetSalary, TakeLeave, UpdateBankingDetails, UpdateClientProfile,
   UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
   UpdateProjectProfile,
 }
@@ -114,6 +114,7 @@ fn route(
   case command {
     EngineerCommand(command) -> engineer.route(conn, command)
     AllocationCommand(command) -> allocation.route(conn, command)
+    EngagementCommand(command) -> engagement.route(conn, command)
     UpdateContactDetails(
       engineer_id:,
       name:,
@@ -214,18 +215,6 @@ fn route(
         project_id:,
         level:,
         quantity:,
-        valid_from:,
-        valid_to:,
-      )
-
-    SignContract(client:, valid_from:, valid_to:) ->
-      engagement.sign_contract(conn, command, client:, valid_from:, valid_to:)
-    StartProject(name:, contract_id:, valid_from:, valid_to:) ->
-      engagement.start_project(
-        conn,
-        command,
-        name:,
-        contract_id:,
         valid_from:,
         valid_to:,
       )
