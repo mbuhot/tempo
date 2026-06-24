@@ -561,6 +561,40 @@ ORDER BY lower(contract_terms.term), contract_terms.contract_id;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `client_current` query
+/// defined in `./src/tempo/server/sql/client_current.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientCurrentRow {
+  ClientCurrentRow(id: Option(Int), name: Option(String))
+}
+
+/// Runs the `client_current` query
+/// defined in `./src/tempo/server/sql/client_current.sql`.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_current(
+  db: pog.Connection,
+  arg_1: Int,
+) -> Result(pog.Returned(ClientCurrentRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.optional(decode.int))
+    use name <- decode.field(1, decode.optional(decode.string))
+    decode.success(ClientCurrentRow(id:, name:))
+  }
+
+  "SELECT id::integer, name::text FROM client_current WHERE id = $1::integer
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `client_list` query
 /// defined in `./src/tempo/server/sql/client_list.sql`.
 ///
@@ -1512,6 +1546,62 @@ WHERE employment.engineer_id = $1
   |> pog.query
   |> pog.parameter(pog.int(employment_engineer_id))
   |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_employment_during` query
+/// defined in `./src/tempo/server/sql/engineer_employment_during.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerEmploymentDuringRow {
+  EngineerEmploymentDuringRow(engineer_id: Int, name: String, level: Int)
+}
+
+/// engineer_employment_during.sql — confirm an engineer is employed (with a role
+/// and contact on file) across a period; one row per role version overlapping it.
+/// Selects only NOT-NULL columns so an open-ended employment (NULL upper bound)
+/// decodes cleanly — the guard cares only that a row exists.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_employment_during(
+  db: pog.Connection,
+  engineer_id: Int,
+  arg_2: Date,
+  arg_3: Date,
+) -> Result(pog.Returned(EngineerEmploymentDuringRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use level <- decode.field(2, decode.int)
+    decode.success(EngineerEmploymentDuringRow(engineer_id:, name:, level:))
+  }
+
+  "-- engineer_employment_during.sql — confirm an engineer is employed (with a role
+-- and contact on file) across a period; one row per role version overlapping it.
+-- Selects only NOT-NULL columns so an open-ended employment (NULL upper bound)
+-- decodes cleanly — the guard cares only that a row exists.
+select
+	engineer_id,
+	name,
+	level
+from engineer
+join employment on (id = engineer_id)
+join engineer_contact using (engineer_id)
+join engineer_role using (engineer_id)
+where engineer.id = $1
+	and (employed_during @> daterange($2::date, $3::date, '[)'))
+	and engineer_contact.recorded_during @> $3::date
+	and engineer_role.held_during && daterange($2::date, $3::date, '[)')
+"
+  |> pog.query
+  |> pog.parameter(pog.int(engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -4961,6 +5051,55 @@ ORDER BY project_requirement.level, lower(project_requirement.required_during);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_requirement_project_id))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_run_during` query
+/// defined in `./src/tempo/server/sql/project_run_during.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectRunDuringRow {
+  ProjectRunDuringRow(project_id: Int, contract_id: Int)
+}
+
+/// project_run_during.sql — confirm a project's run (existence/contract window)
+/// covers a period; one row per run whose active_during contains [from, to).
+/// Selects only NOT-NULL columns so an open-ended run (NULL upper bound) decodes
+/// cleanly — the guard cares only that a row exists.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_run_during(
+  db: pog.Connection,
+  project_id: Int,
+  arg_2: Date,
+  arg_3: Date,
+) -> Result(pog.Returned(ProjectRunDuringRow), pog.QueryError) {
+  let decoder = {
+    use project_id <- decode.field(0, decode.int)
+    use contract_id <- decode.field(1, decode.int)
+    decode.success(ProjectRunDuringRow(project_id:, contract_id:))
+  }
+
+  "-- project_run_during.sql — confirm a project's run (existence/contract window)
+-- covers a period; one row per run whose active_during contains [from, to).
+-- Selects only NOT-NULL columns so an open-ended run (NULL upper bound) decodes
+-- cleanly — the guard cares only that a row exists.
+select
+	project_id,
+	contract_id
+from project_run
+where project_id = $1
+	and (active_during @> daterange($2::date, $3::date, '[)'))
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

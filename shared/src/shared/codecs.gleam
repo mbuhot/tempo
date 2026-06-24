@@ -4,43 +4,44 @@
 //// identity (`encode |> decode == value`) is asserted by the layer-4 codec tests.
 
 import gleam/dynamic/decode.{type Decoder}
-import gleam/int
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/result
-import gleam/string
-import gleam/time/calendar.{type Date, Date}
+import gleam/time/calendar.{type Date}
+import shared/codecs/allocation as allocation_codec
+import shared/codecs/base
+import shared/codecs/engineer as engineer_codec
 import shared/types.{
   type AllocationRow, type BoardRow, type BoardSnapshot, type ClientDetail,
   type ClientList, type ClientListRow, type ClientProfile, type ClientProjectRow,
   type Command, type ContractRow, type Employment, type Engagement,
   type EngineerBanking, type EngineerContact, type EngineerDetail,
-  type EngineerEmergency, type Event, type Invoice, type InvoiceDetail,
-  type InvoiceLine, type LeaveBalance, type LeavePolicyRow, type LeaveRecord,
-  type OperationRequest, type Payroll, type PayrollLine, type PayrollRunInfo,
-  type PeopleList,
-  type PersonRow, type Pnl, type PnlRow, type ProjectDetail, type ProjectList,
-  type ProjectListRow, type ProjectPlan, type ProjectProfile, type RateCardRow,
-  type Forecast, type ForecastMonth, type ProjectRequirement,
-  type Ref, type RoleVersion, type Roster, type RosterStatus, type SalaryRow,
-  type Settings, type TeamMember, type TimesheetCell, type TimesheetEntry,
-  type TimesheetWeek, type TimesheetWeekRow, type UnstaffedProject,
-  type WriteRequest, AdjustRateForPortion, AllocationRow, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, ClientDetail, ClientList, ClientListRow,
-  ClientProfile, ClientProjectRow, ContractRow, DraftInvoice, Employment,
-  EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency, Event,
-  Invoice, InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance,
-  LeavePolicyRow, LeaveRecord, LogTimesheet, LogWeek, OnLeave, OnProject,
-  OnboardEngineer, OperationRequest, PayInvoice, Payroll, PayrollLine,
-  PayrollRunInfo, PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
-  ProjectPlan, ProjectProfile, Promote, RateCardRow, Ref, ReviseRateCard,
-  Forecast, ForecastMonth, ProjectRequirement,
-  RoleVersion, RollOff, Roster, RosterOnLeave, RosterOnProjects,
-  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary, Settings, SignContract,
-  StartProject, TakeLeave, TeamMember, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact, UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
+  type EngineerEmergency, type Event, type Forecast, type ForecastMonth,
+  type Invoice, type InvoiceDetail, type InvoiceLine, type LeaveBalance,
+  type LeavePolicyRow, type LeaveRecord, type OperationRequest, type Payroll,
+  type PayrollLine, type PayrollRunInfo, type PeopleList, type PersonRow,
+  type Pnl, type PnlRow, type ProjectDetail, type ProjectList,
+  type ProjectListRow, type ProjectPlan, type ProjectProfile,
+  type ProjectRequirement, type RateCardRow, type Ref, type RoleVersion,
+  type Roster, type RosterStatus, type SalaryRow, type Settings, type TeamMember,
+  type TimesheetCell, type TimesheetEntry, type TimesheetWeek,
+  type TimesheetWeekRow, type UnstaffedProject, type WriteRequest,
+  AdjustRateForPortion, AllocationCommand, AllocationRow, BoardRow,
+  BoardSnapshot, ClientDetail, ClientList, ClientListRow, ClientProfile,
+  ClientProjectRow, ContractRow, DraftInvoice, Employment, EngineerBanking,
+  EngineerCommand, EngineerContact, EngineerDetail, EngineerEmergency, Event,
+  Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  LeaveBalance, LeavePolicyRow, LeaveRecord, LogTimesheet, LogWeek, OnLeave,
+  OnProject, OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo,
+  PeopleList, PersonRow, Pnl, PnlRow, ProjectDetail, ProjectList, ProjectListRow,
+  ProjectPlan, ProjectProfile, ProjectRequirement, RateCardRow, Ref,
+  ReviseRateCard, RoleVersion, Roster, RosterOnLeave, RosterOnProjects,
+  RosterUnassigned, RunPayroll, SalaryRow, SetProjectRequirement, SetSalary,
+  Settings, SignContract, StartProject, TakeLeave, TeamMember,
+  TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateProjectPlan, UpdateProjectProfile, WriteRequest,
 }
 
 // --- Date -------------------------------------------------------------------
@@ -49,49 +50,19 @@ import shared/types.{
 // is the `Month` enum, so encoding maps it to its 1-12 number and decoding parses
 // the number back to a `Month`.
 
-/// Encode a `Date` as an ISO-8601 "YYYY-MM-DD" string.
+/// Encode a `Date` as an ISO-8601 "YYYY-MM-DD" string (re-exports `codecs/base`).
 pub fn encode_date(date: Date) -> Json {
-  let Date(year:, month:, day:) = date
-  json.string(
-    pad4(year) <> "-" <> pad2(calendar.month_to_int(month)) <> "-" <> pad2(day),
-  )
+  base.encode_date(date)
 }
 
-/// Decode an ISO-8601 "YYYY-MM-DD" string into a `Date`.
+/// Decode an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `codecs/base`).
 pub fn date_decoder() -> Decoder(Date) {
-  use text <- decode.then(decode.string)
-  case parse_iso_date(text) {
-    Ok(date) -> decode.success(date)
-    Error(Nil) -> decode.failure(Date(0, calendar.January, 1), "Date")
-  }
+  base.date_decoder()
 }
 
-/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date`, rejecting any
-/// calendar-impossible day (day < 1, a day past the month's length, or Feb 29 in
-/// a non-leap year) so a nonsensical `Date` never reaches daterange/money math.
+/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `codecs/base`).
 pub fn parse_iso_date(text: String) -> Result(Date, Nil) {
-  case string.split(text, "-") {
-    [year, month, day] -> {
-      use year <- result.try(int.parse(year))
-      use month <- result.try(int.parse(month))
-      use month <- result.try(calendar.month_from_int(month))
-      use day <- result.try(int.parse(day))
-      let date = Date(year:, month:, day:)
-      case calendar.is_valid_date(date) {
-        True -> Ok(date)
-        False -> Error(Nil)
-      }
-    }
-    _ -> Error(Nil)
-  }
-}
-
-fn pad2(value: Int) -> String {
-  int.to_string(value) |> string.pad_start(to: 2, with: "0")
-}
-
-fn pad4(value: Int) -> String {
-  int.to_string(value) |> string.pad_start(to: 4, with: "0")
+  base.parse_iso_date(text)
 }
 
 // --- Engagement -------------------------------------------------------------
@@ -131,7 +102,7 @@ pub fn encode_engagement(engagement: Engagement) -> Json {
 /// `hours` of `4`). Decoding every Float through this tolerant decoder makes the
 /// contract symmetric regardless of which target encoded the value.
 pub fn lenient_float_decoder() -> Decoder(Float) {
-  decode.one_of(decode.float, or: [decode.int |> decode.map(int.to_float)])
+  base.lenient_float_decoder()
 }
 
 /// Decode an `Engagement` from its tagged JSON object.
@@ -603,13 +574,8 @@ pub fn project_plan_decoder() -> Decoder(ProjectPlan) {
 /// Encode a `Command` as a tagged JSON object keyed by `op`.
 pub fn encode_command(command: Command) -> Json {
   case command {
-    OnboardEngineer(name:, level:, effective:) ->
-      json.object([
-        #("op", json.string("onboard_engineer")),
-        #("name", json.string(name)),
-        #("level", json.int(level)),
-        #("effective", encode_date(effective)),
-      ])
+    EngineerCommand(command) -> engineer_codec.encode(command)
+    AllocationCommand(command) -> allocation_codec.encode(command)
     SignContract(client:, valid_from:, valid_to:) ->
       json.object([
         #("op", json.string("sign_contract")),
@@ -625,21 +591,7 @@ pub fn encode_command(command: Command) -> Json {
         #("valid_from", encode_date(valid_from)),
         #("valid_to", encode_date(valid_to)),
       ])
-    AssignToProject(
-      engineer_id:,
-      project_id:,
-      fraction:,
-      valid_from:,
-      valid_to:,
-    ) ->
-      json.object([
-        #("op", json.string("assign_to_project")),
-        #("engineer_id", json.int(engineer_id)),
-        #("project_id", json.int(project_id)),
-        #("fraction", json.float(fraction)),
-        #("valid_from", encode_date(valid_from)),
-        #("valid_to", encode_date(valid_to)),
-      ])
+
     TakeLeave(engineer_id:, kind:, valid_from:, valid_to:) ->
       json.object([
         #("op", json.string("take_leave")),
@@ -736,21 +688,7 @@ pub fn encode_command(command: Command) -> Json {
         #("engineer_id", json.int(engineer_id)),
         #("entries", json.array(entries, encode_timesheet_entry)),
       ])
-    Promote(engineer_id:, level:, effective:) ->
-      json.object([
-        #("op", json.string("promote")),
-        #("engineer_id", json.int(engineer_id)),
-        #("level", json.int(level)),
-        #("effective", encode_date(effective)),
-      ])
-    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) ->
-      json.object([
-        #("op", json.string("change_allocation_fraction")),
-        #("engineer_id", json.int(engineer_id)),
-        #("project_id", json.int(project_id)),
-        #("fraction", json.float(fraction)),
-        #("effective", encode_date(effective)),
-      ])
+
     ReviseRateCard(level:, day_rate:, effective:) ->
       json.object([
         #("op", json.string("revise_rate_card")),
@@ -766,19 +704,7 @@ pub fn encode_command(command: Command) -> Json {
         #("valid_from", encode_date(valid_from)),
         #("valid_to", encode_date(valid_to)),
       ])
-    RollOff(engineer_id:, project_id:, effective:) ->
-      json.object([
-        #("op", json.string("roll_off")),
-        #("engineer_id", json.int(engineer_id)),
-        #("project_id", json.int(project_id)),
-        #("effective", encode_date(effective)),
-      ])
-    TerminateEmployment(engineer_id:, effective:) ->
-      json.object([
-        #("op", json.string("terminate_employment")),
-        #("engineer_id", json.int(engineer_id)),
-        #("effective", encode_date(effective)),
-      ])
+
     SetSalary(level:, monthly_salary:, effective:) ->
       json.object([
         #("op", json.string("set_salary")),
@@ -835,241 +761,206 @@ pub fn encode_command(command: Command) -> Json {
 /// `Float` as an integer-looking number).
 pub fn command_decoder() -> Decoder(Command) {
   use op <- decode.field("op", decode.string)
-  case op {
-    "onboard_engineer" -> {
-      use name <- decode.field("name", decode.string)
-      use level <- decode.field("level", decode.int)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(OnboardEngineer(name:, level:, effective:))
-    }
-    "sign_contract" -> {
-      use client <- decode.field("client", decode.string)
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(SignContract(client:, valid_from:, valid_to:))
-    }
-    "start_project" -> {
-      use name <- decode.field("name", decode.string)
-      use contract_id <- decode.field("contract_id", decode.int)
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(StartProject(name:, contract_id:, valid_from:, valid_to:))
-    }
-    "assign_to_project" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use project_id <- decode.field("project_id", decode.int)
-      use fraction <- decode.field("fraction", lenient_float_decoder())
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(AssignToProject(
-        engineer_id:,
-        project_id:,
-        fraction:,
-        valid_from:,
-        valid_to:,
-      ))
-    }
-    "take_leave" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use kind <- decode.field("kind", decode.string)
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:))
-    }
-    "log_timesheet" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use project_id <- decode.field("project_id", decode.int)
-      use day <- decode.field("day", date_decoder())
-      use hours <- decode.field("hours", lenient_float_decoder())
-      decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
-    }
-    "update_contact_details" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use name <- decode.field("name", decode.string)
-      use email <- decode.field("email", decode.string)
-      use phone <- decode.field("phone", decode.string)
-      use postal_address <- decode.field("postal_address", decode.string)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateContactDetails(
-        engineer_id:,
-        name:,
-        email:,
-        phone:,
-        postal_address:,
-        effective:,
-      ))
-    }
-    "update_banking_details" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use bank <- decode.field("bank", decode.string)
-      use branch <- decode.field("branch", decode.string)
-      use account_no <- decode.field("account_no", decode.string)
-      use account_name <- decode.field("account_name", decode.string)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateBankingDetails(
-        engineer_id:,
-        bank:,
-        branch:,
-        account_no:,
-        account_name:,
-        effective:,
-      ))
-    }
-    "update_emergency_contact" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use relation <- decode.field("relation", decode.string)
-      use name <- decode.field("name", decode.string)
-      use phone <- decode.field("phone", decode.string)
-      use email <- decode.field("email", decode.string)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateEmergencyContact(
-        engineer_id:,
-        relation:,
-        name:,
-        phone:,
-        email:,
-        effective:,
-      ))
-    }
-    "update_client_profile" -> {
-      use client_id <- decode.field("client_id", decode.int)
-      use name <- decode.field("name", decode.string)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateClientProfile(client_id:, name:, effective:))
-    }
-    "update_project_profile" -> {
-      use project_id <- decode.field("project_id", decode.int)
-      use title <- decode.field("title", decode.string)
-      use summary <- decode.field("summary", decode.string)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateProjectProfile(
-        project_id:,
-        title:,
-        summary:,
-        effective:,
-      ))
-    }
-    "update_project_plan" -> {
-      use project_id <- decode.field("project_id", decode.int)
-      use budget <- decode.field("budget", lenient_float_decoder())
-      use target_completion <- decode.field("target_completion", date_decoder())
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(UpdateProjectPlan(
-        project_id:,
-        budget:,
-        target_completion:,
-        effective:,
-      ))
-    }
-    "log_week" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use entries <- decode.field(
-        "entries",
-        decode.list(timesheet_entry_decoder()),
-      )
-      decode.success(LogWeek(engineer_id:, entries:))
-    }
-    "promote" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use level <- decode.field("level", decode.int)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(Promote(engineer_id:, level:, effective:))
-    }
-    "change_allocation_fraction" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use project_id <- decode.field("project_id", decode.int)
-      use fraction <- decode.field("fraction", lenient_float_decoder())
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(ChangeAllocationFraction(
-        engineer_id:,
-        project_id:,
-        fraction:,
-        effective:,
-      ))
-    }
-    "revise_rate_card" -> {
-      use level <- decode.field("level", decode.int)
-      use day_rate <- decode.field("day_rate", lenient_float_decoder())
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(ReviseRateCard(level:, day_rate:, effective:))
-    }
-    "adjust_rate_for_portion" -> {
-      use level <- decode.field("level", decode.int)
-      use day_rate <- decode.field("day_rate", lenient_float_decoder())
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(AdjustRateForPortion(
-        level:,
-        day_rate:,
-        valid_from:,
-        valid_to:,
-      ))
-    }
-    "roll_off" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use project_id <- decode.field("project_id", decode.int)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(RollOff(engineer_id:, project_id:, effective:))
-    }
-    "terminate_employment" -> {
-      use engineer_id <- decode.field("engineer_id", decode.int)
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(TerminateEmployment(engineer_id:, effective:))
-    }
-    "set_salary" -> {
-      use level <- decode.field("level", decode.int)
-      use monthly_salary <- decode.field(
-        "monthly_salary",
-        lenient_float_decoder(),
-      )
-      use effective <- decode.field("effective", date_decoder())
-      decode.success(SetSalary(level:, monthly_salary:, effective:))
-    }
-    "draft_invoice" -> {
-      use project_id <- decode.field("project_id", decode.int)
-      use billing_from <- decode.field("billing_from", date_decoder())
-      use billing_to <- decode.field("billing_to", date_decoder())
-      decode.success(DraftInvoice(project_id:, billing_from:, billing_to:))
-    }
-    "issue_invoice" -> {
-      use invoice_id <- decode.field("invoice_id", decode.int)
-      use at <- decode.field("at", date_decoder())
-      decode.success(IssueInvoice(invoice_id:, at:))
-    }
-    "pay_invoice" -> {
-      use invoice_id <- decode.field("invoice_id", decode.int)
-      use at <- decode.field("at", date_decoder())
-      decode.success(PayInvoice(invoice_id:, at:))
-    }
-    "run_payroll" -> {
-      use period_from <- decode.field("period_from", date_decoder())
-      use period_to <- decode.field("period_to", date_decoder())
-      decode.success(RunPayroll(period_from:, period_to:))
-    }
-    "set_project_requirement" -> {
-      use project_id <- decode.field("project_id", decode.int)
-      use level <- decode.field("level", decode.int)
-      use quantity <- decode.field("quantity", lenient_float_decoder())
-      use valid_from <- decode.field("valid_from", date_decoder())
-      use valid_to <- decode.field("valid_to", date_decoder())
-      decode.success(SetProjectRequirement(
-        project_id:,
-        level:,
-        quantity:,
-        valid_from:,
-        valid_to:,
-      ))
-    }
-    _ ->
-      decode.failure(
-        TerminateEmployment(engineer_id: 0, effective: zero_date()),
-        "Command",
-      )
-  }
-}
+  case engineer_codec.decoder(op), allocation_codec.decoder(op) {
+    Ok(decoder), _ -> decode.map(decoder, EngineerCommand)
+    _, Ok(decoder) -> decode.map(decoder, AllocationCommand)
+    Error(Nil), Error(Nil) ->
+      case op {
+        "sign_contract" -> {
+          use client <- decode.field("client", decode.string)
+          use valid_from <- decode.field("valid_from", date_decoder())
+          use valid_to <- decode.field("valid_to", date_decoder())
+          decode.success(SignContract(client:, valid_from:, valid_to:))
+        }
+        "start_project" -> {
+          use name <- decode.field("name", decode.string)
+          use contract_id <- decode.field("contract_id", decode.int)
+          use valid_from <- decode.field("valid_from", date_decoder())
+          use valid_to <- decode.field("valid_to", date_decoder())
+          decode.success(StartProject(
+            name:,
+            contract_id:,
+            valid_from:,
+            valid_to:,
+          ))
+        }
+        "take_leave" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use kind <- decode.field("kind", decode.string)
+          use valid_from <- decode.field("valid_from", date_decoder())
+          use valid_to <- decode.field("valid_to", date_decoder())
+          decode.success(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:))
+        }
+        "log_timesheet" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use project_id <- decode.field("project_id", decode.int)
+          use day <- decode.field("day", date_decoder())
+          use hours <- decode.field("hours", lenient_float_decoder())
+          decode.success(LogTimesheet(engineer_id:, project_id:, day:, hours:))
+        }
+        "update_contact_details" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use name <- decode.field("name", decode.string)
+          use email <- decode.field("email", decode.string)
+          use phone <- decode.field("phone", decode.string)
+          use postal_address <- decode.field("postal_address", decode.string)
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateContactDetails(
+            engineer_id:,
+            name:,
+            email:,
+            phone:,
+            postal_address:,
+            effective:,
+          ))
+        }
+        "update_banking_details" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use bank <- decode.field("bank", decode.string)
+          use branch <- decode.field("branch", decode.string)
+          use account_no <- decode.field("account_no", decode.string)
+          use account_name <- decode.field("account_name", decode.string)
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateBankingDetails(
+            engineer_id:,
+            bank:,
+            branch:,
+            account_no:,
+            account_name:,
+            effective:,
+          ))
+        }
+        "update_emergency_contact" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use relation <- decode.field("relation", decode.string)
+          use name <- decode.field("name", decode.string)
+          use phone <- decode.field("phone", decode.string)
+          use email <- decode.field("email", decode.string)
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateEmergencyContact(
+            engineer_id:,
+            relation:,
+            name:,
+            phone:,
+            email:,
+            effective:,
+          ))
+        }
+        "update_client_profile" -> {
+          use client_id <- decode.field("client_id", decode.int)
+          use name <- decode.field("name", decode.string)
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateClientProfile(client_id:, name:, effective:))
+        }
+        "update_project_profile" -> {
+          use project_id <- decode.field("project_id", decode.int)
+          use title <- decode.field("title", decode.string)
+          use summary <- decode.field("summary", decode.string)
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateProjectProfile(
+            project_id:,
+            title:,
+            summary:,
+            effective:,
+          ))
+        }
+        "update_project_plan" -> {
+          use project_id <- decode.field("project_id", decode.int)
+          use budget <- decode.field("budget", lenient_float_decoder())
+          use target_completion <- decode.field(
+            "target_completion",
+            date_decoder(),
+          )
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(UpdateProjectPlan(
+            project_id:,
+            budget:,
+            target_completion:,
+            effective:,
+          ))
+        }
+        "log_week" -> {
+          use engineer_id <- decode.field("engineer_id", decode.int)
+          use entries <- decode.field(
+            "entries",
+            decode.list(timesheet_entry_decoder()),
+          )
+          decode.success(LogWeek(engineer_id:, entries:))
+        }
 
-fn zero_date() -> Date {
-  Date(0, calendar.January, 1)
+        "revise_rate_card" -> {
+          use level <- decode.field("level", decode.int)
+          use day_rate <- decode.field("day_rate", lenient_float_decoder())
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(ReviseRateCard(level:, day_rate:, effective:))
+        }
+        "adjust_rate_for_portion" -> {
+          use level <- decode.field("level", decode.int)
+          use day_rate <- decode.field("day_rate", lenient_float_decoder())
+          use valid_from <- decode.field("valid_from", date_decoder())
+          use valid_to <- decode.field("valid_to", date_decoder())
+          decode.success(AdjustRateForPortion(
+            level:,
+            day_rate:,
+            valid_from:,
+            valid_to:,
+          ))
+        }
+
+        "set_salary" -> {
+          use level <- decode.field("level", decode.int)
+          use monthly_salary <- decode.field(
+            "monthly_salary",
+            lenient_float_decoder(),
+          )
+          use effective <- decode.field("effective", date_decoder())
+          decode.success(SetSalary(level:, monthly_salary:, effective:))
+        }
+        "draft_invoice" -> {
+          use project_id <- decode.field("project_id", decode.int)
+          use billing_from <- decode.field("billing_from", date_decoder())
+          use billing_to <- decode.field("billing_to", date_decoder())
+          decode.success(DraftInvoice(project_id:, billing_from:, billing_to:))
+        }
+        "issue_invoice" -> {
+          use invoice_id <- decode.field("invoice_id", decode.int)
+          use at <- decode.field("at", date_decoder())
+          decode.success(IssueInvoice(invoice_id:, at:))
+        }
+        "pay_invoice" -> {
+          use invoice_id <- decode.field("invoice_id", decode.int)
+          use at <- decode.field("at", date_decoder())
+          decode.success(PayInvoice(invoice_id:, at:))
+        }
+        "run_payroll" -> {
+          use period_from <- decode.field("period_from", date_decoder())
+          use period_to <- decode.field("period_to", date_decoder())
+          decode.success(RunPayroll(period_from:, period_to:))
+        }
+        "set_project_requirement" -> {
+          use project_id <- decode.field("project_id", decode.int)
+          use level <- decode.field("level", decode.int)
+          use quantity <- decode.field("quantity", lenient_float_decoder())
+          use valid_from <- decode.field("valid_from", date_decoder())
+          use valid_to <- decode.field("valid_to", date_decoder())
+          decode.success(SetProjectRequirement(
+            project_id:,
+            level:,
+            quantity:,
+            valid_from:,
+            valid_to:,
+          ))
+        }
+        _ ->
+          decode.failure(
+            EngineerCommand(TerminateEmployment(
+              engineer_id: 0,
+              effective: base.zero_date(),
+            )),
+            "Command",
+          )
+      }
+  }
 }
 
 // --- OperationRequest --------------------------------------------------------

@@ -13,9 +13,9 @@
 //// `Ok(Error(Nil))` when the client has no profile (unknown id) so the handler can
 //// answer a 404; `Error(_)` is a database failure.
 
-import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -85,22 +85,14 @@ fn current_profile(
   context: Context,
   client_id: Int,
 ) -> Result(List(ClientProfile), pog.QueryError) {
-  let decoder = {
-    use id <- decode.field(0, decode.int)
-    use name <- decode.field(1, decode.string)
-    decode.success(ClientProfile(client_id: id, name:))
-  }
-  use returned <- result.map(
-    client_current_sql
-    |> pog.query
-    |> pog.parameter(pog.int(client_id))
-    |> pog.returning(decoder)
-    |> pog.execute(context.db),
-  )
+  use returned <- result.map(sql.client_current(context.db, client_id))
   returned.rows
+  |> list.map(fn(row) {
+    // Squirrel infers id/name are nullable, but they are not
+    let assert sql.ClientCurrentRow(id: Some(client_id), name: Some(name)) = row
+    ClientProfile(client_id:, name:)
+  })
 }
-
-const client_current_sql = "SELECT id, name FROM client_current WHERE id = $1;"
 
 fn contract_row_to_shared(row: sql.ClientContractsRow) -> ContractRow {
   ContractRow(
@@ -132,21 +124,10 @@ fn earliest_start(contracts: List(ContractRow)) -> Option(Date) {
     case earliest {
       None -> Some(contract.valid_from)
       Some(current) ->
-        case is_before(contract.valid_from, current) {
-          True -> Some(contract.valid_from)
-          False -> earliest
+        case calendar.naive_date_compare(contract.valid_from, current) {
+          order.Lt -> Some(contract.valid_from)
+          _ -> earliest
         }
     }
   })
-}
-
-/// True when `left` is strictly before `right`, comparing year then month then day.
-fn is_before(left: Date, right: Date) -> Bool {
-  date_key(left) < date_key(right)
-}
-
-fn date_key(date: Date) -> Int {
-  { date.year * 10_000 }
-  + { calendar.month_to_int(date.month) * 100 }
-  + date.day
 }

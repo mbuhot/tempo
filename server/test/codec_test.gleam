@@ -17,17 +17,17 @@ import gleam/result
 import gleam/time/calendar.{August, Date, January, July, June, May, September}
 import shared/codecs
 import shared/types.{
-  AdjustRateForPortion, AssignToProject, BoardRow, BoardSnapshot,
-  ChangeAllocationFraction, ClientProfile, DraftInvoice, EngineerBanking,
-  EngineerContact, EngineerEmergency, Event, Forecast, ForecastMonth, Invoice,
-  InvoiceDetail, InvoiceLine, IssueInvoice, LeaveBalance, LogTimesheet, LogWeek,
-  OnLeave, OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
-  PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Promote, Ref,
-  ReviseRateCard, RollOff, Roster, RunPayroll, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-  UpdateBankingDetails, UpdateClientProfile, UpdateContactDetails,
-  UpdateEmergencyContact,
+  AdjustRateForPortion, AllocationCommand, AssignToProject, BoardRow,
+  BoardSnapshot, ChangeAllocationFraction, ClientProfile, DraftInvoice,
+  EngineerBanking, EngineerCommand, EngineerContact, EngineerEmergency, Event,
+  Forecast, ForecastMonth, Invoice, InvoiceDetail, InvoiceLine, IssueInvoice,
+  LeaveBalance, LogTimesheet, LogWeek, OnLeave, OnProject, OnboardEngineer,
+  OperationRequest, PayInvoice, Payroll, PayrollLine, PayrollRunInfo, Pnl,
+  PnlRow, ProjectRequirement, Promote, Ref, ReviseRateCard, RollOff, Roster,
+  RunPayroll, SetProjectRequirement, SetSalary, SignContract, StartProject,
+  TakeLeave, TerminateEmployment, TimesheetCell, TimesheetEntry, TimesheetWeek,
+  TimesheetWeekRow, Unassigned, UnstaffedProject, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
 }
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -400,7 +400,11 @@ pub fn roster_empty_round_trips_test() {
 
 pub fn command_onboard_engineer_round_trips_test() {
   let original =
-    OnboardEngineer(name: "Dev Patel", level: 3, effective: Date(2026, July, 1))
+    EngineerCommand(OnboardEngineer(
+      name: "Dev Patel",
+      level: 3,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -433,13 +437,13 @@ pub fn command_start_project_round_trips_test() {
 
 pub fn command_assign_to_project_round_trips_test() {
   let original =
-    AssignToProject(
+    AllocationCommand(AssignToProject(
       engineer_id: 1,
       project_id: 200,
       fraction: 0.5,
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -486,7 +490,11 @@ pub fn command_log_week_round_trips_test() {
 
 pub fn command_promote_round_trips_test() {
   let original =
-    Promote(engineer_id: 2, level: 5, effective: Date(2026, July, 1))
+    EngineerCommand(Promote(
+      engineer_id: 2,
+      level: 5,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -494,12 +502,12 @@ pub fn command_promote_round_trips_test() {
 
 pub fn command_change_allocation_fraction_round_trips_test() {
   let original =
-    ChangeAllocationFraction(
+    AllocationCommand(ChangeAllocationFraction(
       engineer_id: 1,
       project_id: 100,
       fraction: 1.0,
       effective: Date(2026, July, 1),
-    )
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -528,7 +536,11 @@ pub fn command_adjust_rate_for_portion_round_trips_test() {
 
 pub fn command_roll_off_round_trips_test() {
   let original =
-    RollOff(engineer_id: 1, project_id: 200, effective: Date(2026, July, 1))
+    AllocationCommand(RollOff(
+      engineer_id: 1,
+      project_id: 200,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -536,7 +548,10 @@ pub fn command_roll_off_round_trips_test() {
 
 pub fn command_terminate_employment_round_trips_test() {
   let original =
-    TerminateEmployment(engineer_id: 2, effective: Date(2026, July, 1))
+    EngineerCommand(TerminateEmployment(
+      engineer_id: 2,
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, codecs.encode_command, codecs.command_decoder())
     == original
@@ -666,11 +681,13 @@ pub fn command_run_payroll_round_trips_test() {
 // the exact variant it carried.
 pub fn operation_request_round_trips_test() {
   let original =
-    OperationRequest(command: Promote(
-      engineer_id: 2,
-      level: 5,
-      effective: Date(2026, July, 1),
-    ))
+    OperationRequest(
+      command: EngineerCommand(Promote(
+        engineer_id: 2,
+        level: 5,
+        effective: Date(2026, July, 1),
+      )),
+    )
 
   assert round_trip(
       original,

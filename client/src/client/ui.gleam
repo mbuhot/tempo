@@ -32,13 +32,13 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import shared/types.{
-  type Command, type Ref, AdjustRateForPortion, AssignToProject,
-  ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogWeek, OnboardEngineer,
-  PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
-  UpdateProjectProfile,
+  type Command, type Ref, AdjustRateForPortion, AllocationCommand,
+  AssignToProject, ChangeAllocationFraction, DraftInvoice, EngineerCommand,
+  IssueInvoice, LogWeek, OnboardEngineer, PayInvoice, Promote, ReviseRateCard,
+  RollOff, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, TerminateEmployment, UpdateBankingDetails,
+  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
+  UpdateProjectPlan, UpdateProjectProfile,
 }
 
 // --- View atoms -------------------------------------------------------------
@@ -574,13 +574,13 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use name <- result.try(require_text(form.name, "name"))
       use level <- result.try(require_int(form.level, "level"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(OnboardEngineer(name:, level:, effective:))
+      Ok(EngineerCommand(OnboardEngineer(name:, level:, effective:)))
     }
     OpPromote -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use level <- result.try(require_int(form.level, "level"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(Promote(engineer_id:, level:, effective:))
+      Ok(EngineerCommand(Promote(engineer_id:, level:, effective:)))
     }
     OpTakeLeave -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
@@ -593,12 +593,12 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use project_id <- result.try(require_int(form.project_id, "project id"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(RollOff(engineer_id:, project_id:, effective:))
+      Ok(AllocationCommand(RollOff(engineer_id:, project_id:, effective:)))
     }
     OpTerminateEmployment -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(TerminateEmployment(engineer_id:, effective:))
+      Ok(EngineerCommand(TerminateEmployment(engineer_id:, effective:)))
     }
     OpUpdateContact -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
@@ -686,25 +686,29 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use fraction <- result.try(require_float(form.fraction, "fraction"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(AssignToProject(
-        engineer_id:,
-        project_id:,
-        fraction:,
-        valid_from:,
-        valid_to:,
-      ))
+      Ok(
+        AllocationCommand(AssignToProject(
+          engineer_id:,
+          project_id:,
+          fraction:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
     OpChangeAllocationFraction -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use project_id <- result.try(require_int(form.project_id, "project id"))
       use fraction <- result.try(require_float(form.fraction, "fraction"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(ChangeAllocationFraction(
-        engineer_id:,
-        project_id:,
-        fraction:,
-        effective:,
-      ))
+      Ok(
+        AllocationCommand(ChangeAllocationFraction(
+          engineer_id:,
+          project_id:,
+          fraction:,
+          effective:,
+        )),
+      )
     }
     OpUpdateProjectProfile -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))

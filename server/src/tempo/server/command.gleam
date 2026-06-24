@@ -21,11 +21,10 @@
 import gleam/result
 import pog
 import shared/types.{
-  type Command, type Event, AdjustRateForPortion, AssignToProject,
-  ChangeAllocationFraction, DraftInvoice, IssueInvoice, LogTimesheet, LogWeek,
-  OnboardEngineer, PayInvoice, Promote, ReviseRateCard, RollOff, RunPayroll,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, UpdateBankingDetails, UpdateClientProfile,
+  type Command, type Event, AdjustRateForPortion, AllocationCommand,
+  DraftInvoice, EngineerCommand, IssueInvoice, LogTimesheet, LogWeek, PayInvoice,
+  ReviseRateCard, RunPayroll, SetProjectRequirement, SetSalary, SignContract,
+  StartProject, TakeLeave, UpdateBankingDetails, UpdateClientProfile,
   UpdateContactDetails, UpdateEmergencyContact, UpdateProjectPlan,
   UpdateProjectProfile,
 }
@@ -113,13 +112,8 @@ fn route(
   command: Command,
 ) -> Result(Recorded, OperationError) {
   case command {
-    OnboardEngineer(name:, level:, effective:) ->
-      engineer.onboard_engineer(conn, command, name:, level:, effective:)
-    Promote(engineer_id:, level:, effective:) ->
-      engineer.promote(command, engineer_id:, level:, effective:)
-    TerminateEmployment(engineer_id:, effective:) ->
-      engineer.terminate_employment(command, engineer_id:, effective:)
-
+    EngineerCommand(command) -> engineer.route(conn, command)
+    AllocationCommand(command) -> allocation.route(conn, command)
     UpdateContactDetails(
       engineer_id:,
       name:,
@@ -196,32 +190,6 @@ fn route(
         target_completion:,
         effective:,
       )
-
-    AssignToProject(
-      engineer_id:,
-      project_id:,
-      fraction:,
-      valid_from:,
-      valid_to:,
-    ) ->
-      allocation.assign_to_project(
-        command,
-        engineer_id:,
-        project_id:,
-        fraction:,
-        valid_from:,
-        valid_to:,
-      )
-    ChangeAllocationFraction(engineer_id:, project_id:, fraction:, effective:) ->
-      allocation.change_allocation_fraction(
-        command,
-        engineer_id:,
-        project_id:,
-        fraction:,
-        effective:,
-      )
-    RollOff(engineer_id:, project_id:, effective:) ->
-      allocation.roll_off(command, engineer_id:, project_id:, effective:)
 
     ReviseRateCard(level:, day_rate:, effective:) ->
       rate_card.revise_rate_card(command, level:, day_rate:, effective:)

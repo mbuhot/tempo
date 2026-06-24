@@ -195,6 +195,35 @@ pub type ProjectPlan {
   ProjectPlan(project_id: Int, budget: Float, target_completion: Date)
 }
 
+pub type EngineerCommand {
+  OnboardEngineer(name: String, level: Int, effective: Date)
+  /// Promote an engineer to a new level effective from a date.
+  Promote(engineer_id: Int, level: Int, effective: Date)
+  /// Terminate an engineer's employment from a date, capping every contained fact.
+  TerminateEmployment(engineer_id: Int, effective: Date)
+}
+
+pub type AllocationCommand {
+  /// Allocate an engineer to a project at a fraction for a period.
+  AssignToProject(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+
+  /// Change an engineer's allocation fraction on a project effective from a date.
+  ChangeAllocationFraction(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    effective: Date,
+  )
+  /// Cap an engineer's allocation on a project from a date (roll off the project).
+  RollOff(engineer_id: Int, project_id: Int, effective: Date)
+}
+
 /// The typed command vocabulary (the write model). One variant per business
 /// operation: the client encodes a `Command`, the server decodes the same value
 /// and dispatches it to the matching temporal write, then re-encodes it as the
@@ -218,21 +247,16 @@ pub type ProjectPlan {
 /// period. Levels and ids are `Int`, fraction/hours/rate/salary are `Float`, and
 /// name/kind/client are `String`.
 pub type Command {
+  EngineerCommand(EngineerCommand)
+  AllocationCommand(AllocationCommand)
+
   /// Hire an engineer: create their identity, open-ended employment, and initial
   /// role, all from `effective`.
-  OnboardEngineer(name: String, level: Int, effective: Date)
   /// Open a contract term for a client.
   SignContract(client: String, valid_from: Date, valid_to: Date)
   /// Start a project under a contract for a bounded active period.
   StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
-  /// Allocate an engineer to a project at a fraction for a period.
-  AssignToProject(
-    engineer_id: Int,
-    project_id: Int,
-    fraction: Float,
-    valid_from: Date,
-    valid_to: Date,
-  )
+
   /// Put an engineer on leave of a kind for a period.
   TakeLeave(engineer_id: Int, kind: String, valid_from: Date, valid_to: Date)
   /// Log hours an engineer worked on a project on a day.
@@ -304,15 +328,7 @@ pub type Command {
   /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
   /// none.
   LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
-  /// Promote an engineer to a new level effective from a date.
-  Promote(engineer_id: Int, level: Int, effective: Date)
-  /// Change an engineer's allocation fraction on a project effective from a date.
-  ChangeAllocationFraction(
-    engineer_id: Int,
-    project_id: Int,
-    fraction: Float,
-    effective: Date,
-  )
+
   /// Publish a new day rate for a level effective from a date.
   ReviseRateCard(level: Int, day_rate: Float, effective: Date)
   /// Bump a level's day rate for a bounded window, splitting the rate-card row
@@ -323,10 +339,7 @@ pub type Command {
     valid_from: Date,
     valid_to: Date,
   )
-  /// Cap an engineer's allocation on a project from a date (roll off the project).
-  RollOff(engineer_id: Int, project_id: Int, effective: Date)
-  /// Terminate an engineer's employment from a date, capping every contained fact.
-  TerminateEmployment(engineer_id: Int, effective: Date)
+
   /// Publish a new monthly salary for a level effective from a date (the cost
   /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
   SetSalary(level: Int, monthly_salary: Float, effective: Date)

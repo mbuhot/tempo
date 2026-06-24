@@ -54,8 +54,8 @@ import gleam/time/calendar.{
 }
 import gleam/time/timestamp
 import shared/types.{
-  type Command, type Invoice, type TimesheetEntry, DraftInvoice, IssueInvoice,
-  LogWeek, PayInvoice, Promote, RunPayroll, TimesheetEntry,
+  type Command, type Invoice, type TimesheetEntry, DraftInvoice, EngineerCommand,
+  IssueInvoice, LogWeek, PayInvoice, Promote, RunPayroll, TimesheetEntry,
 }
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
@@ -426,11 +426,11 @@ fn apply_variance_promotion(ctx: Context) -> Nil {
     False ->
       apply(
         ctx,
-        Promote(
+        EngineerCommand(Promote(
           engineer_id: variance_engineer_id,
           level: variance_level,
           effective: variance_effective,
-        ),
+        )),
         Date(2026, June, 1),
       )
   }

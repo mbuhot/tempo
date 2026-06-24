@@ -27,9 +27,9 @@ import tempo/server/auth.{type Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/operation.{
-  type OperationError, ContainmentViolated, DatabaseError,
+  type OperationError, ContainmentViolated, DatabaseError, EngineerNotEmployed,
   InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
-  Unauthorized,
+  ProjectNotRunning, Unauthorized,
 }
 import tempo/server/web/response
 import tempo/server/web/session
@@ -137,6 +137,26 @@ fn error_response(error: OperationError) -> wisp.Response {
           <> " days available on return, "
           <> int.to_string(float.round(requested))
           <> " requested",
+      )
+    EngineerNotEmployed(engineer_id:, valid_from:, valid_to:) ->
+      response.error_response(
+        409,
+        "engineer_not_employed",
+        "engineer "
+          <> int.to_string(engineer_id)
+          <> " is not employed for the whole allocation period ("
+          <> operation.span(valid_from, valid_to)
+          <> ")",
+      )
+    ProjectNotRunning(project_id:, valid_from:, valid_to:) ->
+      response.error_response(
+        409,
+        "project_not_running",
+        "project "
+          <> int.to_string(project_id)
+          <> " is not running for the whole allocation period ("
+          <> operation.span(valid_from, valid_to)
+          <> ")",
       )
     DatabaseError(error) -> response.db_error_response(error)
   }

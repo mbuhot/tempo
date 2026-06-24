@@ -25,15 +25,15 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/time/calendar.{
-  April, Date, January, July, March, October, September,
+  April, August, Date, January, July, March, October, September,
 }
 import pog
 import shared/codecs
 import shared/types.{
-  type Command, AdjustRateForPortion, AssignToProject, ChangeAllocationFraction,
-  LogTimesheet, OnboardEngineer, Promote, ReviseRateCard, RollOff,
-  SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TerminateEmployment, UpdateClientProfile,
+  type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
+  ChangeAllocationFraction, EngineerCommand, LogTimesheet, OnboardEngineer,
+  Promote, ReviseRateCard, RollOff, SetProjectRequirement, SetSalary,
+  SignContract, StartProject, TerminateEmployment, UpdateClientProfile,
 }
 import tempo/server/command
 import tempo/server/operation
@@ -196,7 +196,14 @@ fn read_journal(conn: pog.Connection) -> List(Journal) {
 pub fn onboard_engineer_opens_employment_and_role_test() {
   let #(engineer_id, employment, role, journal) =
     rolling_back(fn(conn) {
-      apply(conn, OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1)))
+      apply(
+        conn,
+        EngineerCommand(OnboardEngineer(
+          "Ada Lovelace",
+          5,
+          Date(2026, January, 1),
+        )),
+      )
       let engineer_id = engineer_id_named(conn, "Ada Lovelace")
       let where_eng = "engineer_id = " <> int.to_string(engineer_id)
       #(
@@ -228,7 +235,9 @@ pub fn onboard_engineer_opens_employment_and_role_test() {
     <> int.to_string(engineer_id)
     <> ") from 2026-01-01"
   assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1)))
+    == Ok(
+      EngineerCommand(OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1))),
+    )
 }
 
 // --- promote (Change; the hard split-vs-scheduled-future case) --------------
@@ -261,7 +270,7 @@ pub fn promote_splits_covering_version_but_preserves_scheduled_future_test() {
       )
       // Promote to L5 effective mid-year with no upper bound — asserts L5 from
       // July to infinity, so the scheduled L6 from Oct is superseded.
-      apply(conn, Promote(engineer_id, 5, Date(2026, July, 1)))
+      apply(conn, EngineerCommand(Promote(engineer_id, 5, Date(2026, July, 1))))
       #(
         read_periods(
           conn,
@@ -334,7 +343,13 @@ pub fn terminate_employment_caps_children_then_employment_test() {
           <> ", 80001, 1.00, daterange('2026-01-01', NULL, '[)'))",
       )
       // Terminate from Sep 1: every open-ended child caps to [Jan,Sep).
-      apply(conn, TerminateEmployment(engineer_id, Date(2026, September, 1)))
+      apply(
+        conn,
+        EngineerCommand(TerminateEmployment(
+          engineer_id,
+          Date(2026, September, 1),
+        )),
+      )
       #(
         read_periods(conn, "employment", "''", "employed_during", where_eng),
         read_periods(
@@ -421,7 +436,7 @@ pub fn terminate_employment_rejected_when_timesheet_outlives_end_test() {
       command.dispatch_in(
         conn,
         "tester",
-        TerminateEmployment(engineer_id, Date(2026, March, 1)),
+        EngineerCommand(TerminateEmployment(engineer_id, Date(2026, March, 1))),
       )
     })
 
@@ -479,7 +494,10 @@ pub fn terminate_employment_deletes_scheduled_future_facts_test() {
       )
       // Terminate at Mar 1: clips L5 [Jan,Sep) to [Jan,Mar), deletes the
       // scheduled L6 [Sep,∞) entirely, and caps the allocation to [Jan,Mar).
-      apply(conn, TerminateEmployment(engineer_id, Date(2026, March, 1)))
+      apply(
+        conn,
+        EngineerCommand(TerminateEmployment(engineer_id, Date(2026, March, 1))),
+      )
       #(
         read_periods(
           conn,
@@ -529,7 +547,10 @@ pub fn retroactive_promote_covering_whole_fact_leaves_no_leftover_test() {
       )
       // Promote effective from the SAME start date: covers the whole L4 row, so
       // there is no [lower, effective) leftover — the L4 assertion is erased.
-      apply(conn, Promote(engineer_id, 5, Date(2026, January, 1)))
+      apply(
+        conn,
+        EngineerCommand(Promote(engineer_id, 5, Date(2026, January, 1))),
+      )
       read_periods(
         conn,
         "engineer_role",
@@ -623,21 +644,29 @@ pub fn allocation_assign_change_then_roll_off_test() {
       // Assert: open-ended 0.5 from Jan.
       apply(
         conn,
-        AssignToProject(
+        AllocationCommand(AssignToProject(
           engineer_id,
           80_010,
           0.5,
           Date(2026, January, 1),
           Date(2027, January, 1),
-        ),
+        )),
       )
       // Change: 1.0 from Jul — splits at Jul, the Jan..Jul leftover stays 0.5.
       apply(
         conn,
-        ChangeAllocationFraction(engineer_id, 80_010, 1.0, Date(2026, July, 1)),
+        AllocationCommand(ChangeAllocationFraction(
+          engineer_id,
+          80_010,
+          1.0,
+          Date(2026, July, 1),
+        )),
       )
       // Close: roll off from Oct — caps the open 1.0 tail to [Jul, Oct).
-      apply(conn, RollOff(engineer_id, 80_010, Date(2026, October, 1)))
+      apply(
+        conn,
+        AllocationCommand(RollOff(engineer_id, 80_010, Date(2026, October, 1))),
+      )
       read_periods(
         conn,
         "allocation",
@@ -652,6 +681,135 @@ pub fn allocation_assign_change_then_roll_off_test() {
       Period("0.50", "2026-01-01", "2026-07-01"),
       Period("1.00", "2026-07-01", "2026-10-01"),
     ]
+}
+
+// assign_to_project guards the allocation window against the engineer's employment
+// BEFORE the write: an assignment running past the engineer's employment end is
+// refused as EngineerNotEmployed (a clear domain error, ahead of the
+// allocation_within_employment containment FK). Employment ends 2026-06-01 but the
+// assignment runs to 2026-08-01; the project runs open-ended, so only employment is
+// at fault.
+pub fn assign_past_employment_is_rejected_test() {
+  let #(engineer_id, outcome) =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Sophie Wilson")
+      let client_id = insert_client(conn, "Acorn")
+      let id = int.to_string(engineer_id)
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> id
+          <> ", daterange('2026-01-01','2026-06-01'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES ("
+          <> id
+          <> ", 5, daterange('2026-01-01','2026-06-01'))",
+      )
+      exec(conn, "INSERT INTO contract (id) VALUES (90020)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90020, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80020)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) "
+          <> "VALUES (80020, 'Past', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80020, 90020, daterange('2026-01-01', NULL, '[)'))",
+      )
+      let outcome =
+        command.dispatch_in(
+          conn,
+          "tester",
+          AllocationCommand(AssignToProject(
+            engineer_id,
+            80_020,
+            0.5,
+            Date(2026, January, 1),
+            Date(2026, August, 1),
+          )),
+        )
+      #(engineer_id, outcome)
+    })
+
+  let assert Error(operation.EngineerNotEmployed(
+    engineer_id: rejected,
+    valid_from:,
+    valid_to:,
+  )) = outcome
+  assert rejected == engineer_id
+  assert valid_from == Date(2026, January, 1)
+  assert valid_to == Date(2026, August, 1)
+}
+
+// The project-side analogue: the engineer is employed open-ended, but the project's
+// RUN ends 2026-06-01 while the assignment runs to 2026-08-01, so it is refused as
+// ProjectNotRunning ahead of the allocation_within_project containment FK.
+pub fn assign_past_project_run_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Roger Wilson")
+      let client_id = insert_client(conn, "Acorn")
+      let id = int.to_string(engineer_id)
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> id
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES ("
+          <> id
+          <> ", 5, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO contract (id) VALUES (90021)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90021, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80021)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) "
+          <> "VALUES (80021, 'Short Run', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80021, 90021, daterange('2026-01-01','2026-06-01'))",
+      )
+      command.dispatch_in(
+        conn,
+        "tester",
+        AllocationCommand(AssignToProject(
+          engineer_id,
+          80_021,
+          0.5,
+          Date(2026, January, 1),
+          Date(2026, August, 1),
+        )),
+      )
+    })
+
+  let assert Error(operation.ProjectNotRunning(
+    project_id:,
+    valid_from:,
+    valid_to:,
+  )) = outcome
+  assert project_id == 80_021
+  assert valid_from == Date(2026, January, 1)
+  assert valid_to == Date(2026, August, 1)
 }
 
 // --- log_timesheet through the dispatch seam (timesheet reuse) --------------
@@ -672,13 +830,13 @@ pub fn log_timesheet_through_dispatch_persists_and_journals_test() {
         )
       apply(
         conn,
-        AssignToProject(
+        AllocationCommand(AssignToProject(
           engineer_id,
           80_011,
           1.0,
           Date(2026, January, 1),
           Date(2027, January, 1),
-        ),
+        )),
       )
       apply(conn, LogTimesheet(engineer_id, 80_011, Date(2026, March, 10), 7.5))
       let where_ts =
@@ -750,7 +908,7 @@ pub fn dispatch_records_operation_summary_and_payload_test() {
           <> int.to_string(engineer_id)
           <> ", 4, daterange('2026-01-01', NULL, '[)'))",
       )
-      apply(conn, Promote(..command, engineer_id:))
+      apply(conn, EngineerCommand(Promote(..command, engineer_id:)))
       #(engineer_id, read_journal(conn))
     })
 
@@ -762,7 +920,7 @@ pub fn dispatch_records_operation_summary_and_payload_test() {
   assert row.summary == "Promote engineer " <> id <> " to L5 from 2026-07-01"
   // payload decoded back through the shared codec equals the dispatched command.
   assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(Promote(..command, engineer_id:))
+    == Ok(EngineerCommand(Promote(..command, engineer_id:)))
 }
 
 // A command records exactly one journal event, so dispatch returns that single
@@ -789,7 +947,7 @@ pub fn dispatch_returns_the_single_recorded_event_test() {
         command.dispatch_in(
           conn,
           "tester",
-          Promote(engineer_id, 5, Date(2026, July, 1)),
+          EngineerCommand(Promote(engineer_id, 5, Date(2026, July, 1))),
         )
       event
     })

@@ -312,12 +312,10 @@ pub fn timesheet_write_is_an_upsert_test() {
     run_rolling_back(fn(conn) {
       let audit_id = mint_audit_id(conn)
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) =
-        sql.timesheet_write(conn, 2, 300, day, 6.0, audit_id)
+      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 6.0, audit_id)
       // Re-entry with a corrected value, same code path.
       let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) =
-        sql.timesheet_write(conn, 2, 300, day, 8.0, audit_id)
+      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 8.0, audit_id)
       let assert Ok(week) = sql.timesheet_week(conn, 2, week_start)
       week.rows
       |> list.filter(fn(row) { row.project_id == 300 && row.day == day })

@@ -45,6 +45,16 @@ pub type OperationError {
   /// kind on return (the `take_leave` guard, not a database constraint). `available`
   /// is the balance on return, `requested` the days asked for.
   InsufficientLeaveBalance(kind: String, available: Float, requested: Float)
+  /// An allocation was requested for an engineer who is not employed for the WHOLE
+  /// `[valid_from, valid_to)` window (the `assign_to_project` guard, checked before
+  /// the write). Caught here for a clear domain error rather than left to the
+  /// `allocation_within_employment` containment FK.
+  EngineerNotEmployed(engineer_id: Int, valid_from: Date, valid_to: Date)
+  /// An allocation was requested against a project whose run does not cover the
+  /// WHOLE `[valid_from, valid_to)` window (the `assign_to_project` guard). The
+  /// project-side analogue of `EngineerNotEmployed`, ahead of the
+  /// `allocation_within_project` containment FK.
+  ProjectNotRunning(project_id: Int, valid_from: Date, valid_to: Date)
   /// A revise (`salary`/`rate_card`) targeted a level/date with no covering
   /// version: the `FOR PORTION OF` UPDATE matched zero rows, so there was nothing
   /// to re-rate. Rejected rather than journalled as a no-op (the audit log must

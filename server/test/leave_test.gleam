@@ -13,7 +13,7 @@
 
 import gleam/time/calendar.{type Date, Date, January, March, September}
 import pog
-import shared/types.{Promote, TakeLeave}
+import shared/types.{EngineerCommand, Promote, TakeLeave}
 import tempo/server/command
 import tempo/server/operation.{InsufficientLeaveBalance}
 import tempo/server/sql
@@ -83,7 +83,11 @@ pub fn unpolicied_kind_is_unlimited_test() {
 pub fn promotion_blends_accrual_rate_test() {
   rolling_back(fn(conn) {
     let assert Ok(_) =
-      command.dispatch_in(conn, "tester", Promote(1, 6, Date(2025, January, 1)))
+      command.dispatch_in(
+        conn,
+        "tester",
+        EngineerCommand(Promote(1, 6, Date(2025, January, 1))),
+      )
     assert balance(conn, 1, "annual", Date(2026, January, 1)) == 45.0
   })
 }

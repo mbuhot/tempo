@@ -21,8 +21,9 @@ import shared/codecs
 import shared/types.{
   type BoardSnapshot, type ClientDetail, type ClientList, type EngineerDetail,
   type Event, type PeopleList, type ProjectDetail, type ProjectList,
-  type Settings, type TimesheetWeek, BoardRow, OnLeave, OnProject, Promote,
-  RosterOnProjects, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
+  type Settings, type TimesheetWeek, BoardRow, EngineerCommand, OnLeave,
+  OnProject, Promote, RosterOnProjects, TimesheetCell, TimesheetWeek,
+  TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/event
@@ -345,11 +346,11 @@ pub fn operation_promote_returns_created_event_test() {
   let response =
     post_operation(
       context,
-      Promote(
+      EngineerCommand(Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
-      ),
+      )),
     )
 
   let status = response.status
@@ -424,11 +425,13 @@ pub fn operation_without_session_is_unauthenticated_test() {
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
       codecs.encode_operation_request(
-        types.OperationRequest(command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        )),
+        types.OperationRequest(
+          command: EngineerCommand(Promote(
+            engineer_id: 2,
+            level: 6,
+            effective: calendar.Date(2026, calendar.September, 1),
+          )),
+        ),
       ),
     )
     |> router.handle_request(context)
@@ -449,11 +452,13 @@ pub fn operation_with_forged_session_is_unauthenticated_test() {
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
       codecs.encode_operation_request(
-        types.OperationRequest(command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        )),
+        types.OperationRequest(
+          command: EngineerCommand(Promote(
+            engineer_id: 2,
+            level: 6,
+            effective: calendar.Date(2026, calendar.September, 1),
+          )),
+        ),
       ),
     )
     |> simulate.header("cookie", "tempo_session=Admin%7Cadmin")
@@ -474,11 +479,13 @@ pub fn operation_actor_is_derived_from_session_test() {
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
       codecs.encode_operation_request(
-        types.OperationRequest(command: Promote(
-          engineer_id: 2,
-          level: 6,
-          effective: calendar.Date(2026, calendar.September, 1),
-        )),
+        types.OperationRequest(
+          command: EngineerCommand(Promote(
+            engineer_id: 2,
+            level: 6,
+            effective: calendar.Date(2026, calendar.September, 1),
+          )),
+        ),
       ),
     )
     |> simulate.session(login_request, login_response)
@@ -548,11 +555,11 @@ pub fn events_window_filters_by_occurred_at_test() {
   let post =
     post_operation(
       context,
-      Promote(
+      EngineerCommand(Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
-      ),
+      )),
     )
   let assert [created] = decode_events(post)
   // Record it as entered on 2026-02-10, so the assertion is independent of the wall
@@ -598,11 +605,11 @@ pub fn events_without_params_returns_the_whole_journal_test() {
   let post =
     post_operation(
       context,
-      Promote(
+      EngineerCommand(Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
-      ),
+      )),
     )
   let assert [created] = decode_events(post)
 

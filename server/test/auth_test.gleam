@@ -4,7 +4,9 @@
 //// round-trip that the signed cookie carries.
 
 import gleam/time/calendar
-import shared/types.{LogTimesheet, Promote, RunPayroll, SetSalary}
+import shared/types.{
+  EngineerCommand, LogTimesheet, Promote, RunPayroll, SetSalary,
+}
 import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
 
 fn date() -> calendar.Date {
@@ -45,7 +47,7 @@ pub fn engineer_is_denied_financial_command_test() {
     == Error(Forbidden(actor: "Priya Sharma", command: "set_salary"))
   assert auth.authorize(
       principal,
-      Promote(engineer_id: 2, level: 6, effective: date()),
+      EngineerCommand(Promote(engineer_id: 2, level: 6, effective: date())),
     )
     == Ok("Priya Sharma")
 }
