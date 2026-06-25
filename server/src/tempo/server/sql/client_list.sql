@@ -17,6 +17,13 @@
 -- ClientListRow.since. `active` is a correlated bool_or(term @> $1) coalesced to
 -- false. The project count is a correlated count of distinct project ids reachable
 -- through the client's contracts' runs. Ordered by name for a stable directory.
+--
+-- Keyset pagination (#12). Stable total order is (name, client_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT * FROM (
 SELECT
   client.id AS client_id,
   coalesce(client_current.name, '') AS name,
@@ -44,4 +51,7 @@ WHERE EXISTS (
    WHERE contract_terms.client_id = client.id
      AND lower(contract_terms.term) <= $1::date
 )
-ORDER BY name;
+) page
+WHERE (page.name, page.client_id) > ($2::text, $3::int)
+ORDER BY page.name, page.client_id
+LIMIT $4::int;

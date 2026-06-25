@@ -26,19 +26,32 @@ import shared/project/view.{
   ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
   TeamMember,
 } as _
+import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/sql
+import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
-/// The projects list as-of `as_of`: every project with a run, with its client,
-/// budget, target, team size, and active flag.
+/// One keyset page of the projects list as-of `as_of` (issue #12): each project
+/// with its client, budget, target, team size, and active flag, starting strictly
+/// after `after` at most `limit` rows, plus the `next_cursor` for the following
+/// page (`None` on the last page). The order is the SQL's stable (title,
+/// project_id).
 pub fn list(
   context: Context,
   as_of: Date,
+  after: NameIdBound,
+  limit: Int,
 ) -> Result(ProjectList, pog.QueryError) {
-  use returned <- result.map(sql.project_list(context.db, as_of))
+  let NameIdBound(name:, id:) = after
+  use returned <- result.map(sql.project_list(context.db, as_of, name, id, limit + 1))
+  let #(rows, next_cursor) =
+    pagination.paginate(returned.rows, limit, fn(row: sql.ProjectListRow) {
+      cursor.encode_name_id(row.title, row.project_id)
+    })
   ProjectList(
     date: as_of,
-    projects: list.map(returned.rows, list_row_to_shared),
+    projects: list.map(rows, list_row_to_shared),
+    next_cursor:,
   )
 }
 

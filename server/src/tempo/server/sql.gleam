@@ -631,12 +631,21 @@ pub type ClientListRow {
 /// false. The project count is a correlated count of distinct project ids reachable
 /// through the client's contracts' runs. Ordered by name for a stable directory.
 ///
+/// Keyset pagination (#12). Stable total order is (name, client_id) — the display
+/// order plus the unique id tiebreaker. The cursor names the last row returned:
+/// $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+/// strictly after it. The first page passes the sentinel ('', 0), which precedes
+/// every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn client_list(
   db: pog.Connection,
   arg_1: Date,
+  arg_2: String,
+  arg_3: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(ClientListRow), pog.QueryError) {
   let decoder = {
     use client_id <- decode.field(0, decode.int)
@@ -672,6 +681,13 @@ pub fn client_list(
 -- ClientListRow.since. `active` is a correlated bool_or(term @> $1) coalesced to
 -- false. The project count is a correlated count of distinct project ids reachable
 -- through the client's contracts' runs. Ordered by name for a stable directory.
+--
+-- Keyset pagination (#12). Stable total order is (name, client_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT * FROM (
 SELECT
   client.id AS client_id,
   coalesce(client_current.name, '') AS name,
@@ -699,10 +715,16 @@ WHERE EXISTS (
    WHERE contract_terms.client_id = client.id
      AND lower(contract_terms.term) <= $1::date
 )
-ORDER BY name;
+) page
+WHERE (page.name, page.client_id) > ($2::text, $3::int)
+ORDER BY page.name, page.client_id
+LIMIT $4::int;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -1942,6 +1964,14 @@ pub type EventLogListRow {
 /// through the shared codecs. `id` doubles as the order applied, so DESC is
 /// newest-first.
 ///
+/// Keyset pagination (#12). The id IS the total order (a bigserial, unique), so the
+/// DESC keyset is `id < $5` — the cursor names the smallest id already returned, and
+/// the next page is the rows below it. The first page passes a sentinel above every
+/// real id so the whole journal is admitted. $6 = limit; the caller fetches limit+1
+/// to detect a further page. The `event` domain module owns the executed SQL (its
+/// four filter params are nullable, which Squirrel cannot express), so this file
+/// exists only to keep the generated row type in sync — see event.gleam.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
@@ -1951,6 +1981,8 @@ pub fn event_log_list(
   arg_2: Date,
   arg_3: String,
   arg_4: String,
+  arg_5: Int,
+  arg_6: Int,
 ) -> Result(pog.Returned(EventLogListRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
@@ -1985,6 +2017,14 @@ pub fn event_log_list(
 -- jsonb don't need a Squirrel type mapping); the client parses `payload` back
 -- through the shared codecs. `id` doubles as the order applied, so DESC is
 -- newest-first.
+--
+-- Keyset pagination (#12). The id IS the total order (a bigserial, unique), so the
+-- DESC keyset is `id < $5` — the cursor names the smallest id already returned, and
+-- the next page is the rows below it. The first page passes a sentinel above every
+-- real id so the whole journal is admitted. $6 = limit; the caller fetches limit+1
+-- to detect a further page. The `event` domain module owns the executed SQL (its
+-- four filter params are nullable, which Squirrel cannot express), so this file
+-- exists only to keep the generated row type in sync — see event.gleam.
 SELECT
   id,
   occurred_at::text,
@@ -1997,13 +2037,17 @@ WHERE ($1::date IS NULL OR occurred_at::date >= $1)
   AND ($2::date IS NULL OR occurred_at::date < $2)
   AND ($3::text IS NULL OR operation = $3)
   AND ($4::text IS NULL OR actor = $4)
-ORDER BY id DESC;
+  AND id < $5::bigint
+ORDER BY id DESC
+LIMIT $6::int;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.int(arg_5))
+  |> pog.parameter(pog.int(arg_6))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -4055,12 +4099,21 @@ pub type PeopleListRow {
 /// RosterOnProjects(titles) when allocated, else RosterUnassigned. The annual leave
 /// balance is NOT joined here — the domain joins leave_balances.sql by engineer_id.
 ///
+/// Keyset pagination (#12). Stable total order is (name, engineer_id) — the display
+/// order plus the unique id tiebreaker. The cursor names the last row returned:
+/// $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+/// strictly after it. The first page passes the sentinel ('', 0), which precedes
+/// every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn people_list(
   db: pog.Connection,
   arg_1: Date,
+  arg_2: String,
+  arg_3: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(PeopleListRow), pog.QueryError) {
   let decoder = {
     use engineer_id <- decode.field(0, decode.int)
@@ -4113,6 +4166,13 @@ pub fn people_list(
 -- layer collapses status to RosterOnLeave(kind) when present, else
 -- RosterOnProjects(titles) when allocated, else RosterUnassigned. The annual leave
 -- balance is NOT joined here — the domain joins leave_balances.sql by engineer_id.
+--
+-- Keyset pagination (#12). Stable total order is (name, engineer_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT * FROM (
 SELECT
   engineer.id AS engineer_id,
   coalesce(engineer_current.name, '') AS name,
@@ -4147,10 +4207,16 @@ LEFT JOIN LATERAL (
      AND allocation.allocated_during @> $1::date
 ) alloc ON true
 WHERE employment.employed_during @> $1::date
-ORDER BY name;
+) page
+WHERE (page.name, page.engineer_id) > ($2::text, $3::int)
+ORDER BY page.name, page.engineer_id
+LIMIT $4::int;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -4654,12 +4720,21 @@ pub type ProjectListRow {
 /// to this project covers $1 (0 for a dormant project). The inner DISTINCT ON picks
 /// one run per project; the outer query orders the directory by title.
 ///
+/// Keyset pagination (#12). Stable total order is (title, project_id) — the display
+/// order plus the unique id tiebreaker. The cursor names the last row returned:
+/// $2 = its title, $3 = its id; a row is on the NEXT page when (title, id) sorts
+/// strictly after it. The first page passes the sentinel ('', 0), which precedes
+/// every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn project_list(
   db: pog.Connection,
   arg_1: Date,
+  arg_2: String,
+  arg_3: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(ProjectListRow), pog.QueryError) {
   let decoder = {
     use project_id <- decode.field(0, decode.int)
@@ -4696,6 +4771,14 @@ pub fn project_list(
 -- project). team_size is a correlated count of DISTINCT engineers whose allocation
 -- to this project covers $1 (0 for a dormant project). The inner DISTINCT ON picks
 -- one run per project; the outer query orders the directory by title.
+--
+-- Keyset pagination (#12). Stable total order is (title, project_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its title, $3 = its id; a row is on the NEXT page when (title, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT project_id, title, client, budget, target_completion, team_size, active
+FROM (
 SELECT project_id, title, client, budget, target_completion, team_size, active
 FROM (
   SELECT DISTINCT ON (project_run.project_id)
@@ -4727,10 +4810,17 @@ FROM (
            (project_run.active_during @> $1::date) DESC,
            lower(project_run.active_during) DESC
 ) ranked
-ORDER BY title;
+ORDER BY title
+) page
+WHERE (page.title, page.project_id) > ($2::text, $3::int)
+ORDER BY page.title, page.project_id
+LIMIT $4::int;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

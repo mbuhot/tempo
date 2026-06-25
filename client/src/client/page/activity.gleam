@@ -35,7 +35,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command.{type Event, event_decoder}
+import shared/command.{type Event, event_page_decoder}
 
 /// The four filters the feed reads, all optional. `from`/`to` is the half-open
 /// system-time window (recorded between); `operation`/`actor` narrow to a single
@@ -112,7 +112,9 @@ pub fn init(
 /// The result is tagged with the `filters` it answers so a stale response can be
 /// dropped.
 fn fetch(filters: Filters) -> Effect(Msg) {
-  api.get(events_url(filters), decode.list(event_decoder()), fn(result) {
+  let decoder =
+    decode.map(event_page_decoder(), fn(page) { page.events })
+  api.get(events_url(filters), decoder, fn(result) {
     GotEvents(filters:, result:)
   })
 }

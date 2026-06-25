@@ -24,17 +24,32 @@ import shared/client/view.{
   type ClientProjectRow, type ContractRow, ClientDetail, ClientList,
   ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
 }
+import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/sql
+import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
-/// The clients list as-of `as_of`: every client with its `since`, project count,
-/// and active flag.
+/// One keyset page of the clients list as-of `as_of` (issue #12): each client with
+/// its `since`, project count, and active flag, starting strictly after `after` at
+/// most `limit` rows, plus the `next_cursor` for the following page (`None` on the
+/// last page). The order is the SQL's stable (name, client_id).
 pub fn list(
   context: Context,
   as_of: Date,
+  after: NameIdBound,
+  limit: Int,
 ) -> Result(ClientList, pog.QueryError) {
-  use returned <- result.map(sql.client_list(context.db, as_of))
-  ClientList(date: as_of, clients: list.map(returned.rows, list_row_to_shared))
+  let NameIdBound(name:, id:) = after
+  use returned <- result.map(sql.client_list(context.db, as_of, name, id, limit + 1))
+  let #(rows, next_cursor) =
+    pagination.paginate(returned.rows, limit, fn(row: sql.ClientListRow) {
+      cursor.encode_name_id(row.name, row.client_id)
+    })
+  ClientList(
+    date: as_of,
+    clients: list.map(rows, list_row_to_shared),
+    next_cursor:,
+  )
 }
 
 fn list_row_to_shared(row: sql.ClientListRow) -> ClientListRow {

@@ -9,6 +9,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/pagination
 import shared/wire
 
 /// A client's profile as one edit-grouped fact: the client's `name`. The
@@ -70,10 +71,16 @@ pub type ClientListRow {
   )
 }
 
-/// The clients list for a single date (mirrors `PeopleList`): the `date` and one
-/// `ClientListRow` per client.
+/// The clients list for a single date (mirrors `PeopleList`): the `date`, one
+/// `ClientListRow` per client, and the opaque `next_cursor` for the following
+/// keyset page (`None` on the last page; issue #12). The item shape is unchanged —
+/// `next_cursor` is purely additive.
 pub type ClientList {
-  ClientList(date: Date, clients: List(ClientListRow))
+  ClientList(
+    date: Date,
+    clients: List(ClientListRow),
+    next_cursor: Option(String),
+  )
 }
 
 /// Encode a `ClientProfile` (the client's current profile fact) as a JSON
@@ -214,10 +221,11 @@ pub fn client_list_row_decoder() -> Decoder(ClientListRow) {
 
 /// Encode a `ClientList` (the clients list for a date) to JSON.
 pub fn encode_client_list(list: ClientList) -> Json {
-  let ClientList(date:, clients:) = list
+  let ClientList(date:, clients:, next_cursor:) = list
   json.object([
     #("date", wire.encode_date(date)),
     #("clients", json.array(clients, encode_client_list_row)),
+    #("next_cursor", pagination.encode_next_cursor(next_cursor)),
   ])
 }
 
@@ -225,5 +233,9 @@ pub fn encode_client_list(list: ClientList) -> Json {
 pub fn client_list_decoder() -> Decoder(ClientList) {
   use date <- decode.field("date", wire.date_decoder())
   use clients <- decode.field("clients", decode.list(client_list_row_decoder()))
-  decode.success(ClientList(date:, clients:))
+  use next_cursor <- decode.field(
+    "next_cursor",
+    pagination.next_cursor_decoder(),
+  )
+  decode.success(ClientList(date:, clients:, next_cursor:))
 }

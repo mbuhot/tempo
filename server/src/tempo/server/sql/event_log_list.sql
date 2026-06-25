@@ -14,6 +14,14 @@
 -- jsonb don't need a Squirrel type mapping); the client parses `payload` back
 -- through the shared codecs. `id` doubles as the order applied, so DESC is
 -- newest-first.
+--
+-- Keyset pagination (#12). The id IS the total order (a bigserial, unique), so the
+-- DESC keyset is `id < $5` — the cursor names the smallest id already returned, and
+-- the next page is the rows below it. The first page passes a sentinel above every
+-- real id so the whole journal is admitted. $6 = limit; the caller fetches limit+1
+-- to detect a further page. The `event` domain module owns the executed SQL (its
+-- four filter params are nullable, which Squirrel cannot express), so this file
+-- exists only to keep the generated row type in sync — see event.gleam.
 SELECT
   id,
   occurred_at::text,
@@ -26,4 +34,6 @@ WHERE ($1::date IS NULL OR occurred_at::date >= $1)
   AND ($2::date IS NULL OR occurred_at::date < $2)
   AND ($3::text IS NULL OR operation = $3)
   AND ($4::text IS NULL OR actor = $4)
-ORDER BY id DESC;
+  AND id < $5::bigint
+ORDER BY id DESC
+LIMIT $6::int;

@@ -18,33 +18,46 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/pagination
 import shared/people/view.{
   type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
   RosterOnLeave, RosterOnProjects, RosterUnassigned,
 }
 import tempo/server/context.{type Context}
 import tempo/server/sql
+import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
-/// Compute the people roster as-of `as_of`: run `people_list` and `leave_balances`,
-/// join their rows by engineer_id, and map each to a shared `PersonRow`.
+/// Compute one keyset page of the people roster as-of `as_of` (issue #12): run
+/// `people_list` over the page starting strictly after `after` (at most `limit`
+/// rows + a look-ahead) and `leave_balances`, join their rows by engineer_id, and
+/// map each to a shared `PersonRow`. Returns the page plus the `next_cursor` for
+/// the following page (`None` on the last page). The order is the SQL's stable
+/// (name, engineer_id).
 pub fn roster(
   context: Context,
   as_of: Date,
+  after: NameIdBound,
+  limit: Int,
 ) -> Result(PeopleList, pog.QueryError) {
-  use people <- result.try(sql.people_list(context.db, as_of))
+  let NameIdBound(name:, id:) = after
+  use people <- result.try(sql.people_list(context.db, as_of, name, id, limit + 1))
   use balances <- result.map(sql.leave_balances(context.db, as_of))
   let annual_by_engineer =
     balances.rows
     |> list.map(fn(row) { #(row.engineer_id, row.annual) })
     |> dict.from_list
+  let #(page_rows, next_cursor) =
+    pagination.paginate(people.rows, limit, fn(row: sql.PeopleListRow) {
+      cursor.encode_name_id(row.name, row.engineer_id)
+    })
   let rows =
-    list.map(people.rows, fn(row) {
+    list.map(page_rows, fn(row) {
       let annual_balance =
         dict.get(annual_by_engineer, row.engineer_id)
         |> result.unwrap(0.0)
       person_row_to_shared(row, annual_balance)
     })
-  PeopleList(date: as_of, people: rows)
+  PeopleList(date: as_of, people: rows, next_cursor:)
 }
 
 /// Map one `people_list` row (plus the annual balance joined from `leave_balances`)

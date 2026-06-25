@@ -6,7 +6,9 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/pagination
 import shared/wire
 
 /// An engineer's roster situation collapsed to a single cell for the people list
@@ -40,9 +42,15 @@ pub type PersonRow {
 }
 
 /// The people list for a single date: every employed engineer's `PersonRow`
-/// as-of the `date` (mirrors `BoardSnapshot`'s date + rows shape).
+/// as-of the `date` (mirrors `BoardSnapshot`'s date + rows shape), plus the opaque
+/// `next_cursor` for the following keyset page (`None` on the last page; issue
+/// #12). The item shape is unchanged — `next_cursor` is purely additive.
 pub type PeopleList {
-  PeopleList(date: Date, people: List(PersonRow))
+  PeopleList(
+    date: Date,
+    people: List(PersonRow),
+    next_cursor: Option(String),
+  )
 }
 
 /// Encode a `RosterStatus` as a tagged JSON object keyed by `status`.
@@ -133,10 +141,11 @@ pub fn person_row_decoder() -> Decoder(PersonRow) {
 
 /// Encode a `PeopleList` (the people list for a date) to JSON.
 pub fn encode_people_list(list: PeopleList) -> Json {
-  let PeopleList(date:, people:) = list
+  let PeopleList(date:, people:, next_cursor:) = list
   json.object([
     #("date", wire.encode_date(date)),
     #("people", json.array(people, encode_person_row)),
+    #("next_cursor", pagination.encode_next_cursor(next_cursor)),
   ])
 }
 
@@ -144,5 +153,9 @@ pub fn encode_people_list(list: PeopleList) -> Json {
 pub fn people_list_decoder() -> Decoder(PeopleList) {
   use date <- decode.field("date", wire.date_decoder())
   use people <- decode.field("people", decode.list(person_row_decoder()))
-  decode.success(PeopleList(date:, people:))
+  use next_cursor <- decode.field(
+    "next_cursor",
+    pagination.next_cursor_decoder(),
+  )
+  decode.success(PeopleList(date:, people:, next_cursor:))
 }

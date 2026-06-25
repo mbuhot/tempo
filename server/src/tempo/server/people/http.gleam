@@ -6,23 +6,52 @@
 //// A missing/malformed `as_of` is a 400; a database failure is a 500.
 
 import gleam/http
+import gleam/option
+import gleam/result
 import shared/people/view as people_view
 import tempo/server/context.{type Context}
 import tempo/server/people/view as people
+import tempo/server/web/cursor.{type NameIdBound}
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
 
-/// Handle GET /api/people?as_of=YYYY-MM-DD — every employed engineer's roster row
-/// as of the date (level, status, allocation, annual balance, day rate).
+/// Handle GET /api/people?as_of=YYYY-MM-DD&cursor=&limit= — one keyset page of the
+/// people roster (issue #12), each employed engineer's row (level, status,
+/// allocation, annual balance, day rate) plus the `next_cursor` for the following
+/// page. `cursor` is the opaque token from a prior page (absent ⇒ first page);
+/// `limit` defaults to the server default and is clamped. A malformed
+/// `cursor`/`limit` is a 400.
 pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.require_method(req, http.Get)
-  case request.date_from_query(req, "as_of") {
+  let parsed = {
+    use as_of <- result.try(request.date_from_query(req, "as_of"))
+    use after <- result.try(people_cursor(req))
+    use limit <- result.map(request.optional_int_from_query(req, "limit"))
+    #(
+      as_of,
+      after,
+      context.clamp_limit(option.unwrap(limit, context.default_page_limit)),
+    )
+  }
+  case parsed {
     Error(detail) -> wisp.bad_request(detail)
-    Ok(as_of) ->
-      case people.roster(ctx, as_of) {
+    Ok(#(as_of, after, limit)) ->
+      case people.roster(ctx, as_of, after, limit) {
         Ok(list) -> response.json_response(people_view.encode_people_list(list))
         Error(error) -> response.db_error_response(error)
       }
+  }
+}
+
+/// Parse the optional `cursor` param into the people keyset bound: absent ⇒ the
+/// first-page sentinel, present-and-valid ⇒ its `(name, engineer_id)` bound,
+/// present-but-malformed ⇒ `Error(detail)` for a 400.
+fn people_cursor(req: wisp.Request) -> Result(NameIdBound, String) {
+  case request.optional_string_from_query(req, "cursor") {
+    option.None -> Ok(cursor.name_id_start())
+    option.Some(token) ->
+      cursor.decode_name_id(token)
+      |> result.replace_error("invalid cursor '" <> token <> "'")
   }
 }

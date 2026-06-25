@@ -11,14 +11,16 @@
 
 import gleam/dynamic/decode
 import gleam/list
-import gleam/option
+import gleam/option.{type Option}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{type Event, Event}
+import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/operation
 import tempo/server/sql
+import tempo/server/web/cursor.{type IdBound, IdBound}
 
 /// Append one journal row on an already-open connection: `dispatch` calls this in
 /// the same transaction as the temporal fact writes, so the fact and its
@@ -69,13 +71,22 @@ fn append_row_to_event(row: sql.EventLogAppendRow) -> Event {
 /// nullable parameters, only result columns — so it cannot send SQL NULL. The
 /// optional params are therefore bound here directly via `pog.nullable`, reusing the
 /// exact SQL text.
+///
+/// Keyset pagination (issue #12): `after` is the id upper bound (id < $5; the
+/// smallest id already returned, or the ceiling sentinel for the first page) and
+/// `limit` caps the page. Fetches `limit + 1` so the look-ahead row tells
+/// `pagination.paginate` whether a further page exists; returns the page rows plus
+/// the `next_cursor` (`None` on the last page).
 pub fn list(
   context: Context,
-  from: option.Option(Date),
-  to: option.Option(Date),
-  operation: option.Option(String),
-  actor: option.Option(String),
-) -> Result(List(Event), pog.QueryError) {
+  from: Option(Date),
+  to: Option(Date),
+  operation: Option(String),
+  actor: Option(String),
+  after: IdBound,
+  limit: Int,
+) -> Result(#(List(Event), Option(String)), pog.QueryError) {
+  let IdBound(id: cursor_id) = after
   let decoder = {
     use id <- decode.field(0, decode.int)
     use occurred_at <- decode.field(1, decode.string)
@@ -99,10 +110,16 @@ pub fn list(
     |> pog.parameter(pog.nullable(pog.calendar_date, to))
     |> pog.parameter(pog.nullable(pog.text, operation))
     |> pog.parameter(pog.nullable(pog.text, actor))
+    |> pog.parameter(pog.int(cursor_id))
+    |> pog.parameter(pog.int(limit + 1))
     |> pog.returning(decoder)
     |> pog.execute(context.db),
   )
-  list.map(returned.rows, list_row_to_event)
+  let #(rows, next_cursor) =
+    pagination.paginate(returned.rows, limit, fn(row: sql.EventLogListRow) {
+      cursor.encode_id(row.id)
+    })
+  #(list.map(rows, list_row_to_event), next_cursor)
 }
 
 const event_log_list_sql = "SELECT
@@ -117,7 +134,9 @@ WHERE ($1::date IS NULL OR occurred_at::date >= $1)
   AND ($2::date IS NULL OR occurred_at::date < $2)
   AND ($3::text IS NULL OR operation = $3)
   AND ($4::text IS NULL OR actor = $4)
-ORDER BY id DESC;"
+  AND id < $5::bigint
+ORDER BY id DESC
+LIMIT $6::int;"
 
 /// Backdate one journal row's `occurred_at` to `occurred_on` (midnight that day).
 /// The demo seed (`tempo/seed_financials`) uses this to record each operation at

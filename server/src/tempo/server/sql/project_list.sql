@@ -14,6 +14,14 @@
 -- project). team_size is a correlated count of DISTINCT engineers whose allocation
 -- to this project covers $1 (0 for a dormant project). The inner DISTINCT ON picks
 -- one run per project; the outer query orders the directory by title.
+--
+-- Keyset pagination (#12). Stable total order is (title, project_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its title, $3 = its id; a row is on the NEXT page when (title, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT project_id, title, client, budget, target_completion, team_size, active
+FROM (
 SELECT project_id, title, client, budget, target_completion, team_size, active
 FROM (
   SELECT DISTINCT ON (project_run.project_id)
@@ -45,4 +53,8 @@ FROM (
            (project_run.active_during @> $1::date) DESC,
            lower(project_run.active_during) DESC
 ) ranked
-ORDER BY title;
+ORDER BY title
+) page
+WHERE (page.title, page.project_id) > ($2::text, $3::int)
+ORDER BY page.title, page.project_id
+LIMIT $4::int;

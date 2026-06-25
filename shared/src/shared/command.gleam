@@ -7,6 +7,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/result
 import shared/allocation/command as allocation_command
 import shared/client_details/command as client_details_command
@@ -20,6 +21,7 @@ import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
+import shared/pagination
 import shared/timesheet/command as timesheet_command
 import shared/wire
 
@@ -204,6 +206,32 @@ pub fn event_decoder() -> Decoder(Event) {
     summary:,
     payload:,
   ))
+}
+
+/// One keyset page of the provenance journal (`GET /api/events`): the page's
+/// `events` (item shape unchanged) plus the opaque `next_cursor` to fetch the
+/// following page (`None` on the last page). Issue #12.
+pub type EventPage {
+  EventPage(events: List(Event), next_cursor: Option(String))
+}
+
+/// Encode an `EventPage` (one keyset page of the journal) to JSON.
+pub fn encode_event_page(page: EventPage) -> Json {
+  let EventPage(events:, next_cursor:) = page
+  json.object([
+    #("events", json.array(events, encode_event)),
+    #("next_cursor", pagination.encode_next_cursor(next_cursor)),
+  ])
+}
+
+/// Decode an `EventPage` from JSON.
+pub fn event_page_decoder() -> Decoder(EventPage) {
+  use events <- decode.field("events", decode.list(event_decoder()))
+  use next_cursor <- decode.field(
+    "next_cursor",
+    pagination.next_cursor_decoder(),
+  )
+  decode.success(EventPage(events:, next_cursor:))
 }
 
 /// Pull the human-readable `detail` out of the handler's typed error body

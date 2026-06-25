@@ -28,6 +28,13 @@
 -- layer collapses status to RosterOnLeave(kind) when present, else
 -- RosterOnProjects(titles) when allocated, else RosterUnassigned. The annual leave
 -- balance is NOT joined here — the domain joins leave_balances.sql by engineer_id.
+--
+-- Keyset pagination (#12). Stable total order is (name, engineer_id) — the display
+-- order plus the unique id tiebreaker. The cursor names the last row returned:
+-- $2 = its name, $3 = its id; a row is on the NEXT page when (name, id) sorts
+-- strictly after it. The first page passes the sentinel ('', 0), which precedes
+-- every real row. $4 = limit; the caller fetches limit+1 to detect a further page.
+SELECT * FROM (
 SELECT
   engineer.id AS engineer_id,
   coalesce(engineer_current.name, '') AS name,
@@ -62,4 +69,7 @@ LEFT JOIN LATERAL (
      AND allocation.allocated_during @> $1::date
 ) alloc ON true
 WHERE employment.employed_during @> $1::date
-ORDER BY name;
+) page
+WHERE (page.name, page.engineer_id) > ($2::text, $3::int)
+ORDER BY page.name, page.engineer_id
+LIMIT $4::int;

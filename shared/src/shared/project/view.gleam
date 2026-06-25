@@ -8,8 +8,10 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import shared/invoice/view as invoice_view
+import shared/pagination
 import shared/wire
 
 /// A project's profile as one edit-grouped fact: the project's `title` (the
@@ -46,10 +48,16 @@ pub type ProjectListRow {
   )
 }
 
-/// The projects list for a single date (mirrors `PeopleList`): the `date` and one
-/// `ProjectListRow` per project.
+/// The projects list for a single date (mirrors `PeopleList`): the `date`, one
+/// `ProjectListRow` per project, and the opaque `next_cursor` for the following
+/// keyset page (`None` on the last page; issue #12). The item shape is unchanged —
+/// `next_cursor` is purely additive.
 pub type ProjectList {
-  ProjectList(date: Date, projects: List(ProjectListRow))
+  ProjectList(
+    date: Date,
+    projects: List(ProjectListRow),
+    next_cursor: Option(String),
+  )
 }
 
 /// One member of a project's team on the project-detail read model: the engineer's
@@ -185,10 +193,11 @@ pub fn project_list_row_decoder() -> Decoder(ProjectListRow) {
 
 /// Encode a `ProjectList` (the projects list for a date) to JSON.
 pub fn encode_project_list(list: ProjectList) -> Json {
-  let ProjectList(date:, projects:) = list
+  let ProjectList(date:, projects:, next_cursor:) = list
   json.object([
     #("date", wire.encode_date(date)),
     #("projects", json.array(projects, encode_project_list_row)),
+    #("next_cursor", pagination.encode_next_cursor(next_cursor)),
   ])
 }
 
@@ -199,7 +208,11 @@ pub fn project_list_decoder() -> Decoder(ProjectList) {
     "projects",
     decode.list(project_list_row_decoder()),
   )
-  decode.success(ProjectList(date:, projects:))
+  use next_cursor <- decode.field(
+    "next_cursor",
+    pagination.next_cursor_decoder(),
+  )
+  decode.success(ProjectList(date:, projects:, next_cursor:))
 }
 
 /// Encode a `TeamMember` (one project-team member) as a JSON object.

@@ -596,14 +596,14 @@ pub fn events_window_filters_by_occurred_at_test() {
 
   assert visible.status == 200
   // The feed comes back newest-first (id DESC) and carries the recorded event.
-  let events = decode_events(visible)
+  let events = decode_event_page(visible).events
   assert ids_descending(events)
   let assert [newest, ..] = events
   assert newest.id == created.id
 
   // Outside the half-open window, it is absent.
   assert hidden.status == 200
-  assert list.all(decode_events(hidden), fn(journal_event) {
+  assert list.all(decode_event_page(hidden).events, fn(journal_event) {
     journal_event.id != created.id
   })
 }
@@ -631,7 +631,7 @@ pub fn events_without_params_returns_the_whole_journal_test() {
   delete_event(context, created.id)
 
   assert response.status == 200
-  assert list.any(decode_events(response), fn(journal_event) {
+  assert list.any(decode_event_page(response).events, fn(journal_event) {
     journal_event.id == created.id
   })
 }
@@ -640,6 +640,37 @@ pub fn events_without_params_returns_the_whole_journal_test() {
 pub fn events_with_malformed_from_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/events?from=not-a-date")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
+// Keyset paging the journal (#12): a limit-1 first page holds the newest event and
+// a cursor; following it returns the next-newest with no overlap, still id-DESC.
+// The demo seed journals dozens of operations, so the first page is not the last.
+pub fn events_cursor_pages_newest_first_without_overlap_test() {
+  let first =
+    simulate.request(http.Get, "/api/events?limit=1")
+    |> router.handle_request(ctx())
+    |> decode_event_page
+
+  assert list.length(first.events) == 1
+  let assert option.Some(cursor) = first.next_cursor
+  let assert [first_event] = first.events
+
+  let second =
+    simulate.request(http.Get, "/api/events?limit=1&cursor=" <> cursor)
+    |> router.handle_request(ctx())
+    |> decode_event_page
+
+  let assert [second_event] = second.events
+  assert second_event.id < first_event.id
+}
+
+// A malformed events cursor is a 400.
+pub fn events_malformed_cursor_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/events?cursor=@@bad@@")
     |> router.handle_request(ctx())
 
   assert response.status == 400
@@ -676,6 +707,39 @@ pub fn people_without_as_of_is_bad_request_test() {
     |> router.handle_request(ctx())
 
   assert response.status == 400
+}
+
+// Keyset paging the people roster (#12): a limit-1 first page holds one engineer
+// and a cursor; following it returns the next engineer with no overlap, in the same
+// (name, engineer_id) order as the unpaged read.
+pub fn people_cursor_pages_without_overlap_test() {
+  let first =
+    simulate.request(http.Get, "/api/people?as_of=2026-06-15&limit=1")
+    |> router.handle_request(ctx())
+    |> decode_people
+
+  assert list.length(first.people) == 1
+  let assert option.Some(cursor) = first.next_cursor
+
+  let second =
+    simulate.request(
+      http.Get,
+      "/api/people?as_of=2026-06-15&limit=1&cursor=" <> cursor,
+    )
+    |> router.handle_request(ctx())
+    |> decode_people
+
+  let first_ids = list.map(first.people, fn(person) { person.engineer_id })
+  let second_ids = list.map(second.people, fn(person) { person.engineer_id })
+  assert list.any(second_ids, fn(id) { list.contains(first_ids, id) }) == False
+
+  let unpaged =
+    simulate.request(http.Get, "/api/people?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+    |> decode_people
+  let expected =
+    list.take(list.map(unpaged.people, fn(person) { person.engineer_id }), 2)
+  assert list.append(first_ids, second_ids) == expected
 }
 
 // --- GET /api/engineers/:id -------------------------------------------------
@@ -817,6 +881,49 @@ pub fn clients_list_excludes_not_yet_started_clients_test() {
   assert ids == [1]
 }
 
+// Keyset paging the clients directory (#12): a limit-1 first page holds one row
+// and a cursor; following it returns the next client with no overlap, in the same
+// (name, client_id) order as the unpaged read.
+pub fn clients_cursor_pages_without_overlap_test() {
+  let first =
+    simulate.request(http.Get, "/api/clients?as_of=2026-06-15&limit=1")
+    |> router.handle_request(ctx())
+    |> decode_client_list
+
+  assert list.length(first.clients) == 1
+  let assert option.Some(cursor) = first.next_cursor
+
+  let second =
+    simulate.request(
+      http.Get,
+      "/api/clients?as_of=2026-06-15&limit=1&cursor=" <> cursor,
+    )
+    |> router.handle_request(ctx())
+    |> decode_client_list
+
+  let first_ids = list.map(first.clients, fn(client) { client.client_id })
+  let second_ids = list.map(second.clients, fn(client) { client.client_id })
+  assert list.any(second_ids, fn(id) { list.contains(first_ids, id) }) == False
+
+  let unpaged =
+    simulate.request(http.Get, "/api/clients?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+    |> decode_client_list
+  assert unpaged.next_cursor == option.None
+  let expected =
+    list.take(list.map(unpaged.clients, fn(client) { client.client_id }), 2)
+  assert list.append(first_ids, second_ids) == expected
+}
+
+// A malformed clients cursor is a 400.
+pub fn clients_malformed_cursor_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/clients?as_of=2026-06-15&cursor=@@bad@@")
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
 // --- GET /api/clients/:id ---------------------------------------------------
 
 // Northwind (client 1) resolves to its profile with its contract since-date.
@@ -863,6 +970,39 @@ pub fn projects_list_now_returns_rows_test() {
   assert ledger.client == "Northwind Trading"
   assert ledger.budget == 500_000.0
   assert ledger.active
+}
+
+// Keyset paging the projects directory (#12): a limit-1 first page holds one row
+// and a cursor; following it returns the next project with no overlap, in the same
+// (title, project_id) order as the unpaged read.
+pub fn projects_cursor_pages_without_overlap_test() {
+  let first =
+    simulate.request(http.Get, "/api/projects?as_of=2026-06-15&limit=1")
+    |> router.handle_request(ctx())
+    |> decode_project_list
+
+  assert list.length(first.projects) == 1
+  let assert option.Some(cursor) = first.next_cursor
+
+  let second =
+    simulate.request(
+      http.Get,
+      "/api/projects?as_of=2026-06-15&limit=1&cursor=" <> cursor,
+    )
+    |> router.handle_request(ctx())
+    |> decode_project_list
+
+  let first_ids = list.map(first.projects, fn(project) { project.project_id })
+  let second_ids = list.map(second.projects, fn(project) { project.project_id })
+  assert list.any(second_ids, fn(id) { list.contains(first_ids, id) }) == False
+
+  let unpaged =
+    simulate.request(http.Get, "/api/projects?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+    |> decode_project_list
+  let expected =
+    list.take(list.map(unpaged.projects, fn(project) { project.project_id }), 2)
+  assert list.append(first_ids, second_ids) == expected
 }
 
 // --- GET /api/projects/:id --------------------------------------------------
@@ -1026,6 +1166,13 @@ fn decode_events(response) -> List(Event) {
     simulate.read_body(response)
     |> json.parse(decode.list(gateway.event_decoder()))
   events
+}
+
+fn decode_event_page(response) -> gateway.EventPage {
+  let assert Ok(page) =
+    simulate.read_body(response)
+    |> json.parse(gateway.event_page_decoder())
+  page
 }
 
 /// True when the events are in strictly descending id order (newest-first).
