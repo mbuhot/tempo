@@ -20,19 +20,19 @@ import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
 import tempo/server/board/http as board
+import tempo/server/client/http as clients
 import tempo/server/engineer/http as engineers
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
 import tempo/server/payroll/http as payroll
 import tempo/server/people/http as people
 import tempo/server/pnl/http as pnl
+import tempo/server/project/http as projects
 import tempo/server/roster/http as roster
 import tempo/server/settings/http as settings
-import tempo/server/web/clients
 import tempo/server/web/events
 import tempo/server/web/login
 import tempo/server/web/operations
-import tempo/server/web/projects
 import tempo/server/web/timesheet
 import wisp
 

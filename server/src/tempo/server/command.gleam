@@ -28,7 +28,7 @@ import shared/command.{
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
-import tempo/server/client_details
+import tempo/server/client_details/command as client_details
 import tempo/server/context.{type Context}
 import tempo/server/engagement/command as engagement
 import tempo/server/engineer/command as engineer
@@ -38,7 +38,7 @@ import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll/command as payroll
-import tempo/server/project_details
+import tempo/server/project_details/command as project_details
 import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
 import tempo/server/repository

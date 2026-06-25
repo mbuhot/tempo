@@ -12,7 +12,7 @@ import gleam/http
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/client/view as client_view
-import tempo/server/client_detail
+import tempo/server/client/view as client_detail
 import tempo/server/context.{type Context}
 import tempo/server/web/request
 import tempo/server/web/response

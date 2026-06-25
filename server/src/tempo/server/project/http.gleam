@@ -13,7 +13,7 @@ import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/project/view as project_view
 import tempo/server/context.{type Context}
-import tempo/server/project_detail
+import tempo/server/project/view as project_detail
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
