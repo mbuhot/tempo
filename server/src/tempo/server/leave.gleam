@@ -16,8 +16,8 @@ import gleam/int
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
-import shared/types.{type LeaveCommand, LeaveCommand, TakeLeave}
+import shared/command.{LeaveCommand} as gateway
+import shared/leave/command.{type LeaveCommand, TakeLeave}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{
   type OperationError, Event, InsufficientLeaveBalance,
@@ -63,7 +63,7 @@ pub fn take_leave(
           <> kind
           <> " leave over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(LeaveCommand(command)),
+        payload: gateway.encode_command(LeaveCommand(command)),
       ),
       facts: [
         fact.EngineerOnLeave(

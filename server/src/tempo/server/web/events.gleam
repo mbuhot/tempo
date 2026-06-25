@@ -5,7 +5,7 @@
 import gleam/http
 import gleam/json
 import gleam/result
-import shared/codecs
+import shared/command
 import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/web/request
@@ -34,7 +34,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(#(from, to, operation, actor)) ->
       case event.list(ctx, from, to, operation, actor) {
         Ok(events) ->
-          response.json_response(json.array(events, codecs.encode_event))
+          response.json_response(json.array(events, command.encode_event))
         Error(error) -> response.db_error_response(error)
       }
   }

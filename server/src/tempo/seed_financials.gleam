@@ -53,11 +53,12 @@ import gleam/time/calendar.{
   May, TimeOfDay,
 }
 import gleam/time/timestamp
-import shared/types.{
-  type Command, type Invoice, type TimesheetEntry, DraftInvoice, EngineerCommand,
-  InvoiceCommand, IssueInvoice, LogWeek, PayInvoice, PayrollCommand, Promote,
-  RunPayroll, TimesheetCommand, TimesheetEntry,
-}
+import shared/command.{type Command} as gateway
+import shared/engineer/command as engineer_command
+import shared/invoice/command as invoice_command
+import shared/payroll/command as payroll_command
+import shared/timesheet/command as timesheet_command
+import shared/types.{type Invoice}
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
@@ -192,7 +193,10 @@ fn log_all_timesheets(ctx: Context) -> Nil {
           let submitted_on = day_index_to_date(int.min(monday + 4, period_end))
           apply(
             ctx,
-            TimesheetCommand(LogWeek(engineer_id: worker.engineer_id, entries:)),
+            gateway.TimesheetCommand(timesheet_command.LogWeek(
+              engineer_id: worker.engineer_id,
+              entries:,
+            )),
             submitted_on,
           )
         }
@@ -218,7 +222,7 @@ fn week_entries(
   monday: Int,
   start: Int,
   end: Int,
-) -> List(TimesheetEntry) {
+) -> List(timesheet_command.TimesheetEntry) {
   int_range(0, 4)
   |> list.map(fn(offset) { monday + offset })
   |> list.filter(fn(index) { index >= start && index <= end })
@@ -227,7 +231,7 @@ fn week_entries(
   |> list.flat_map(fn(day) {
     list.map(worker.daily, fn(work) {
       let #(project_id, hours) = work
-      TimesheetEntry(project_id:, day:, hours:)
+      timesheet_command.TimesheetEntry(project_id:, day:, hours:)
     })
   })
 }
@@ -328,7 +332,7 @@ fn run_monthly_payrolls(ctx: Context) -> Nil {
         let month_end = day_index_to_date(date_to_day_index(month_after) - 1)
         apply(
           ctx,
-          PayrollCommand(RunPayroll(
+          gateway.PayrollCommand(payroll_command.RunPayroll(
             period_from: month_start,
             period_to: month_after,
           )),
@@ -350,7 +354,7 @@ fn bill_project(
 ) -> Nil {
   apply(
     ctx,
-    InvoiceCommand(DraftInvoice(
+    gateway.InvoiceCommand(invoice_command.DraftInvoice(
       project_id:,
       billing_from: plan.from,
       billing_to: plan.to,
@@ -363,7 +367,10 @@ fn bill_project(
       let invoice_id = drafted_invoice_id(ctx, project_name, plan.from)
       apply(
         ctx,
-        InvoiceCommand(IssueInvoice(invoice_id:, at: issue_at)),
+        gateway.InvoiceCommand(invoice_command.IssueInvoice(
+          invoice_id:,
+          at: issue_at,
+        )),
         issue_at,
       )
       case plan.pay {
@@ -371,7 +378,10 @@ fn bill_project(
         Some(pay_at) ->
           apply(
             ctx,
-            InvoiceCommand(PayInvoice(invoice_id:, at: pay_at)),
+            gateway.InvoiceCommand(invoice_command.PayInvoice(
+              invoice_id:,
+              at: pay_at,
+            )),
             pay_at,
           )
       }
@@ -443,7 +453,7 @@ fn apply_variance_promotion(ctx: Context) -> Nil {
     False ->
       apply(
         ctx,
-        EngineerCommand(Promote(
+        gateway.EngineerCommand(engineer_command.Promote(
           engineer_id: variance_engineer_id,
           level: variance_level,
           effective: variance_effective,

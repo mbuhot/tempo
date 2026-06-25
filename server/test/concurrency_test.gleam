@@ -21,9 +21,9 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{Date, July, June}
 import pog
-import shared/types.{
-  type Command, type Event, InvoiceCommand, LeaveCommand, PayInvoice, TakeLeave,
-}
+import shared/command.{type Command, type Event} as gateway
+import shared/invoice/command as invoice_command
+import shared/leave/command as leave_command
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/operation.{
@@ -100,7 +100,10 @@ pub fn concurrent_pay_invoice_only_one_wins_test() {
   )
 
   let pay =
-    InvoiceCommand(PayInvoice(invoice_id: 90_001, at: Date(2026, June, 1)))
+    gateway.InvoiceCommand(invoice_command.PayInvoice(
+      invoice_id: 90_001,
+      at: Date(2026, June, 1),
+    ))
   let outcomes = race(pay, pay)
 
   assert winners(outcomes) == 1
@@ -118,7 +121,7 @@ pub fn concurrent_pay_invoice_only_one_wins_test() {
 // the balance guard, before the leave_no_overlap PK is even reached.
 pub fn concurrent_take_leave_only_one_wins_test() {
   let take =
-    LeaveCommand(TakeLeave(
+    gateway.LeaveCommand(leave_command.TakeLeave(
       1,
       "annual",
       Date(2026, June, 15),

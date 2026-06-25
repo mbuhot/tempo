@@ -15,7 +15,7 @@ import gleam/option
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{type Event, Event}
+import shared/command.{type Event, Event}
 import tempo/server/context.{type Context}
 import tempo/server/operation
 import tempo/server/sql

@@ -21,12 +21,11 @@ import gleam/json
 import gleam/list
 import gleam/time/calendar.{type Date, August, Date, July, June, March}
 import pog
-import shared/codecs
-import shared/types.{
-  type Command, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
-  PayrollCommand, RateCardCommand, ReviseRateCard, RunPayroll, SalaryCommand,
-  SetSalary,
-}
+import shared/command.{type Command} as gateway
+import shared/invoice/command as invoice_command
+import shared/payroll/command as payroll_command
+import shared/rate_card/command as rate_card_command
+import shared/salary/command as salary_command
 import tempo/server/command
 import tempo/server/operation
 import test_pool
@@ -380,7 +379,14 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
           <> "(1, 3000.00, daterange('2026-01-01', NULL, '[)'))",
       )
       // Raise L1 to 3500 effective Jul — splits the open version at Jul.
-      apply(conn, SalaryCommand(SetSalary(1, 3500.0, Date(2026, July, 1))))
+      apply(
+        conn,
+        gateway.SalaryCommand(salary_command.SetSalary(
+          1,
+          3500.0,
+          Date(2026, July, 1),
+        )),
+      )
       #(read_salary(conn, 1), read_journal(conn))
     })
 
@@ -396,8 +402,14 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
   assert row.operation == "set_salary"
   // float.to_string renders 3500.0 in scientific form (matching rate_card summaries).
   assert row.summary == "Set L1 salary to 3.5e3 from 2026-07-01"
-  assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(SalaryCommand(SetSalary(1, 3500.0, Date(2026, July, 1))))
+  assert json.parse(row.payload, gateway.command_decoder())
+    == Ok(
+      gateway.SalaryCommand(salary_command.SetSalary(
+        1,
+        3500.0,
+        Date(2026, July, 1),
+      )),
+    )
 }
 
 // --- DraftInvoice — agreed-rate billing (FR-F2, the temporal centerpiece) ----
@@ -421,12 +433,16 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
       // Raise L1 to 9999 effective March 2026 — AFTER the contract's agreed date.
       apply(
         conn,
-        RateCardCommand(ReviseRateCard(1, 9999.0, Date(2026, March, 1))),
+        gateway.RateCardCommand(rate_card_command.ReviseRateCard(
+          1,
+          9999.0,
+          Date(2026, March, 1),
+        )),
       )
       // Draft June 2026 — billed at the agreed (older) 800, not 9999.
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           80_101,
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -456,9 +472,9 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
     <> " (invoice "
     <> int.to_string(invoice_id)
     <> ") over 2026-06-01..2026-07-01"
-  assert json.parse(row.payload, codecs.command_decoder())
+  assert json.parse(row.payload, gateway.command_decoder())
     == Ok(
-      InvoiceCommand(DraftInvoice(
+      gateway.InvoiceCommand(invoice_command.DraftInvoice(
         project_id,
         Date(2026, June, 1),
         Date(2026, July, 1),
@@ -486,7 +502,7 @@ pub fn issue_then_pay_moves_status_as_of_the_transition_dates_test() {
         )
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           80_102,
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -496,11 +512,17 @@ pub fn issue_then_pay_moves_status_as_of_the_transition_dates_test() {
       // draft from Jun 1; issue Jul 15; pay Aug 15.
       apply(
         conn,
-        InvoiceCommand(IssueInvoice(invoice_id, Date(2026, July, 15))),
+        gateway.InvoiceCommand(invoice_command.IssueInvoice(
+          invoice_id,
+          Date(2026, July, 15),
+        )),
       )
       apply(
         conn,
-        InvoiceCommand(PayInvoice(invoice_id, Date(2026, August, 15))),
+        gateway.InvoiceCommand(invoice_command.PayInvoice(
+          invoice_id,
+          Date(2026, August, 15),
+        )),
       )
       #(
         // before the issue date: still draft
@@ -537,7 +559,7 @@ pub fn pay_invoice_on_a_draft_is_rejected_as_out_of_order_test() {
         )
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           80_103,
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -548,7 +570,10 @@ pub fn pay_invoice_on_a_draft_is_rejected_as_out_of_order_test() {
       command.dispatch_in(
         conn,
         "tester",
-        InvoiceCommand(PayInvoice(invoice_id, Date(2026, July, 15))),
+        gateway.InvoiceCommand(invoice_command.PayInvoice(
+          invoice_id,
+          Date(2026, July, 15),
+        )),
       )
     })
 
@@ -631,7 +656,10 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
 
       apply(
         conn,
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let run_id = run_id_covering(conn, Date(2026, June, 15))
       #(read_payroll_lines(conn, run_id, names), read_journal(conn), run_id)
@@ -654,8 +682,13 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
     == "Run payroll over 2026-06-01..2026-07-01 (run "
     <> int.to_string(run_id)
     <> ")"
-  assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))))
+  assert json.parse(row.payload, gateway.command_decoder())
+    == Ok(
+      gateway.PayrollCommand(payroll_command.RunPayroll(
+        Date(2026, June, 1),
+        Date(2026, July, 1),
+      )),
+    )
 }
 
 // A second run whose period overlaps an existing run is rejected by the
@@ -675,12 +708,18 @@ pub fn running_payroll_twice_for_a_month_is_rejected_test() {
       // First run for June succeeds; a second run for the same month must be refused.
       apply(
         conn,
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       command.dispatch_in(
         conn,
         "tester",
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
     })
 

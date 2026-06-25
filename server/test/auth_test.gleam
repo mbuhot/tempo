@@ -4,10 +4,13 @@
 //// round-trip that the signed cookie carries.
 
 import gleam/time/calendar
-import shared/types.{
-  EngineerCommand, LogTimesheet, PayrollCommand, Promote, RunPayroll,
-  SalaryCommand, SetSalary, TimesheetCommand,
+import shared/command.{
+  EngineerCommand, PayrollCommand, SalaryCommand, TimesheetCommand,
 }
+import shared/engineer/command as engineer_command
+import shared/payroll/command as payroll_command
+import shared/salary/command as salary_command
+import shared/timesheet/command as timesheet_command
 import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
 
 fn date() -> calendar.Date {
@@ -27,7 +30,7 @@ pub fn admin_may_run_financial_command_test() {
   let principal = Principal(actor: "Admin", role: Admin)
   assert auth.authorize(
       principal,
-      SalaryCommand(SetSalary(5, 12_000.0, date())),
+      SalaryCommand(salary_command.SetSalary(5, 12_000.0, date())),
     )
     == Ok("Admin")
 }
@@ -35,11 +38,14 @@ pub fn admin_may_run_financial_command_test() {
 // Ops is denied the financial commands but may run the rest.
 pub fn ops_is_denied_financial_but_allowed_operational_test() {
   let principal = Principal(actor: "Ops", role: Ops)
-  assert auth.authorize(principal, PayrollCommand(RunPayroll(date(), date())))
+  assert auth.authorize(
+      principal,
+      PayrollCommand(payroll_command.RunPayroll(date(), date())),
+    )
     == Error(Forbidden(actor: "Ops", command: "run_payroll"))
   assert auth.authorize(
       principal,
-      TimesheetCommand(LogTimesheet(
+      TimesheetCommand(timesheet_command.LogTimesheet(
         engineer_id: 2,
         project_id: 300,
         day: date(),
@@ -54,12 +60,16 @@ pub fn engineer_is_denied_financial_command_test() {
   let principal = Principal(actor: "Priya Sharma", role: Engineer)
   assert auth.authorize(
       principal,
-      SalaryCommand(SetSalary(5, 12_000.0, date())),
+      SalaryCommand(salary_command.SetSalary(5, 12_000.0, date())),
     )
     == Error(Forbidden(actor: "Priya Sharma", command: "set_salary"))
   assert auth.authorize(
       principal,
-      EngineerCommand(Promote(engineer_id: 2, level: 6, effective: date())),
+      EngineerCommand(engineer_command.Promote(
+        engineer_id: 2,
+        level: 6,
+        effective: date(),
+      )),
     )
     == Ok("Priya Sharma")
 }

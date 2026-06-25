@@ -33,7 +33,7 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{type Event}
+import shared/command.{type Event}
 import tempo/server/event
 import tempo/server/fact.{
   type ContractId, type EngineerId, type Fact, type InvoiceId, type PayrollRunId,

@@ -1,13 +1,18 @@
-//// JSON codec for `PayrollCommand` — the payroll aggregate's slice of the command
-//// wire contract (a per-month run). `encode` tags the variant by its `op`;
-//// `decoder` returns the field decoder for an `op` this aggregate owns
-//// (`Error(Nil)` for any other), so the top-level `codecs.command_decoder` can
-//// dispatch by tag and wrap as `Command`.
+//// The payroll aggregate's write command type and its JSON codec (a per-month run).
+//// `encode` tags the variant by its `op`; `decoder` returns the field decoder for
+//// an `op` this aggregate owns (`Error(Nil)` for any other), so
+//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date}
-import shared/types.{type PayrollCommand, RunPayroll}
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date}
+
+pub type PayrollCommand {
+  /// Run payroll for a month, computing one prorated `payroll_line` per employed
+  /// engineer (split by role so a mid-month promotion blends salaries).
+  RunPayroll(period_from: Date, period_to: Date)
+}
 
 /// Encode a `PayrollCommand` as a tagged JSON object keyed by `op`.
 pub fn encode(command: PayrollCommand) -> Json {

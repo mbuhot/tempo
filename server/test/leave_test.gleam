@@ -13,7 +13,9 @@
 
 import gleam/time/calendar.{type Date, Date, January, March, September}
 import pog
-import shared/types.{EngineerCommand, LeaveCommand, Promote, TakeLeave}
+import shared/command as gateway
+import shared/engineer/command as engineer_command
+import shared/leave/command as leave_command
 import tempo/server/command
 import tempo/server/operation.{InsufficientLeaveBalance}
 import tempo/server/sql
@@ -86,7 +88,11 @@ pub fn promotion_blends_accrual_rate_test() {
       command.dispatch_in(
         conn,
         "tester",
-        EngineerCommand(Promote(1, 6, Date(2025, January, 1))),
+        gateway.EngineerCommand(engineer_command.Promote(
+          1,
+          6,
+          Date(2025, January, 1),
+        )),
       )
     assert balance(conn, 1, "annual", Date(2026, January, 1)) == 45.0
   })
@@ -121,7 +127,7 @@ pub fn take_leave_within_balance_is_allowed_test() {
       command.dispatch_in(
         conn,
         "tester",
-        LeaveCommand(TakeLeave(
+        gateway.LeaveCommand(leave_command.TakeLeave(
           1,
           "annual",
           Date(2026, January, 1),
@@ -139,7 +145,7 @@ pub fn take_leave_exceeding_balance_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        LeaveCommand(TakeLeave(
+        gateway.LeaveCommand(leave_command.TakeLeave(
           1,
           "annual",
           Date(2026, January, 1),
@@ -159,7 +165,7 @@ pub fn take_leave_unpolicied_kind_is_unlimited_test() {
       command.dispatch_in(
         conn,
         "tester",
-        LeaveCommand(TakeLeave(
+        gateway.LeaveCommand(leave_command.TakeLeave(
           1,
           "unpaid",
           Date(2026, January, 1),

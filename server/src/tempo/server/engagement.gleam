@@ -18,9 +18,9 @@ import gleam/int
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
-import shared/types.{
-  type EngagementCommand, EngagementCommand, SignContract, StartProject,
+import shared/command.{EngagementCommand} as gateway
+import shared/engagement/command.{
+  type EngagementCommand, SignContract, StartProject,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -62,7 +62,7 @@ pub fn sign_contract(
           <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(EngagementCommand(command)),
+        payload: gateway.encode_command(EngagementCommand(command)),
       ),
       facts: [
         fact.ContractTerms(
@@ -101,7 +101,7 @@ pub fn start_project(
           <> int.to_string(id)
           <> ") over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(EngagementCommand(command)),
+        payload: gateway.encode_command(EngagementCommand(command)),
       ),
       facts: [
         fact.ProjectRun(

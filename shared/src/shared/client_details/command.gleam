@@ -1,13 +1,22 @@
-//// JSON codec for `ClientDetailsCommand` — the client-details aggregate's slice of
-//// the command wire contract (the single edit-grouped profile fact: the client's
-//// name). `encode` tags the variant by its `op`; `decoder` returns the field
-//// decoder for an `op` this aggregate owns (`Error(Nil)` for any other), so the
-//// top-level `codecs.command_decoder` can dispatch by tag and wrap as `Command`.
+//// The client-details aggregate's write command type and its JSON codec (the single
+//// edit-grouped profile fact: the client's name). `encode` tags the variant by its
+//// `op`; `decoder` returns the field decoder for an `op` this aggregate owns
+//// (`Error(Nil)` for any other), so `shared/command.command_decoder` can dispatch
+//// by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date}
-import shared/types.{type ClientDetailsCommand, UpdateClientProfile}
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date}
+
+pub type ClientDetailsCommand {
+  /// Record a new profile for a client effective from a date: close the
+  /// `client_profile` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only
+  /// client_profile fact). A client has only a name, so this is its single
+  /// Update command.
+  UpdateClientProfile(client_id: Int, name: String, effective: Date)
+}
 
 /// Encode a `ClientDetailsCommand` as a tagged JSON object keyed by `op`.
 pub fn encode(command: ClientDetailsCommand) -> Json {

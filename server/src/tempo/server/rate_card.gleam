@@ -12,9 +12,9 @@ import gleam/float
 import gleam/int
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{
-  type RateCardCommand, AdjustRateForPortion, RateCardCommand, ReviseRateCard,
+import shared/command.{RateCardCommand} as gateway
+import shared/rate_card/command.{
+  type RateCardCommand, AdjustRateForPortion, ReviseRateCard,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -53,7 +53,7 @@ pub fn revise_rate_card(
           <> float.to_string(day_rate)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(RateCardCommand(command)),
+        payload: gateway.encode_command(RateCardCommand(command)),
       ),
       facts: [fact.RateCard(level:, day_rate:, from: effective, to: None)],
     ),
@@ -79,7 +79,7 @@ pub fn adjust_rate_for_portion(
           <> float.to_string(day_rate)
           <> " over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(RateCardCommand(command)),
+        payload: gateway.encode_command(RateCardCommand(command)),
       ),
       facts: [
         fact.RateCard(level:, day_rate:, from: valid_from, to: Some(valid_to)),

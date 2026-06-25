@@ -13,8 +13,10 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json
 import lustre/effect.{type Effect}
 import rsvp
-import shared/codecs
-import shared/types.{type Command, type Event, OperationRequest}
+import shared/command.{
+  type Command, type Event, OperationRequest, decode_error_detail,
+  encode_operation_request, event_decoder,
+}
 
 /// Fetch JSON from `url`, decode it with `decoder`, and hand the outcome to
 /// `to_msg`. A non-2xx arrives as `rsvp.HttpError` carrying the response body so
@@ -53,8 +55,8 @@ pub fn submit_operation(
   command: Command,
   to_msg: fn(Result(List(Event), rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
-  let body = codecs.encode_operation_request(OperationRequest(command:))
-  let handler = rsvp.expect_json(decode.list(codecs.event_decoder()), to_msg)
+  let body = encode_operation_request(OperationRequest(command:))
+  let handler = rsvp.expect_json(decode.list(event_decoder()), to_msg)
   rsvp.post("/api/operations", body, handler)
 }
 
@@ -65,7 +67,7 @@ pub fn submit_operation(
 pub fn describe_error(error: rsvp.Error(String)) -> String {
   case error {
     rsvp.HttpError(response) ->
-      case codecs.decode_error_detail(response.body) {
+      case decode_error_detail(response.body) {
         Ok(detail) -> detail
         Error(Nil) -> "the request was rejected"
       }

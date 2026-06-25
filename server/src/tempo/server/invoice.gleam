@@ -18,9 +18,9 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
-import shared/types.{
-  type InvoiceCommand, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
+import shared/command.{InvoiceCommand} as gateway
+import shared/invoice/command.{
+  type InvoiceCommand, DraftInvoice, IssueInvoice, PayInvoice,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
@@ -81,7 +81,7 @@ pub fn draft_invoice(
         <> int.to_string(id)
         <> ") over "
         <> operation.span(billing_from, billing_to),
-      payload: codecs.encode_command(InvoiceCommand(command)),
+      payload: gateway.encode_command(InvoiceCommand(command)),
     ),
     facts: list.flatten([
       [
@@ -115,7 +115,7 @@ pub fn issue_invoice(
           <> int.to_string(invoice_id)
           <> " on "
           <> operation.iso(at),
-        payload: codecs.encode_command(InvoiceCommand(command)),
+        payload: gateway.encode_command(InvoiceCommand(command)),
       ),
       facts: [
         fact.InvoiceInStatus(
@@ -145,7 +145,7 @@ pub fn pay_invoice(
           <> int.to_string(invoice_id)
           <> " on "
           <> operation.iso(at),
-        payload: codecs.encode_command(InvoiceCommand(command)),
+        payload: gateway.encode_command(InvoiceCommand(command)),
       ),
       facts: [
         fact.InvoiceInStatus(

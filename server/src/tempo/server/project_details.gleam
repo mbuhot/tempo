@@ -11,10 +11,9 @@
 import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{
-  type ProjectDetailsCommand, ProjectDetailsCommand, UpdateProjectPlan,
-  UpdateProjectProfile,
+import shared/command.{ProjectDetailsCommand} as gateway
+import shared/project_details/command.{
+  type ProjectDetailsCommand, UpdateProjectPlan, UpdateProjectProfile,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -56,7 +55,7 @@ pub fn update_project_profile(
           <> title
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(ProjectDetailsCommand(command)),
+        payload: gateway.encode_command(ProjectDetailsCommand(command)),
       ),
       facts: [
         fact.ProjectProfile(
@@ -88,7 +87,7 @@ pub fn update_project_plan(
           <> float.to_string(budget)
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(ProjectDetailsCommand(command)),
+        payload: gateway.encode_command(ProjectDetailsCommand(command)),
       ),
       facts: [
         fact.ProjectPlan(

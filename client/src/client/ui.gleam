@@ -31,18 +31,21 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/types.{
-  type Command, type Ref, AdjustRateForPortion, AllocationCommand,
-  AssignToProject, ChangeAllocationFraction, ClientDetailsCommand, DraftInvoice,
-  EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
-  IssueInvoice, LeaveCommand, LogWeek, OnboardEngineer, PayInvoice,
-  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand, Promote,
-  RateCardCommand, ReviseRateCard, RollOff, RunPayroll, SalaryCommand,
-  SetProjectRequirement, SetSalary, SignContract, StartProject, TakeLeave,
-  TerminateEmployment, TimesheetCommand, UpdateBankingDetails,
-  UpdateClientProfile, UpdateContactDetails, UpdateEmergencyContact,
-  UpdateProjectPlan, UpdateProjectProfile,
-}
+import shared/allocation/command as allocation_command
+import shared/client_details/command as client_details_command
+import shared/command.{type Command} as gateway
+import shared/engagement/command as engagement_command
+import shared/engineer/command as engineer_command
+import shared/engineer_details/command as engineer_details_command
+import shared/invoice/command as invoice_command
+import shared/leave/command as leave_command
+import shared/payroll/command as payroll_command
+import shared/project_details/command as project_details_command
+import shared/project_requirement/command as project_requirement_command
+import shared/rate_card/command as rate_card_command
+import shared/salary/command as salary_command
+import shared/timesheet/command as timesheet_command
+import shared/types.{type Ref}
 
 // --- View atoms -------------------------------------------------------------
 
@@ -577,31 +580,61 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use name <- result.try(require_text(form.name, "name"))
       use level <- result.try(require_int(form.level, "level"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(EngineerCommand(OnboardEngineer(name:, level:, effective:)))
+      Ok(
+        gateway.EngineerCommand(engineer_command.OnboardEngineer(
+          name:,
+          level:,
+          effective:,
+        )),
+      )
     }
     OpPromote -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use level <- result.try(require_int(form.level, "level"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(EngineerCommand(Promote(engineer_id:, level:, effective:)))
+      Ok(
+        gateway.EngineerCommand(engineer_command.Promote(
+          engineer_id:,
+          level:,
+          effective:,
+        )),
+      )
     }
     OpTakeLeave -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use kind <- result.try(require_text(form.kind, "leave kind"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(LeaveCommand(TakeLeave(engineer_id:, kind:, valid_from:, valid_to:)))
+      Ok(
+        gateway.LeaveCommand(leave_command.TakeLeave(
+          engineer_id:,
+          kind:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
     OpRollOff -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use project_id <- result.try(require_int(form.project_id, "project id"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(AllocationCommand(RollOff(engineer_id:, project_id:, effective:)))
+      Ok(
+        gateway.AllocationCommand(allocation_command.RollOff(
+          engineer_id:,
+          project_id:,
+          effective:,
+        )),
+      )
     }
     OpTerminateEmployment -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(EngineerCommand(TerminateEmployment(engineer_id:, effective:)))
+      Ok(
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id:,
+          effective:,
+        )),
+      )
     }
     OpUpdateContact -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
@@ -614,14 +647,16 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        EngineerDetailsCommand(UpdateContactDetails(
-          engineer_id:,
-          name:,
-          email:,
-          phone:,
-          postal_address:,
-          effective:,
-        )),
+        gateway.EngineerDetailsCommand(
+          engineer_details_command.UpdateContactDetails(
+            engineer_id:,
+            name:,
+            email:,
+            phone:,
+            postal_address:,
+            effective:,
+          ),
+        ),
       )
     }
     OpUpdateBanking -> {
@@ -638,14 +673,16 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        EngineerDetailsCommand(UpdateBankingDetails(
-          engineer_id:,
-          bank:,
-          branch:,
-          account_no:,
-          account_name:,
-          effective:,
-        )),
+        gateway.EngineerDetailsCommand(
+          engineer_details_command.UpdateBankingDetails(
+            engineer_id:,
+            bank:,
+            branch:,
+            account_no:,
+            account_name:,
+            effective:,
+          ),
+        ),
       )
     }
     OpUpdateEmergency -> {
@@ -656,32 +693,48 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use email <- result.try(require_text(form.emergency_email, "email"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        EngineerDetailsCommand(UpdateEmergencyContact(
-          engineer_id:,
-          relation:,
-          name:,
-          phone:,
-          email:,
-          effective:,
-        )),
+        gateway.EngineerDetailsCommand(
+          engineer_details_command.UpdateEmergencyContact(
+            engineer_id:,
+            relation:,
+            name:,
+            phone:,
+            email:,
+            effective:,
+          ),
+        ),
       )
     }
     OpLogWeek -> {
       use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
-      Ok(TimesheetCommand(LogWeek(engineer_id:, entries: [])))
+      Ok(
+        gateway.TimesheetCommand(
+          timesheet_command.LogWeek(engineer_id:, entries: []),
+        ),
+      )
     }
     OpSignContract -> {
       use client <- result.try(require_text(form.client, "client"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
-      Ok(EngagementCommand(SignContract(client:, valid_from:, valid_to:)))
+      Ok(
+        gateway.EngagementCommand(engagement_command.SignContract(
+          client:,
+          valid_from:,
+          valid_to:,
+        )),
+      )
     }
     OpUpdateClientProfile -> {
       use client_id <- result.try(require_int(form.client_id, "client id"))
       use name <- result.try(require_text(form.name, "name"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        ClientDetailsCommand(UpdateClientProfile(client_id:, name:, effective:)),
+        gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
+          client_id:,
+          name:,
+          effective:,
+        )),
       )
     }
     OpStartProject -> {
@@ -690,7 +743,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
-        EngagementCommand(StartProject(
+        gateway.EngagementCommand(engagement_command.StartProject(
           name:,
           contract_id:,
           valid_from:,
@@ -705,7 +758,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
-        AllocationCommand(AssignToProject(
+        gateway.AllocationCommand(allocation_command.AssignToProject(
           engineer_id:,
           project_id:,
           fraction:,
@@ -720,7 +773,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use fraction <- result.try(require_float(form.fraction, "fraction"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        AllocationCommand(ChangeAllocationFraction(
+        gateway.AllocationCommand(allocation_command.ChangeAllocationFraction(
           engineer_id:,
           project_id:,
           fraction:,
@@ -734,12 +787,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use summary <- result.try(require_text(form.summary, "summary"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        ProjectDetailsCommand(UpdateProjectProfile(
-          project_id:,
-          title:,
-          summary:,
-          effective:,
-        )),
+        gateway.ProjectDetailsCommand(
+          project_details_command.UpdateProjectProfile(
+            project_id:,
+            title:,
+            summary:,
+            effective:,
+          ),
+        ),
       )
     }
     OpUpdateProjectPlan -> {
@@ -751,7 +806,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        ProjectDetailsCommand(UpdateProjectPlan(
+        gateway.ProjectDetailsCommand(project_details_command.UpdateProjectPlan(
           project_id:,
           budget:,
           target_completion:,
@@ -766,28 +821,45 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "billing from",
       ))
       use billing_to <- result.try(require_date(form.valid_to, "billing to"))
-      Ok(InvoiceCommand(DraftInvoice(project_id:, billing_from:, billing_to:)))
+      Ok(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          project_id:,
+          billing_from:,
+          billing_to:,
+        )),
+      )
     }
     OpIssueInvoice -> {
       use invoice_id <- result.try(require_int(form.invoice_id, "invoice id"))
       use at <- result.try(require_date(form.effective, "date"))
-      Ok(InvoiceCommand(IssueInvoice(invoice_id:, at:)))
+      Ok(gateway.InvoiceCommand(invoice_command.IssueInvoice(invoice_id:, at:)))
     }
     OpPayInvoice -> {
       use invoice_id <- result.try(require_int(form.invoice_id, "invoice id"))
       use at <- result.try(require_date(form.effective, "date"))
-      Ok(InvoiceCommand(PayInvoice(invoice_id:, at:)))
+      Ok(gateway.InvoiceCommand(invoice_command.PayInvoice(invoice_id:, at:)))
     }
     OpRunPayroll -> {
       use period_from <- result.try(require_date(form.valid_from, "period from"))
       use period_to <- result.try(require_date(form.valid_to, "period to"))
-      Ok(PayrollCommand(RunPayroll(period_from:, period_to:)))
+      Ok(
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          period_from:,
+          period_to:,
+        )),
+      )
     }
     OpReviseRateCard -> {
       use level <- result.try(require_int(form.level, "level"))
       use day_rate <- result.try(require_float(form.day_rate, "day rate"))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(RateCardCommand(ReviseRateCard(level:, day_rate:, effective:)))
+      Ok(
+        gateway.RateCardCommand(rate_card_command.ReviseRateCard(
+          level:,
+          day_rate:,
+          effective:,
+        )),
+      )
     }
     OpAdjustRateForPortion -> {
       use level <- result.try(require_int(form.level, "level"))
@@ -795,7 +867,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
-        RateCardCommand(AdjustRateForPortion(
+        gateway.RateCardCommand(rate_card_command.AdjustRateForPortion(
           level:,
           day_rate:,
           valid_from:,
@@ -810,7 +882,13 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         "monthly salary",
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
-      Ok(SalaryCommand(SetSalary(level:, monthly_salary:, effective:)))
+      Ok(
+        gateway.SalaryCommand(salary_command.SetSalary(
+          level:,
+          monthly_salary:,
+          effective:,
+        )),
+      )
     }
     OpSetProjectRequirement -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))
@@ -819,13 +897,15 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
-        ProjectRequirementCommand(SetProjectRequirement(
-          project_id:,
-          level:,
-          quantity:,
-          valid_from:,
-          valid_to:,
-        )),
+        gateway.ProjectRequirementCommand(
+          project_requirement_command.SetProjectRequirement(
+            project_id:,
+            level:,
+            quantity:,
+            valid_from:,
+            valid_to:,
+          ),
+        ),
       )
     }
   }

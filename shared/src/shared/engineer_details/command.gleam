@@ -1,15 +1,51 @@
-//// JSON codec for `EngineerDetailsCommand` — the engineer-details aggregate's slice
-//// of the command wire contract (the three edit-grouped facts: contact, banking,
-//// emergency). `encode` tags each variant by its `op`; `decoder` returns the field
-//// decoder for an `op` this aggregate owns (`Error(Nil)` for any other), so the
-//// top-level `codecs.command_decoder` can dispatch by tag and wrap as `Command`.
+//// The engineer-details aggregate's write command type and its JSON codec (the
+//// three edit-grouped facts: contact, banking, emergency). `encode` tags each
+//// variant by its `op`; `decoder` returns the field decoder for an `op` this
+//// aggregate owns (`Error(Nil)` for any other), so `shared/command.command_decoder`
+//// can dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date}
-import shared/types.{
-  type EngineerDetailsCommand, UpdateBankingDetails, UpdateContactDetails,
-  UpdateEmergencyContact,
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date}
+
+pub type EngineerDetailsCommand {
+  /// Record new contact details for an engineer effective from a date: close
+  /// the `engineer_contact` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `name`/`email`/`phone`/`postal_address` (a
+  /// temporal Change on the append-only contact fact).
+  UpdateContactDetails(
+    engineer_id: Int,
+    name: String,
+    email: String,
+    phone: String,
+    postal_address: String,
+    effective: Date,
+  )
+  /// Record new banking details for an engineer effective from a date: close
+  /// the `engineer_banking` row covering `effective` and open a new full row
+  /// `[effective, NULL)` carrying `bank`/`branch`/`account_no`/`account_name`
+  /// (a temporal Change on the append-only banking fact). `account_no` is text.
+  UpdateBankingDetails(
+    engineer_id: Int,
+    bank: String,
+    branch: String,
+    account_no: String,
+    account_name: String,
+    effective: Date,
+  )
+  /// Record a new emergency contact for an engineer effective from a date:
+  /// close the `engineer_emergency` row covering `effective` and open a new
+  /// full row `[effective, NULL)` carrying `relation`/`name`/`phone`/`email`
+  /// (a temporal Change on the append-only emergency fact).
+  UpdateEmergencyContact(
+    engineer_id: Int,
+    relation: String,
+    name: String,
+    phone: String,
+    email: String,
+    effective: Date,
+  )
 }
 
 /// Encode an `EngineerDetailsCommand` as a tagged JSON object keyed by `op`.

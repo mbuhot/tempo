@@ -21,8 +21,7 @@ import gleam/float
 import gleam/http
 import gleam/int
 import gleam/json
-import shared/codecs
-import shared/types.{type Event, type OperationRequest}
+import shared/command.{type Event, type OperationRequest} as shared_command
 import tempo/server/auth.{type Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
@@ -62,7 +61,7 @@ fn authenticated(
   principal: Principal,
 ) -> wisp.Response {
   use body <- wisp.require_json(req)
-  case decode.run(body, codecs.operation_request_decoder()) {
+  case decode.run(body, shared_command.operation_request_decoder()) {
     Error(_) ->
       response.error_response(400, "invalid_body", "expected {command}")
     Ok(request) -> dispatch(ctx, principal, request)
@@ -86,7 +85,7 @@ fn dispatch(
 /// the stable wire contract the client decodes, even though a command appends
 /// exactly one event.
 fn created_event_response(event: Event) -> wisp.Response {
-  response.json_response(json.array([event], codecs.encode_event))
+  response.json_response(json.array([event], shared_command.encode_event))
 }
 
 /// Map a typed `OperationError` to its HTTP status and a small JSON error body

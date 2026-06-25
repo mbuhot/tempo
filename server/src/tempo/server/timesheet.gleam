@@ -18,11 +18,14 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
+import shared/command.{TimesheetCommand} as gateway
+import shared/timesheet/command.{
+  type TimesheetCommand, type TimesheetEntry, LogTimesheet, LogWeek,
+  TimesheetEntry,
+}
 import shared/types.{
-  type TimesheetCommand, type TimesheetEntry, type TimesheetWeek,
-  type TimesheetWeekRow, LogTimesheet, LogWeek, TimesheetCell, TimesheetCommand,
-  TimesheetEntry, TimesheetWeek, TimesheetWeekRow,
+  type TimesheetWeek, type TimesheetWeekRow, TimesheetCell, TimesheetWeek,
+  TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/fact.{type Recorded, Recorded}
@@ -63,7 +66,7 @@ pub fn log_timesheet(
           <> int.to_string(project_id)
           <> " on "
           <> operation.iso(day),
-        payload: codecs.encode_command(TimesheetCommand(command)),
+        payload: gateway.encode_command(TimesheetCommand(command)),
       ),
       facts: [
         fact.EngineerWorkedHours(
@@ -103,7 +106,7 @@ pub fn log_week(
         <> " ("
         <> int.to_string(list.length(entries))
         <> " entries)",
-      payload: codecs.encode_command(TimesheetCommand(command)),
+      payload: gateway.encode_command(TimesheetCommand(command)),
     ),
     facts: worked_hours,
   ))

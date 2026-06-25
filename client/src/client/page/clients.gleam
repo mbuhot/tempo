@@ -43,6 +43,7 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/codecs
+import shared/command as gateway
 import shared/types.{
   type ClientDetail, type ClientList, type ClientListRow, type ClientProjectRow,
   type ContractRow, type Ref, type Roster,
@@ -103,7 +104,7 @@ pub type Msg {
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
-  OpResponded(result: Result(List(types.Event), rsvp.Error(String)))
+  OpResponded(result: Result(List(gateway.Event), rsvp.Error(String)))
 }
 
 // --- Lifecycle --------------------------------------------------------------

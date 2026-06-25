@@ -1,14 +1,20 @@
-//// JSON codec for `EngineerCommand` — the engineer aggregate's slice of the command
-//// wire contract (ARCHITECTURE.md: one handler, understood in isolation). `encode`
-//// tags each variant by its `op`; `decoder` returns the field decoder for an `op`
-//// the engineer aggregate owns (`Error(Nil)` for any other), so the top-level
-//// `codecs.command_decoder` can dispatch by tag and wrap the result as `Command`.
+//// The engineer aggregate's write command type and its JSON codec — the engineer
+//// slice of the command wire contract (ARCHITECTURE.md: one handler, understood in
+//// isolation). `encode` tags each variant by its `op`; `decoder` returns the field
+//// decoder for an `op` the engineer aggregate owns (`Error(Nil)` for any other), so
+//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date}
-import shared/types.{
-  type EngineerCommand, OnboardEngineer, Promote, TerminateEmployment,
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date}
+
+pub type EngineerCommand {
+  OnboardEngineer(name: String, level: Int, effective: Date)
+  /// Promote an engineer to a new level effective from a date.
+  Promote(engineer_id: Int, level: Int, effective: Date)
+  /// Terminate an engineer's employment from a date, capping every contained fact.
+  TerminateEmployment(engineer_id: Int, effective: Date)
 }
 
 /// Encode an `EngineerCommand` as a tagged JSON object keyed by `op`.

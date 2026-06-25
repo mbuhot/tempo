@@ -1,14 +1,32 @@
-//// JSON codec for `AllocationCommand` — the allocation aggregate's slice of the
-//// command wire contract. `encode` tags each variant by its `op`; `decoder` returns
-//// the field decoder for an `op` the allocation aggregate owns (`Error(Nil)` for any
-//// other), so the top-level `codecs.command_decoder` can dispatch by tag and wrap
-//// the result as `Command`.
+//// The allocation aggregate's write command type and its JSON codec. `encode`
+//// tags each variant by its `op`; `decoder` returns the field decoder for an `op`
+//// the allocation aggregate owns (`Error(Nil)` for any other), so
+//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date, lenient_float_decoder}
-import shared/types.{
-  type AllocationCommand, AssignToProject, ChangeAllocationFraction, RollOff,
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+
+pub type AllocationCommand {
+  /// Allocate an engineer to a project at a fraction for a period.
+  AssignToProject(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+
+  /// Change an engineer's allocation fraction on a project effective from a date.
+  ChangeAllocationFraction(
+    engineer_id: Int,
+    project_id: Int,
+    fraction: Float,
+    effective: Date,
+  )
+  /// Cap an engineer's allocation on a project from a date (roll off the project).
+  RollOff(engineer_id: Int, project_id: Int, effective: Date)
 }
 
 /// Encode an `AllocationCommand` as a tagged JSON object keyed by `op`.

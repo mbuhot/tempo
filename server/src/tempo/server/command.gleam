@@ -20,7 +20,7 @@
 
 import gleam/result
 import pog
-import shared/types.{
+import shared/command.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
   LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,

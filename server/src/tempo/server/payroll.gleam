@@ -16,8 +16,8 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
-import shared/types.{type PayrollCommand, PayrollCommand, RunPayroll}
+import shared/command.{PayrollCommand} as gateway
+import shared/payroll/command.{type PayrollCommand, RunPayroll}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
@@ -64,7 +64,7 @@ pub fn run_payroll(
         <> " (run "
         <> int.to_string(id)
         <> ")",
-      payload: codecs.encode_command(PayrollCommand(command)),
+      payload: gateway.encode_command(PayrollCommand(command)),
     ),
     facts: list.flatten([
       [fact.PayrollPeriod(run_id:, from: period_from, to: period_to)],

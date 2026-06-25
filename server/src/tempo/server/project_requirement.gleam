@@ -12,10 +12,9 @@
 import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{
-  type ProjectRequirementCommand, ProjectRequirementCommand,
-  SetProjectRequirement,
+import shared/command.{ProjectRequirementCommand} as gateway
+import shared/project_requirement/command.{
+  type ProjectRequirementCommand, SetProjectRequirement,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -66,7 +65,7 @@ pub fn set_project_requirement(
           <> int.to_string(project_id)
           <> " over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(ProjectRequirementCommand(command)),
+        payload: gateway.encode_command(ProjectRequirementCommand(command)),
       ),
       facts: [
         fact.ProjectRequirement(

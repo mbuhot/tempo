@@ -40,12 +40,13 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/codecs
+import shared/command as gateway
+import shared/timesheet/command.{type TimesheetEntry, LogWeek, TimesheetEntry}
 import shared/types.{
   type EngineerDetail, type PeopleList, type PersonRow, type Ref, type Roster,
-  type TimesheetEntry, type TimesheetWeek, AllocationRow, Employment,
-  EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency,
-  LeaveBalance, LogWeek, PeopleList, TimesheetCell, TimesheetCommand,
-  TimesheetEntry, TimesheetWeekRow,
+  type TimesheetWeek, AllocationRow, Employment, EngineerBanking,
+  EngineerContact, EngineerDetail, EngineerEmergency, LeaveBalance, PeopleList,
+  TimesheetCell, TimesheetWeekRow,
 }
 
 // --- Model ------------------------------------------------------------------
@@ -140,7 +141,7 @@ pub type Msg {
   OpSubmitted
   CellEdited(project_id: Int, day: calendar.Date, value: String)
   TimesheetSubmitted
-  OperationReturned(result: Result(List(types.Event), rsvp.Error(String)))
+  OperationReturned(result: Result(List(gateway.Event), rsvp.Error(String)))
 }
 
 // --- Init / refetch ---------------------------------------------------------
@@ -425,7 +426,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         DetailView(engineer_id:, timesheet: TimesheetLoaded(week:, edits:), ..) -> #(
           model,
           api.submit_operation(
-            TimesheetCommand(LogWeek(
+            gateway.TimesheetCommand(LogWeek(
               engineer_id:,
               entries: week_entries(week, edits),
             )),

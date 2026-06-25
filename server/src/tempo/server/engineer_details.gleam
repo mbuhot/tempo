@@ -10,10 +10,10 @@
 
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{
-  type EngineerDetailsCommand, EngineerDetailsCommand, UpdateBankingDetails,
-  UpdateContactDetails, UpdateEmergencyContact,
+import shared/command.{EngineerDetailsCommand} as gateway
+import shared/engineer_details/command.{
+  type EngineerDetailsCommand, UpdateBankingDetails, UpdateContactDetails,
+  UpdateEmergencyContact,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -98,7 +98,7 @@ pub fn update_contact_details(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(EngineerDetailsCommand(command)),
+        payload: gateway.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerContactDetails(
@@ -134,7 +134,7 @@ pub fn update_banking_details(
           <> bank
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(EngineerDetailsCommand(command)),
+        payload: gateway.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerBankingDetails(
@@ -172,7 +172,7 @@ pub fn update_emergency_contact(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(EngineerDetailsCommand(command)),
+        payload: gateway.encode_command(EngineerDetailsCommand(command)),
       ),
       facts: [
         fact.EngineerEmergencyContact(

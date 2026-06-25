@@ -15,11 +15,10 @@ import gleam/int
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date}
 import pog
-import shared/codecs
-import shared/types.{
-  type AllocationCommand, AllocationCommand, AssignToProject,
-  ChangeAllocationFraction, RollOff,
+import shared/allocation/command.{
+  type AllocationCommand, AssignToProject, ChangeAllocationFraction, RollOff,
 }
+import shared/command.{AllocationCommand} as gateway
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/sql
@@ -90,7 +89,7 @@ pub fn assign_to_project(
           <> float.to_string(fraction)
           <> " over "
           <> operation.span(valid_from, valid_to),
-        payload: codecs.encode_command(AllocationCommand(command)),
+        payload: gateway.encode_command(AllocationCommand(command)),
       ),
       facts: [
         fact.EngineerAllocatedToProject(
@@ -172,7 +171,7 @@ pub fn change_allocation_fraction(
           <> float.to_string(fraction)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(AllocationCommand(command)),
+        payload: gateway.encode_command(AllocationCommand(command)),
       ),
       facts: [
         fact.EngineerAllocatedToProject(
@@ -204,7 +203,7 @@ pub fn roll_off(
           <> int.to_string(project_id)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(AllocationCommand(command)),
+        payload: gateway.encode_command(AllocationCommand(command)),
       ),
       facts: [
         fact.EngineerOffProject(

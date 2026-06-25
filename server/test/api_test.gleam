@@ -18,12 +18,15 @@ import gleam/option
 import gleam/time/calendar
 import pog
 import shared/codecs
+import shared/command.{type Event, EngineerCommand} as gateway
+import shared/engineer/command as engineer_command
+import shared/payroll/command as payroll_command
+import shared/timesheet/command as timesheet_command
 import shared/types.{
   type BoardSnapshot, type ClientDetail, type ClientList, type EngineerDetail,
-  type Event, type PeopleList, type ProjectDetail, type ProjectList,
-  type Settings, type TimesheetWeek, BoardRow, EngineerCommand, OnLeave,
-  OnProject, Promote, RosterOnProjects, TimesheetCell, TimesheetWeek,
-  TimesheetWeekRow,
+  type PeopleList, type ProjectDetail, type ProjectList, type Settings,
+  type TimesheetWeek, BoardRow, OnLeave, OnProject, RosterOnProjects,
+  TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 }
 import tempo/server/context.{type Context}
 import tempo/server/event
@@ -55,11 +58,11 @@ fn sign_in(context: Context, actor: String) -> #(wisp.Request, wisp.Response) {
 /// POST a command to /api/operations on an authenticated "Admin" session: sign in,
 /// then send the `{command}` envelope carrying the issued session cookie. The
 /// server derives the actor from the session, never the body.
-fn post_operation(context: Context, command: types.Command) -> wisp.Response {
+fn post_operation(context: Context, command: gateway.Command) -> wisp.Response {
   let #(login_request, login_response) = sign_in(context, "Admin")
   simulate.request(http.Post, "/api/operations")
   |> simulate.json_body(
-    codecs.encode_operation_request(types.OperationRequest(command:)),
+    gateway.encode_operation_request(gateway.OperationRequest(command:)),
   )
   |> simulate.session(login_request, login_response)
   |> router.handle_request(context)
@@ -239,7 +242,7 @@ pub fn log_timesheet_operation_logs_hours_test() {
   let response =
     post_operation(
       context,
-      types.TimesheetCommand(types.LogTimesheet(
+      gateway.TimesheetCommand(timesheet_command.LogTimesheet(
         engineer_id: 2,
         project_id: 300,
         day: calendar.Date(2026, calendar.June, 10),
@@ -287,14 +290,14 @@ pub fn log_week_operation_logs_two_cells_test() {
   let response =
     post_operation(
       context,
-      types.TimesheetCommand(
-        types.LogWeek(engineer_id: 2, entries: [
-          types.TimesheetEntry(
+      gateway.TimesheetCommand(
+        timesheet_command.LogWeek(engineer_id: 2, entries: [
+          timesheet_command.TimesheetEntry(
             project_id: 300,
             day: calendar.Date(2026, calendar.June, 8),
             hours: 5.0,
           ),
-          types.TimesheetEntry(
+          timesheet_command.TimesheetEntry(
             project_id: 300,
             day: calendar.Date(2026, calendar.June, 9),
             hours: 6.0,
@@ -348,7 +351,7 @@ pub fn operation_promote_returns_created_event_test() {
   let response =
     post_operation(
       context,
-      EngineerCommand(Promote(
+      EngineerCommand(engineer_command.Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
@@ -388,7 +391,7 @@ pub fn operation_containment_violation_is_conflict_test() {
   let response =
     post_operation(
       context,
-      types.TimesheetCommand(types.LogTimesheet(
+      gateway.TimesheetCommand(timesheet_command.LogTimesheet(
         engineer_id: 2,
         project_id: 100,
         day: calendar.Date(2026, calendar.June, 10),
@@ -426,9 +429,9 @@ pub fn operation_without_session_is_unauthenticated_test() {
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
-      codecs.encode_operation_request(
-        types.OperationRequest(
-          command: EngineerCommand(Promote(
+      gateway.encode_operation_request(
+        gateway.OperationRequest(
+          command: EngineerCommand(engineer_command.Promote(
             engineer_id: 2,
             level: 6,
             effective: calendar.Date(2026, calendar.September, 1),
@@ -453,9 +456,9 @@ pub fn operation_with_forged_session_is_unauthenticated_test() {
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
-      codecs.encode_operation_request(
-        types.OperationRequest(
-          command: EngineerCommand(Promote(
+      gateway.encode_operation_request(
+        gateway.OperationRequest(
+          command: EngineerCommand(engineer_command.Promote(
             engineer_id: 2,
             level: 6,
             effective: calendar.Date(2026, calendar.September, 1),
@@ -480,9 +483,9 @@ pub fn operation_actor_is_derived_from_session_test() {
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
-      codecs.encode_operation_request(
-        types.OperationRequest(
-          command: EngineerCommand(Promote(
+      gateway.encode_operation_request(
+        gateway.OperationRequest(
+          command: EngineerCommand(engineer_command.Promote(
             engineer_id: 2,
             level: 6,
             effective: calendar.Date(2026, calendar.September, 1),
@@ -514,9 +517,9 @@ pub fn operation_forbidden_for_unauthorized_role_is_403_test() {
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
-      codecs.encode_operation_request(
-        types.OperationRequest(
-          command: types.PayrollCommand(types.RunPayroll(
+      gateway.encode_operation_request(
+        gateway.OperationRequest(
+          command: gateway.PayrollCommand(payroll_command.RunPayroll(
             period_from: calendar.Date(2026, calendar.June, 1),
             period_to: calendar.Date(2026, calendar.July, 1),
           )),
@@ -559,7 +562,7 @@ pub fn events_window_filters_by_occurred_at_test() {
   let post =
     post_operation(
       context,
-      EngineerCommand(Promote(
+      EngineerCommand(engineer_command.Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
@@ -609,7 +612,7 @@ pub fn events_without_params_returns_the_whole_journal_test() {
   let post =
     post_operation(
       context,
-      EngineerCommand(Promote(
+      EngineerCommand(engineer_command.Promote(
         engineer_id: 2,
         level: 6,
         effective: calendar.Date(2026, calendar.September, 1),
@@ -945,7 +948,7 @@ fn decode_error_code(response) -> String {
 fn decode_events(response) -> List(Event) {
   let assert Ok(events) =
     simulate.read_body(response)
-    |> json.parse(decode.list(codecs.event_decoder()))
+    |> json.parse(decode.list(gateway.event_decoder()))
   events
 }
 

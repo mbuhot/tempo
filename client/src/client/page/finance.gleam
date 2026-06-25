@@ -37,9 +37,10 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/codecs
+import shared/command.{type Event}
 import shared/types.{
-  type Event, type Forecast, type Invoice, type InvoiceDetail, type Payroll,
-  type Pnl, type Ref, type Roster,
+  type Forecast, type Invoice, type InvoiceDetail, type Payroll, type Pnl,
+  type Ref, type Roster,
 }
 
 // --- Model ------------------------------------------------------------------

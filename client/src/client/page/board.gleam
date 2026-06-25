@@ -33,8 +33,9 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/codecs
+import shared/command.{type Event}
 import shared/types.{
-  type BoardRow, type BoardSnapshot, type Event, type Ref, type Roster,
+  type BoardRow, type BoardSnapshot, type Ref, type Roster,
   type UnstaffedProject, BoardRow, OnLeave, OnProject, Unassigned,
   UnstaffedProject,
 }

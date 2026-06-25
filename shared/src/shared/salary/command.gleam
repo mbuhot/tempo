@@ -1,13 +1,19 @@
-//// JSON codec for `SalaryCommand` — the salary aggregate's slice of the command
-//// wire contract (what we pay a level over time, the cost analogue of `rate_card`).
-//// `encode` tags the variant by its `op`; `decoder` returns the field decoder for
-//// an `op` this aggregate owns (`Error(Nil)` for any other), so the top-level
-//// `codecs.command_decoder` can dispatch by tag and wrap as `Command`.
+//// The salary aggregate's write command type and its JSON codec (what we pay a level
+//// over time, the cost analogue of `rate_card`). `encode` tags the variant by its
+//// `op`; `decoder` returns the field decoder for an `op` this aggregate owns
+//// (`Error(Nil)` for any other), so `shared/command.command_decoder` can dispatch
+//// by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date, lenient_float_decoder}
-import shared/types.{type SalaryCommand, SetSalary}
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+
+pub type SalaryCommand {
+  /// Publish a new monthly salary for a level effective from a date (the cost
+  /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
+  SetSalary(level: Int, monthly_salary: Float, effective: Date)
+}
 
 /// Encode a `SalaryCommand` as a tagged JSON object keyed by `op`.
 pub fn encode(command: SalaryCommand) -> Json {

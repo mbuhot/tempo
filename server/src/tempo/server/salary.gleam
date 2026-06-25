@@ -11,8 +11,8 @@
 import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{type SalaryCommand, SalaryCommand, SetSalary}
+import shared/command.{SalaryCommand} as gateway
+import shared/salary/command.{type SalaryCommand, SetSalary}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
@@ -42,7 +42,7 @@ pub fn set_salary(
           <> float.to_string(monthly_salary)
           <> " from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(SalaryCommand(command)),
+        payload: gateway.encode_command(SalaryCommand(command)),
       ),
       facts: [fact.Salary(level:, monthly_salary:, from: effective)],
     ),

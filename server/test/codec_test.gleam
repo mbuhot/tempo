@@ -15,23 +15,28 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{August, Date, January, July, June, May, September}
+import shared/allocation/command as allocation_command
+import shared/client_details/command as client_details_command
 import shared/codecs
+import shared/command as gateway
+import shared/engagement/command as engagement_command
+import shared/engineer/command as engineer_command
+import shared/engineer_details/command as engineer_details_command
+import shared/invoice/command as invoice_command
+import shared/leave/command as leave_command
+import shared/payroll/command as payroll_command
+import shared/project_requirement/command as project_requirement_command
+import shared/rate_card/command as rate_card_command
+import shared/salary/command as salary_command
+import shared/timesheet/command as timesheet_command
 import shared/types.{
-  AdjustRateForPortion, AllocationCommand, AssignToProject, BoardRow,
-  BoardSnapshot, ChangeAllocationFraction, ClientDetailsCommand, ClientProfile,
-  DraftInvoice, EngagementCommand, EngineerBanking, EngineerCommand,
-  EngineerContact, EngineerDetailsCommand, EngineerEmergency, Event, Forecast,
-  ForecastMonth, Invoice, InvoiceCommand, InvoiceDetail, InvoiceLine,
-  IssueInvoice, LeaveBalance, LeaveCommand, LogTimesheet, LogWeek, OnLeave,
-  OnProject, OnboardEngineer, OperationRequest, PayInvoice, Payroll,
-  PayrollCommand, PayrollLine, PayrollRunInfo, Pnl, PnlRow, ProjectRequirement,
-  ProjectRequirementCommand, Promote, RateCardCommand, Ref, ReviseRateCard,
-  RollOff, Roster, RunPayroll, SalaryCommand, SetProjectRequirement, SetSalary,
-  SignContract, StartProject, TakeLeave, TerminateEmployment, TimesheetCell,
-  TimesheetCommand, TimesheetEntry, TimesheetWeek, TimesheetWeekRow, Unassigned,
-  UnstaffedProject, UpdateBankingDetails, UpdateClientProfile,
-  UpdateContactDetails, UpdateEmergencyContact,
+  BoardRow, BoardSnapshot, ClientProfile, EngineerBanking, EngineerContact,
+  EngineerEmergency, Forecast, ForecastMonth, Invoice, InvoiceDetail,
+  InvoiceLine, LeaveBalance, OnLeave, OnProject, Payroll, PayrollLine,
+  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Ref, Roster, TimesheetCell,
+  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
 }
+import shared/wire
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
 /// `decoder` — the full wire round-trip both targets perform. Returns the
@@ -50,14 +55,13 @@ fn round_trip(value: a, encode: fn(a) -> Json, decoder: Decoder(a)) -> a {
 pub fn date_round_trips_test() {
   let original = Date(2026, June, 15)
 
-  assert round_trip(original, codecs.encode_date, codecs.date_decoder())
-    == original
+  assert round_trip(original, wire.encode_date, wire.date_decoder()) == original
 }
 
 /// Decode an ISO date string straight through `date_decoder` (skipping any
 /// encode step, so we can feed strings no encoder would ever produce).
 fn decode_iso(text: String) -> Result(calendar.Date, Nil) {
-  json.parse(json.to_string(json.string(text)), codecs.date_decoder())
+  json.parse(json.to_string(json.string(text)), wire.date_decoder())
   |> result.replace_error(Nil)
 }
 
@@ -403,44 +407,44 @@ pub fn roster_empty_round_trips_test() {
 
 pub fn command_onboard_engineer_round_trips_test() {
   let original =
-    EngineerCommand(OnboardEngineer(
+    gateway.EngineerCommand(engineer_command.OnboardEngineer(
       name: "Dev Patel",
       level: 3,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_sign_contract_round_trips_test() {
   let original =
-    EngagementCommand(SignContract(
+    gateway.EngagementCommand(engagement_command.SignContract(
       client: "Northwind Trading",
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_start_project_round_trips_test() {
   let original =
-    EngagementCommand(StartProject(
+    gateway.EngagementCommand(engagement_command.StartProject(
       name: "Billing Revamp",
       contract_id: 10,
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_assign_to_project_round_trips_test() {
   let original =
-    AllocationCommand(AssignToProject(
+    gateway.AllocationCommand(allocation_command.AssignToProject(
       engineer_id: 1,
       project_id: 200,
       fraction: 0.5,
@@ -448,33 +452,33 @@ pub fn command_assign_to_project_round_trips_test() {
       valid_to: Date(2027, January, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_take_leave_round_trips_test() {
   let original =
-    LeaveCommand(TakeLeave(
+    gateway.LeaveCommand(leave_command.TakeLeave(
       engineer_id: 3,
       kind: "annual",
       valid_from: Date(2026, June, 8),
       valid_to: Date(2026, June, 22),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_log_timesheet_round_trips_test() {
   let original =
-    TimesheetCommand(LogTimesheet(
+    gateway.TimesheetCommand(timesheet_command.LogTimesheet(
       engineer_id: 1,
       project_id: 100,
       day: Date(2026, June, 9),
       hours: 4.0,
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
@@ -482,87 +486,95 @@ pub fn command_log_timesheet_round_trips_test() {
 // entries. The `op` tag must reconstruct the variant and the nested entry list.
 pub fn command_log_week_round_trips_test() {
   let original =
-    TimesheetCommand(
-      LogWeek(engineer_id: 1, entries: [
-        TimesheetEntry(project_id: 100, day: Date(2026, June, 8), hours: 5.0),
-        TimesheetEntry(project_id: 200, day: Date(2026, June, 9), hours: 0.0),
+    gateway.TimesheetCommand(
+      timesheet_command.LogWeek(engineer_id: 1, entries: [
+        timesheet_command.TimesheetEntry(
+          project_id: 100,
+          day: Date(2026, June, 8),
+          hours: 5.0,
+        ),
+        timesheet_command.TimesheetEntry(
+          project_id: 200,
+          day: Date(2026, June, 9),
+          hours: 0.0,
+        ),
       ]),
     )
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_promote_round_trips_test() {
   let original =
-    EngineerCommand(Promote(
+    gateway.EngineerCommand(engineer_command.Promote(
       engineer_id: 2,
       level: 5,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_change_allocation_fraction_round_trips_test() {
   let original =
-    AllocationCommand(ChangeAllocationFraction(
+    gateway.AllocationCommand(allocation_command.ChangeAllocationFraction(
       engineer_id: 1,
       project_id: 100,
       fraction: 1.0,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_revise_rate_card_round_trips_test() {
   let original =
-    RateCardCommand(ReviseRateCard(
+    gateway.RateCardCommand(rate_card_command.ReviseRateCard(
       level: 5,
       day_rate: 1400.0,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_adjust_rate_for_portion_round_trips_test() {
   let original =
-    RateCardCommand(AdjustRateForPortion(
+    gateway.RateCardCommand(rate_card_command.AdjustRateForPortion(
       level: 5,
       day_rate: 1500.0,
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_roll_off_round_trips_test() {
   let original =
-    AllocationCommand(RollOff(
+    gateway.AllocationCommand(allocation_command.RollOff(
       engineer_id: 1,
       project_id: 200,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_terminate_employment_round_trips_test() {
   let original =
-    EngineerCommand(TerminateEmployment(
+    gateway.EngineerCommand(engineer_command.TerminateEmployment(
       engineer_id: 2,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
@@ -574,46 +586,52 @@ pub fn command_terminate_employment_round_trips_test() {
 
 pub fn command_update_contact_details_round_trips_test() {
   let original =
-    EngineerDetailsCommand(UpdateContactDetails(
-      engineer_id: 1,
-      name: "Priya Sharma",
-      email: "priya.sharma@alembic.com.au",
-      phone: "+61 400 000 001",
-      postal_address: "1 Demo St, Brisbane",
-      effective: Date(2026, July, 1),
-    ))
+    gateway.EngineerDetailsCommand(
+      engineer_details_command.UpdateContactDetails(
+        engineer_id: 1,
+        name: "Priya Sharma",
+        email: "priya.sharma@alembic.com.au",
+        phone: "+61 400 000 001",
+        postal_address: "1 Demo St, Brisbane",
+        effective: Date(2026, July, 1),
+      ),
+    )
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_update_banking_details_round_trips_test() {
   let original =
-    EngineerDetailsCommand(UpdateBankingDetails(
-      engineer_id: 2,
-      bank: "Big Bank",
-      branch: "062",
-      account_no: "00123452",
-      account_name: "Marcus Chen",
-      effective: Date(2026, July, 1),
-    ))
+    gateway.EngineerDetailsCommand(
+      engineer_details_command.UpdateBankingDetails(
+        engineer_id: 2,
+        bank: "Big Bank",
+        branch: "062",
+        account_no: "00123452",
+        account_name: "Marcus Chen",
+        effective: Date(2026, July, 1),
+      ),
+    )
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_update_emergency_contact_round_trips_test() {
   let original =
-    EngineerDetailsCommand(UpdateEmergencyContact(
-      engineer_id: 3,
-      relation: "spouse",
-      name: "Sam Okafor",
-      phone: "+61 400 999 003",
-      email: "sam.okafor@example.com",
-      effective: Date(2026, July, 1),
-    ))
+    gateway.EngineerDetailsCommand(
+      engineer_details_command.UpdateEmergencyContact(
+        engineer_id: 3,
+        relation: "spouse",
+        name: "Sam Okafor",
+        phone: "+61 400 999 003",
+        email: "sam.okafor@example.com",
+        effective: Date(2026, July, 1),
+      ),
+    )
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
@@ -622,13 +640,13 @@ pub fn command_update_emergency_contact_round_trips_test() {
 // variant and field.
 pub fn command_update_client_profile_round_trips_test() {
   let original =
-    ClientDetailsCommand(UpdateClientProfile(
+    gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
       client_id: 1,
       name: "Northwind Trading",
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
@@ -638,52 +656,58 @@ pub fn command_update_client_profile_round_trips_test() {
 
 pub fn command_set_salary_round_trips_test() {
   let original =
-    SalaryCommand(SetSalary(
+    gateway.SalaryCommand(salary_command.SetSalary(
       level: 5,
       monthly_salary: 10_000.0,
       effective: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_draft_invoice_round_trips_test() {
   let original =
-    InvoiceCommand(DraftInvoice(
+    gateway.InvoiceCommand(invoice_command.DraftInvoice(
       project_id: 200,
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_issue_invoice_round_trips_test() {
   let original =
-    InvoiceCommand(IssueInvoice(invoice_id: 7, at: Date(2026, June, 30)))
+    gateway.InvoiceCommand(invoice_command.IssueInvoice(
+      invoice_id: 7,
+      at: Date(2026, June, 30),
+    ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_pay_invoice_round_trips_test() {
   let original =
-    InvoiceCommand(PayInvoice(invoice_id: 7, at: Date(2026, July, 15)))
+    gateway.InvoiceCommand(invoice_command.PayInvoice(
+      invoice_id: 7,
+      at: Date(2026, July, 15),
+    ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
 pub fn command_run_payroll_round_trips_test() {
   let original =
-    PayrollCommand(RunPayroll(
+    gateway.PayrollCommand(payroll_command.RunPayroll(
       period_from: Date(2026, June, 1),
       period_to: Date(2026, July, 1),
     ))
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
@@ -695,8 +719,8 @@ pub fn command_run_payroll_round_trips_test() {
 // the exact variant it carried.
 pub fn operation_request_round_trips_test() {
   let original =
-    OperationRequest(
-      command: EngineerCommand(Promote(
+    gateway.OperationRequest(
+      command: gateway.EngineerCommand(engineer_command.Promote(
         engineer_id: 2,
         level: 5,
         effective: Date(2026, July, 1),
@@ -705,8 +729,8 @@ pub fn operation_request_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_operation_request,
-      codecs.operation_request_decoder(),
+      gateway.encode_operation_request,
+      gateway.operation_request_decoder(),
     )
     == original
 }
@@ -717,7 +741,7 @@ pub fn operation_request_round_trips_test() {
 // string, carried verbatim through the round trip (no re-decode of the variant).
 pub fn event_round_trips_test() {
   let original =
-    Event(
+    gateway.Event(
       id: 42,
       occurred_at: "2026-06-15T09:30:00Z",
       actor: "mike@alembic.com.au",
@@ -726,7 +750,7 @@ pub fn event_round_trips_test() {
       payload: "{\"op\":\"promote\",\"engineer_id\":2,\"level\":5,\"effective\":\"2026-07-01\"}",
     )
 
-  assert round_trip(original, codecs.encode_event, codecs.event_decoder())
+  assert round_trip(original, gateway.encode_event, gateway.event_decoder())
     == original
 }
 
@@ -1085,15 +1109,17 @@ pub fn engineer_emergency_round_trips_test() {
 
 pub fn command_set_project_requirement_round_trips_test() {
   let original =
-    ProjectRequirementCommand(SetProjectRequirement(
-      project_id: 500,
-      level: 3,
-      quantity: 2.0,
-      valid_from: Date(2026, August, 1),
-      valid_to: Date(2027, January, 1),
-    ))
+    gateway.ProjectRequirementCommand(
+      project_requirement_command.SetProjectRequirement(
+        project_id: 500,
+        level: 3,
+        quantity: 2.0,
+        valid_from: Date(2026, August, 1),
+        valid_to: Date(2027, January, 1),
+      ),
+    )
 
-  assert round_trip(original, codecs.encode_command, codecs.command_decoder())
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 

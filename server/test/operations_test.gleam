@@ -28,15 +28,15 @@ import gleam/time/calendar.{
   April, August, Date, January, July, March, October, September,
 }
 import pog
-import shared/codecs
-import shared/types.{
-  type Command, AdjustRateForPortion, AllocationCommand, AssignToProject,
-  ChangeAllocationFraction, ClientDetailsCommand, EngagementCommand,
-  EngineerCommand, LogTimesheet, OnboardEngineer, ProjectRequirementCommand,
-  Promote, RateCardCommand, ReviseRateCard, RollOff, SalaryCommand,
-  SetProjectRequirement, SetSalary, SignContract, StartProject,
-  TerminateEmployment, TimesheetCommand, UpdateClientProfile,
-}
+import shared/allocation/command as allocation_command
+import shared/client_details/command as client_details_command
+import shared/command.{type Command} as gateway
+import shared/engagement/command as engagement_command
+import shared/engineer/command as engineer_command
+import shared/project_requirement/command as project_requirement_command
+import shared/rate_card/command as rate_card_command
+import shared/salary/command as salary_command
+import shared/timesheet/command as timesheet_command
 import tempo/server/command
 import tempo/server/operation
 import test_pool
@@ -200,7 +200,7 @@ pub fn onboard_engineer_opens_employment_and_role_test() {
     rolling_back(fn(conn) {
       apply(
         conn,
-        EngineerCommand(OnboardEngineer(
+        gateway.EngineerCommand(engineer_command.OnboardEngineer(
           "Ada Lovelace",
           5,
           Date(2026, January, 1),
@@ -236,9 +236,13 @@ pub fn onboard_engineer_opens_employment_and_role_test() {
     == "Onboard Ada Lovelace at L5 (engineer "
     <> int.to_string(engineer_id)
     <> ") from 2026-01-01"
-  assert json.parse(row.payload, codecs.command_decoder())
+  assert json.parse(row.payload, gateway.command_decoder())
     == Ok(
-      EngineerCommand(OnboardEngineer("Ada Lovelace", 5, Date(2026, January, 1))),
+      gateway.EngineerCommand(engineer_command.OnboardEngineer(
+        "Ada Lovelace",
+        5,
+        Date(2026, January, 1),
+      )),
     )
 }
 
@@ -272,7 +276,14 @@ pub fn promote_splits_covering_version_but_preserves_scheduled_future_test() {
       )
       // Promote to L5 effective mid-year with no upper bound — asserts L5 from
       // July to infinity, so the scheduled L6 from Oct is superseded.
-      apply(conn, EngineerCommand(Promote(engineer_id, 5, Date(2026, July, 1))))
+      apply(
+        conn,
+        gateway.EngineerCommand(engineer_command.Promote(
+          engineer_id,
+          5,
+          Date(2026, July, 1),
+        )),
+      )
       #(
         read_periods(
           conn,
@@ -347,7 +358,7 @@ pub fn terminate_employment_caps_children_then_employment_test() {
       // Terminate from Sep 1: every open-ended child caps to [Jan,Sep).
       apply(
         conn,
-        EngineerCommand(TerminateEmployment(
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
           engineer_id,
           Date(2026, September, 1),
         )),
@@ -438,7 +449,10 @@ pub fn terminate_employment_rejected_when_timesheet_outlives_end_test() {
       command.dispatch_in(
         conn,
         "tester",
-        EngineerCommand(TerminateEmployment(engineer_id, Date(2026, March, 1))),
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id,
+          Date(2026, March, 1),
+        )),
       )
     })
 
@@ -498,7 +512,10 @@ pub fn terminate_employment_deletes_scheduled_future_facts_test() {
       // scheduled L6 [Sep,∞) entirely, and caps the allocation to [Jan,Mar).
       apply(
         conn,
-        EngineerCommand(TerminateEmployment(engineer_id, Date(2026, March, 1))),
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id,
+          Date(2026, March, 1),
+        )),
       )
       #(
         read_periods(
@@ -551,7 +568,11 @@ pub fn retroactive_promote_covering_whole_fact_leaves_no_leftover_test() {
       // there is no [lower, effective) leftover — the L4 assertion is erased.
       apply(
         conn,
-        EngineerCommand(Promote(engineer_id, 5, Date(2026, January, 1))),
+        gateway.EngineerCommand(engineer_command.Promote(
+          engineer_id,
+          5,
+          Date(2026, January, 1),
+        )),
       )
       read_periods(
         conn,
@@ -646,7 +667,7 @@ pub fn allocation_assign_change_then_roll_off_test() {
       // Assert: open-ended 0.5 from Jan.
       apply(
         conn,
-        AllocationCommand(AssignToProject(
+        gateway.AllocationCommand(allocation_command.AssignToProject(
           engineer_id,
           80_010,
           0.5,
@@ -657,7 +678,7 @@ pub fn allocation_assign_change_then_roll_off_test() {
       // Change: 1.0 from Jul — splits at Jul, the Jan..Jul leftover stays 0.5.
       apply(
         conn,
-        AllocationCommand(ChangeAllocationFraction(
+        gateway.AllocationCommand(allocation_command.ChangeAllocationFraction(
           engineer_id,
           80_010,
           1.0,
@@ -667,7 +688,11 @@ pub fn allocation_assign_change_then_roll_off_test() {
       // Close: roll off from Oct — caps the open 1.0 tail to [Jul, Oct).
       apply(
         conn,
-        AllocationCommand(RollOff(engineer_id, 80_010, Date(2026, October, 1))),
+        gateway.AllocationCommand(allocation_command.RollOff(
+          engineer_id,
+          80_010,
+          Date(2026, October, 1),
+        )),
       )
       read_periods(
         conn,
@@ -731,7 +756,7 @@ pub fn assign_past_employment_is_rejected_test() {
         command.dispatch_in(
           conn,
           "tester",
-          AllocationCommand(AssignToProject(
+          gateway.AllocationCommand(allocation_command.AssignToProject(
             engineer_id,
             80_020,
             0.5,
@@ -794,7 +819,7 @@ pub fn assign_past_project_run_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        AllocationCommand(AssignToProject(
+        gateway.AllocationCommand(allocation_command.AssignToProject(
           engineer_id,
           80_021,
           0.5,
@@ -832,7 +857,7 @@ pub fn log_timesheet_through_dispatch_persists_and_journals_test() {
         )
       apply(
         conn,
-        AllocationCommand(AssignToProject(
+        gateway.AllocationCommand(allocation_command.AssignToProject(
           engineer_id,
           80_011,
           1.0,
@@ -842,7 +867,7 @@ pub fn log_timesheet_through_dispatch_persists_and_journals_test() {
       )
       apply(
         conn,
-        TimesheetCommand(LogTimesheet(
+        gateway.TimesheetCommand(timesheet_command.LogTimesheet(
           engineer_id,
           80_011,
           Date(2026, March, 10),
@@ -884,7 +909,7 @@ pub fn log_timesheet_without_allocation_is_containment_violated_test() {
       command.dispatch_in(
         conn,
         "tester",
-        TimesheetCommand(LogTimesheet(
+        gateway.TimesheetCommand(timesheet_command.LogTimesheet(
           engineer_id,
           80_012,
           Date(2026, March, 10),
@@ -907,7 +932,11 @@ pub fn log_timesheet_without_allocation_is_containment_violated_test() {
 // contract — the round-trip the client actually performs is.
 pub fn dispatch_records_operation_summary_and_payload_test() {
   let command =
-    Promote(engineer_id: 0, level: 5, effective: Date(2026, July, 1))
+    engineer_command.Promote(
+      engineer_id: 0,
+      level: 5,
+      effective: Date(2026, July, 1),
+    )
   let #(engineer_id, rows) =
     rolling_back(fn(conn) {
       let engineer_id = insert_engineer(conn, "Barbara Liskov")
@@ -923,7 +952,12 @@ pub fn dispatch_records_operation_summary_and_payload_test() {
           <> int.to_string(engineer_id)
           <> ", 4, daterange('2026-01-01', NULL, '[)'))",
       )
-      apply(conn, EngineerCommand(Promote(..command, engineer_id:)))
+      apply(
+        conn,
+        gateway.EngineerCommand(
+          engineer_command.Promote(..command, engineer_id:),
+        ),
+      )
       #(engineer_id, read_journal(conn))
     })
 
@@ -934,8 +968,10 @@ pub fn dispatch_records_operation_summary_and_payload_test() {
   assert row.operation == "promote"
   assert row.summary == "Promote engineer " <> id <> " to L5 from 2026-07-01"
   // payload decoded back through the shared codec equals the dispatched command.
-  assert json.parse(row.payload, codecs.command_decoder())
-    == Ok(EngineerCommand(Promote(..command, engineer_id:)))
+  assert json.parse(row.payload, gateway.command_decoder())
+    == Ok(gateway.EngineerCommand(
+      engineer_command.Promote(..command, engineer_id:),
+    ))
 }
 
 // A command records exactly one journal event, so dispatch returns that single
@@ -962,7 +998,11 @@ pub fn dispatch_returns_the_single_recorded_event_test() {
         command.dispatch_in(
           conn,
           "tester",
-          EngineerCommand(Promote(engineer_id, 5, Date(2026, July, 1))),
+          gateway.EngineerCommand(engineer_command.Promote(
+            engineer_id,
+            5,
+            Date(2026, July, 1),
+          )),
         )
       event
     })
@@ -991,7 +1031,7 @@ pub fn adjust_rate_for_portion_splits_three_ways_test() {
       // Bump to 600 for the bounded window [Apr, Jul) only.
       apply(
         conn,
-        RateCardCommand(AdjustRateForPortion(
+        gateway.RateCardCommand(rate_card_command.AdjustRateForPortion(
           1,
           600.0,
           Date(2026, April, 1),
@@ -1035,7 +1075,11 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
       // Revise to 800 effective Apr — lands inside the 700 version only.
       apply(
         conn,
-        RateCardCommand(ReviseRateCard(2, 800.0, Date(2026, April, 1))),
+        gateway.RateCardCommand(rate_card_command.ReviseRateCard(
+          2,
+          800.0,
+          Date(2026, April, 1),
+        )),
       )
       read_periods(
         conn,
@@ -1067,7 +1111,11 @@ pub fn revise_rate_card_with_no_covering_version_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        RateCardCommand(ReviseRateCard(1, 800.0, Date(2026, April, 1))),
+        gateway.RateCardCommand(rate_card_command.ReviseRateCard(
+          1,
+          800.0,
+          Date(2026, April, 1),
+        )),
       )
     })
 
@@ -1091,7 +1139,14 @@ pub fn set_salary_caps_from_date_splitting_covering_version_test() {
           <> "(2, 4000.00, daterange('2026-01-01', NULL, '[)'))",
       )
       // Set 5000 effective Apr — splits the 4000 version at Apr.
-      apply(conn, SalaryCommand(SetSalary(2, 5000.0, Date(2026, April, 1))))
+      apply(
+        conn,
+        gateway.SalaryCommand(salary_command.SetSalary(
+          2,
+          5000.0,
+          Date(2026, April, 1),
+        )),
+      )
       read_periods(
         conn,
         "salary",
@@ -1121,7 +1176,11 @@ pub fn set_salary_with_no_covering_version_is_rejected_test() {
       command.dispatch_in(
         conn,
         "tester",
-        SalaryCommand(SetSalary(1, 5000.0, Date(2026, April, 1))),
+        gateway.SalaryCommand(salary_command.SetSalary(
+          1,
+          5000.0,
+          Date(2026, April, 1),
+        )),
       )
     })
 
@@ -1168,13 +1227,15 @@ pub fn set_project_requirement_for_portion_splits_three_ways_test() {
       // Set 1 FTE for the bounded window [Apr, Jul) only.
       apply(
         conn,
-        ProjectRequirementCommand(SetProjectRequirement(
-          80_020,
-          3,
-          1.0,
-          Date(2026, April, 1),
-          Date(2026, July, 1),
-        )),
+        gateway.ProjectRequirementCommand(
+          project_requirement_command.SetProjectRequirement(
+            80_020,
+            3,
+            1.0,
+            Date(2026, April, 1),
+            Date(2026, July, 1),
+          ),
+        ),
       )
       read_periods(
         conn,
@@ -1207,7 +1268,7 @@ pub fn sign_contract_then_start_project_within_term_persists_test() {
       // Contract over [Jan 2026, Jan 2027).
       apply(
         conn,
-        EngagementCommand(SignContract(
+        gateway.EngagementCommand(engagement_command.SignContract(
           "Initech",
           Date(2026, January, 1),
           Date(2027, January, 1),
@@ -1217,7 +1278,7 @@ pub fn sign_contract_then_start_project_within_term_persists_test() {
       // Project active [Mar, Oct) — inside the contract term.
       apply(
         conn,
-        EngagementCommand(StartProject(
+        gateway.EngagementCommand(engagement_command.StartProject(
           "TPS Reports",
           contract_id,
           Date(2026, March, 1),
@@ -1264,7 +1325,7 @@ pub fn start_project_outside_contract_term_is_containment_violated_test() {
       // Contract bounded to [Jan, Jul) 2026.
       apply(
         conn,
-        EngagementCommand(SignContract(
+        gateway.EngagementCommand(engagement_command.SignContract(
           "Hooli",
           Date(2026, January, 1),
           Date(2026, July, 1),
@@ -1275,7 +1336,7 @@ pub fn start_project_outside_contract_term_is_containment_violated_test() {
       command.dispatch_in(
         conn,
         "tester",
-        EngagementCommand(StartProject(
+        gateway.EngagementCommand(engagement_command.StartProject(
           "Nucleus",
           contract_id,
           Date(2026, March, 1),
@@ -1303,7 +1364,7 @@ pub fn update_client_profile_changes_name_and_journals_test() {
       // Re-state the name from Apr — splits the open-ended Initech row at Apr.
       apply(
         conn,
-        ClientDetailsCommand(UpdateClientProfile(
+        gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
           client_id,
           "Initrode",
           Date(2026, April, 1),

@@ -1,14 +1,26 @@
-//// JSON codec for `RateCardCommand` — the rate-card aggregate's slice of the
-//// command wire contract (a level's day rate versioned over time: the open-ended
-//// revise and the bounded surgical adjust). `encode` tags each variant by its
-//// `op`; `decoder` returns the field decoder for an `op` this aggregate owns
-//// (`Error(Nil)` for any other), so the top-level `codecs.command_decoder` can
-//// dispatch by tag and wrap as `Command`.
+//// The rate-card aggregate's write command type and its JSON codec (a level's day
+//// rate versioned over time: the open-ended revise and the bounded surgical adjust).
+//// `encode` tags each variant by its `op`; `decoder` returns the field decoder for
+//// an `op` this aggregate owns (`Error(Nil)` for any other), so
+//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date, lenient_float_decoder}
-import shared/types.{type RateCardCommand, AdjustRateForPortion, ReviseRateCard}
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+
+pub type RateCardCommand {
+  /// Publish a new day rate for a level effective from a date.
+  ReviseRateCard(level: Int, day_rate: Float, effective: Date)
+  /// Bump a level's day rate for a bounded window, splitting the rate-card row
+  /// into before/during/after.
+  AdjustRateForPortion(
+    level: Int,
+    day_rate: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
+}
 
 /// Encode a `RateCardCommand` as a tagged JSON object keyed by `op`.
 pub fn encode(command: RateCardCommand) -> Json {

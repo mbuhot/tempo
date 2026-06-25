@@ -26,10 +26,12 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
+import shared/command as gateway
+import shared/invoice/command as invoice_command
+import shared/payroll/command as payroll_command
 import shared/types.{
-  type Invoice, type PnlRow, DraftInvoice, Invoice, InvoiceCommand,
-  InvoiceDetail, InvoiceLine, IssueInvoice, Payroll, PayrollCommand, PayrollLine,
-  PayrollRunInfo, PnlRow, RunPayroll,
+  type Invoice, type PnlRow, Invoice, InvoiceDetail, InvoiceLine, Payroll,
+  PayrollLine, PayrollRunInfo, PnlRow,
 }
 import tempo/server/command
 import tempo/server/context.{Context}
@@ -61,14 +63,17 @@ fn draft_and_issue(
 ) -> Int {
   apply(
     conn,
-    InvoiceCommand(DraftInvoice(
+    gateway.InvoiceCommand(invoice_command.DraftInvoice(
       project_id,
       Date(2026, June, 1),
       Date(2026, July, 1),
     )),
   )
   let invoice_id = newest_invoice_for_project(conn, project_id)
-  apply(conn, InvoiceCommand(IssueInvoice(invoice_id, issue_on)))
+  apply(
+    conn,
+    gateway.InvoiceCommand(invoice_command.IssueInvoice(invoice_id, issue_on)),
+  )
   invoice_id
 }
 
@@ -218,7 +223,10 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
     rolling_back(fn(conn) {
       apply(
         conn,
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let assert Ok(run) =
         finance_query.payroll(
@@ -257,7 +265,10 @@ pub fn pnl_totals_and_per_engineer_row_test() {
     rolling_back(fn(conn) {
       apply(
         conn,
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       let _ = draft_and_issue(conn, 100, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
@@ -310,12 +321,15 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
     rolling_back(fn(conn) {
       apply(
         conn,
-        PayrollCommand(RunPayroll(Date(2026, June, 1), Date(2026, July, 1))),
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
       )
       // Draft the three invoices but DO NOT issue them.
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           100,
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -323,7 +337,7 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
       )
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           200,
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -331,7 +345,7 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
       )
       apply(
         conn,
-        InvoiceCommand(DraftInvoice(
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
           300,
           Date(2026, June, 1),
           Date(2026, July, 1),

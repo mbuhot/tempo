@@ -17,10 +17,12 @@
 
 import gleam/list
 import gleam/string
-import shared/types.{
-  type Command, DraftInvoice, InvoiceCommand, IssueInvoice, PayInvoice,
-  PayrollCommand, RunPayroll, SalaryCommand, SetSalary,
+import shared/command.{
+  type Command, InvoiceCommand, PayrollCommand, SalaryCommand,
 }
+import shared/invoice/command as invoice_command
+import shared/payroll/command as payroll_command
+import shared/salary/command as salary_command
 
 /// A role bundles the commands a principal may run. `Admin` is unrestricted; `Ops`
 /// and `Engineer` are denied the financial commands.
@@ -82,8 +84,8 @@ pub fn authorize(
 /// invoice-lifecycle transition. These are the commands only `Admin` may run.
 fn is_financial(command: Command) -> Bool {
   case command {
-    SalaryCommand(SetSalary(..))
-    | PayrollCommand(RunPayroll(..))
+    SalaryCommand(salary_command.SetSalary(..))
+    | PayrollCommand(payroll_command.RunPayroll(..))
     | InvoiceCommand(_) -> True
     _ -> False
   }
@@ -130,11 +132,11 @@ fn role_to_string(role: Role) -> String {
 /// can say which command was refused without leaking its parameters).
 fn command_tag(command: Command) -> String {
   case command {
-    SalaryCommand(SetSalary(..)) -> "set_salary"
-    PayrollCommand(RunPayroll(..)) -> "run_payroll"
-    InvoiceCommand(DraftInvoice(..)) -> "draft_invoice"
-    InvoiceCommand(IssueInvoice(..)) -> "issue_invoice"
-    InvoiceCommand(PayInvoice(..)) -> "pay_invoice"
+    SalaryCommand(salary_command.SetSalary(..)) -> "set_salary"
+    PayrollCommand(payroll_command.RunPayroll(..)) -> "run_payroll"
+    InvoiceCommand(invoice_command.DraftInvoice(..)) -> "draft_invoice"
+    InvoiceCommand(invoice_command.IssueInvoice(..)) -> "issue_invoice"
+    InvoiceCommand(invoice_command.PayInvoice(..)) -> "pay_invoice"
     _ -> "command"
   }
 }

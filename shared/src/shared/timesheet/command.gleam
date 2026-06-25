@@ -1,15 +1,28 @@
-//// JSON codec for `TimesheetCommand` — the timesheet aggregate's slice of the
-//// command wire contract (a single-cell log and the whole-week atomic write).
-//// `encode` tags each variant by its `op`; `decoder` returns the field decoder for
-//// an `op` the timesheet aggregate owns (`Error(Nil)` for any other). The
-//// `TimesheetEntry` element codec lives here too, since only `LogWeek` carries it.
+//// The timesheet aggregate's write command type and its JSON codec (a single-cell
+//// log and the whole-week atomic write). `encode` tags each variant by its `op`;
+//// `decoder` returns the field decoder for an `op` the timesheet aggregate owns
+//// (`Error(Nil)` for any other), so `shared/command.command_decoder` can dispatch
+//// by tag and wrap as `Command`. The `TimesheetEntry` element type and its codec
+//// live here too, since only `LogWeek` carries it.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import shared/codecs/base.{date_decoder, encode_date, lenient_float_decoder}
-import shared/types.{
-  type TimesheetCommand, type TimesheetEntry, LogTimesheet, LogWeek,
-  TimesheetEntry,
+import gleam/time/calendar.{type Date}
+import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+
+pub type TimesheetCommand {
+  /// Log hours an engineer worked on a project on a day.
+  LogTimesheet(engineer_id: Int, project_id: Int, day: Date, hours: Float)
+  /// Log a whole week's hours atomically: each entry sets one (project, day) cell
+  /// for the engineer; an `hours` of 0.0 clears that cell. Every entry commits or
+  /// none.
+  LogWeek(engineer_id: Int, entries: List(TimesheetEntry))
+}
+
+/// One (project, day) entry of a `LogWeek` submission: the hours to set for that
+/// cell. An `hours` of 0.0 clears the cell.
+pub type TimesheetEntry {
+  TimesheetEntry(project_id: Int, day: Date, hours: Float)
 }
 
 /// Encode a `TimesheetCommand` as a tagged JSON object keyed by `op`.

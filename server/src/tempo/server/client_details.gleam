@@ -10,10 +10,10 @@
 
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
-import shared/types.{
-  type ClientDetailsCommand, ClientDetailsCommand, UpdateClientProfile,
+import shared/client_details/command.{
+  type ClientDetailsCommand, UpdateClientProfile,
 }
+import shared/command.{ClientDetailsCommand} as gateway
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
@@ -45,7 +45,7 @@ pub fn update_client_profile(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: codecs.encode_command(ClientDetailsCommand(command)),
+        payload: gateway.encode_command(ClientDetailsCommand(command)),
       ),
       facts: [
         fact.ClientProfile(
