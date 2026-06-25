@@ -34,10 +34,10 @@ import tempo/server/engagement/command as engagement
 import tempo/server/engineer
 import tempo/server/engineer_details
 import tempo/server/fact.{type Recorded, Recorded}
-import tempo/server/invoice
+import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
 import tempo/server/operation.{type OperationError}
-import tempo/server/payroll
+import tempo/server/payroll/command as payroll
 import tempo/server/project_details
 import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
