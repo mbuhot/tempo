@@ -32,7 +32,8 @@ import shared/leave/view.{
   type LeaveBalance, type LeaveRecord, LeaveBalance, LeaveRecord,
 } as _
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/engineer/sql as engineer_sql
+import tempo/server/leave/sql as leave_sql
 
 /// One engineer's detail as-of `as_of`. `Ok(Error(Nil))` when no current contact
 /// (unknown engineer) → the handler answers 404; `Ok(Ok(detail))` otherwise.
@@ -41,7 +42,7 @@ pub fn detail(
   engineer_id: Int,
   as_of: Date,
 ) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use contact <- result.try(sql.engineer_contact_current(
+  use contact <- result.try(engineer_sql.engineer_contact_current(
     context.db,
     engineer_id,
   ))
@@ -61,33 +62,39 @@ fn assemble(
   as_of: Date,
   contact: EngineerContact,
 ) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use banking <- result.try(sql.engineer_banking_current(
+  use banking <- result.try(engineer_sql.engineer_banking_current(
     context.db,
     engineer_id,
   ))
-  use emergency <- result.try(sql.engineer_emergency_current(
+  use emergency <- result.try(engineer_sql.engineer_emergency_current(
     context.db,
     engineer_id,
   ))
-  use employment <- result.try(sql.engineer_employment_asof(
-    context.db,
-    engineer_id,
-    as_of,
-  ))
-  use roles <- result.try(sql.engineer_role_history(context.db, engineer_id))
-  use allocations <- result.try(sql.engineer_allocations(
+  use employment <- result.try(engineer_sql.engineer_employment_asof(
     context.db,
     engineer_id,
     as_of,
   ))
-  use leave_history <- result.try(sql.leave_history(context.db, engineer_id))
-  use annual <- result.try(sql.leave_balance(
+  use roles <- result.try(engineer_sql.engineer_role_history(
+    context.db,
+    engineer_id,
+  ))
+  use allocations <- result.try(engineer_sql.engineer_allocations(
+    context.db,
+    engineer_id,
+    as_of,
+  ))
+  use leave_history <- result.try(leave_sql.leave_history(
+    context.db,
+    engineer_id,
+  ))
+  use annual <- result.try(leave_sql.leave_balance(
     context.db,
     engineer_id,
     "annual",
     as_of,
   ))
-  use sick <- result.map(sql.leave_balance(
+  use sick <- result.map(leave_sql.leave_balance(
     context.db,
     engineer_id,
     "sick",
@@ -117,8 +124,10 @@ fn assemble(
 /// comes from the `engineer_current` view, so Squirrel types every column nullable;
 /// a row only exists for a known engineer (whose columns are all present), so the
 /// mapper asserts each is `Some`.
-fn contact_to_shared(row: sql.EngineerContactCurrentRow) -> EngineerContact {
-  let assert sql.EngineerContactCurrentRow(
+fn contact_to_shared(
+  row: engineer_sql.EngineerContactCurrentRow,
+) -> EngineerContact {
+  let assert engineer_sql.EngineerContactCurrentRow(
     engineer_id: Some(engineer_id),
     name: Some(name),
     email: Some(email),
@@ -128,7 +137,9 @@ fn contact_to_shared(row: sql.EngineerContactCurrentRow) -> EngineerContact {
   EngineerContact(engineer_id:, name:, email:, phone:, postal_address:)
 }
 
-fn banking_to_shared(row: sql.EngineerBankingCurrentRow) -> EngineerBanking {
+fn banking_to_shared(
+  row: engineer_sql.EngineerBankingCurrentRow,
+) -> EngineerBanking {
   EngineerBanking(
     engineer_id: row.engineer_id,
     bank: row.bank,
@@ -139,7 +150,7 @@ fn banking_to_shared(row: sql.EngineerBankingCurrentRow) -> EngineerBanking {
 }
 
 fn emergency_to_shared(
-  row: sql.EngineerEmergencyCurrentRow,
+  row: engineer_sql.EngineerEmergencyCurrentRow,
 ) -> EngineerEmergency {
   EngineerEmergency(
     engineer_id: row.engineer_id,
@@ -150,7 +161,9 @@ fn emergency_to_shared(
   )
 }
 
-fn employment_to_shared(row: sql.EngineerEmploymentAsofRow) -> Employment {
+fn employment_to_shared(
+  row: engineer_sql.EngineerEmploymentAsofRow,
+) -> Employment {
   Employment(
     engineer_id: row.engineer_id,
     started: row.started,
@@ -159,7 +172,7 @@ fn employment_to_shared(row: sql.EngineerEmploymentAsofRow) -> Employment {
   )
 }
 
-fn role_to_shared(row: sql.EngineerRoleHistoryRow) -> RoleVersion {
+fn role_to_shared(row: engineer_sql.EngineerRoleHistoryRow) -> RoleVersion {
   RoleVersion(
     level: row.level,
     valid_from: row.valid_from,
@@ -167,7 +180,9 @@ fn role_to_shared(row: sql.EngineerRoleHistoryRow) -> RoleVersion {
   )
 }
 
-fn allocation_to_shared(row: sql.EngineerAllocationsRow) -> AllocationRow {
+fn allocation_to_shared(
+  row: engineer_sql.EngineerAllocationsRow,
+) -> AllocationRow {
   AllocationRow(
     project_id: row.project_id,
     project: row.project,
@@ -178,7 +193,7 @@ fn allocation_to_shared(row: sql.EngineerAllocationsRow) -> AllocationRow {
   )
 }
 
-fn leave_record_to_shared(row: sql.LeaveHistoryRow) -> LeaveRecord {
+fn leave_record_to_shared(row: leave_sql.LeaveHistoryRow) -> LeaveRecord {
   LeaveRecord(
     kind: row.kind,
     valid_from: row.valid_from,
@@ -190,8 +205,8 @@ fn leave_record_to_shared(row: sql.LeaveHistoryRow) -> LeaveRecord {
 /// and sick), carrying the engineer's `name`. A missing balance row reads 0.0.
 fn balance(
   name: String,
-  annual_rows: List(sql.LeaveBalanceRow),
-  sick_rows: List(sql.LeaveBalanceRow),
+  annual_rows: List(leave_sql.LeaveBalanceRow),
+  sick_rows: List(leave_sql.LeaveBalanceRow),
 ) -> LeaveBalance {
   LeaveBalance(
     engineer: name,
@@ -200,7 +215,7 @@ fn balance(
   )
 }
 
-fn balance_value(rows: List(sql.LeaveBalanceRow)) -> Float {
+fn balance_value(rows: List(leave_sql.LeaveBalanceRow)) -> Float {
   case rows {
     [row, ..] -> row.balance
     [] -> 0.0

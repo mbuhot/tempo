@@ -15,8 +15,8 @@ import shared/forecast/view.{
   type Forecast, type ForecastMonth, Forecast, ForecastMonth,
 } as _
 import tempo/server/context.{type Context}
+import tempo/server/forecast/sql
 import tempo/server/pnl/view as pnl_view
-import tempo/server/sql
 
 /// The forward P&L from committed demand (`GET /api/forecast?as_of=`); one
 /// `ForecastMonth` per calendar month from the as-of month to the cliff, with the

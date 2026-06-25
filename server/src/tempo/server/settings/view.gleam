@@ -12,13 +12,15 @@ import shared/settings/view.{
   LeavePolicyRow, RateCardRow, SalaryRow, Settings,
 }
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/leave/sql as leave_sql
+import tempo/server/rate_card/sql as rate_card_sql
+import tempo/server/salary/sql as salary_sql
 
 /// The settings as-of `as_of`: the current rate card, salaries, and leave policy.
 pub fn read(context: Context, as_of: Date) -> Result(Settings, pog.QueryError) {
-  use rate_card <- result.try(sql.rate_card_list(context.db, as_of))
-  use salaries <- result.try(sql.salary_list(context.db, as_of))
-  use leave_policy <- result.map(sql.leave_policy_list(context.db, as_of))
+  use rate_card <- result.try(rate_card_sql.rate_card_list(context.db, as_of))
+  use salaries <- result.try(salary_sql.salary_list(context.db, as_of))
+  use leave_policy <- result.map(leave_sql.leave_policy_list(context.db, as_of))
   Settings(
     date: as_of,
     rate_card: list.map(rate_card.rows, rate_card_row_to_shared),
@@ -27,15 +29,17 @@ pub fn read(context: Context, as_of: Date) -> Result(Settings, pog.QueryError) {
   )
 }
 
-fn rate_card_row_to_shared(row: sql.RateCardListRow) -> RateCardRow {
+fn rate_card_row_to_shared(row: rate_card_sql.RateCardListRow) -> RateCardRow {
   RateCardRow(level: row.level, day_rate: row.day_rate)
 }
 
-fn salary_row_to_shared(row: sql.SalaryListRow) -> SalaryRow {
+fn salary_row_to_shared(row: salary_sql.SalaryListRow) -> SalaryRow {
   SalaryRow(level: row.level, monthly_salary: row.monthly_salary)
 }
 
-fn leave_policy_row_to_shared(row: sql.LeavePolicyListRow) -> LeavePolicyRow {
+fn leave_policy_row_to_shared(
+  row: leave_sql.LeavePolicyListRow,
+) -> LeavePolicyRow {
   LeavePolicyRow(
     kind: row.kind,
     level: row.level,

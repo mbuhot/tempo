@@ -14,7 +14,7 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/roster/view.{type Ref, type Roster, Ref, Roster}
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/roster/sql
 
 /// Compute the console directory as-of `as_of`: the employed engineers and the
 /// active projects on the date, plus every client (clients ignore `as_of`). Each

@@ -8,8 +8,8 @@
 
 import gleam/time/calendar
 import shared/board/view as board_view
+import tempo/server/board/sql
 import tempo/server/board/view as board
-import tempo/server/sql
 import test_pool
 
 // The board_unassigned query: at 2024-06-01 exactly Marcus is employed,

@@ -19,9 +19,10 @@ import shared/allocation/command.{
   type AllocationCommand, AssignToProject, ChangeAllocationFraction, RollOff,
 }
 import shared/command.{AllocationCommand} as gateway
+import tempo/server/engineer/sql as engineer_sql
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
-import tempo/server/sql
+import tempo/server/project/sql as project_sql
 
 /// Route an allocation command to its operation, returning the audit entry and the
 /// facts it records. The `case` is exhaustive over `AllocationCommand`, so a new
@@ -114,7 +115,7 @@ fn validate_engineer_employed(
   valid_to: Date,
   then continue: fn(Nil) -> Result(Recorded, OperationError),
 ) -> Result(Recorded, OperationError) {
-  use returned <- operation.try(sql.engineer_employment_during(
+  use returned <- operation.try(engineer_sql.engineer_employment_during(
     conn,
     engineer_id,
     valid_from,
@@ -137,7 +138,7 @@ fn validate_project_running(
   valid_to: Date,
   then continue: fn(Nil) -> Result(Recorded, OperationError),
 ) -> Result(Recorded, OperationError) {
-  use returned <- operation.try(sql.project_run_during(
+  use returned <- operation.try(project_sql.project_run_during(
     conn,
     project_id,
     valid_from,

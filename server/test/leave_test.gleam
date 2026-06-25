@@ -17,8 +17,8 @@ import shared/command as gateway
 import shared/engineer/command as engineer_command
 import shared/leave/command as leave_command
 import tempo/server/command
+import tempo/server/leave/sql
 import tempo/server/operation.{InsufficientLeaveBalance}
-import tempo/server/sql
 import test_pool
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out.

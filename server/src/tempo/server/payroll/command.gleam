@@ -20,8 +20,8 @@ import shared/command.{PayrollCommand} as gateway
 import shared/payroll/command.{type PayrollCommand, RunPayroll}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
+import tempo/server/payroll/sql
 import tempo/server/repository
-import tempo/server/sql
 
 /// Route a payroll command to its operation, returning the audit entry and the facts
 /// it records. Exhaustive over `PayrollCommand`.

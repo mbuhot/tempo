@@ -18,8 +18,8 @@ import pog
 import shared/command.{type Event, Event}
 import shared/pagination
 import tempo/server/context.{type Context}
+import tempo/server/event/sql
 import tempo/server/operation
-import tempo/server/sql
 import tempo/server/web/cursor.{type IdBound, IdBound}
 
 /// Append one journal row on an already-open connection: `dispatch` calls this in

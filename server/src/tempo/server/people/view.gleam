@@ -24,7 +24,8 @@ import shared/people/view.{
   RosterOnLeave, RosterOnProjects, RosterUnassigned,
 }
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/leave/sql as leave_sql
+import tempo/server/people/sql as people_sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
 /// Compute one keyset page of the people roster as-of `as_of` (issue #12): run
@@ -40,20 +41,20 @@ pub fn roster(
   limit: Int,
 ) -> Result(PeopleList, pog.QueryError) {
   let NameIdBound(name:, id:) = after
-  use people <- result.try(sql.people_list(
+  use people <- result.try(people_sql.people_list(
     context.db,
     as_of,
     name,
     id,
     limit + 1,
   ))
-  use balances <- result.map(sql.leave_balances(context.db, as_of))
+  use balances <- result.map(leave_sql.leave_balances(context.db, as_of))
   let annual_by_engineer =
     balances.rows
     |> list.map(fn(row) { #(row.engineer_id, row.annual) })
     |> dict.from_list
   let #(page_rows, next_cursor) =
-    pagination.paginate(people.rows, limit, fn(row: sql.PeopleListRow) {
+    pagination.paginate(people.rows, limit, fn(row: people_sql.PeopleListRow) {
       cursor.encode_name_id(row.name, row.engineer_id)
     })
   let rows =
@@ -70,7 +71,7 @@ pub fn roster(
 /// to the shared `PersonRow`, collapsing the engineer's engagement into a single
 /// roster status.
 fn person_row_to_shared(
-  row: sql.PeopleListRow,
+  row: people_sql.PeopleListRow,
   annual_balance: Float,
 ) -> PersonRow {
   PersonRow(
@@ -89,7 +90,7 @@ fn person_row_to_shared(
 /// fact wins (`RosterOnLeave`), else the engineer's allocated project titles
 /// (`RosterOnProjects`), else `RosterUnassigned`. `people_list` joins the project
 /// titles into one comma-separated string; split it back into the list here.
-fn status_of(row: sql.PeopleListRow) -> RosterStatus {
+fn status_of(row: people_sql.PeopleListRow) -> RosterStatus {
   case row.leave_kind {
     Some(kind) -> RosterOnLeave(kind:)
     None ->

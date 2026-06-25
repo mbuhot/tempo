@@ -28,7 +28,7 @@ import shared/project/view.{
   TeamMember,
 } as _
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/project/sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
 /// One keyset page of the projects list as-of `as_of` (issue #12): each project

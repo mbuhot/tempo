@@ -20,8 +20,9 @@ import shared/board/view.{
   BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as _
 import shared/leave/view.{type LeaveBalance, LeaveBalance} as _
+import tempo/server/board/sql as board_sql
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/leave/sql as leave_sql
 
 /// Compute the board snapshot for a date: run the three engagement queries, the
 /// unstaffed-projects query, and the leave balances; map each to its shared type,
@@ -30,11 +31,11 @@ pub fn snapshot(
   context: Context,
   date: Date,
 ) -> Result(BoardSnapshot, pog.QueryError) {
-  use board <- result.try(sql.board_engaged(context.db, date))
-  use unassigned <- result.try(sql.board_unassigned(context.db, date))
-  use leave <- result.try(sql.board_leave(context.db, date))
-  use unstaffed <- result.try(sql.board_unstaffed(context.db, date))
-  use balances <- result.try(sql.leave_balances(context.db, date))
+  use board <- result.try(board_sql.board_engaged(context.db, date))
+  use unassigned <- result.try(board_sql.board_unassigned(context.db, date))
+  use leave <- result.try(board_sql.board_leave(context.db, date))
+  use unstaffed <- result.try(board_sql.board_unstaffed(context.db, date))
+  use balances <- result.try(leave_sql.leave_balances(context.db, date))
   let rows =
     list.flatten([
       list.map(board.rows, board_row_to_shared),
@@ -49,7 +50,9 @@ pub fn snapshot(
 
 /// Map a board_unstaffed row (an active project with no covering allocation) to
 /// the shared `UnstaffedProject` (the board's unstaffed lane).
-fn unstaffed_row_to_shared(row: sql.BoardUnstaffedRow) -> UnstaffedProject {
+fn unstaffed_row_to_shared(
+  row: board_sql.BoardUnstaffedRow,
+) -> UnstaffedProject {
   UnstaffedProject(
     project_id: row.project_id,
     title: row.title,
@@ -59,12 +62,12 @@ fn unstaffed_row_to_shared(row: sql.BoardUnstaffedRow) -> UnstaffedProject {
 
 /// Map a leave_balances row to the shared `LeaveBalance` (engineer + annual/sick
 /// days available as of the board date).
-fn balance_row_to_shared(row: sql.LeaveBalancesRow) -> LeaveBalance {
+fn balance_row_to_shared(row: leave_sql.LeaveBalancesRow) -> LeaveBalance {
   LeaveBalance(engineer: row.engineer, annual: row.annual, sick: row.sick)
 }
 
 /// Map an on-project query row to the shared `BoardRow` / `OnProject`.
-fn board_row_to_shared(row: sql.BoardEngagedRow) -> BoardRow {
+fn board_row_to_shared(row: board_sql.BoardEngagedRow) -> BoardRow {
   BoardRow(
     engineer: row.engineer,
     level: row.level,
@@ -81,14 +84,14 @@ fn board_row_to_shared(row: sql.BoardEngagedRow) -> BoardRow {
 
 /// Map an unassigned board row (employed, no allocation, not on leave) to the
 /// shared `BoardRow`/`Unassigned` contract.
-fn unassigned_row_to_shared(row: sql.BoardUnassignedRow) -> BoardRow {
+fn unassigned_row_to_shared(row: board_sql.BoardUnassignedRow) -> BoardRow {
   BoardRow(engineer: row.engineer, level: row.level, engagement: Unassigned)
 }
 
 /// Map an on-leave board row to the shared `BoardRow`/`OnLeave` contract. The
 /// level falls back to 0 only if the leave row carries none (not expected for a
 /// leave-covered, employed engineer, who always has a role).
-fn leave_row_to_shared(row: sql.BoardLeaveRow) -> BoardRow {
+fn leave_row_to_shared(row: board_sql.BoardLeaveRow) -> BoardRow {
   BoardRow(
     engineer: row.engineer,
     level: level_or_zero(row.level),

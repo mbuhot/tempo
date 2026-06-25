@@ -1,5 +1,6 @@
 //// Layer-3 query tests (ARCHITECTURE.md §10.3) against the generated
-//// Squirrel functions in `tempo/server/sql`. They run the deterministic v1-wide
+//// Squirrel functions in the per-concept `tempo/server/<concept>/sql` modules.
+//// They run the deterministic v1-wide
 //// seed (002_seed.sql, "now" = 2026-06-15) at fixed dates and assert the exact
 //// rows, proving the temporal joins and the range-decomposition boundary
 //// (ADR-011) end to end.
@@ -14,7 +15,9 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/time/calendar.{April, August, Date, January, June, March, May}
 import pog
-import tempo/server/sql
+import tempo/server/board/sql as board_sql
+import tempo/server/rate_card/sql as rate_card_sql
+import tempo/server/timesheet/sql as timesheet_sql
 import test_pool
 
 fn mint_audit_id(conn: pog.Connection) -> Int {
@@ -48,11 +51,11 @@ fn db() -> pog.Connection {
 // Platform at L4 (rate 1000, pre-promotion); Aisha is present at L6 (her leave is
 // over a year away). A meaningfully different board from the seed "now".
 pub fn board_engaged_past_test() {
-  let assert Ok(returned) = sql.board_engaged(db(), Date(2025, March, 1))
+  let assert Ok(returned) = board_sql.board_engaged(db(), Date(2025, March, 1))
 
   assert returned.rows
     == [
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Aisha Okafor",
         level: 6,
         project: "Data Platform",
@@ -62,7 +65,7 @@ pub fn board_engaged_past_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 4,
         project: "Data Platform",
@@ -72,7 +75,7 @@ pub fn board_engaged_past_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -89,11 +92,11 @@ pub fn board_engaged_past_test() {
 // (rate 1200, pre-bump); Marcus is full-time on Data Platform at L4 (rate 1000,
 // pre-promotion); Aisha is suppressed because she is on leave across this date.
 pub fn board_engaged_now_test() {
-  let assert Ok(returned) = sql.board_engaged(db(), Date(2026, June, 15))
+  let assert Ok(returned) = board_sql.board_engaged(db(), Date(2026, June, 15))
 
   assert returned.rows
     == [
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 4,
         project: "Data Platform",
@@ -103,7 +106,7 @@ pub fn board_engaged_now_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Inventory Sync",
@@ -113,7 +116,7 @@ pub fn board_engaged_now_test() {
         valid_from: Date(2025, June, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -130,11 +133,11 @@ pub fn board_engaged_now_test() {
 // and the L5 rate-card bump (1200 -> 1400) both activate unaided (PRD FR-3), and
 // Aisha's leave has ended so she reappears on the board, full-time at L6.
 pub fn board_engaged_future_test() {
-  let assert Ok(returned) = sql.board_engaged(db(), Date(2026, August, 1))
+  let assert Ok(returned) = board_sql.board_engaged(db(), Date(2026, August, 1))
 
   assert returned.rows
     == [
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Aisha Okafor",
         level: 6,
         project: "Data Platform",
@@ -144,7 +147,7 @@ pub fn board_engaged_future_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 5,
         project: "Data Platform",
@@ -154,7 +157,7 @@ pub fn board_engaged_future_test() {
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Inventory Sync",
@@ -164,7 +167,7 @@ pub fn board_engaged_future_test() {
         valid_from: Date(2025, June, 1),
         valid_to: Date(2027, January, 1),
       ),
-      sql.BoardEngagedRow(
+      board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
         level: 5,
         project: "Ledger Migration",
@@ -182,11 +185,11 @@ pub fn board_engaged_future_test() {
 // On the seed "now", exactly Aisha is on leave: the row the board renders as
 // "On leave: annual", carrying her level and the leave period's bounds.
 pub fn board_leave_now_test() {
-  let assert Ok(returned) = sql.board_leave(db(), Date(2026, June, 15))
+  let assert Ok(returned) = board_sql.board_leave(db(), Date(2026, June, 15))
 
   assert returned.rows
     == [
-      sql.BoardLeaveRow(
+      board_sql.BoardLeaveRow(
         engineer: "Aisha Okafor",
         level: Some(6),
         kind: "annual",
@@ -198,7 +201,7 @@ pub fn board_leave_now_test() {
 
 // Once the leave window has passed, nobody is on leave.
 pub fn board_leave_after_leave_is_empty_test() {
-  let assert Ok(returned) = sql.board_leave(db(), Date(2026, August, 1))
+  let assert Ok(returned) = board_sql.board_leave(db(), Date(2026, August, 1))
 
   assert returned.rows == []
 }
@@ -210,7 +213,8 @@ pub fn board_leave_after_leave_is_empty_test() {
 // cell is allocated (both projects cover the whole week, no leave); the Tuesday
 // 06-09 cell of BOTH carries the 4.00 hours the seed logged, every other day 0.
 pub fn timesheet_week_with_logged_hours_test() {
-  let assert Ok(returned) = sql.timesheet_week(db(), 1, Date(2026, June, 8))
+  let assert Ok(returned) =
+    timesheet_sql.timesheet_week(db(), 1, Date(2026, June, 8))
 
   // One project's seven cells as (day, allocated, hours): allocated all seven
   // days, 4.0 only on the Tuesday 06-09 cell.
@@ -244,7 +248,8 @@ pub fn timesheet_week_with_logged_hours_test() {
 // Mon..Sat — the "not yet on the project" partial-coverage case. Ledger Migration
 // (100) is allocated every day of the week.
 pub fn timesheet_week_partial_coverage_test() {
-  let assert Ok(returned) = sql.timesheet_week(db(), 1, Date(2025, May, 26))
+  let assert Ok(returned) =
+    timesheet_sql.timesheet_week(db(), 1, Date(2025, May, 26))
 
   // Inventory Sync: allocated only on the Sunday 2025-06-01 cell.
   let inventory_coverage =
@@ -274,7 +279,8 @@ pub fn timesheet_week_partial_coverage_test() {
 // the `allocated` flag, so every one of the seven cells is NOT editable. There is
 // nothing she can log all week: every cell disabled.
 pub fn timesheet_week_on_leave_all_cells_disabled_test() {
-  let assert Ok(returned) = sql.timesheet_week(db(), 3, Date(2026, June, 15))
+  let assert Ok(returned) =
+    timesheet_sql.timesheet_week(db(), 3, Date(2026, June, 15))
 
   let coverage =
     list.map(returned.rows, fn(row) {
@@ -311,12 +317,14 @@ pub fn timesheet_write_is_an_upsert_test() {
   let hours_after =
     run_rolling_back(fn(conn) {
       let audit_id = mint_audit_id(conn)
-      let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 6.0, audit_id)
+      let assert Ok(_) = timesheet_sql.timesheet_delete(conn, 2, 300, day)
+      let assert Ok(_) =
+        timesheet_sql.timesheet_write(conn, 2, 300, day, 6.0, audit_id)
       // Re-entry with a corrected value, same code path.
-      let assert Ok(_) = sql.timesheet_delete(conn, 2, 300, day)
-      let assert Ok(_) = sql.timesheet_write(conn, 2, 300, day, 8.0, audit_id)
-      let assert Ok(week) = sql.timesheet_week(conn, 2, week_start)
+      let assert Ok(_) = timesheet_sql.timesheet_delete(conn, 2, 300, day)
+      let assert Ok(_) =
+        timesheet_sql.timesheet_write(conn, 2, 300, day, 8.0, audit_id)
+      let assert Ok(week) = timesheet_sql.timesheet_week(conn, 2, week_start)
       week.rows
       |> list.filter(fn(row) { row.project_id == 300 && row.day == day })
       |> list.map(fn(row) { Logged(hours: row.hours) })
@@ -340,7 +348,7 @@ pub fn rate_card_for_portion_of_splits_test() {
   let rows =
     rate_rows_rolling_back(fn(conn) {
       let assert Ok(_) =
-        sql.rate_card_for_portion_of(
+        rate_card_sql.rate_card_for_portion_of(
           conn,
           Date(2026, April, 1),
           Date(2026, August, 1),

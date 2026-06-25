@@ -34,6 +34,9 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{type Event}
+import tempo/server/allocation/sql as allocation_sql
+import tempo/server/client/sql as client_sql
+import tempo/server/engineer/sql as engineer_sql
 import tempo/server/event
 import tempo/server/fact.{
   type ContractId, type EngineerId, type Fact, type InvoiceId, type PayrollRunId,
@@ -45,8 +48,14 @@ import tempo/server/fact.{
   PayrollLine, PayrollPeriod, PayrollRunId, ProjectId, ProjectPlan,
   ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
 }
+import tempo/server/invoice/sql as invoice_sql
+import tempo/server/leave/sql as leave_sql
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
-import tempo/server/sql
+import tempo/server/payroll/sql as payroll_sql
+import tempo/server/project/sql as project_sql
+import tempo/server/rate_card/sql as rate_card_sql
+import tempo/server/salary/sql as salary_sql
+import tempo/server/timesheet/sql as timesheet_sql
 
 /// Mint an engineer anchor: reserve its id (`nextval`), insert the id-only row, and
 /// return the strongly-typed `EngineerId` a handler threads into every fact about the
@@ -56,9 +65,11 @@ import tempo/server/sql
 pub fn create_engineer(
   conn: pog.Connection,
 ) -> Result(EngineerId, OperationError) {
-  use returned <- operation.try(sql.engineer_next_id(conn))
+  use returned <- operation.try(engineer_sql.engineer_next_id(conn))
   let assert [row] = returned.rows
-  use _ <- result.try(sql.engineer_create(conn, row.id) |> operation.run)
+  use _ <- result.try(
+    engineer_sql.engineer_create(conn, row.id) |> operation.run,
+  )
   Ok(EngineerId(row.id))
 }
 
@@ -66,9 +77,9 @@ pub fn create_engineer(
 pub fn create_contract(
   conn: pog.Connection,
 ) -> Result(ContractId, OperationError) {
-  use returned <- operation.try(sql.contract_next_id(conn))
+  use returned <- operation.try(client_sql.contract_next_id(conn))
   let assert [row] = returned.rows
-  use _ <- result.try(sql.contract_create(conn, row.id) |> operation.run)
+  use _ <- result.try(client_sql.contract_create(conn, row.id) |> operation.run)
   Ok(ContractId(row.id))
 }
 
@@ -76,9 +87,9 @@ pub fn create_contract(
 pub fn create_project(
   conn: pog.Connection,
 ) -> Result(ProjectId, OperationError) {
-  use returned <- operation.try(sql.project_next_id(conn))
+  use returned <- operation.try(project_sql.project_next_id(conn))
   let assert [row] = returned.rows
-  use _ <- result.try(sql.project_create(conn, row.id) |> operation.run)
+  use _ <- result.try(project_sql.project_create(conn, row.id) |> operation.run)
   Ok(ProjectId(row.id))
 }
 
@@ -86,9 +97,9 @@ pub fn create_project(
 pub fn create_invoice(
   conn: pog.Connection,
 ) -> Result(InvoiceId, OperationError) {
-  use returned <- operation.try(sql.invoice_next_id(conn))
+  use returned <- operation.try(invoice_sql.invoice_next_id(conn))
   let assert [row] = returned.rows
-  use _ <- result.try(sql.invoice_create(conn, row.id) |> operation.run)
+  use _ <- result.try(invoice_sql.invoice_create(conn, row.id) |> operation.run)
   Ok(InvoiceId(row.id))
 }
 
@@ -97,9 +108,11 @@ pub fn create_invoice(
 pub fn create_payroll_run(
   conn: pog.Connection,
 ) -> Result(PayrollRunId, OperationError) {
-  use returned <- operation.try(sql.payroll_run_next_id(conn))
+  use returned <- operation.try(payroll_sql.payroll_run_next_id(conn))
   let assert [row] = returned.rows
-  use _ <- result.try(sql.payroll_run_create(conn, row.id) |> operation.run)
+  use _ <- result.try(
+    payroll_sql.payroll_run_create(conn, row.id) |> operation.run,
+  )
   Ok(PayrollRunId(row.id))
 }
 
@@ -138,13 +151,20 @@ fn write(
   case a_fact {
     // --- engineer -------------------------------------------------------------
     EngineerEmployed(engineer_id: EngineerId(engineer_id), from:) ->
-      sql.employment_open(conn, engineer_id, from, audit_id) |> operation.run
+      engineer_sql.employment_open(conn, engineer_id, from, audit_id)
+      |> operation.run
 
     EngineerDeparted(engineer_id: EngineerId(engineer_id), from:) ->
       record_departure(conn, engineer_id, from)
 
     EngineerAtLevel(engineer_id: EngineerId(engineer_id), level:, from:) ->
-      sql.engineer_role_upsert(conn, engineer_id, from, level, audit_id)
+      engineer_sql.engineer_role_upsert(
+        conn,
+        engineer_id,
+        from,
+        level,
+        audit_id,
+      )
       |> operation.run
 
     EngineerContactDetails(
@@ -155,7 +175,7 @@ fn write(
       postal_address:,
       from:,
     ) ->
-      sql.engineer_contact_upsert(
+      engineer_sql.engineer_contact_upsert(
         conn,
         engineer_id,
         from,
@@ -175,7 +195,7 @@ fn write(
       account_name:,
       from:,
     ) ->
-      sql.engineer_banking_upsert(
+      engineer_sql.engineer_banking_upsert(
         conn,
         engineer_id,
         from,
@@ -195,7 +215,7 @@ fn write(
       email:,
       from:,
     ) ->
-      sql.engineer_emergency_upsert(
+      engineer_sql.engineer_emergency_upsert(
         conn,
         engineer_id,
         from,
@@ -217,7 +237,7 @@ fn write(
     ) ->
       case to {
         Some(to_date) ->
-          sql.allocation_assign(
+          allocation_sql.allocation_assign(
             conn,
             engineer_id,
             project_id,
@@ -228,7 +248,7 @@ fn write(
           )
           |> operation.run
         None ->
-          sql.allocation_change_fraction(
+          allocation_sql.allocation_change_fraction(
             conn,
             engineer_id,
             project_id,
@@ -244,20 +264,21 @@ fn write(
       project_id: ProjectId(project_id),
       from:,
     ) ->
-      sql.allocation_close(conn, engineer_id, project_id, from) |> operation.run
+      allocation_sql.allocation_close(conn, engineer_id, project_id, from)
+      |> operation.run
 
     EngineerOnLeave(engineer_id: EngineerId(engineer_id), kind:, from:, to:) ->
-      sql.leave_take(conn, engineer_id, kind, from, to, audit_id)
+      leave_sql.leave_take(conn, engineer_id, kind, from, to, audit_id)
       |> operation.run
 
     // --- rates & salary -------------------------------------------------------
     RateCard(level:, day_rate:, from:, to:) ->
       case to {
         None ->
-          sql.rate_card_revise(conn, from, day_rate, level, audit_id)
+          rate_card_sql.rate_card_revise(conn, from, day_rate, level, audit_id)
           |> require_covering_version
         Some(to_date) ->
-          sql.rate_card_for_portion_of(
+          rate_card_sql.rate_card_for_portion_of(
             conn,
             from,
             to_date,
@@ -269,12 +290,19 @@ fn write(
       }
 
     Salary(level:, monthly_salary:, from:) ->
-      sql.salary_revise(conn, from, monthly_salary, level, audit_id)
+      salary_sql.salary_revise(conn, from, monthly_salary, level, audit_id)
       |> require_covering_version
 
     // --- engagement -----------------------------------------------------------
     ContractTerms(contract_id: ContractId(contract_id), client:, from:, to:) ->
-      sql.contract_terms_open(conn, contract_id, client, from, to, audit_id)
+      client_sql.contract_terms_open(
+        conn,
+        contract_id,
+        client,
+        from,
+        to,
+        audit_id,
+      )
       |> operation.run
 
     ProjectRun(
@@ -283,11 +311,18 @@ fn write(
       from:,
       to:,
     ) ->
-      sql.project_run_open(conn, project_id, contract_id, from, to, audit_id)
+      project_sql.project_run_open(
+        conn,
+        project_id,
+        contract_id,
+        from,
+        to,
+        audit_id,
+      )
       |> operation.run
 
     ProjectProfile(project_id: ProjectId(project_id), title:, summary:, from:) ->
-      sql.project_profile_upsert(
+      project_sql.project_profile_upsert(
         conn,
         project_id,
         from,
@@ -303,7 +338,7 @@ fn write(
       target_completion:,
       from:,
     ) ->
-      sql.project_plan_upsert(
+      project_sql.project_plan_upsert(
         conn,
         project_id,
         from,
@@ -324,7 +359,7 @@ fn write(
 
     // --- client ---------------------------------------------------------------
     ClientProfile(client_id: ClientId(client_id), name:, from:) ->
-      sql.client_profile_upsert(conn, client_id, from, name, audit_id)
+      client_sql.client_profile_upsert(conn, client_id, from, name, audit_id)
       |> operation.run
 
     // --- timesheet ------------------------------------------------------------
@@ -342,7 +377,7 @@ fn write(
       from:,
       to:,
     ) ->
-      sql.invoice_subject_insert(
+      invoice_sql.invoice_subject_insert(
         conn,
         invoice_id,
         project_id,
@@ -353,8 +388,12 @@ fn write(
       |> operation.run
 
     InvoiceInStatus(invoice_id: InvoiceId(invoice_id), status:, from:) -> {
-      use _ <- operation.try(sql.invoice_status_close(conn, invoice_id, from))
-      sql.invoice_status_open(conn, invoice_id, status, from, audit_id)
+      use _ <- operation.try(invoice_sql.invoice_status_close(
+        conn,
+        invoice_id,
+        from,
+      ))
+      invoice_sql.invoice_status_open(conn, invoice_id, status, from, audit_id)
       |> operation.run
     }
 
@@ -366,7 +405,7 @@ fn write(
       days:,
       amount:,
     ) ->
-      sql.invoice_line_insert(
+      invoice_sql.invoice_line_insert(
         conn,
         invoice_id,
         engineer_id,
@@ -379,7 +418,7 @@ fn write(
       |> operation.run
 
     PayrollPeriod(run_id: PayrollRunId(run_id), from:, to:) ->
-      sql.payroll_period_insert(conn, run_id, from, to, audit_id)
+      payroll_sql.payroll_period_insert(conn, run_id, from, to, audit_id)
       |> operation.run
 
     PayrollLine(
@@ -388,7 +427,14 @@ fn write(
       amount:,
       days:,
     ) ->
-      sql.payroll_line_insert(conn, run_id, engineer_id, amount, days, audit_id)
+      payroll_sql.payroll_line_insert(
+        conn,
+        run_id,
+        engineer_id,
+        amount,
+        days,
+        audit_id,
+      )
       |> operation.run
   }
 }
@@ -421,7 +467,7 @@ fn record_hours(
   day: Date,
   hours: Float,
 ) -> Result(Nil, OperationError) {
-  use _ <- operation.try(sql.timesheet_delete(
+  use _ <- operation.try(timesheet_sql.timesheet_delete(
     conn,
     engineer_id,
     project_id,
@@ -430,7 +476,14 @@ fn record_hours(
   case hours == 0.0 {
     True -> Ok(Nil)
     False ->
-      sql.timesheet_write(conn, engineer_id, project_id, day, hours, audit_id)
+      timesheet_sql.timesheet_write(
+        conn,
+        engineer_id,
+        project_id,
+        day,
+        hours,
+        audit_id,
+      )
       |> operation.run
   }
 }
@@ -451,14 +504,14 @@ fn record_requirement(
   from: Date,
   to: Date,
 ) -> Result(Nil, OperationError) {
-  use _ <- operation.try(sql.project_requirement_clear(
+  use _ <- operation.try(project_sql.project_requirement_clear(
     conn,
     project_id,
     from,
     to,
     level,
   ))
-  sql.project_requirement_set(
+  project_sql.project_requirement_set(
     conn,
     project_id,
     from,
@@ -480,8 +533,16 @@ fn record_departure(
   engineer_id: Int,
   from: Date,
 ) -> Result(Nil, OperationError) {
-  use _ <- operation.try(sql.allocation_close_all(conn, engineer_id, from))
-  use _ <- operation.try(sql.leave_close_all(conn, engineer_id, from))
-  use _ <- operation.try(sql.engineer_role_close_all(conn, engineer_id, from))
-  sql.employment_close(conn, engineer_id, from) |> operation.run
+  use _ <- operation.try(allocation_sql.allocation_close_all(
+    conn,
+    engineer_id,
+    from,
+  ))
+  use _ <- operation.try(leave_sql.leave_close_all(conn, engineer_id, from))
+  use _ <- operation.try(engineer_sql.engineer_role_close_all(
+    conn,
+    engineer_id,
+    from,
+  ))
+  engineer_sql.employment_close(conn, engineer_id, from) |> operation.run
 }

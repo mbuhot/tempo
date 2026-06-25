@@ -30,7 +30,7 @@ import shared/timesheet/view.{
 import tempo/server/context.{type Context}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
-import tempo/server/sql
+import tempo/server/timesheet/sql
 
 // --- dispatch ---------------------------------------------------------------
 

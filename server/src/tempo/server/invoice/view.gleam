@@ -15,7 +15,7 @@ import shared/invoice/view.{
 } as _
 import shared/pagination
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/invoice/sql
 import tempo/server/web/cursor.{type DateIdBound, DateIdBound}
 
 /// List one keyset page of invoices with each row's status AS OF `as_of` and its

@@ -25,8 +25,8 @@ import shared/client/view.{
   ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
 }
 import shared/pagination
+import tempo/server/client/sql
 import tempo/server/context.{type Context}
-import tempo/server/sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
 /// One keyset page of the clients list as-of `as_of` (issue #12): each client with

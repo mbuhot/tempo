@@ -13,7 +13,7 @@ import shared/payroll/view.{
   PayrollRunInfo,
 } as _
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/payroll/sql
 
 /// The month's payroll panel (`GET /api/payroll?from=&to=`): one `PayrollLine`
 /// per engineer present on either side of the reconciliation — the LIVE recompute

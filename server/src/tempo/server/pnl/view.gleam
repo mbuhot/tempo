@@ -14,7 +14,7 @@ import gleam/time/calendar.{type Date, Date, January}
 import pog
 import shared/pnl/view.{type Pnl, type PnlRow, Pnl, PnlRow} as _
 import tempo/server/context.{type Context}
-import tempo/server/sql
+import tempo/server/pnl/sql
 
 /// The P&L statement for an as-of date (FR-F7/FR-F8). The "month" is the calendar
 /// month containing `as_of`; "year-to-date" runs from Jan 1 of that year to the

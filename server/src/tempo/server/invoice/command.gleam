@@ -23,9 +23,9 @@ import shared/invoice/command.{
   type InvoiceCommand, DraftInvoice, IssueInvoice, PayInvoice,
 }
 import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/invoice/sql
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
-import tempo/server/sql
 
 /// Route an invoice command to its operation, returning the audit entry and the
 /// facts it records. Exhaustive over `InvoiceCommand`.

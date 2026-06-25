@@ -62,10 +62,11 @@ import shared/timesheet/command as timesheet_command
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
+import tempo/server/engineer/sql as engineer_sql
 import tempo/server/event
 import tempo/server/invoice/view as invoice_read
 import tempo/server/payroll/view as payroll_read
-import tempo/server/sql
+import tempo/server/timesheet/sql as timesheet_sql
 import tempo/server/web/cursor
 
 /// The principal every demo command is dispatched as: actor "seed" (stamped on
@@ -178,7 +179,8 @@ fn timesheets_present(ctx: Context) -> Bool {
       date_to_day_index(Date(2026, January, 1))
       - weekday_of(date_to_day_index(Date(2026, January, 1))),
     )
-  let assert Ok(returned) = sql.timesheet_week(ctx.db, 1, first_monday)
+  let assert Ok(returned) =
+    timesheet_sql.timesheet_week(ctx.db, 1, first_monday)
   list.any(returned.rows, fn(row) { row.hours >. 0.0 })
 }
 
@@ -469,7 +471,7 @@ fn apply_variance_promotion(ctx: Context) -> Nil {
 /// the signal the back-dated promotion has been applied before.
 fn variance_promotion_present(ctx: Context) -> Bool {
   let assert Ok(returned) =
-    sql.engineer_role_history(ctx.db, variance_engineer_id)
+    engineer_sql.engineer_role_history(ctx.db, variance_engineer_id)
   let effective_index = date_to_day_index(variance_effective)
   list.any(returned.rows, fn(role) {
     role.level == variance_level

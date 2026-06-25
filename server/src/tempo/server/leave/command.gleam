@@ -18,11 +18,12 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{LeaveCommand} as gateway
 import shared/leave/command.{type LeaveCommand, TakeLeave}
+import tempo/server/engineer/sql as engineer_sql
 import tempo/server/fact.{type Recorded, Recorded}
+import tempo/server/leave/sql as leave_sql
 import tempo/server/operation.{
   type OperationError, Event, InsufficientLeaveBalance,
 }
-import tempo/server/sql
 
 /// Route a leave command to its operation, returning the audit entry and the facts
 /// it records. Exhaustive over `LeaveCommand`.
@@ -92,8 +93,8 @@ fn guard_balance(
   valid_from: Date,
   valid_to: Date,
 ) -> Result(Nil, OperationError) {
-  use _ <- operation.try(sql.engineer_lock(conn, engineer_id))
-  use checked <- operation.try(sql.leave_check(
+  use _ <- operation.try(engineer_sql.engineer_lock(conn, engineer_id))
+  use checked <- operation.try(leave_sql.leave_check(
     conn,
     engineer_id,
     kind,
