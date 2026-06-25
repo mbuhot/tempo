@@ -1,27 +1,97 @@
-//// The Finance Forecast tab's view (FR-F*), split out of `client/page/finance` so
-//// the tab owns its own rendering. The tab is read-only — it emits no messages —
-//// so `view` is generic over the host page's `msg` and slots straight into the
-//// parent with no `element.map`.
+//// The Finance Forecast tab (FR-F*), a self-contained sub-component MVU split out
+//// of `client/page/finance`. The tab owns its own `Model` (its as-of and the
+//// loaded forecast read model), its own `Msg`, its `init`/`update`, and its
+//// `view`. It is read-only: the only message it raises is its own fetch result.
 ////
 //// The forward P&L from committed demand (`GET /api/forecast?as_of=`): one row per
 //// calendar month from the as-of month to the cliff (Month | Revenue | Cost |
 //// Profit | Margin), capped by a total row summing each money column with the
-//// blended margin. An empty-state when no month carries demand.
+//// blended margin. An empty-state when no month carries demand. Each result
+//// carries the `as_of` it answers so a stale reply is dropped.
 
+import client/api
+import client/page.{type OutMsg}
 import client/time
 import client/ui
 import gleam/float
 import gleam/int
 import gleam/list
+import gleam/time/calendar
 import lustre/attribute
+import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
-import shared/forecast/view.{type Forecast, type ForecastMonth}
+import rsvp
+import shared/forecast/view.{type Forecast, type ForecastMonth} as forecast_view
 
-/// Render the Forecast tab for a loaded `forecast`: a month-by-month table to the
+/// The Forecast tab's state: the as-of its data answers and the load state of the
+/// forecast read model.
+pub type Model {
+  Model(as_of: calendar.Date, forecast: Load)
+}
+
+/// The forecast read model's load state.
+pub type Load {
+  Loading
+  Loaded(forecast: Forecast)
+  Failed(message: String)
+}
+
+/// The tab's messages: its own fetch result, carrying the `as_of` it answers.
+pub type Msg {
+  GotForecast(
+    as_of: calendar.Date,
+    result: Result(Forecast, rsvp.Error(String)),
+  )
+}
+
+/// Start the tab at `as_of`, kicking off its forecast fetch.
+pub fn init(as_of: calendar.Date) -> #(Model, Effect(Msg)) {
+  #(Model(as_of:, forecast: Loading), fetch(as_of))
+}
+
+/// Re-fetch the tab for a new `as_of` (stale-while-revalidate).
+pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
+  #(Model(..model, as_of:, forecast: Loading), fetch(as_of))
+}
+
+fn fetch(as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/forecast?as_of=" <> time.iso_date(as_of),
+    forecast_view.forecast_decoder(),
+    GotForecast(as_of, _),
+  )
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case msg {
+    GotForecast(as_of:, result:) ->
+      case model.as_of == as_of {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let forecast = case result {
+            Ok(forecast) -> Loaded(forecast:)
+            Error(error) -> Failed(message: api.describe_error(error))
+          }
+          #(Model(..model, forecast:), effect.none(), [])
+        }
+      }
+  }
+}
+
+/// Render the tab: a loading guard, delegating the loaded render to `panel`.
+pub fn view(model: Model) -> Element(Msg) {
+  case model.forecast {
+    Loading -> ui.empty_state(message: "Loading forecast…")
+    Failed(message:) -> ui.empty_state(message: message)
+    Loaded(forecast:) -> panel(forecast)
+  }
+}
+
+/// Render the forecast for a loaded `forecast`: a month-by-month table to the
 /// demand cliff with a summing total row, or an empty-state when no month carries
-/// committed demand. Generic over `msg` since the tab raises none.
-pub fn view(forecast: Forecast) -> Element(msg) {
+/// committed demand. Generic over `msg` since it raises none.
+pub fn panel(forecast: Forecast) -> Element(msg) {
   case forecast.months {
     [] ->
       ui.panel(title: "Forecast", count: "0 months", right: [], body: [

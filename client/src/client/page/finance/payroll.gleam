@@ -1,7 +1,13 @@
-//// The Finance Payroll tab's view (FR-F*), split out of `client/page/finance` so
-//// the tab owns its own rendering. The tab raises a single message — pressing
-//// "Run payroll" — so `view` is generic over the host page's `msg` and takes that
-//// one action as the labelled `on_run` argument; every other cell is a pure table.
+//// The Finance Payroll tab (FR-F*), a self-contained sub-component MVU split out
+//// of `client/page/finance`. The tab owns its own `Model` (its as-of, the loaded
+//// payroll read model, and the open Run-payroll op form), its own `Msg`, its
+//// `init`/`update`, and its `view`.
+////
+//// It reads `GET /api/payroll?from=&to=` for the month window of the rail date;
+//// each result carries the `as_of` it answers so a stale reply is dropped. Its one
+//// write is RunPayroll: pressing "Run payroll" opens the period op form; submitting
+//// posts the command via `api.submit_operation` and, on success, raises
+//// `OperationCommitted` and refetches the month.
 ////
 //// `view` is adaptive across three states off the `run` / preview-vs-paid
 //// reconciliation:
@@ -12,21 +18,204 @@
 ////   * a run a back-dated fact has since outgrown -> VARIANCE, the per-line Δ and
 ////     the total back-pay owed.
 
+import client/api
+import client/page.{type OutMsg, OperationCommitted}
 import client/time
 import client/ui
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
+import gleam/time/calendar
 import lustre/attribute
+import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
-import shared/payroll/view.{type Payroll, type PayrollLine}
+import rsvp
+import shared/command.{type Event}
+import shared/payroll/view.{type Payroll, type PayrollLine} as payroll_view
 
-/// Render the Payroll tab for a loaded `payroll`, choosing the preview / reconciled
-/// / variance presentation from the run state. `on_run` is dispatched when the
-/// preview's "Run payroll" button is pressed (the tab's only message).
-pub fn view(payroll: Payroll, on_run on_run: msg) -> Element(msg) {
+/// The Payroll tab's state: the as-of its data answers, the load state of the
+/// payroll read model, and the open Run-payroll op form (or `None`).
+pub type Model {
+  Model(as_of: calendar.Date, payroll: Load, op: Option(ui.OpState))
+}
+
+/// The payroll read model's load state.
+pub type Load {
+  Loading
+  Loaded(payroll: Payroll)
+  Failed(message: String)
+}
+
+/// The tab's messages: its own fetch result (carrying the `as_of` it answers), the
+/// Run-payroll op lifecycle, and the operation reply.
+pub type Msg {
+  GotPayroll(as_of: calendar.Date, result: Result(Payroll, rsvp.Error(String)))
+  OpOpened
+  OpFieldChanged(field: ui.OpField, value: String)
+  OpSubmitted
+  OpCancelled
+  OpReplied(result: Result(List(Event), rsvp.Error(String)))
+}
+
+/// Start the tab at `as_of`, kicking off its payroll fetch.
+pub fn init(as_of: calendar.Date) -> #(Model, Effect(Msg)) {
+  #(Model(as_of:, payroll: Loading, op: None), fetch(as_of))
+}
+
+/// Re-fetch the tab for a new `as_of` (stale-while-revalidate), keeping any open
+/// op form.
+pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
+  #(Model(..model, as_of:, payroll: Loading), fetch(as_of))
+}
+
+fn fetch(as_of: calendar.Date) -> Effect(Msg) {
+  let from = time.iso_date(time.first_of_month(as_of))
+  let to = time.iso_date(time.first_of_next_month(as_of))
+  api.get(
+    "/api/payroll?from=" <> from <> "&to=" <> to,
+    payroll_view.payroll_decoder(),
+    GotPayroll(as_of, _),
+  )
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case msg {
+    GotPayroll(as_of:, result:) ->
+      case model.as_of == as_of {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let payroll = case result {
+            Ok(payroll) -> Loaded(payroll:)
+            Error(error) -> Failed(message: api.describe_error(error))
+          }
+          #(Model(..model, payroll:), effect.none(), [])
+        }
+      }
+
+    OpOpened -> {
+      let form = ui.blank_op_form(kind: ui.OpRunPayroll, default_date: model.as_of)
+      #(
+        Model(
+          ..model,
+          op: Some(ui.OpState(kind: ui.OpRunPayroll, form:, error: None)),
+        ),
+        effect.none(),
+        [],
+      )
+    }
+
+    OpFieldChanged(field:, value:) ->
+      case model.op {
+        Some(op) -> {
+          let form = ui.update_op_form(op.form, field, value)
+          #(
+            Model(..model, op: Some(ui.OpState(..op, form:))),
+            effect.none(),
+            [],
+          )
+        }
+        None -> #(model, effect.none(), [])
+      }
+
+    OpSubmitted ->
+      case model.op {
+        Some(op) ->
+          case ui.build_command(op.kind, op.form) {
+            Ok(command) -> #(
+              model,
+              api.submit_operation(command, OpReplied),
+              [],
+            )
+            Error(message) -> #(
+              Model(..model, op: Some(ui.OpState(..op, error: Some(message)))),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
+    OpCancelled -> #(Model(..model, op: None), effect.none(), [])
+
+    OpReplied(result:) ->
+      case result {
+        Ok(_) -> #(
+          Model(..model, payroll: Loading, op: None),
+          fetch(model.as_of),
+          [OperationCommitted],
+        )
+        Error(error) ->
+          case model.op {
+            Some(op) -> #(
+              Model(
+                ..model,
+                op: Some(
+                  ui.OpState(..op, error: Some(api.describe_error(error))),
+                ),
+              ),
+              effect.none(),
+              [],
+            )
+            None -> #(model, effect.none(), [])
+          }
+      }
+  }
+}
+
+// --- View -------------------------------------------------------------------
+
+/// Render the tab: its loading guard and the op panel, delegating the loaded
+/// render to `panel`. The run-payroll button raises `OpOpened`.
+pub fn view(model: Model) -> Element(Msg) {
+  let body = case model.payroll {
+    Loading -> ui.empty_state(message: "Loading payroll…")
+    Failed(message:) -> ui.empty_state(message: message)
+    Loaded(payroll:) -> panel(payroll, on_run: OpOpened)
+  }
+  html.div([], [op_panel(model.op), body])
+}
+
+/// The open Run-payroll op as a centred modal, or nothing.
+fn op_panel(op: Option(ui.OpState)) -> Element(Msg) {
+  case op {
+    None -> element.none()
+    Some(op) ->
+      ui.modal(
+        title: "Run payroll",
+        error: option.unwrap(op.error, ""),
+        body: op_fields(op.form),
+        on_cancel: OpCancelled,
+        on_confirm: OpSubmitted,
+        confirm_label: "Run payroll",
+      )
+  }
+}
+
+fn op_fields(form: ui.OpForm) -> List(Element(Msg)) {
+  [
+    ui.op_field(
+      label: "Period from",
+      field: ui.FValidFrom,
+      value: form.valid_from,
+      input_type: "date",
+      to_msg: OpFieldChanged,
+    ),
+    ui.op_field(
+      label: "Period to",
+      field: ui.FValidTo,
+      value: form.valid_to,
+      input_type: "date",
+      to_msg: OpFieldChanged,
+    ),
+  ]
+}
+
+/// Render the payroll for a loaded `payroll`, choosing the preview / reconciled /
+/// variance presentation from the run state. `on_run` is dispatched when the
+/// preview's "Run payroll" button is pressed.
+pub fn panel(payroll: Payroll, on_run on_run: msg) -> Element(msg) {
   case payroll.run {
     None -> view_preview(payroll, on_run)
     Some(_) ->
