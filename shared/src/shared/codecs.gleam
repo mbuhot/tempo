@@ -5,7 +5,6 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/option.{type Option}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/codecs/allocation as allocation_codec
@@ -52,6 +51,7 @@ import shared/types.{
   TimesheetCommand, TimesheetWeek, TimesheetWeekRow, Unassigned,
   UnstaffedProject, WriteRequest,
 }
+import shared/wire
 
 // --- Date -------------------------------------------------------------------
 // Carried on the wire as an ISO-8601 "YYYY-MM-DD" string: unambiguous, compact,
@@ -59,19 +59,19 @@ import shared/types.{
 // is the `Month` enum, so encoding maps it to its 1-12 number and decoding parses
 // the number back to a `Month`.
 
-/// Encode a `Date` as an ISO-8601 "YYYY-MM-DD" string (re-exports `codecs/base`).
+/// Encode a `Date` as an ISO-8601 "YYYY-MM-DD" string (re-exports `shared/wire`).
 pub fn encode_date(date: Date) -> Json {
-  base.encode_date(date)
+  wire.encode_date(date)
 }
 
-/// Decode an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `codecs/base`).
+/// Decode an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `shared/wire`).
 pub fn date_decoder() -> Decoder(Date) {
-  base.date_decoder()
+  wire.date_decoder()
 }
 
-/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `codecs/base`).
+/// Parse an ISO-8601 "YYYY-MM-DD" string into a `Date` (re-exports `shared/wire`).
 pub fn parse_iso_date(text: String) -> Result(Date, Nil) {
-  base.parse_iso_date(text)
+  wire.parse_iso_date(text)
 }
 
 // --- Engagement -------------------------------------------------------------
@@ -111,7 +111,7 @@ pub fn encode_engagement(engagement: Engagement) -> Json {
 /// `hours` of `4`). Decoding every Float through this tolerant decoder makes the
 /// contract symmetric regardless of which target encoded the value.
 pub fn lenient_float_decoder() -> Decoder(Float) {
-  base.lenient_float_decoder()
+  wire.lenient_float_decoder()
 }
 
 /// Decode an `Engagement` from its tagged JSON object.
@@ -717,8 +717,8 @@ pub fn encode_invoice(invoice: Invoice) -> Json {
     #("billing_to", encode_date(billing_to)),
     #("status", json.string(status)),
     #("total", json.float(total)),
-    #("issued_at", encode_option_date(issued_at)),
-    #("paid_at", encode_option_date(paid_at)),
+    #("issued_at", wire.encode_option_date(issued_at)),
+    #("paid_at", wire.encode_option_date(paid_at)),
   ])
 }
 
@@ -731,8 +731,8 @@ pub fn invoice_decoder() -> Decoder(Invoice) {
   use billing_to <- decode.field("billing_to", date_decoder())
   use status <- decode.field("status", decode.string)
   use total <- decode.field("total", lenient_float_decoder())
-  use issued_at <- decode.field("issued_at", option_date_decoder())
-  use paid_at <- decode.field("paid_at", option_date_decoder())
+  use issued_at <- decode.field("issued_at", wire.option_date_decoder())
+  use paid_at <- decode.field("paid_at", wire.option_date_decoder())
   decode.success(Invoice(
     id:,
     project:,
@@ -946,21 +946,6 @@ pub fn pnl_decoder() -> Decoder(Pnl) {
     ytd_profit:,
     rows:,
   ))
-}
-
-// --- Option(Date) ------------------------------------------------------------
-// A nullable date on the wire: `null` for `None`, an ISO string for `Some`.
-// `client_detail.since` / `client_list_row.since` use these (a contractless
-// client has no earliest-contract date).
-
-/// Encode an `Option(Date)` as `null` (None) or an ISO-8601 string (Some).
-pub fn encode_option_date(date: Option(Date)) -> Json {
-  json.nullable(date, encode_date)
-}
-
-/// Decode an `Option(Date)` from `null` (None) or an ISO-8601 string (Some).
-pub fn option_date_decoder() -> Decoder(Option(Date)) {
-  decode.optional(date_decoder())
 }
 
 // --- RosterStatus ------------------------------------------------------------
@@ -1315,7 +1300,7 @@ pub fn encode_client_detail(detail: ClientDetail) -> Json {
   let ClientDetail(profile:, since:, contracts:, projects:) = detail
   json.object([
     #("profile", encode_client_profile(profile)),
-    #("since", encode_option_date(since)),
+    #("since", wire.encode_option_date(since)),
     #("contracts", json.array(contracts, encode_contract_row)),
     #("projects", json.array(projects, encode_client_project_row)),
   ])
@@ -1324,7 +1309,7 @@ pub fn encode_client_detail(detail: ClientDetail) -> Json {
 /// Decode a `ClientDetail` from JSON.
 pub fn client_detail_decoder() -> Decoder(ClientDetail) {
   use profile <- decode.field("profile", client_profile_decoder())
-  use since <- decode.field("since", option_date_decoder())
+  use since <- decode.field("since", wire.option_date_decoder())
   use contracts <- decode.field(
     "contracts",
     decode.list(contract_row_decoder()),
@@ -1344,7 +1329,7 @@ pub fn encode_client_list_row(client: ClientListRow) -> Json {
   json.object([
     #("client_id", json.int(client_id)),
     #("name", json.string(name)),
-    #("since", encode_option_date(since)),
+    #("since", wire.encode_option_date(since)),
     #("project_count", json.int(project_count)),
     #("active", json.bool(active)),
   ])
@@ -1354,7 +1339,7 @@ pub fn encode_client_list_row(client: ClientListRow) -> Json {
 pub fn client_list_row_decoder() -> Decoder(ClientListRow) {
   use client_id <- decode.field("client_id", decode.int)
   use name <- decode.field("name", decode.string)
-  use since <- decode.field("since", option_date_decoder())
+  use since <- decode.field("since", wire.option_date_decoder())
   use project_count <- decode.field("project_count", decode.int)
   use active <- decode.field("active", decode.bool)
   decode.success(ClientListRow(

@@ -11,7 +11,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/wire
 import wisp
 
 /// Read a "YYYY-MM-DD" query parameter as a `calendar.Date`. Returns a detail
@@ -67,5 +67,5 @@ pub fn optional_string_from_query(
 /// calendar-impossible days. Delegates to the shared codec so the query-string
 /// boundary and the JSON boundary share one validation.
 pub fn parse_iso(text: String) -> Result(Date, Nil) {
-  codecs.parse_iso_date(text)
+  wire.parse_iso_date(text)
 }
