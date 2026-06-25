@@ -11,7 +11,7 @@
 import gleam/http
 import shared/roster/view as roster_view
 import tempo/server/context.{type Context}
-import tempo/server/roster
+import tempo/server/roster/view as roster
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp

@@ -8,7 +8,7 @@
 import gleam/http
 import shared/settings/view as settings_view
 import tempo/server/context.{type Context}
-import tempo/server/settings
+import tempo/server/settings/view as settings
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp

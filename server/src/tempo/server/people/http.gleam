@@ -8,7 +8,7 @@
 import gleam/http
 import shared/people/view as people_view
 import tempo/server/context.{type Context}
-import tempo/server/people
+import tempo/server/people/view as people
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
