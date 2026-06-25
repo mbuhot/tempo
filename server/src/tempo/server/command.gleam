@@ -26,23 +26,23 @@ import shared/command.{
   LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
   RateCardCommand, SalaryCommand, TimesheetCommand,
 }
-import tempo/server/allocation
+import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
 import tempo/server/client_details
 import tempo/server/context.{type Context}
-import tempo/server/engagement
+import tempo/server/engagement/command as engagement
 import tempo/server/engineer
 import tempo/server/engineer_details
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice
-import tempo/server/leave
+import tempo/server/leave/command as leave
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll
 import tempo/server/project_details
-import tempo/server/project_requirement
-import tempo/server/rate_card
+import tempo/server/project_requirement/command as project_requirement
+import tempo/server/rate_card/command as rate_card
 import tempo/server/repository
-import tempo/server/salary
+import tempo/server/salary/command as salary
 import tempo/server/timesheet
 
 /// Apply a command on an authenticated `principal`'s behalf: the authorization
