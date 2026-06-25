@@ -81,8 +81,8 @@ test("a containment violation is refused with the reason and leaves the board un
 }) => {
   // Aisha (employed only from 2025-01-01) cannot be assigned to a project over a
   // window that begins before her employment — the allocation would dangle outside
-  // its containing employment. The database refuses it and the op form surfaces the
-  // typed reason; the board is unchanged (read-only refusal, re-run safe).
+  // its containing employment. The assign guard refuses it up front with the typed
+  // employment reason; the board is unchanged (read-only refusal, re-run safe).
   await signInAs(page, "Priya Sharma");
   await navigateTo(page, "Board");
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
@@ -96,10 +96,12 @@ test("a containment violation is refused with the reason and leaves the board un
   await page.getByLabel("Valid to").fill("2024-06-01");
   await confirmOp(page, "Assign");
 
-  // The user sees the containment rule that fired — not a crash, not a silent
+  // The user sees the employment rule that fired — not a crash, not a silent
   // success — and the board still shows Aisha on leave at the seed now (her
   // on-leave card runs "til 22 Jun 2026", a marker unique to the on-leave panel).
-  await expect(page.getByText(/outside its containing fact/)).toBeVisible();
+  await expect(
+    page.getByText(/is not employed for the whole allocation period/),
+  ).toBeVisible();
   await expect(page.getByText("til 22 Jun 2026")).toBeVisible();
 });
 
