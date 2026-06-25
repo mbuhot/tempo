@@ -40,7 +40,13 @@ pub fn roster(
   limit: Int,
 ) -> Result(PeopleList, pog.QueryError) {
   let NameIdBound(name:, id:) = after
-  use people <- result.try(sql.people_list(context.db, as_of, name, id, limit + 1))
+  use people <- result.try(sql.people_list(
+    context.db,
+    as_of,
+    name,
+    id,
+    limit + 1,
+  ))
   use balances <- result.map(sql.leave_balances(context.db, as_of))
   let annual_by_engineer =
     balances.rows

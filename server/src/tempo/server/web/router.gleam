@@ -18,9 +18,9 @@ import gleam/erlang/application
 import gleam/option
 import gleam/result
 import simplifile
-import tempo/server/context.{type Context}
 import tempo/server/board/http as board
 import tempo/server/client/http as clients
+import tempo/server/context.{type Context}
 import tempo/server/engineer/http as engineers
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices

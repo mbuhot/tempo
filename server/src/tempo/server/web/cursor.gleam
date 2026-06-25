@@ -118,7 +118,11 @@ pub fn decode_id(token: String) -> Result(IdBound, Nil) {
 
 fn iso_date(date: Date) -> String {
   let calendar.Date(year:, month:, day:) = date
-  pad(year, 4) <> "-" <> pad(calendar.month_to_int(month), 2) <> "-" <> pad(day, 2)
+  pad(year, 4)
+  <> "-"
+  <> pad(calendar.month_to_int(month), 2)
+  <> "-"
+  <> pad(day, 2)
 }
 
 fn pad(value: Int, width: Int) -> String {

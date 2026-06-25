@@ -20,13 +20,13 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/invoice/view.{type Invoice, Invoice} as _
+import shared/pagination
 import shared/project/view.{
   type ProjectDetail, type ProjectList, type ProjectListRow, type ProjectPlan,
   type ProjectProfile, type ProjectRequirement, type TeamMember, ProjectDetail,
   ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
   TeamMember,
 } as _
-import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
@@ -43,7 +43,13 @@ pub fn list(
   limit: Int,
 ) -> Result(ProjectList, pog.QueryError) {
   let NameIdBound(name:, id:) = after
-  use returned <- result.map(sql.project_list(context.db, as_of, name, id, limit + 1))
+  use returned <- result.map(sql.project_list(
+    context.db,
+    as_of,
+    name,
+    id,
+    limit + 1,
+  ))
   let #(rows, next_cursor) =
     pagination.paginate(returned.rows, limit, fn(row: sql.ProjectListRow) {
       cursor.encode_name_id(row.title, row.project_id)

@@ -34,7 +34,13 @@ pub fn list_invoices(
   limit: Int,
 ) -> Result(#(List(Invoice), Option(String)), pog.QueryError) {
   let DateIdBound(date:, id:) = after
-  use returned <- result.map(sql.invoice_list(context.db, as_of, date, id, limit + 1))
+  use returned <- result.map(sql.invoice_list(
+    context.db,
+    as_of,
+    date,
+    id,
+    limit + 1,
+  ))
   let #(rows, next_cursor) =
     pagination.paginate(returned.rows, limit, fn(row: sql.InvoiceListRow) {
       cursor.encode_date_id(row.billing_from, row.id)

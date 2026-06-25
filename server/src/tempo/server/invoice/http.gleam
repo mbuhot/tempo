@@ -34,7 +34,11 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
     use as_of <- result.try(request.date_from_query(req, "as_of"))
     use after <- result.try(invoice_cursor(req))
     use limit <- result.map(request.optional_int_from_query(req, "limit"))
-    #(as_of, after, context.clamp_limit(option.unwrap(limit, context.default_page_limit)))
+    #(
+      as_of,
+      after,
+      context.clamp_limit(option.unwrap(limit, context.default_page_limit)),
+    )
   }
   case parsed {
     Error(detail) -> wisp.bad_request(detail)

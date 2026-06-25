@@ -22,6 +22,7 @@
 //// (total revenue 120000); everyone is 100% utilized (full-month allocation).
 
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June, September}
@@ -34,10 +35,10 @@ import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
 import shared/pnl/view.{type PnlRow, PnlRow} as _
 import tempo/server/command
 import tempo/server/context.{Context}
-import tempo/server/web/cursor
 import tempo/server/invoice/view as invoice_read
 import tempo/server/payroll/view as payroll_read
 import tempo/server/pnl/view as pnl_read
+import tempo/server/web/cursor
 import test_pool
 
 // --- rollback harness -------------------------------------------------------
@@ -183,6 +184,47 @@ pub fn list_invoices_status_is_as_of_the_date_test() {
 
   assert before_issue == "draft"
   assert after_issue == "issued"
+}
+
+// Keyset pagination (#12): with three June invoices drafted, a limit-2 first page
+// returns exactly two rows and a next_cursor; following the cursor returns the
+// remaining one row with no next_cursor and no overlap. The concatenation is the
+// same stable (billing_from, id) order as the unpaged read.
+pub fn list_invoices_pages_by_cursor_test() {
+  let #(first_ids, first_cursor, second_ids, second_cursor, expected_ids) =
+    rolling_back(fn(conn) {
+      let a = draft_and_issue(conn, 100, Date(2026, June, 10))
+      let b = draft_and_issue(conn, 200, Date(2026, June, 10))
+      let c = draft_and_issue(conn, 300, Date(2026, June, 10))
+      let context = Context(db: conn)
+
+      let assert Ok(#(first, first_cursor)) =
+        invoice_read.list_invoices(
+          context,
+          Date(2026, June, 15),
+          cursor.date_id_start(),
+          2,
+        )
+      let assert Some(token) = first_cursor
+      let assert Ok(after) = cursor.decode_date_id(token)
+      let assert Ok(#(second, second_cursor)) =
+        invoice_read.list_invoices(context, Date(2026, June, 15), after, 2)
+
+      #(
+        list.map(first, fn(invoice) { invoice.id }),
+        first_cursor,
+        list.map(second, fn(invoice) { invoice.id }),
+        second_cursor,
+        list.sort([a, b, c], int.compare),
+      )
+    })
+
+  assert list.length(first_ids) == 2
+  assert first_cursor != None
+  assert list.length(second_ids) == 1
+  assert second_cursor == None
+  assert list.any(second_ids, fn(id) { list.contains(first_ids, id) }) == False
+  assert list.append(first_ids, second_ids) == expected_ids
 }
 
 // --- GET /api/invoices/:id (detail) — FR-F1 ---------------------------------
