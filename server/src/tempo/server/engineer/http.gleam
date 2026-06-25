@@ -11,7 +11,7 @@ import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/engineer/view as engineer_view
 import tempo/server/context.{type Context}
-import tempo/server/engineer_detail
+import tempo/server/engineer/view as engineer_detail
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp

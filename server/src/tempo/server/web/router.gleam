@@ -20,6 +20,7 @@ import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
 import tempo/server/board/http as board
+import tempo/server/engineer/http as engineers
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
 import tempo/server/payroll/http as payroll
@@ -28,7 +29,6 @@ import tempo/server/pnl/http as pnl
 import tempo/server/roster/http as roster
 import tempo/server/settings/http as settings
 import tempo/server/web/clients
-import tempo/server/web/engineers
 import tempo/server/web/events
 import tempo/server/web/login
 import tempo/server/web/operations

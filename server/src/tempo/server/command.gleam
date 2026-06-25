@@ -31,8 +31,8 @@ import tempo/server/auth.{type Principal, Forbidden}
 import tempo/server/client_details
 import tempo/server/context.{type Context}
 import tempo/server/engagement/command as engagement
-import tempo/server/engineer
-import tempo/server/engineer_details
+import tempo/server/engineer/command as engineer
+import tempo/server/engineer_details/command as engineer_details
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
