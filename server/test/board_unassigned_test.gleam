@@ -8,7 +8,7 @@
 
 import gleam/time/calendar
 import shared/board/view as board_view
-import tempo/server/board
+import tempo/server/board/view as board
 import tempo/server/sql
 import test_pool
 

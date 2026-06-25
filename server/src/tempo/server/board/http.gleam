@@ -4,7 +4,7 @@
 
 import gleam/http
 import shared/board/view as board_view
-import tempo/server/board
+import tempo/server/board/view as board
 import tempo/server/context.{type Context}
 import tempo/server/web/request
 import tempo/server/web/response

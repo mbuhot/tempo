@@ -19,7 +19,7 @@ import gleam/option
 import gleam/result
 import simplifile
 import tempo/server/context.{type Context}
-import tempo/server/web/board
+import tempo/server/board/http as board
 import tempo/server/web/clients
 import tempo/server/web/engineers
 import tempo/server/web/events
