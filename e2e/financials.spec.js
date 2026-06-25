@@ -94,7 +94,7 @@ async function settledMaxInvoiceId(page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await signInAs(page, "Marcus Chen");
+  await signInAs(page, "Admin");
   await navigateTo(page, "Finance");
   await expect(page.getByRole("heading", { name: "Finance" })).toBeVisible();
   await scrubTo(page, "2026-06-15");
@@ -270,8 +270,9 @@ test("back-dating a promotion into a run month surfaces the back-pay owed", asyn
   // Priya to L7 from the same fixed date is idempotent (FOR PORTION OF re-sets the
   // same level — no overlap, no split). Promote to L7 (not L6) so the recompute
   // rises above paid regardless of whether other specs have already lifted her to
-  // L6. Signed in as Marcus (the beforeEach actor), so Priya's detail heading never
-  // collides with the sidebar's signed-in-user name.
+  // L6. Signed in as Admin (the beforeEach actor — financial commands are
+  // Admin-only), so Priya's detail heading never collides with the sidebar's
+  // signed-in-user name.
   await openPayrollTab(page);
   await scrubTo(page, "2026-09-15");
   await ensurePayrollRun(page, "Sep 2026", "2026-09-01", "2026-09-30");
