@@ -7,6 +7,7 @@
 //// sends to parse. Keeping this parsing here keeps the handlers thin and the
 //// domain free of `wisp.Request` (web passes already-parsed values inward).
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -60,6 +61,25 @@ pub fn optional_string_from_query(
     Error(Nil) -> None
     Ok("") -> None
     Ok(text) -> Some(text)
+  }
+}
+
+/// Read an OPTIONAL integer query parameter (e.g. the page `limit`). An absent or
+/// empty parameter is `Ok(None)`; a present non-integer is `Error(detail)` for a
+/// 400. So only a present-but-malformed value is rejected.
+pub fn optional_int_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Result(Option(Int), String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> Ok(None)
+    Ok("") -> Ok(None)
+    Ok(text) ->
+      int.parse(text)
+      |> result.map(Some)
+      |> result.replace_error(
+        "invalid integer '" <> text <> "' for '" <> name <> "'",
+      )
   }
 }
 

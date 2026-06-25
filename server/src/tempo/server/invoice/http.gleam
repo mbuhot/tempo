@@ -11,30 +11,56 @@
 
 import gleam/http
 import gleam/int
-import gleam/json
+import gleam/option
+import gleam/result
 import gleam/time/calendar.{type Date}
-import shared/invoice/view as invoice_view
+import shared/invoice/view.{InvoicePage} as invoice_view
 import tempo/server/context.{type Context}
 import tempo/server/invoice/view as invoice_read
+import tempo/server/web/cursor.{type DateIdBound}
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
 
-/// Handle GET /api/invoices?as_of=YYYY-MM-DD — the invoices table, each row with
-/// its status as of the date and its line total.
+/// Handle GET /api/invoices?as_of=YYYY-MM-DD&cursor=&limit= — one keyset page of
+/// the invoices table (issue #12), each row with its status as of the date and its
+/// line total, plus the `next_cursor` for the following page. `cursor` is the
+/// opaque token from a prior page's `next_cursor` (absent ⇒ first page); `limit`
+/// defaults to the server default and is clamped to the max. A malformed
+/// `cursor`/`limit` is a 400.
 pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.require_method(req, http.Get)
-  case request.date_from_query(req, "as_of") {
+  let parsed = {
+    use as_of <- result.try(request.date_from_query(req, "as_of"))
+    use after <- result.try(invoice_cursor(req))
+    use limit <- result.map(request.optional_int_from_query(req, "limit"))
+    #(as_of, after, context.clamp_limit(option.unwrap(limit, context.default_page_limit)))
+  }
+  case parsed {
     Error(detail) -> wisp.bad_request(detail)
-    Ok(as_of) ->
-      case invoice_read.list_invoices(ctx, as_of) {
-        Ok(invoices) ->
-          response.json_response(json.array(
-            invoices,
-            invoice_view.encode_invoice,
-          ))
+    Ok(#(as_of, after, limit)) ->
+      case invoice_read.list_invoices(ctx, as_of, after, limit) {
+        Ok(#(invoices, next_cursor)) ->
+          response.json_response(
+            invoice_view.encode_invoice_page(InvoicePage(
+              invoices:,
+              next_cursor:,
+            )),
+          )
         Error(error) -> response.db_error_response(error)
       }
+  }
+}
+
+/// Parse the optional `cursor` query param into the invoice keyset bound: absent ⇒
+/// the first-page sentinel, present-and-valid ⇒ its `(billing_from, id)` bound,
+/// present-but-malformed ⇒ `Error(detail)` for a 400.
+fn invoice_cursor(req: wisp.Request) -> Result(DateIdBound, String) {
+  case request.optional_string_from_query(req, "cursor") {
+    option.None -> Ok(cursor.date_id_start())
+    option.Some(token) ->
+      cursor.decode_date_id(token)
+      |> result.replace_error("invalid cursor '" <> token <> "'")
   }
 }
 

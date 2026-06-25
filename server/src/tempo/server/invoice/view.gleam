@@ -5,6 +5,7 @@
 //// maps; both read each invoice's status AS OF an as-of date.
 
 import gleam/list
+import gleam/option.{type Option}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -12,19 +13,33 @@ import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, Invoice, InvoiceDetail,
   InvoiceLine,
 } as _
+import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/sql
+import tempo/server/web/cursor.{type DateIdBound, DateIdBound}
 
-/// List every invoice with its status AS OF `as_of` and its line total
-/// (FR-F1/FR-F4). Only invoices that have a status covering `as_of` appear —
-/// scrubbing the slider before an invoice's billing month drops it, and within
-/// the month it reads `draft` until its issue date.
+/// List one keyset page of invoices with each row's status AS OF `as_of` and its
+/// line total (FR-F1/FR-F4), starting strictly after `after` and at most `limit`
+/// rows (issue #12). Returns the page rows plus the `next_cursor` for the following
+/// page (`None` on the last page). Only invoices with a status covering `as_of`
+/// appear — scrubbing before an invoice's billing month drops it.
+///
+/// Fetches `limit + 1` rows so the look-ahead row tells `pagination.paginate`
+/// whether a further page exists; the order is the SQL's stable
+/// (billing_from, id).
 pub fn list_invoices(
   context: Context,
   as_of: Date,
-) -> Result(List(Invoice), pog.QueryError) {
-  use returned <- result.map(sql.invoice_list(context.db, as_of))
-  list.map(returned.rows, list_row_to_invoice)
+  after: DateIdBound,
+  limit: Int,
+) -> Result(#(List(Invoice), Option(String)), pog.QueryError) {
+  let DateIdBound(date:, id:) = after
+  use returned <- result.map(sql.invoice_list(context.db, as_of, date, id, limit + 1))
+  let #(rows, next_cursor) =
+    pagination.paginate(returned.rows, limit, fn(row: sql.InvoiceListRow) {
+      cursor.encode_date_id(row.billing_from, row.id)
+    })
+  #(list.map(rows, list_row_to_invoice), next_cursor)
 }
 
 fn list_row_to_invoice(row: sql.InvoiceListRow) -> Invoice {

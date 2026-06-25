@@ -60,6 +60,27 @@ pub fn settings_from_env() -> DbSettings {
 /// `settings_from_env` for the sizing rationale.
 pub const default_pool_size = 20
 
+/// Default page size for the keyset-paginated list endpoints (issue #12) when the
+/// request omits `limit`. Chosen large enough that the seed's whole first page
+/// (~18 invoices, a handful of clients/projects/people, the bounded event log)
+/// fits in one page, so existing reads see no change in what is visible.
+pub const default_page_limit = 50
+
+/// Hard ceiling on a list endpoint's `limit` (issue #12): a request asking for
+/// more than this is clamped down to it, bounding the worst-case scan a single
+/// page can trigger regardless of what the caller passes.
+pub const max_page_limit = 200
+
+/// Clamp a requested page `limit` into `1..max_page_limit`, falling back to
+/// `default_page_limit` for a non-positive request.
+pub fn clamp_limit(requested: Int) -> Int {
+  case requested {
+    n if n <= 0 -> default_page_limit
+    n if n > max_page_limit -> max_page_limit
+    n -> n
+  }
+}
+
 /// Turn settings into a `pog.Config` bound to the given pool name. The pool name
 /// lets the same pool be addressed by `pog.named_connection` from elsewhere.
 pub fn pool_config(

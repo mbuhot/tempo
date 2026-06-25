@@ -23,7 +23,6 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
 import client/ui
-import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -35,7 +34,9 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/command.{type Event}
-import shared/invoice/view.{type Invoice, type InvoiceDetail, type InvoiceLine} as invoice_view
+import shared/invoice/view.{
+  type Invoice, type InvoiceDetail, type InvoiceLine, type InvoicePage,
+} as invoice_view
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
 /// The Invoices tab's state: the as-of its data answers, the load state of the
@@ -52,10 +53,12 @@ pub type Model {
   )
 }
 
-/// The invoice list's load state.
+/// The invoice list's load state. `Loaded` carries the opaque `next_cursor` from
+/// the page response (issue #12) — `Some` when a further keyset page exists — so a
+/// later load-more affordance can request it; the first page renders as before.
 pub type Load {
   Loading
-  Loaded(invoices: List(Invoice))
+  Loaded(invoices: List(Invoice), next_cursor: Option(String))
   LoadFailed(message: String)
 }
 
@@ -65,7 +68,7 @@ pub type Load {
 pub type Msg {
   GotInvoices(
     as_of: calendar.Date,
-    result: Result(List(Invoice), rsvp.Error(String)),
+    result: Result(InvoicePage, rsvp.Error(String)),
   )
   GotDetail(
     as_of: calendar.Date,
@@ -120,7 +123,7 @@ fn fetch_all(as_of: calendar.Date, selected: Option(Int)) -> Effect(Msg) {
 fn fetch_invoices(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/invoices?as_of=" <> time.iso_date(as_of),
-    decode_invoices(),
+    invoice_view.invoice_page_decoder(),
     GotInvoices(as_of, _),
   )
 }
@@ -141,10 +144,6 @@ fn fetch_detail(as_of: calendar.Date, id: Int) -> Effect(Msg) {
   )
 }
 
-fn decode_invoices() -> decode.Decoder(List(Invoice)) {
-  decode.list(invoice_view.invoice_decoder())
-}
-
 // --- Update -----------------------------------------------------------------
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
@@ -154,7 +153,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         False -> #(model, effect.none(), [])
         True -> {
           let invoices = case result {
-            Ok(invoices) -> Loaded(invoices:)
+            Ok(page) ->
+              Loaded(invoices: page.invoices, next_cursor: page.next_cursor)
             Error(error) -> LoadFailed(message: api.describe_error(error))
           }
           #(Model(..model, invoices:), effect.none(), [])
@@ -296,7 +296,7 @@ pub fn view(model: Model) -> Element(Msg) {
   let body = case model.invoices {
     Loading -> ui.empty_state(message: "Loading invoices…")
     LoadFailed(message:) -> ui.empty_state(message: message)
-    Loaded(invoices:) ->
+    Loaded(invoices:, ..) ->
       case model.detail, model.selected {
         Some(detail_data), Some(_) -> detail(detail_data, invoice_actions())
         _, Some(_) -> ui.empty_state(message: "Loading invoice…")

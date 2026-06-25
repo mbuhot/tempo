@@ -2794,12 +2794,24 @@ pub type InvoiceListRow {
 /// Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
 /// no billable lines totals 0 rather than vanishing.
 ///
+/// Keyset pagination (#12). Stable total order is (lower(billing_period), id) —
+/// the existing display order plus the unique id tiebreaker. The cursor names the
+/// last row already returned: $2 = its billing_from, $3 = its id; a row is on the
+/// NEXT page when (billing_from, id) sorts strictly after (row > cursor). The first
+/// page passes the sentinel ('0001-01-01', 0), which precedes every real row so
+/// nothing is skipped. $4 = limit; the caller fetches limit+1 to detect a further
+/// page. lower(billing_period) is bound to a real `b` first so the keyset compares
+/// the same expression the ORDER BY sorts on.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn invoice_list(
   db: pog.Connection,
   arg_1: Date,
+  arg_2: Date,
+  arg_3: Int,
+  arg_4: Int,
 ) -> Result(pog.Returned(InvoiceListRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.int)
@@ -2854,6 +2866,16 @@ pub fn invoice_list(
 --
 -- Total. coalesce(Σ amount, 0) over the snapshot lines — an invoice drafted with
 -- no billable lines totals 0 rather than vanishing.
+--
+-- Keyset pagination (#12). Stable total order is (lower(billing_period), id) —
+-- the existing display order plus the unique id tiebreaker. The cursor names the
+-- last row already returned: $2 = its billing_from, $3 = its id; a row is on the
+-- NEXT page when (billing_from, id) sorts strictly after (row > cursor). The first
+-- page passes the sentinel ('0001-01-01', 0), which precedes every real row so
+-- nothing is skipped. $4 = limit; the caller fetches limit+1 to detect a further
+-- page. lower(billing_period) is bound to a real `b` first so the keyset compares
+-- the same expression the ORDER BY sorts on.
+SELECT * FROM (
 SELECT
   invoice.id,
   coalesce((
@@ -2897,10 +2919,16 @@ FROM invoice
 JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
 JOIN invoice_status ON invoice_status.invoice_id = invoice.id
                    AND invoice_status.status_during @> $1::date
-ORDER BY lower(invoice_subject.billing_period), invoice.id;
+) page
+WHERE (page.billing_from, page.id) > ($2::date, $3::int)
+ORDER BY page.billing_from, page.id
+LIMIT $4::int;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(arg_4))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

@@ -34,6 +34,7 @@ import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
 import shared/pnl/view.{type PnlRow, PnlRow} as _
 import tempo/server/command
 import tempo/server/context.{Context}
+import tempo/server/web/cursor
 import tempo/server/invoice/view as invoice_read
 import tempo/server/payroll/view as payroll_read
 import tempo/server/pnl/view as pnl_read
@@ -123,8 +124,13 @@ pub fn list_invoices_shows_status_and_total_test() {
       let _ = draft_and_issue(conn, 100, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
-      let assert Ok(invoices) =
-        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 15))
+      let assert Ok(#(invoices, _)) =
+        invoice_read.list_invoices(
+          Context(db: conn),
+          Date(2026, June, 15),
+          cursor.date_id_start(),
+          200,
+        )
       invoices
     })
 
@@ -155,10 +161,20 @@ pub fn list_invoices_status_is_as_of_the_date_test() {
   let #(before_issue, after_issue) =
     rolling_back(fn(conn) {
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
-      let assert Ok(before) =
-        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 5))
-      let assert Ok(after) =
-        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 15))
+      let assert Ok(#(before, _)) =
+        invoice_read.list_invoices(
+          Context(db: conn),
+          Date(2026, June, 5),
+          cursor.date_id_start(),
+          200,
+        )
+      let assert Ok(#(after, _)) =
+        invoice_read.list_invoices(
+          Context(db: conn),
+          Date(2026, June, 15),
+          cursor.date_id_start(),
+          200,
+        )
       #(
         invoice_for(before, "Data Platform").status,
         invoice_for(after, "Data Platform").status,

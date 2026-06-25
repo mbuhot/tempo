@@ -21,6 +21,7 @@ import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as b
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
 import shared/engineer/command as engineer_command
+import shared/invoice/view.{type InvoicePage} as invoice_view
 import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
@@ -713,6 +714,72 @@ pub fn engineer_detail_bad_id_is_bad_request_test() {
   assert response.status == 400
 }
 
+// --- GET /api/invoices (keyset pagination, #12) -----------------------------
+
+// The default page (no cursor, no limit) carries the whole seed ledger — the
+// 18 demo invoices fit under the default page size, so nothing paginates away and
+// next_cursor is absent. This is the e2e-preserving property: the first page still
+// shows every invoice the existing specs assert on.
+pub fn invoices_default_page_returns_whole_seed_test() {
+  let response =
+    simulate.request(http.Get, "/api/invoices?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+
+  let page = decode_invoice_page(response)
+  assert list.length(page.invoices) == 18
+  assert page.next_cursor == option.None
+}
+
+// A small limit pages the ledger: the first page holds exactly `limit` rows and
+// hands back a cursor; following it returns the NEXT rows with no overlap, and the
+// concatenation is the same stable (billing_from, id) order as the unpaged read.
+pub fn invoices_cursor_pages_without_overlap_test() {
+  let first =
+    simulate.request(http.Get, "/api/invoices?as_of=2026-06-15&limit=5")
+    |> router.handle_request(ctx())
+    |> decode_invoice_page
+
+  assert list.length(first.invoices) == 5
+  let assert option.Some(cursor) = first.next_cursor
+
+  let second =
+    simulate.request(
+      http.Get,
+      "/api/invoices?as_of=2026-06-15&limit=5&cursor=" <> cursor,
+    )
+    |> router.handle_request(ctx())
+    |> decode_invoice_page
+
+  assert list.length(second.invoices) == 5
+
+  let first_ids = list.map(first.invoices, fn(invoice) { invoice.id })
+  let second_ids = list.map(second.invoices, fn(invoice) { invoice.id })
+  assert list.any(second_ids, fn(id) { list.contains(first_ids, id) }) == False
+
+  let unpaged =
+    simulate.request(http.Get, "/api/invoices?as_of=2026-06-15")
+    |> router.handle_request(ctx())
+    |> decode_invoice_page
+  let expected_first_ten =
+    list.take(list.map(unpaged.invoices, fn(invoice) { invoice.id }), 10)
+  assert list.append(first_ids, second_ids) == expected_first_ten
+}
+
+// A present-but-undecodable cursor is a 400 (a forged or corrupted token), not a
+// 500 or a silent first-page.
+pub fn invoices_malformed_cursor_is_bad_request_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/invoices?as_of=2026-06-15&cursor=not-a-real-cursor",
+    )
+    |> router.handle_request(ctx())
+
+  assert response.status == 400
+}
+
 // --- GET /api/clients -------------------------------------------------------
 
 // The clients list as of "now" carries both seed clients with their active flag.
@@ -899,6 +966,13 @@ fn decode_engineer_detail(response) -> EngineerDetail {
     simulate.read_body(response)
     |> json.parse(engineer_view.engineer_detail_decoder())
   detail
+}
+
+fn decode_invoice_page(response) -> InvoicePage {
+  let assert Ok(page) =
+    simulate.read_body(response)
+    |> json.parse(invoice_view.invoice_page_decoder())
+  page
 }
 
 fn decode_client_list(response) -> ClientList {

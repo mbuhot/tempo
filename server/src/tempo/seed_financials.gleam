@@ -66,6 +66,7 @@ import tempo/server/event
 import tempo/server/invoice/view as invoice_read
 import tempo/server/payroll/view as payroll_read
 import tempo/server/sql
+import tempo/server/web/cursor
 
 /// The principal every demo command is dispatched as: actor "seed" (stamped on
 /// every `event_log` row), with the `Admin` role so the financial demo commands
@@ -508,9 +509,17 @@ fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
   }
 }
 
-/// List the invoices as of `as_of`, asserting the read succeeds.
+/// List the invoices as of `as_of`, asserting the read succeeds. The seed needs
+/// the whole ledger to resolve a project's invoice, so it reads the first keyset
+/// page at the max page size (the seed has far fewer invoices than that).
 fn list_invoices(ctx: Context, as_of: Date) -> List(Invoice) {
-  let assert Ok(invoices) = invoice_read.list_invoices(ctx, as_of)
+  let assert Ok(#(invoices, _next_cursor)) =
+    invoice_read.list_invoices(
+      ctx,
+      as_of,
+      cursor.date_id_start(),
+      context.max_page_limit,
+    )
   invoices
 }
 

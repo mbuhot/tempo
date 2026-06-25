@@ -8,6 +8,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/pagination
 import shared/wire
 
 /// One invoice on the invoices-table read model (FR-F1/FR-F4): the durable subject
@@ -48,6 +49,13 @@ pub type InvoiceLine {
 /// and its computed `lines`.
 pub type InvoiceDetail {
   InvoiceDetail(invoice: Invoice, lines: List(InvoiceLine))
+}
+
+/// One keyset page of the invoices list (`GET /api/invoices`): the page's
+/// `invoices` (item shape unchanged) plus the opaque `next_cursor` to fetch the
+/// following page (`None` on the last page). Issue #12.
+pub type InvoicePage {
+  InvoicePage(invoices: List(Invoice), next_cursor: Option(String))
 }
 
 /// Encode an `Invoice` (one invoices-table row) as a JSON object.
@@ -120,6 +128,22 @@ pub fn invoice_line_decoder() -> Decoder(InvoiceLine) {
   use days <- decode.field("days", wire.lenient_float_decoder())
   use amount <- decode.field("amount", wire.lenient_float_decoder())
   decode.success(InvoiceLine(engineer:, level:, day_rate:, days:, amount:))
+}
+
+/// Encode an `InvoicePage` (one keyset page of the invoices list) to JSON.
+pub fn encode_invoice_page(page: InvoicePage) -> Json {
+  let InvoicePage(invoices:, next_cursor:) = page
+  json.object([
+    #("invoices", json.array(invoices, encode_invoice)),
+    #("next_cursor", pagination.encode_next_cursor(next_cursor)),
+  ])
+}
+
+/// Decode an `InvoicePage` from JSON.
+pub fn invoice_page_decoder() -> Decoder(InvoicePage) {
+  use invoices <- decode.field("invoices", decode.list(invoice_decoder()))
+  use next_cursor <- decode.field("next_cursor", pagination.next_cursor_decoder())
+  decode.success(InvoicePage(invoices:, next_cursor:))
 }
 
 /// Encode an `InvoiceDetail` (the header plus its computed lines) to JSON.
