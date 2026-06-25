@@ -30,10 +30,10 @@ import tempo/server/pnl/http as pnl
 import tempo/server/project/http as projects
 import tempo/server/roster/http as roster
 import tempo/server/settings/http as settings
+import tempo/server/timesheet/http as timesheet
 import tempo/server/web/events
 import tempo/server/web/login
 import tempo/server/web/operations
-import tempo/server/web/timesheet
 import wisp
 
 /// Top-level request handler: wrap every request in the standard Wisp

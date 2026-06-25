@@ -43,7 +43,7 @@ import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
 import tempo/server/repository
 import tempo/server/salary/command as salary
-import tempo/server/timesheet
+import tempo/server/timesheet/command as timesheet
 
 /// Apply a command on an authenticated `principal`'s behalf: the authorization
 /// gate runs FIRST — keyed on principal + command, ONE place covering all 24

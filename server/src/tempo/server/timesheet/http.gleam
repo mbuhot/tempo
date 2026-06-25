@@ -14,7 +14,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/timesheet/view as timesheet_view
 import tempo/server/context.{type Context}
-import tempo/server/timesheet
+import tempo/server/timesheet/command as timesheet
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
