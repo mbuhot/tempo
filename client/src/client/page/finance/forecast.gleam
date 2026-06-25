@@ -16,7 +16,7 @@ import gleam/list
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import shared/types.{type Forecast, type ForecastMonth}
+import shared/forecast/view.{type Forecast, type ForecastMonth}
 
 /// Render the Forecast tab for a loaded `forecast`: a month-by-month table to the
 /// demand cliff with a summing total row, or an empty-state when no month carries

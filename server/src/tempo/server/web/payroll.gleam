@@ -9,7 +9,7 @@
 import gleam/http
 import gleam/result
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/payroll/view as payroll_view
 import tempo/server/context.{type Context}
 import tempo/server/finance_query
 import tempo/server/web/request
@@ -24,7 +24,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(#(from, to)) ->
       case finance_query.payroll(ctx, from, to) {
-        Ok(run) -> response.json_response(codecs.encode_payroll(run))
+        Ok(run) -> response.json_response(payroll_view.encode_payroll(run))
         Error(error) -> response.db_error_response(error)
       }
   }

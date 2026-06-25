@@ -18,7 +18,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
+import shared/people/view.{
   type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
   RosterOnLeave, RosterOnProjects, RosterUnassigned,
 }

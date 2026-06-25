@@ -19,7 +19,7 @@ import gleam/order
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
+import shared/client/view.{
   type ClientDetail, type ClientList, type ClientListRow, type ClientProfile,
   type ClientProjectRow, type ContractRow, ClientDetail, ClientList,
   ClientListRow, ClientProfile, ClientProjectRow, ContractRow,

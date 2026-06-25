@@ -20,7 +20,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/types.{type Invoice, type InvoiceDetail, type InvoiceLine}
+import shared/invoice/view.{type Invoice, type InvoiceDetail, type InvoiceLine}
 
 /// The callbacks the Invoices tab raises, kept as one record so the page wires the
 /// tab once: draft a new invoice, issue / pay / open a given invoice by id, and

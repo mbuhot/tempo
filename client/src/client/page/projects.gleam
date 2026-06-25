@@ -42,12 +42,13 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
 import shared/command.{type Event}
-import shared/types.{
-  type Invoice, type ProjectDetail, type ProjectList, type ProjectListRow,
-  type ProjectRequirement, type Ref, type Roster, type TeamMember,
-}
+import shared/invoice/view.{type Invoice} as _
+import shared/project/view.{
+  type ProjectDetail, type ProjectList, type ProjectListRow,
+  type ProjectRequirement, type TeamMember,
+} as project_view
+import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -175,7 +176,7 @@ pub fn refetch(
 fn fetch_list(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/projects?as_of=" <> iso_date(as_of),
-    codecs.project_list_decoder(),
+    project_view.project_list_decoder(),
     fn(result) { ListFetched(result:, as_of:) },
   )
 }
@@ -186,7 +187,7 @@ fn fetch_detail(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
       <> int.to_string(project_id)
       <> "?as_of="
       <> iso_date(as_of),
-    codecs.project_detail_decoder(),
+    project_view.project_detail_decoder(),
     fn(result) { DetailFetched(project_id:, result:, as_of:) },
   )
 }
@@ -194,7 +195,7 @@ fn fetch_detail(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> iso_date(as_of),
-    codecs.roster_decoder(),
+    roster_view.roster_decoder(),
     fn(result) { RosterFetched(result:, as_of:) },
   )
 }

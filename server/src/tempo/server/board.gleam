@@ -15,11 +15,11 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
-  type BoardRow, type BoardSnapshot, type LeaveBalance, type UnstaffedProject,
-  BoardRow, BoardSnapshot, LeaveBalance, OnLeave, OnProject, Unassigned,
-  UnstaffedProject,
-}
+import shared/board/view.{
+  type BoardRow, type BoardSnapshot, type UnstaffedProject, BoardRow,
+  BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
+} as _
+import shared/leave/view.{type LeaveBalance, LeaveBalance} as _
 import tempo/server/context.{type Context}
 import tempo/server/sql
 

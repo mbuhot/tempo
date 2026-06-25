@@ -7,7 +7,7 @@
 //// mid-2024). This pins both the query and the fully-assembled snapshot.
 
 import gleam/time/calendar
-import shared/types
+import shared/board/view as board_view
 import tempo/server/board
 import tempo/server/sql
 import test_pool
@@ -36,11 +36,11 @@ pub fn snapshot_includes_unassigned_test() {
     board.snapshot(test_pool.ctx(), calendar.Date(2024, calendar.June, 1))
 
   let assert [marcus, priya] = snapshot.rows
-  assert marcus == types.BoardRow("Marcus Chen", 4, types.Unassigned)
-  let assert types.BoardRow(
+  assert marcus == board_view.BoardRow("Marcus Chen", 4, board_view.Unassigned)
+  let assert board_view.BoardRow(
     engineer: "Priya Sharma",
     level: 5,
-    engagement: types.OnProject(
+    engagement: board_view.OnProject(
       project: "Ledger Migration",
       client: "Northwind Trading",
       fraction: 0.5,

@@ -19,12 +19,13 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
-  type Invoice, type ProjectDetail, type ProjectList, type ProjectListRow,
-  type ProjectPlan, type ProjectProfile, type ProjectRequirement,
-  type TeamMember, Invoice, ProjectDetail, ProjectList, ProjectListRow,
-  ProjectPlan, ProjectProfile, ProjectRequirement, TeamMember,
-}
+import shared/invoice/view.{type Invoice, Invoice} as _
+import shared/project/view.{
+  type ProjectDetail, type ProjectList, type ProjectListRow, type ProjectPlan,
+  type ProjectProfile, type ProjectRequirement, type TeamMember, ProjectDetail,
+  ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
+  TeamMember,
+} as _
 import tempo/server/context.{type Context}
 import tempo/server/sql
 

@@ -42,12 +42,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
-import shared/command as gateway
-import shared/types.{
+import shared/client/view.{
   type ClientDetail, type ClientList, type ClientListRow, type ClientProjectRow,
-  type ContractRow, type Ref, type Roster,
-}
+  type ContractRow,
+} as client_view
+import shared/command as gateway
+import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -316,7 +316,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 fn fetch_list(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/clients?as_of=" <> time.iso_date(as_of),
-    codecs.client_list_decoder(),
+    client_view.client_list_decoder(),
     fn(result) { ListFetched(as_of:, result:) },
   )
 }
@@ -329,7 +329,7 @@ fn fetch_detail(as_of: calendar.Date, client_id: Int) -> Effect(Msg) {
       <> int.to_string(client_id)
       <> "?as_of="
       <> time.iso_date(as_of),
-    codecs.client_detail_decoder(),
+    client_view.client_detail_decoder(),
     fn(result) { DetailFetched(as_of:, client_id:, result:) },
   )
 }
@@ -339,7 +339,7 @@ fn fetch_detail(as_of: calendar.Date, client_id: Int) -> Effect(Msg) {
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> time.iso_date(as_of),
-    codecs.roster_decoder(),
+    roster_view.roster_decoder(),
     fn(result) { RosterFetched(as_of:, result:) },
   )
 }
@@ -414,8 +414,8 @@ fn detail_client_id(detail: Detail) -> Option(Int) {
   case detail {
     NoDetail -> None
     DetailLoading(client_id:) -> Some(client_id)
-    DetailLoaded(detail: types.ClientDetail(
-      profile: types.ClientProfile(client_id:, ..),
+    DetailLoaded(detail: client_view.ClientDetail(
+      profile: client_view.ClientProfile(client_id:, ..),
       ..,
     )) -> Some(client_id)
     DetailFailed(client_id:, ..) -> Some(client_id)
@@ -491,8 +491,13 @@ fn view_list(
 /// One roster row: a square client avatar + name, the since date, project count,
 /// and an active/ended pill. Clicking it opens the client detail.
 fn view_list_row(client: ClientListRow) -> Element(Msg) {
-  let types.ClientListRow(client_id:, name:, since:, project_count:, active:) =
-    client
+  let client_view.ClientListRow(
+    client_id:,
+    name:,
+    since:,
+    project_count:,
+    active:,
+  ) = client
   html.tr(
     [attribute.class("clickable"), event.on_click(OpenClient(client_id:))],
     [
@@ -541,8 +546,8 @@ fn view_detail_loaded(
   roster: Option(Result(Roster, String)),
   op: Option(ui.OpState),
 ) -> Element(Msg) {
-  let types.ClientDetail(profile:, since:, contracts:, projects:) = detail
-  let types.ClientProfile(name:, ..) = profile
+  let client_view.ClientDetail(profile:, since:, contracts:, projects:) = detail
+  let client_view.ClientProfile(name:, ..) = profile
   html.div([], [
     back_link(),
     ui.page_head(
@@ -588,7 +593,7 @@ fn view_projects_panel(projects: List(ClientProjectRow)) -> Element(Msg) {
 }
 
 fn view_project_row(project: ClientProjectRow) -> Element(Msg) {
-  let types.ClientProjectRow(
+  let client_view.ClientProjectRow(
     project_id:,
     title:,
     budget:,
@@ -647,7 +652,7 @@ fn view_contracts(contracts: List(ContractRow)) -> Element(Msg) {
 }
 
 fn view_contract_row(contract: ContractRow) -> Element(Msg) {
-  let types.ContractRow(contract_id:, valid_from:, valid_to:, active:) =
+  let client_view.ContractRow(contract_id:, valid_from:, valid_to:, active:) =
     contract
   html.tr([], [
     html.td([attribute.class("mono")], [
@@ -787,8 +792,8 @@ fn prefill_op_form(
   case kind {
     ui.OpUpdateClientProfile ->
       case detail {
-        DetailLoaded(detail: types.ClientDetail(
-          profile: types.ClientProfile(client_id:, name:),
+        DetailLoaded(detail: client_view.ClientDetail(
+          profile: client_view.ClientProfile(client_id:, name:),
           ..,
         )) -> {
           let form =

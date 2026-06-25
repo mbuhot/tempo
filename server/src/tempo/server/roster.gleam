@@ -12,7 +12,7 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{type Ref, type Roster, Ref, Roster}
+import shared/roster/view.{type Ref, type Roster, Ref, Roster}
 import tempo/server/context.{type Context}
 import tempo/server/sql
 

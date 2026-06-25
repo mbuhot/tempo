@@ -19,7 +19,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/types.{
+import shared/timesheet/view.{
   type TimesheetCell, type TimesheetWeek, type TimesheetWeekRow, TimesheetCell,
   TimesheetWeekRow,
 }

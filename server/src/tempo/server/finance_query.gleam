@@ -18,12 +18,18 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date, Date, January}
 import pog
-import shared/types.{
-  type Forecast, type ForecastMonth, type Invoice, type InvoiceDetail,
-  type Payroll, type PayrollLine, type PayrollRunInfo, type Pnl, type PnlRow,
-  Forecast, ForecastMonth, Invoice, InvoiceDetail, Payroll, PayrollLine,
-  PayrollRunInfo, Pnl, PnlRow,
-}
+import shared/forecast/view.{
+  type Forecast, type ForecastMonth, Forecast, ForecastMonth,
+} as _
+import shared/invoice/view.{
+  type Invoice, type InvoiceDetail, type InvoiceLine, Invoice, InvoiceDetail,
+  InvoiceLine,
+} as _
+import shared/payroll/view.{
+  type Payroll, type PayrollLine, type PayrollRunInfo, Payroll, PayrollLine,
+  PayrollRunInfo,
+} as _
+import shared/pnl/view.{type Pnl, type PnlRow, Pnl, PnlRow} as _
 import tempo/server/context.{type Context}
 import tempo/server/sql
 
@@ -90,8 +96,8 @@ fn header_row_to_invoice(row: sql.InvoiceHeaderRow) -> Invoice {
   )
 }
 
-fn lines_row_to_invoice_line(row: sql.InvoiceLinesRow) -> types.InvoiceLine {
-  types.InvoiceLine(
+fn lines_row_to_invoice_line(row: sql.InvoiceLinesRow) -> InvoiceLine {
+  InvoiceLine(
     engineer: row.engineer,
     level: row.level,
     day_rate: row.day_rate,

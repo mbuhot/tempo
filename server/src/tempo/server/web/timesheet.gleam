@@ -12,7 +12,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/timesheet/view as timesheet_view
 import tempo/server/context.{type Context}
 import tempo/server/timesheet
 import tempo/server/web/request
@@ -54,7 +54,8 @@ fn read_form_response(
   week_start: Date,
 ) -> wisp.Response {
   case timesheet.form_week(ctx, engineer_id, week_start) {
-    Ok(week) -> response.json_response(codecs.encode_timesheet_week(week))
+    Ok(week) ->
+      response.json_response(timesheet_view.encode_timesheet_week(week))
     Error(error) -> response.db_error_response(error)
   }
 }

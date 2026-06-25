@@ -9,7 +9,7 @@
 //// a 400; a database failure is a 500.
 
 import gleam/http
-import shared/codecs
+import shared/roster/view as roster_view
 import tempo/server/context.{type Context}
 import tempo/server/roster
 import tempo/server/web/request
@@ -24,7 +24,8 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
       case roster.roster(ctx, as_of) {
-        Ok(directory) -> response.json_response(codecs.encode_roster(directory))
+        Ok(directory) ->
+          response.json_response(roster_view.encode_roster(directory))
         Error(error) -> response.db_error_response(error)
       }
   }

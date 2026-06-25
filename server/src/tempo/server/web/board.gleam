@@ -3,7 +3,7 @@
 //// the domain `board` module, which already speaks shared types.
 
 import gleam/http
-import shared/codecs
+import shared/board/view as board_view
 import tempo/server/board
 import tempo/server/context.{type Context}
 import tempo/server/web/request
@@ -21,7 +21,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(date) ->
       case board.snapshot(ctx, date) {
         Ok(snapshot) ->
-          response.json_response(codecs.encode_board_snapshot(snapshot))
+          response.json_response(board_view.encode_board_snapshot(snapshot))
         Error(error) -> response.db_error_response(error)
       }
   }

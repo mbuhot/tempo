@@ -12,7 +12,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/types.{
+import shared/people/view.{
   type PersonRow, type RosterStatus, PersonRow, RosterOnLeave, RosterOnProjects,
   RosterUnassigned,
 }

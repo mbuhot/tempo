@@ -56,9 +56,9 @@ import gleam/time/timestamp
 import shared/command.{type Command} as gateway
 import shared/engineer/command as engineer_command
 import shared/invoice/command as invoice_command
+import shared/invoice/view.{type Invoice}
 import shared/payroll/command as payroll_command
 import shared/timesheet/command as timesheet_command
-import shared/types.{type Invoice}
 import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}

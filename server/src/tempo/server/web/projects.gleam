@@ -11,7 +11,7 @@
 import gleam/http
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/project/view as project_view
 import tempo/server/context.{type Context}
 import tempo/server/project_detail
 import tempo/server/web/request
@@ -26,7 +26,8 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
       case project_detail.list(ctx, as_of) {
-        Ok(list) -> response.json_response(codecs.encode_project_list(list))
+        Ok(list) ->
+          response.json_response(project_view.encode_project_list(list))
         Error(error) -> response.db_error_response(error)
       }
   }
@@ -58,7 +59,7 @@ fn detail_response(
 ) -> wisp.Response {
   case project_detail.detail(ctx, project_id, as_of) {
     Ok(Ok(detail)) ->
-      response.json_response(codecs.encode_project_detail(detail))
+      response.json_response(project_view.encode_project_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
     Error(error) -> response.db_error_response(error)
   }

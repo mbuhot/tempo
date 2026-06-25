@@ -16,7 +16,7 @@ import gleam/time/calendar
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import shared/types.{type Pnl, type PnlRow}
+import shared/pnl/view.{type Pnl, type PnlRow}
 
 /// Render the P&L tab for a loaded `pnl` as of `as_of`: two stat trios (this month
 /// and year-to-date) and the per-engineer table. Generic over `msg` since the tab

@@ -1,7 +1,7 @@
 //// Wire primitives shared by the per-concept command codecs (`shared/<concept>/command`)
-//// and the read-model codecs in `shared/codecs`: ISO-8601 date encode/parse, the
-//// lenient float decoder, and the nullable-date pair. No domain knowledge, so it
-//// sits BELOW every codec in the import graph and never forms a cycle.
+//// and the per-concept read-model codecs (`shared/<concept>/view`): ISO-8601 date
+//// encode/parse, the lenient float decoder, and the nullable-date pair. No domain
+//// knowledge, so it sits BELOW every codec in the import graph and never forms a cycle.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int

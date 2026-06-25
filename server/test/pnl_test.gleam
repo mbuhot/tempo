@@ -28,11 +28,10 @@ import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
 import shared/command as gateway
 import shared/invoice/command as invoice_command
+import shared/invoice/view.{type Invoice, Invoice, InvoiceDetail, InvoiceLine} as _
 import shared/payroll/command as payroll_command
-import shared/types.{
-  type Invoice, type PnlRow, Invoice, InvoiceDetail, InvoiceLine, Payroll,
-  PayrollLine, PayrollRunInfo, PnlRow,
-}
+import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
+import shared/pnl/view.{type PnlRow, PnlRow} as _
 import tempo/server/command
 import tempo/server/context.{Context}
 import tempo/server/finance_query

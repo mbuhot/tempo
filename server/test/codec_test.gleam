@@ -1,7 +1,8 @@
 //// Layer-4 codec round-trip tests (ARCHITECTURE.md §10.4): `encode |> decode`
 //// is identity for every shared API type. Pure Gleam, no DB, runs unchanged on
-//// both targets (Erlang + JS) — the same property that lets `shared/codecs`
-//// carry the contract across the JSON-over-HTTP boundary (ADR-005).
+//// both targets (Erlang + JS) — the same property that lets the per-concept
+//// `shared/<concept>/view` codecs carry the contract across the JSON-over-HTTP
+//// boundary (ADR-005).
 ////
 //// Each test serialises a value to a JSON string, parses it back through the
 //// matching decoder, and asserts exact equality. Values are explicit and
@@ -16,26 +17,31 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{August, Date, January, July, June, May, September}
 import shared/allocation/command as allocation_command
+import shared/board/view.{
+  BoardRow, BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
+} as board_view
+import shared/client/view.{ClientProfile} as client_view
 import shared/client_details/command as client_details_command
-import shared/codecs
 import shared/command as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
+import shared/engineer/view.{EngineerBanking, EngineerContact, EngineerEmergency} as engineer_view
 import shared/engineer_details/command as engineer_details_command
+import shared/forecast/view.{Forecast, ForecastMonth} as forecast_view
 import shared/invoice/command as invoice_command
+import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
 import shared/leave/command as leave_command
+import shared/leave/view.{LeaveBalance} as _
 import shared/payroll/command as payroll_command
+import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as payroll_view
+import shared/pnl/view.{Pnl, PnlRow} as pnl_view
+import shared/project/view.{ProjectRequirement} as project_view
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
+import shared/roster/view.{Ref, Roster} as roster_view
 import shared/salary/command as salary_command
 import shared/timesheet/command as timesheet_command
-import shared/types.{
-  BoardRow, BoardSnapshot, ClientProfile, EngineerBanking, EngineerContact,
-  EngineerEmergency, Forecast, ForecastMonth, Invoice, InvoiceDetail,
-  InvoiceLine, LeaveBalance, OnLeave, OnProject, Payroll, PayrollLine,
-  PayrollRunInfo, Pnl, PnlRow, ProjectRequirement, Ref, Roster, TimesheetCell,
-  TimesheetWeek, TimesheetWeekRow, Unassigned, UnstaffedProject,
-}
+import shared/timesheet/view.{TimesheetCell, TimesheetWeek, TimesheetWeekRow} as timesheet_view
 import shared/wire
 
 /// Encode `value`, serialise to a JSON string, then parse it back through
@@ -101,8 +107,8 @@ pub fn engagement_on_project_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engagement,
-      codecs.engagement_decoder(),
+      board_view.encode_engagement,
+      board_view.engagement_decoder(),
     )
     == original
 }
@@ -119,8 +125,8 @@ pub fn engagement_on_leave_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engagement,
-      codecs.engagement_decoder(),
+      board_view.encode_engagement,
+      board_view.engagement_decoder(),
     )
     == original
 }
@@ -131,8 +137,8 @@ pub fn engagement_unassigned_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engagement,
-      codecs.engagement_decoder(),
+      board_view.encode_engagement,
+      board_view.engagement_decoder(),
     )
     == original
 }
@@ -156,8 +162,8 @@ pub fn board_row_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_board_row,
-      codecs.board_row_decoder(),
+      board_view.encode_board_row,
+      board_view.board_row_decoder(),
     )
     == original
 }
@@ -178,8 +184,8 @@ pub fn board_row_on_leave_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_board_row,
-      codecs.board_row_decoder(),
+      board_view.encode_board_row,
+      board_view.board_row_decoder(),
     )
     == original
 }
@@ -230,8 +236,8 @@ pub fn board_snapshot_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_board_snapshot,
-      codecs.board_snapshot_decoder(),
+      board_view.encode_board_snapshot,
+      board_view.board_snapshot_decoder(),
     )
     == original
 }
@@ -248,8 +254,8 @@ pub fn board_snapshot_empty_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_board_snapshot,
-      codecs.board_snapshot_decoder(),
+      board_view.encode_board_snapshot,
+      board_view.board_snapshot_decoder(),
     )
     == original
 }
@@ -264,8 +270,8 @@ pub fn timesheet_cell_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_cell,
-      codecs.timesheet_cell_decoder(),
+      timesheet_view.encode_timesheet_cell,
+      timesheet_view.timesheet_cell_decoder(),
     )
     == original
 }
@@ -278,8 +284,8 @@ pub fn timesheet_cell_disabled_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_cell,
-      codecs.timesheet_cell_decoder(),
+      timesheet_view.encode_timesheet_cell,
+      timesheet_view.timesheet_cell_decoder(),
     )
     == original
 }
@@ -297,8 +303,8 @@ pub fn timesheet_week_row_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_week_row,
-      codecs.timesheet_week_row_decoder(),
+      timesheet_view.encode_timesheet_week_row,
+      timesheet_view.timesheet_week_row_decoder(),
     )
     == original
 }
@@ -327,8 +333,8 @@ pub fn timesheet_week_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_week,
-      codecs.timesheet_week_decoder(),
+      timesheet_view.encode_timesheet_week,
+      timesheet_view.timesheet_week_decoder(),
     )
     == original
 }
@@ -346,8 +352,8 @@ pub fn timesheet_week_empty_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_timesheet_week,
-      codecs.timesheet_week_decoder(),
+      timesheet_view.encode_timesheet_week,
+      timesheet_view.timesheet_week_decoder(),
     )
     == original
 }
@@ -359,7 +365,7 @@ pub fn timesheet_week_empty_round_trips_test() {
 pub fn ref_round_trips_test() {
   let original = Ref(id: 1, name: "Priya Sharma")
 
-  assert round_trip(original, codecs.encode_ref, codecs.ref_decoder())
+  assert round_trip(original, roster_view.encode_ref, roster_view.ref_decoder())
     == original
 }
 
@@ -386,7 +392,11 @@ pub fn roster_round_trips_test() {
       ],
     )
 
-  assert round_trip(original, codecs.encode_roster, codecs.roster_decoder())
+  assert round_trip(
+      original,
+      roster_view.encode_roster,
+      roster_view.roster_decoder(),
+    )
     == original
 }
 
@@ -395,7 +405,11 @@ pub fn roster_round_trips_test() {
 pub fn roster_empty_round_trips_test() {
   let original = Roster(engineers: [], projects: [], clients: [])
 
-  assert round_trip(original, codecs.encode_roster, codecs.roster_decoder())
+  assert round_trip(
+      original,
+      roster_view.encode_roster,
+      roster_view.roster_decoder(),
+    )
     == original
 }
 
@@ -772,7 +786,11 @@ pub fn invoice_round_trips_test() {
       paid_at: None,
     )
 
-  assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
+  assert round_trip(
+      original,
+      invoice_view.encode_invoice,
+      invoice_view.invoice_decoder(),
+    )
     == original
 }
 
@@ -792,7 +810,11 @@ pub fn invoice_draft_zero_total_round_trips_test() {
       paid_at: None,
     )
 
-  assert round_trip(original, codecs.encode_invoice, codecs.invoice_decoder())
+  assert round_trip(
+      original,
+      invoice_view.encode_invoice,
+      invoice_view.invoice_decoder(),
+    )
     == original
 }
 
@@ -810,8 +832,8 @@ pub fn invoice_line_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_invoice_line,
-      codecs.invoice_line_decoder(),
+      invoice_view.encode_invoice_line,
+      invoice_view.invoice_line_decoder(),
     )
     == original
 }
@@ -854,8 +876,8 @@ pub fn invoice_detail_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_invoice_detail,
-      codecs.invoice_detail_decoder(),
+      invoice_view.encode_invoice_detail,
+      invoice_view.invoice_detail_decoder(),
     )
     == original
 }
@@ -881,8 +903,8 @@ pub fn invoice_detail_empty_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_invoice_detail,
-      codecs.invoice_detail_decoder(),
+      invoice_view.encode_invoice_detail,
+      invoice_view.invoice_detail_decoder(),
     )
     == original
 }
@@ -901,8 +923,8 @@ pub fn payroll_line_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_payroll_line,
-      codecs.payroll_line_decoder(),
+      payroll_view.encode_payroll_line,
+      payroll_view.payroll_line_decoder(),
     )
     == original
 }
@@ -935,7 +957,11 @@ pub fn payroll_round_trips_test() {
       ],
     )
 
-  assert round_trip(original, codecs.encode_payroll, codecs.payroll_decoder())
+  assert round_trip(
+      original,
+      payroll_view.encode_payroll,
+      payroll_view.payroll_decoder(),
+    )
     == original
 }
 
@@ -949,7 +975,11 @@ pub fn payroll_empty_round_trips_test() {
       lines: [],
     )
 
-  assert round_trip(original, codecs.encode_payroll, codecs.payroll_decoder())
+  assert round_trip(
+      original,
+      payroll_view.encode_payroll,
+      payroll_view.payroll_decoder(),
+    )
     == original
 }
 
@@ -966,7 +996,11 @@ pub fn pnl_row_round_trips_test() {
       utilization_pct: 50.0,
     )
 
-  assert round_trip(original, codecs.encode_pnl_row, codecs.pnl_row_decoder())
+  assert round_trip(
+      original,
+      pnl_view.encode_pnl_row,
+      pnl_view.pnl_row_decoder(),
+    )
     == original
 }
 
@@ -1003,7 +1037,7 @@ pub fn pnl_round_trips_test() {
       ],
     )
 
-  assert round_trip(original, codecs.encode_pnl, codecs.pnl_decoder())
+  assert round_trip(original, pnl_view.encode_pnl, pnl_view.pnl_decoder())
     == original
 }
 
@@ -1021,7 +1055,7 @@ pub fn pnl_empty_round_trips_test() {
       rows: [],
     )
 
-  assert round_trip(original, codecs.encode_pnl, codecs.pnl_decoder())
+  assert round_trip(original, pnl_view.encode_pnl, pnl_view.pnl_decoder())
     == original
 }
 
@@ -1040,8 +1074,8 @@ pub fn engineer_contact_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engineer_contact,
-      codecs.engineer_contact_decoder(),
+      engineer_view.encode_engineer_contact,
+      engineer_view.engineer_contact_decoder(),
     )
     == original
 }
@@ -1055,8 +1089,8 @@ pub fn client_profile_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_client_profile,
-      codecs.client_profile_decoder(),
+      client_view.encode_client_profile,
+      client_view.client_profile_decoder(),
     )
     == original
 }
@@ -1076,8 +1110,8 @@ pub fn engineer_banking_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engineer_banking,
-      codecs.engineer_banking_decoder(),
+      engineer_view.encode_engineer_banking,
+      engineer_view.engineer_banking_decoder(),
     )
     == original
 }
@@ -1096,8 +1130,8 @@ pub fn engineer_emergency_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_engineer_emergency,
-      codecs.engineer_emergency_decoder(),
+      engineer_view.encode_engineer_emergency,
+      engineer_view.engineer_emergency_decoder(),
     )
     == original
 }
@@ -1139,8 +1173,8 @@ pub fn project_requirement_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_project_requirement,
-      codecs.project_requirement_decoder(),
+      project_view.encode_project_requirement,
+      project_view.project_requirement_decoder(),
     )
     == original
 }
@@ -1161,8 +1195,8 @@ pub fn forecast_month_round_trips_test() {
 
   assert round_trip(
       original,
-      codecs.encode_forecast_month,
-      codecs.forecast_month_decoder(),
+      forecast_view.encode_forecast_month,
+      forecast_view.forecast_month_decoder(),
     )
     == original
 }
@@ -1190,7 +1224,11 @@ pub fn forecast_round_trips_test() {
       ),
     ])
 
-  assert round_trip(original, codecs.encode_forecast, codecs.forecast_decoder())
+  assert round_trip(
+      original,
+      forecast_view.encode_forecast,
+      forecast_view.forecast_decoder(),
+    )
     == original
 }
 
@@ -1199,6 +1237,10 @@ pub fn forecast_round_trips_test() {
 pub fn forecast_empty_round_trips_test() {
   let original = Forecast(months: [])
 
-  assert round_trip(original, codecs.encode_forecast, codecs.forecast_decoder())
+  assert round_trip(
+      original,
+      forecast_view.encode_forecast,
+      forecast_view.forecast_decoder(),
+    )
     == original
 }

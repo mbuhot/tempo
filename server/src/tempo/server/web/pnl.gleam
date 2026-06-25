@@ -8,7 +8,7 @@
 //// missing/malformed `as_of` is a 400; a database failure is a 500.
 
 import gleam/http
-import shared/codecs
+import shared/pnl/view as pnl_view
 import tempo/server/context.{type Context}
 import tempo/server/finance_query
 import tempo/server/web/request
@@ -23,7 +23,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
       case finance_query.pnl(ctx, as_of) {
-        Ok(statement) -> response.json_response(codecs.encode_pnl(statement))
+        Ok(statement) -> response.json_response(pnl_view.encode_pnl(statement))
         Error(error) -> response.db_error_response(error)
       }
   }

@@ -36,12 +36,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
 import shared/command.{type Event}
-import shared/types.{
-  type Forecast, type Invoice, type InvoiceDetail, type Payroll, type Pnl,
-  type Ref, type Roster,
-}
+import shared/forecast/view.{type Forecast} as forecast_view
+import shared/invoice/view.{type Invoice, type InvoiceDetail} as invoice_view
+import shared/payroll/view.{type Payroll} as payroll_view
+import shared/pnl/view.{type Pnl} as pnl_view
+import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -194,7 +194,7 @@ fn fetch_payroll(as_of: calendar.Date) -> Effect(Msg) {
   let to = time.iso_date(time.first_of_next_month(as_of))
   api.get(
     "/api/payroll?from=" <> from <> "&to=" <> to,
-    codecs.payroll_decoder(),
+    payroll_view.payroll_decoder(),
     GotPayroll(as_of, _),
   )
 }
@@ -202,7 +202,7 @@ fn fetch_payroll(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_pnl(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/pnl?as_of=" <> time.iso_date(as_of),
-    codecs.pnl_decoder(),
+    pnl_view.pnl_decoder(),
     GotPnl(as_of, _),
   )
 }
@@ -210,7 +210,7 @@ fn fetch_pnl(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_forecast(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/forecast?as_of=" <> time.iso_date(as_of),
-    codecs.forecast_decoder(),
+    forecast_view.forecast_decoder(),
     GotForecast(as_of, _),
   )
 }
@@ -218,7 +218,7 @@ fn fetch_forecast(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> time.iso_date(as_of),
-    codecs.roster_decoder(),
+    roster_view.roster_decoder(),
     GotRoster(as_of, _),
   )
 }
@@ -226,13 +226,13 @@ fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_detail(as_of: calendar.Date, id: Int) -> Effect(Msg) {
   api.get(
     "/api/invoices/" <> int.to_string(id) <> "?as_of=" <> time.iso_date(as_of),
-    codecs.invoice_detail_decoder(),
+    invoice_view.invoice_detail_decoder(),
     GotDetail(as_of, id, _),
   )
 }
 
 fn decode_invoices() -> decode.Decoder(List(Invoice)) {
-  decode.list(codecs.invoice_decoder())
+  decode.list(invoice_view.invoice_decoder())
 }
 
 // --- Update -----------------------------------------------------------------

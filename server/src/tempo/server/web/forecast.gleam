@@ -8,7 +8,7 @@
 //// is a 400; a database failure is a 500.
 
 import gleam/http
-import shared/codecs
+import shared/forecast/view as forecast_view
 import tempo/server/context.{type Context}
 import tempo/server/finance_query
 import tempo/server/web/request
@@ -23,7 +23,8 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
       case finance_query.forecast(ctx, as_of) {
-        Ok(forecast) -> response.json_response(codecs.encode_forecast(forecast))
+        Ok(forecast) ->
+          response.json_response(forecast_view.encode_forecast(forecast))
         Error(error) -> response.db_error_response(error)
       }
   }

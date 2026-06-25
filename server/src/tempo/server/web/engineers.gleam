@@ -9,7 +9,7 @@
 import gleam/http
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/engineer/view as engineer_view
 import tempo/server/context.{type Context}
 import tempo/server/engineer_detail
 import tempo/server/web/request
@@ -42,7 +42,7 @@ fn detail_response(
 ) -> wisp.Response {
   case engineer_detail.detail(ctx, engineer_id, as_of) {
     Ok(Ok(detail)) ->
-      response.json_response(codecs.encode_engineer_detail(detail))
+      response.json_response(engineer_view.encode_engineer_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
     Error(error) -> response.db_error_response(error)
   }

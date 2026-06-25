@@ -31,9 +31,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
 import shared/command as gateway
-import shared/types.{type Settings}
+import shared/settings/view.{type Settings} as settings_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -100,7 +99,7 @@ pub fn refetch(
 fn fetch(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/settings?as_of=" <> time.iso_date(as_of),
-    codecs.settings_decoder(),
+    settings_view.settings_decoder(),
     fn(result) { SettingsFetched(as_of:, result:) },
   )
 }
@@ -410,7 +409,7 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
 
 /// The monthly salary for a level, formatted as money, or "—" when no salary band
 /// covers the level as-of the date.
-fn salary_for(salaries: List(types.SalaryRow), level: Int) -> String {
+fn salary_for(salaries: List(settings_view.SalaryRow), level: Int) -> String {
   case list.find(salaries, fn(salary) { salary.level == level }) {
     Ok(salary) -> ui.money(salary.monthly_salary)
     Error(Nil) -> "—"
@@ -419,7 +418,7 @@ fn salary_for(salaries: List(types.SalaryRow), level: Int) -> String {
 
 /// The raw monthly salary for a level, or 0.0 when no band covers it. Used to
 /// pre-fill the Set-salary form's amount from the row on screen.
-fn salary_amount(salaries: List(types.SalaryRow), level: Int) -> Float {
+fn salary_amount(salaries: List(settings_view.SalaryRow), level: Int) -> Float {
   case list.find(salaries, fn(salary) { salary.level == level }) {
     Ok(salary) -> salary.monthly_salary
     Error(Nil) -> 0.0

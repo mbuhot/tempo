@@ -16,7 +16,7 @@ import gleam/time/calendar.{
   type Date, August, Date, December, July, June, November, October, September,
 }
 import pog
-import shared/types.{type Forecast}
+import shared/forecast/view.{type Forecast}
 import tempo/server/context.{Context}
 import tempo/server/finance_query
 import test_pool

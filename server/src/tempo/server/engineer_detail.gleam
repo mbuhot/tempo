@@ -21,13 +21,16 @@ import gleam/option.{Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
-  type AllocationRow, type Employment, type EngineerBanking,
-  type EngineerContact, type EngineerDetail, type EngineerEmergency,
-  type LeaveBalance, type LeaveRecord, type RoleVersion, AllocationRow,
-  Employment, EngineerBanking, EngineerContact, EngineerDetail,
-  EngineerEmergency, LeaveBalance, LeaveRecord, RoleVersion,
-}
+import shared/allocation/view.{type AllocationRow, AllocationRow} as _
+import shared/engineer/view.{
+  type Employment, type EngineerBanking, type EngineerContact,
+  type EngineerDetail, type EngineerEmergency, type RoleVersion, Employment,
+  EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency,
+  RoleVersion,
+} as _
+import shared/leave/view.{
+  type LeaveBalance, type LeaveRecord, LeaveBalance, LeaveRecord,
+} as _
 import tempo/server/context.{type Context}
 import tempo/server/sql
 

@@ -7,7 +7,7 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/types.{
+import shared/settings/view.{
   type LeavePolicyRow, type RateCardRow, type SalaryRow, type Settings,
   LeavePolicyRow, RateCardRow, SalaryRow, Settings,
 }

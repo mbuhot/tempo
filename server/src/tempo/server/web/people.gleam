@@ -6,7 +6,7 @@
 //// A missing/malformed `as_of` is a 400; a database failure is a 500.
 
 import gleam/http
-import shared/codecs
+import shared/people/view as people_view
 import tempo/server/context.{type Context}
 import tempo/server/people
 import tempo/server/web/request
@@ -21,7 +21,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
       case people.roster(ctx, as_of) {
-        Ok(list) -> response.json_response(codecs.encode_people_list(list))
+        Ok(list) -> response.json_response(people_view.encode_people_list(list))
         Error(error) -> response.db_error_response(error)
       }
   }

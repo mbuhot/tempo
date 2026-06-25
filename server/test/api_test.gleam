@@ -17,17 +17,19 @@ import gleam/list
 import gleam/option
 import gleam/time/calendar
 import pog
-import shared/codecs
+import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
+import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
 import shared/engineer/command as engineer_command
+import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/payroll/command as payroll_command
+import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
+import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
+import shared/settings/view.{type Settings} as settings_view
 import shared/timesheet/command as timesheet_command
-import shared/types.{
-  type BoardSnapshot, type ClientDetail, type ClientList, type EngineerDetail,
-  type PeopleList, type ProjectDetail, type ProjectList, type Settings,
-  type TimesheetWeek, BoardRow, OnLeave, OnProject, RosterOnProjects,
-  TimesheetCell, TimesheetWeek, TimesheetWeekRow,
-}
+import shared/timesheet/view.{
+  type TimesheetWeek, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
+} as timesheet_view
 import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/web/router
@@ -874,63 +876,63 @@ pub fn unknown_api_path_is_not_found_test() {
 fn decode_board(response) -> BoardSnapshot {
   let assert Ok(snapshot) =
     simulate.read_body(response)
-    |> json.parse(codecs.board_snapshot_decoder())
+    |> json.parse(board_view.board_snapshot_decoder())
   snapshot
 }
 
 fn decode_timesheet(response) -> TimesheetWeek {
   let assert Ok(week) =
     simulate.read_body(response)
-    |> json.parse(codecs.timesheet_week_decoder())
+    |> json.parse(timesheet_view.timesheet_week_decoder())
   week
 }
 
 fn decode_people(response) -> PeopleList {
   let assert Ok(list) =
     simulate.read_body(response)
-    |> json.parse(codecs.people_list_decoder())
+    |> json.parse(people_view.people_list_decoder())
   list
 }
 
 fn decode_engineer_detail(response) -> EngineerDetail {
   let assert Ok(detail) =
     simulate.read_body(response)
-    |> json.parse(codecs.engineer_detail_decoder())
+    |> json.parse(engineer_view.engineer_detail_decoder())
   detail
 }
 
 fn decode_client_list(response) -> ClientList {
   let assert Ok(list) =
     simulate.read_body(response)
-    |> json.parse(codecs.client_list_decoder())
+    |> json.parse(client_view.client_list_decoder())
   list
 }
 
 fn decode_client_detail(response) -> ClientDetail {
   let assert Ok(detail) =
     simulate.read_body(response)
-    |> json.parse(codecs.client_detail_decoder())
+    |> json.parse(client_view.client_detail_decoder())
   detail
 }
 
 fn decode_project_list(response) -> ProjectList {
   let assert Ok(list) =
     simulate.read_body(response)
-    |> json.parse(codecs.project_list_decoder())
+    |> json.parse(project_view.project_list_decoder())
   list
 }
 
 fn decode_project_detail(response) -> ProjectDetail {
   let assert Ok(detail) =
     simulate.read_body(response)
-    |> json.parse(codecs.project_detail_decoder())
+    |> json.parse(project_view.project_detail_decoder())
   detail
 }
 
 fn decode_settings(response) -> Settings {
   let assert Ok(settings) =
     simulate.read_body(response)
-    |> json.parse(codecs.settings_decoder())
+    |> json.parse(settings_view.settings_decoder())
   settings
 }
 

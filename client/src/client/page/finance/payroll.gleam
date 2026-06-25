@@ -21,7 +21,7 @@ import gleam/option.{None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import shared/types.{type Payroll, type PayrollLine}
+import shared/payroll/view.{type Payroll, type PayrollLine}
 
 /// Render the Payroll tab for a loaded `payroll`, choosing the preview / reconciled
 /// / variance presentation from the run state. `on_run` is dispatched when the

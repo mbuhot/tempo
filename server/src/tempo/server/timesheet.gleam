@@ -23,7 +23,7 @@ import shared/timesheet/command.{
   type TimesheetCommand, type TimesheetEntry, LogTimesheet, LogWeek,
   TimesheetEntry,
 }
-import shared/types.{
+import shared/timesheet/view.{
   type TimesheetWeek, type TimesheetWeekRow, TimesheetCell, TimesheetWeek,
   TimesheetWeekRow,
 }

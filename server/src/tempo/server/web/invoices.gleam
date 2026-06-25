@@ -13,7 +13,7 @@ import gleam/http
 import gleam/int
 import gleam/json
 import gleam/time/calendar.{type Date}
-import shared/codecs
+import shared/invoice/view as invoice_view
 import tempo/server/context.{type Context}
 import tempo/server/finance_query
 import tempo/server/web/request
@@ -29,7 +29,10 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
     Ok(as_of) ->
       case finance_query.list_invoices(ctx, as_of) {
         Ok(invoices) ->
-          response.json_response(json.array(invoices, codecs.encode_invoice))
+          response.json_response(json.array(
+            invoices,
+            invoice_view.encode_invoice,
+          ))
         Error(error) -> response.db_error_response(error)
       }
   }
@@ -61,7 +64,7 @@ fn detail_response(
 ) -> wisp.Response {
   case finance_query.invoice_detail(ctx, invoice_id, as_of) {
     Ok(Ok(detail)) ->
-      response.json_response(codecs.encode_invoice_detail(detail))
+      response.json_response(invoice_view.encode_invoice_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
     Error(error) -> response.db_error_response(error)
   }

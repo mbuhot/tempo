@@ -43,9 +43,9 @@ import shared/payroll/command as payroll_command
 import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
+import shared/roster/view.{type Ref}
 import shared/salary/command as salary_command
 import shared/timesheet/command as timesheet_command
-import shared/types.{type Ref}
 
 // --- View atoms -------------------------------------------------------------
 

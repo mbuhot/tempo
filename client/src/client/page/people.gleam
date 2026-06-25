@@ -39,15 +39,19 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
+import shared/allocation/view.{AllocationRow} as allocation_view
 import shared/command as gateway
+import shared/engineer/view.{
+  type EngineerDetail, Employment, EngineerBanking, EngineerContact,
+  EngineerDetail, EngineerEmergency,
+} as engineer_view
+import shared/leave/view.{LeaveBalance} as leave_view
+import shared/people/view.{type PeopleList, type PersonRow, PeopleList} as people_view
+import shared/roster/view.{type Ref, type Roster} as roster_view
 import shared/timesheet/command.{type TimesheetEntry, LogWeek, TimesheetEntry}
-import shared/types.{
-  type EngineerDetail, type PeopleList, type PersonRow, type Ref, type Roster,
-  type TimesheetWeek, AllocationRow, Employment, EngineerBanking,
-  EngineerContact, EngineerDetail, EngineerEmergency, LeaveBalance, PeopleList,
-  TimesheetCell, TimesheetWeekRow,
-}
+import shared/timesheet/view.{
+  type TimesheetWeek, TimesheetCell, TimesheetWeekRow,
+} as timesheet_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -214,7 +218,7 @@ pub fn refetch(
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/people?as_of=" <> time.iso_date(as_of),
-    codecs.people_list_decoder(),
+    people_view.people_list_decoder(),
     fn(result) { RosterFetched(as_of:, result:) },
   )
 }
@@ -226,7 +230,7 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
         <> int.to_string(engineer_id)
         <> "?as_of="
         <> time.iso_date(as_of),
-      codecs.engineer_detail_decoder(),
+      engineer_view.engineer_detail_decoder(),
       fn(result) { DetailFetched(as_of:, engineer_id:, result:) },
     ),
     fetch_timesheet(as_of, engineer_id),
@@ -236,7 +240,7 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
 fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> time.iso_date(as_of),
-    codecs.roster_decoder(),
+    roster_view.roster_decoder(),
     fn(result) { DirectoryFetched(as_of:, result:) },
   )
 }
@@ -248,7 +252,7 @@ fn fetch_timesheet(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
       <> int.to_string(engineer_id)
       <> "&week="
       <> time.iso_date(week),
-    codecs.timesheet_week_decoder(),
+    timesheet_view.timesheet_week_decoder(),
     fn(result) { TimesheetFetched(as_of:, engineer_id:, result:) },
   )
 }
@@ -599,7 +603,9 @@ fn prefill_from_detail(
 
 /// The project id of the engineer's first active allocation, if any — the
 /// natural roll-off target so the form opens pre-selected.
-fn active_allocation(allocations: List(types.AllocationRow)) -> Option(Int) {
+fn active_allocation(
+  allocations: List(allocation_view.AllocationRow),
+) -> Option(Int) {
   list.find_map(allocations, fn(allocation) {
     case allocation {
       AllocationRow(project_id:, active: True, ..) -> Ok(project_id)
@@ -807,7 +813,7 @@ fn detail_head(detail: EngineerDetail) -> Element(Msg) {
 /// project(s) or currently unassigned, derived from the allocations the server
 /// already flagged `active` for the detail's as-of. The bundle carries no leave
 /// active-flag, so leave is reflected only on the roster list.
-fn situation(allocations: List(types.AllocationRow)) -> String {
+fn situation(allocations: List(allocation_view.AllocationRow)) -> String {
   let active_projects =
     list.filter_map(allocations, fn(allocation) {
       case allocation {
@@ -839,7 +845,9 @@ fn detail_grid(
   ])
 }
 
-fn allocations_panel(allocations: List(types.AllocationRow)) -> Element(Msg) {
+fn allocations_panel(
+  allocations: List(allocation_view.AllocationRow),
+) -> Element(Msg) {
   let rows = list.map(allocations, allocation_row)
   let body = case allocations {
     [] -> [ui.empty_state("No allocations on record.")]
@@ -858,7 +866,7 @@ fn allocations_panel(allocations: List(types.AllocationRow)) -> Element(Msg) {
   ui.panel(title: "Allocations", count: "", right: [], body:)
 }
 
-fn allocation_row(allocation: types.AllocationRow) -> Element(Msg) {
+fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
   let AllocationRow(
     project_id:,
     project:,
@@ -913,7 +921,7 @@ fn timesheet_panel(timesheet: TimesheetData) -> Element(Msg) {
 
 // --- Side panels ------------------------------------------------------------
 
-fn balance_panel(balance: types.LeaveBalance) -> Element(Msg) {
+fn balance_panel(balance: leave_view.LeaveBalance) -> Element(Msg) {
   let LeaveBalance(annual:, sick:, ..) = balance
   ui.panel(title: "Leave balance", count: "", right: [], body: [
     html.div([attribute.class("pad-block")], [
@@ -938,7 +946,7 @@ fn balance_bar(label: String, value: Float, max: Float) -> Element(Msg) {
   ])
 }
 
-fn contact_panel(contact: types.EngineerContact) -> Element(Msg) {
+fn contact_panel(contact: engineer_view.EngineerContact) -> Element(Msg) {
   let EngineerContact(name:, email:, phone:, postal_address:, ..) = contact
   let _ = name
   ui.panel(title: "Contact", count: "", right: [contact_edit_button()], body: [
@@ -952,7 +960,7 @@ fn contact_panel(contact: types.EngineerContact) -> Element(Msg) {
   ])
 }
 
-fn banking_panel(banking: types.EngineerBanking) -> Element(Msg) {
+fn banking_panel(banking: engineer_view.EngineerBanking) -> Element(Msg) {
   let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) = banking
   ui.panel(
     title: "Banking",
@@ -976,9 +984,9 @@ fn contact_edit_button() -> Element(Msg) {
 }
 
 fn employment_panel(
-  employment: types.Employment,
+  employment: engineer_view.Employment,
   level: Int,
-  emergency: types.EngineerEmergency,
+  emergency: engineer_view.EngineerEmergency,
 ) -> Element(Msg) {
   let Employment(started:, monthly_salary:, ..) = employment
   let EngineerEmergency(relation:, name:, phone:, ..) = emergency

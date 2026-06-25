@@ -32,13 +32,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/codecs
+import shared/board/view.{
+  type BoardRow, type BoardSnapshot, type UnstaffedProject, BoardRow, OnLeave,
+  OnProject, Unassigned, UnstaffedProject,
+} as board_view
 import shared/command.{type Event}
-import shared/types.{
-  type BoardRow, type BoardSnapshot, type Ref, type Roster,
-  type UnstaffedProject, BoardRow, OnLeave, OnProject, Unassigned,
-  UnstaffedProject,
-}
+import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model -------------------------------------------------------------------
 
@@ -123,7 +122,7 @@ fn fetch_all(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_board(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/board?date=" <> time.iso_date(as_of),
-    codecs.board_snapshot_decoder(),
+    board_view.board_snapshot_decoder(),
     fn(result) { BoardFetched(as_of:, result:) },
   )
 }
@@ -131,7 +130,7 @@ fn fetch_board(as_of: calendar.Date) -> Effect(Msg) {
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/roster?as_of=" <> time.iso_date(as_of),
-    codecs.roster_decoder(),
+    roster_view.roster_decoder(),
     fn(result) { RosterFetched(as_of:, result:) },
   )
 }
