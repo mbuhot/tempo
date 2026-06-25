@@ -1,4 +1,4 @@
-//// Layer-3 forecast READ tests (ADR-044) for `finance_query.forecast` — the
+//// Layer-3 forecast READ tests (ADR-044) for `forecast/view.forecast` — the
 //// forward P&L from committed demand (`GET /api/forecast?as_of=`). They run
 //// against the deterministic seed ("now" = 2026-06-15), whose committed demand is:
 ////   * allocations (supply) on projects 100/200/300, all running to 2027-01-01;
@@ -7,7 +7,7 @@
 //// So the cliff (the last day any requirement or allocation runs) is 2027-01-01,
 //// and the forecast spans the as-of month (June 2026) through December 2026.
 ////
-//// ISOLATION (as in pnl_test.gleam): each test reads through `finance_query.forecast`
+//// ISOLATION (as in pnl_test.gleam): each test reads through `forecast/view.forecast`
 //// inside its OWN `pog.transaction`, then returns `Error(…)` so nothing is committed
 //// and the shared seed is undisturbed. These tests only READ, so they add no fixture.
 
@@ -18,7 +18,7 @@ import gleam/time/calendar.{
 import pog
 import shared/forecast/view.{type Forecast}
 import tempo/server/context.{Context}
-import tempo/server/finance_query
+import tempo/server/forecast/view as forecast_read
 import test_pool
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out
@@ -31,7 +31,7 @@ fn rolling_back(body: fn(pog.Connection) -> a) -> a {
 
 /// The forecast as-of `as_of`, asserted to succeed.
 fn forecast(conn: pog.Connection, as_of: Date) -> Forecast {
-  let assert Ok(forecast) = finance_query.forecast(Context(db: conn), as_of)
+  let assert Ok(forecast) = forecast_read.forecast(Context(db: conn), as_of)
   forecast
 }
 
@@ -69,7 +69,7 @@ pub fn forecast_past_the_cliff_is_empty_test() {
   assert months == []
 }
 
-// --- the derivation finance_query owns (profit and margin per month) --------
+// --- the derivation forecast/view owns (profit and margin per month) --------
 
 // Each month's profit is exactly revenue − cost and its margin is profit / revenue
 // (the same derivation the P&L does, applied per month). Every month in the seed

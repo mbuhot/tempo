@@ -1,5 +1,5 @@
 //// Layer-3 financial READ tests (PRD-financials.md §7) for the domain query
-//// functions in `tempo/server/finance_query`. They run against the deterministic
+//// functions in `tempo/server/{invoice,payroll,pnl}/view`. They run against the deterministic
 //// v1-wide seed ("now" = 2026-06-15) plus the baseline salaries migration 012
 //// seeds (L3..L6), drive the financial WRITES through the command bus to put
 //// invoices and payroll on record, then assert the exact read-model values: the
@@ -8,7 +8,7 @@
 ////
 //// ISOLATION (as in financials_test.gleam). Each test runs inside its OWN
 //// `pog.transaction` that is always rolled back: it applies the writes via
-//// `command.dispatch_in`, reads back through the `finance_query` functions (given
+//// `command.dispatch_in`, reads back through the per-concept read functions (given
 //// a `Context` wrapping the same in-transaction connection), then returns
 //// `Error(…)` so nothing is committed and the shared seed is undisturbed.
 ////
@@ -34,7 +34,9 @@ import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
 import shared/pnl/view.{type PnlRow, PnlRow} as _
 import tempo/server/command
 import tempo/server/context.{Context}
-import tempo/server/finance_query
+import tempo/server/invoice/view as invoice_read
+import tempo/server/payroll/view as payroll_read
+import tempo/server/pnl/view as pnl_read
 import test_pool
 
 // --- rollback harness -------------------------------------------------------
@@ -122,7 +124,7 @@ pub fn list_invoices_shows_status_and_total_test() {
       let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(invoices) =
-        finance_query.list_invoices(Context(db: conn), Date(2026, June, 15))
+        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 15))
       invoices
     })
 
@@ -154,9 +156,9 @@ pub fn list_invoices_status_is_as_of_the_date_test() {
     rolling_back(fn(conn) {
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(before) =
-        finance_query.list_invoices(Context(db: conn), Date(2026, June, 5))
+        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 5))
       let assert Ok(after) =
-        finance_query.list_invoices(Context(db: conn), Date(2026, June, 15))
+        invoice_read.list_invoices(Context(db: conn), Date(2026, June, 15))
       #(
         invoice_for(before, "Data Platform").status,
         invoice_for(after, "Data Platform").status,
@@ -177,7 +179,7 @@ pub fn invoice_detail_returns_header_and_lines_test() {
     rolling_back(fn(conn) {
       let invoice_id = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(Ok(detail)) =
-        finance_query.invoice_detail(
+        invoice_read.invoice_detail(
           Context(db: conn),
           invoice_id,
           Date(2026, June, 15),
@@ -200,7 +202,7 @@ pub fn invoice_detail_returns_header_and_lines_test() {
 pub fn invoice_detail_unknown_id_is_not_found_test() {
   let outcome =
     rolling_back(fn(conn) {
-      finance_query.invoice_detail(
+      invoice_read.invoice_detail(
         Context(db: conn),
         999_999,
         Date(2026, June, 15),
@@ -228,7 +230,7 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
         )),
       )
       let assert Ok(run) =
-        finance_query.payroll(
+        payroll_read.payroll(
           Context(db: conn),
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -272,8 +274,7 @@ pub fn pnl_totals_and_per_engineer_row_test() {
       let _ = draft_and_issue(conn, 100, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
-      let assert Ok(pnl) =
-        finance_query.pnl(Context(db: conn), Date(2026, June, 15))
+      let assert Ok(pnl) = pnl_read.pnl(Context(db: conn), Date(2026, June, 15))
       pnl
     })
 
@@ -350,8 +351,7 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
           Date(2026, July, 1),
         )),
       )
-      let assert Ok(pnl) =
-        finance_query.pnl(Context(db: conn), Date(2026, June, 15))
+      let assert Ok(pnl) = pnl_read.pnl(Context(db: conn), Date(2026, June, 15))
       pnl
     })
 
@@ -371,7 +371,7 @@ pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
   let pnl =
     rolling_back(fn(conn) {
       let assert Ok(pnl) =
-        finance_query.pnl(Context(db: conn), Date(2026, September, 15))
+        pnl_read.pnl(Context(db: conn), Date(2026, September, 15))
       pnl
     })
 

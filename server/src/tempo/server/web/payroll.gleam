@@ -1,7 +1,7 @@
 //// Web: GET /api/payroll?from=&to= handler — the persisted payroll run for a
 //// period. Parse the two dates, call the domain, encode the result. Imports
 //// `wisp` (it owns the HTTP shape) but never `sql` — it talks to the domain
-//// `finance_query` module, which already speaks shared types.
+//// `payroll/view` read module, which already speaks shared types.
 ////
 //// `from`/`to` bound the period `[from, to)` (the caller passes a month). A
 //// missing/malformed date is a 400; a database failure is a 500.
@@ -11,7 +11,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/payroll/view as payroll_view
 import tempo/server/context.{type Context}
-import tempo/server/finance_query
+import tempo/server/payroll/view as payroll_read
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
@@ -23,7 +23,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   case period(req) {
     Error(detail) -> wisp.bad_request(detail)
     Ok(#(from, to)) ->
-      case finance_query.payroll(ctx, from, to) {
+      case payroll_read.payroll(ctx, from, to) {
         Ok(run) -> response.json_response(payroll_view.encode_payroll(run))
         Error(error) -> response.db_error_response(error)
       }

@@ -1,6 +1,6 @@
 //// Web: GET /api/pnl?as_of= handler — the P&L statement for a date. Parse the
 //// as-of date, call the domain, encode the result. Imports `wisp` (it owns the
-//// HTTP shape) but never `sql` — it talks to the domain `finance_query` module,
+//// HTTP shape) but never `sql` — it talks to the domain `pnl/view` read module,
 //// which already speaks shared types.
 ////
 //// `as_of` selects the month (the month containing the date) and the year-to-date
@@ -10,7 +10,7 @@
 import gleam/http
 import shared/pnl/view as pnl_view
 import tempo/server/context.{type Context}
-import tempo/server/finance_query
+import tempo/server/pnl/view as pnl_read
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
@@ -22,7 +22,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   case request.date_from_query(req, "as_of") {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
-      case finance_query.pnl(ctx, as_of) {
+      case pnl_read.pnl(ctx, as_of) {
         Ok(statement) -> response.json_response(pnl_view.encode_pnl(statement))
         Error(error) -> response.db_error_response(error)
       }

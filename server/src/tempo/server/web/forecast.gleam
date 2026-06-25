@@ -1,7 +1,7 @@
 //// Web: GET /api/forecast?as_of= handler — the forward P&L from committed demand.
 //// Parse the as-of date, call the domain, encode the result. Imports `wisp` (it
-//// owns the HTTP shape) but never `sql` — it talks to the domain `finance_query`
-//// module, which already speaks shared types.
+//// owns the HTTP shape) but never `sql` — it talks to the domain `forecast/view`
+//// read module, which already speaks shared types.
 ////
 //// `as_of` is the first month of the forecast window; the series runs to the cliff
 //// (the last day any requirement or allocation runs). A missing/malformed `as_of`
@@ -10,7 +10,7 @@
 import gleam/http
 import shared/forecast/view as forecast_view
 import tempo/server/context.{type Context}
-import tempo/server/finance_query
+import tempo/server/forecast/view as forecast_read
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
@@ -22,7 +22,7 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   case request.date_from_query(req, "as_of") {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
-      case finance_query.forecast(ctx, as_of) {
+      case forecast_read.forecast(ctx, as_of) {
         Ok(forecast) ->
           response.json_response(forecast_view.encode_forecast(forecast))
         Error(error) -> response.db_error_response(error)

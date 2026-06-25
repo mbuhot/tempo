@@ -30,7 +30,7 @@
 //// run only if no run covers it; the back-dated variance promotion is applied only if
 //// absent. Each step is independently safe to re-run. Each write goes through
 //// `command.dispatch` (actor "seed"); a failing operation `panic`s (non-zero exit) so
-//// a broken seed gates loudly. It reuses `finance_query.list_invoices` to resolve a
+//// a broken seed gates loudly. It reuses `invoice/view.list_invoices` to resolve a
 //// freshly-drafted invoice's minted id by project NAME and billing month rather than
 //// adding a new query.
 ////
@@ -63,7 +63,8 @@ import tempo/server/auth.{Admin, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/event
-import tempo/server/finance_query
+import tempo/server/invoice/view as invoice_read
+import tempo/server/payroll/view as payroll_read
 import tempo/server/sql
 
 /// The principal every demo command is dispatched as: actor "seed" (stamped on
@@ -409,7 +410,7 @@ fn existing_invoice_id(
 /// per-month guard that keeps `bill_month` from re-running a month (which the
 /// payroll_period EXCLUDE-overlap constraint would refuse anyway).
 fn payroll_run_present(ctx: Context, from: Date, to: Date) -> Bool {
-  let assert Ok(payroll) = finance_query.payroll(ctx, from, to)
+  let assert Ok(payroll) = payroll_read.payroll(ctx, from, to)
   payroll.run != None
 }
 
@@ -509,7 +510,7 @@ fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
 
 /// List the invoices as of `as_of`, asserting the read succeeds.
 fn list_invoices(ctx: Context, as_of: Date) -> List(Invoice) {
-  let assert Ok(invoices) = finance_query.list_invoices(ctx, as_of)
+  let assert Ok(invoices) = invoice_read.list_invoices(ctx, as_of)
   invoices
 }
 

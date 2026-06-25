@@ -1,7 +1,7 @@
 //// Web: the invoices read handlers — GET /api/invoices (list, ?as_of=) and
 //// GET /api/invoices/:id (detail, ?as_of=). Parse the request, call the domain,
 //// encode the result. Imports `wisp` (it owns the HTTP shape) but never `sql` —
-//// it talks to the domain `finance_query` module, which already speaks shared
+//// it talks to the domain `invoice/view` read module, which already speaks shared
 //// types.
 ////
 //// Both reads take an `as_of` date (the time slider): the list shows each
@@ -15,7 +15,7 @@ import gleam/json
 import gleam/time/calendar.{type Date}
 import shared/invoice/view as invoice_view
 import tempo/server/context.{type Context}
-import tempo/server/finance_query
+import tempo/server/invoice/view as invoice_read
 import tempo/server/web/request
 import tempo/server/web/response
 import wisp
@@ -27,7 +27,7 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
   case request.date_from_query(req, "as_of") {
     Error(detail) -> wisp.bad_request(detail)
     Ok(as_of) ->
-      case finance_query.list_invoices(ctx, as_of) {
+      case invoice_read.list_invoices(ctx, as_of) {
         Ok(invoices) ->
           response.json_response(json.array(
             invoices,
@@ -62,7 +62,7 @@ fn detail_response(
   invoice_id: Int,
   as_of: Date,
 ) -> wisp.Response {
-  case finance_query.invoice_detail(ctx, invoice_id, as_of) {
+  case invoice_read.invoice_detail(ctx, invoice_id, as_of) {
     Ok(Ok(detail)) ->
       response.json_response(invoice_view.encode_invoice_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
