@@ -7,7 +7,7 @@
 -- record is scalar-only). $1 = project_id.
 SELECT DISTINCT ON (project_id)
   project_id,
-  budget,
+  budget::text AS budget,
   target_completion
 FROM project_plan
 WHERE project_id = $1

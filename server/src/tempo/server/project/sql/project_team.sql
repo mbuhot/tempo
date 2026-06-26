@@ -16,7 +16,7 @@ SELECT
   coalesce(engineer_current.name, '') AS name,
   engineer_role.level,
   allocation.fraction,
-  rate_card.day_rate
+  rate_card.day_rate::text AS day_rate
 FROM employment
 JOIN engineer ON engineer.id = employment.engineer_id
 JOIN engineer_current ON engineer_current.id = engineer.id

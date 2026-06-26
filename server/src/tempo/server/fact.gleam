@@ -147,7 +147,7 @@ pub type Fact {
   /// A project's plan (budget/target) in force from `from` onward.
   ProjectPlan(
     project_id: ProjectId,
-    budget: Float,
+    budget: Money,
     target_completion: Date,
     from: Date,
   )

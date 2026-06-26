@@ -20,6 +20,7 @@ import pog
 import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
+import shared/money.{type Money}
 import shared/engineer/command as engineer_command
 import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/invoice/view.{type InvoicePage} as invoice_view
@@ -69,6 +70,11 @@ fn post_operation(context: Context, command: gateway.Command) -> wisp.Response {
   )
   |> simulate.session(login_request, login_response)
   |> router.handle_request(context)
+}
+
+fn money_of(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
 }
 
 // --- GET /api/board ---------------------------------------------------------
@@ -934,7 +940,7 @@ pub fn projects_list_now_returns_rows_test() {
     |> list.find(fn(project) { project.project_id == 100 })
   assert ledger.title == "Ledger Migration"
   assert ledger.client == "Northwind Trading"
-  assert ledger.budget == 500_000.0
+  assert ledger.budget == money_of("500000.00")
   assert ledger.active
 }
 
@@ -985,7 +991,7 @@ pub fn project_detail_returns_bundle_test() {
   assert detail.profile.project_id == 100
   assert detail.profile.title == "Ledger Migration"
   assert detail.client == "Northwind Trading"
-  assert detail.plan.budget == 500_000.0
+  assert detail.plan.budget == money_of("500000.00")
   assert detail.active
 }
 

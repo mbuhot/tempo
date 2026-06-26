@@ -20,6 +20,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/invoice/view.{type Invoice, Invoice} as _
+import shared/money.{type Money}
 import shared/pagination
 import shared/project/view.{
   type ProjectDetail, type ProjectList, type ProjectListRow, type ProjectPlan,
@@ -31,6 +32,12 @@ import tempo/server/async.{type AsyncQuery}
 import tempo/server/context.{type Context, query_timeout}
 import tempo/server/project/sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
+
+/// Parse a money amount from a trusted SQL `numeric::text` column.
+fn money(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 /// One keyset page of the projects list as-of `as_of` (issue #12): each project
 /// with its client, budget, target, team size, and active flag, starting strictly
@@ -67,7 +74,7 @@ fn list_row_to_shared(row: sql.ProjectListRow) -> ProjectListRow {
     project_id: row.project_id,
     title: row.title,
     client: row.client,
-    budget: row.budget,
+    budget: money(row.budget),
     target_completion: row.target_completion,
     team_size: row.team_size,
     active: row.active,
@@ -164,7 +171,7 @@ WHERE id = $1;"
 fn plan_to_shared(row: sql.ProjectPlanCurrentRow) -> ProjectPlan {
   ProjectPlan(
     project_id: row.project_id,
-    budget: row.budget,
+    budget: money(row.budget),
     target_completion: row.target_completion,
   )
 }
@@ -175,7 +182,7 @@ fn team_member_to_shared(row: sql.ProjectTeamRow) -> TeamMember {
     name: row.name,
     level: row.level,
     fraction: row.fraction,
-    day_rate: row.day_rate,
+    day_rate: money(row.day_rate),
   )
 }
 
@@ -199,7 +206,7 @@ fn invoice_to_shared(row: sql.ProjectInvoicesRow) -> Invoice {
     billing_from: row.billing_from,
     billing_to: row.billing_to,
     status: row.status,
-    total: row.total,
+    total: money(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,
   )

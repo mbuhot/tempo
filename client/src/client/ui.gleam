@@ -800,7 +800,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     }
     OpUpdateProjectPlan -> {
       use project_id <- result.try(require_int(form.project_id, "project id"))
-      use budget <- result.try(require_float(form.budget, "budget"))
+      use budget <- result.try(require_money(form.budget, "budget"))
       use target_completion <- result.try(require_date(
         form.target_completion,
         "target completion",

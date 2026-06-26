@@ -11,6 +11,7 @@ import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import shared/invoice/view as invoice_view
+import shared/money.{type Money}
 import shared/pagination
 import shared/wire
 
@@ -24,13 +25,13 @@ pub type ProjectProfile {
   ProjectProfile(project_id: Int, title: String, summary: String)
 }
 
-/// A project's plan as one edit-grouped fact: the `budget` (a money amount, so
-/// a `Float`) and a `target_completion` date. The underlying `project_plan`
-/// table is period-keyed (`planned_during`) and append-only, read LATEST — so
-/// this record carries only the scalar fields of the most-recently-recorded
-/// version, not its transaction-time bounds.
+/// A project's plan as one edit-grouped fact: the exact `budget` (`Money`) and a
+/// `target_completion` date. The underlying `project_plan` table is period-keyed
+/// (`planned_during`) and append-only, read LATEST — so this record carries only
+/// the scalar fields of the most-recently-recorded version, not its
+/// transaction-time bounds.
 pub type ProjectPlan {
-  ProjectPlan(project_id: Int, budget: Float, target_completion: Date)
+  ProjectPlan(project_id: Int, budget: Money, target_completion: Date)
 }
 
 /// One row of the projects list (`GET /api/projects?as_of=`): a project's `title`,
@@ -41,7 +42,7 @@ pub type ProjectListRow {
     project_id: Int,
     title: String,
     client: String,
-    budget: Float,
+    budget: Money,
     target_completion: Date,
     team_size: Int,
     active: Bool,
@@ -70,7 +71,7 @@ pub type TeamMember {
     name: String,
     level: Int,
     fraction: Float,
-    day_rate: Float,
+    day_rate: Money,
   )
 }
 
@@ -130,7 +131,7 @@ pub fn encode_project_plan(plan: ProjectPlan) -> Json {
   let ProjectPlan(project_id:, budget:, target_completion:) = plan
   json.object([
     #("project_id", json.int(project_id)),
-    #("budget", json.float(budget)),
+    #("budget", money.encode(budget)),
     #("target_completion", wire.encode_date(target_completion)),
   ])
 }
@@ -138,7 +139,7 @@ pub fn encode_project_plan(plan: ProjectPlan) -> Json {
 /// Decode a `ProjectPlan` from a JSON object.
 pub fn project_plan_decoder() -> Decoder(ProjectPlan) {
   use project_id <- decode.field("project_id", decode.int)
-  use budget <- decode.field("budget", wire.lenient_float_decoder())
+  use budget <- decode.field("budget", money.decoder())
   use target_completion <- decode.field(
     "target_completion",
     wire.date_decoder(),
@@ -161,7 +162,7 @@ pub fn encode_project_list_row(project: ProjectListRow) -> Json {
     #("project_id", json.int(project_id)),
     #("title", json.string(title)),
     #("client", json.string(client)),
-    #("budget", json.float(budget)),
+    #("budget", money.encode(budget)),
     #("target_completion", wire.encode_date(target_completion)),
     #("team_size", json.int(team_size)),
     #("active", json.bool(active)),
@@ -173,7 +174,7 @@ pub fn project_list_row_decoder() -> Decoder(ProjectListRow) {
   use project_id <- decode.field("project_id", decode.int)
   use title <- decode.field("title", decode.string)
   use client <- decode.field("client", decode.string)
-  use budget <- decode.field("budget", wire.lenient_float_decoder())
+  use budget <- decode.field("budget", money.decoder())
   use target_completion <- decode.field(
     "target_completion",
     wire.date_decoder(),
@@ -223,7 +224,7 @@ pub fn encode_team_member(member: TeamMember) -> Json {
     #("name", json.string(name)),
     #("level", json.int(level)),
     #("fraction", json.float(fraction)),
-    #("day_rate", json.float(day_rate)),
+    #("day_rate", money.encode(day_rate)),
   ])
 }
 
@@ -233,7 +234,7 @@ pub fn team_member_decoder() -> Decoder(TeamMember) {
   use name <- decode.field("name", decode.string)
   use level <- decode.field("level", decode.int)
   use fraction <- decode.field("fraction", wire.lenient_float_decoder())
-  use day_rate <- decode.field("day_rate", wire.lenient_float_decoder())
+  use day_rate <- decode.field("day_rate", money.decoder())
   decode.success(TeamMember(engineer_id:, name:, level:, fraction:, day_rate:))
 }
 

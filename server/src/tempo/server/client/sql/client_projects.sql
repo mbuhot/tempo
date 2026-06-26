@@ -16,7 +16,7 @@
 SELECT
   project_run.project_id,
   coalesce(project_current.title, '') AS title,
-  coalesce(plan.budget, 0)::numeric AS budget,
+  coalesce(plan.budget, 0)::text AS budget,
   coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
   lower(project_run.active_during) AS valid_from,
   upper(project_run.active_during) AS valid_to,

@@ -47,6 +47,7 @@ import shared/client/view.{
   type ContractRow,
 } as client_view
 import shared/command as gateway
+import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
@@ -608,7 +609,9 @@ fn view_project_row(project: ClientProjectRow) -> Element(Msg) {
         ui.swatch(category: project_id, inline: True),
         html.text(title),
       ]),
-      html.td([attribute.class("num")], [html.text(ui.money_k(budget))]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money_k(money.to_float(budget))),
+      ]),
       html.td([attribute.class("mono muted")], [
         html.text(time.iso_date(target_completion)),
       ]),

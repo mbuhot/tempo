@@ -299,7 +299,7 @@ pub type ClientProjectsRow {
   ClientProjectsRow(
     project_id: Int,
     title: String,
-    budget: Float,
+    budget: String,
     target_completion: Date,
     valid_from: Date,
     valid_to: Date,
@@ -334,7 +334,7 @@ pub fn client_projects(
   let decoder = {
     use project_id <- decode.field(0, decode.int)
     use title <- decode.field(1, decode.string)
-    use budget <- decode.field(2, pog.numeric_decoder())
+    use budget <- decode.field(2, decode.string)
     use target_completion <- decode.field(3, pog.calendar_date_decoder())
     use valid_from <- decode.field(4, pog.calendar_date_decoder())
     use valid_to <- decode.field(5, pog.calendar_date_decoder())
@@ -368,7 +368,7 @@ pub fn client_projects(
 SELECT
   project_run.project_id,
   coalesce(project_current.title, '') AS title,
-  coalesce(plan.budget, 0)::numeric AS budget,
+  coalesce(plan.budget, 0)::text AS budget,
   coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
   lower(project_run.active_during) AS valid_from,
   upper(project_run.active_during) AS valid_to,

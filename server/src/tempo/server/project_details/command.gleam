@@ -8,10 +8,10 @@
 //// Each is recorded from `effective` onward; the repository makes that the current
 //// version (a change, falling back to an open at start_project).
 
-import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/command.{ProjectDetailsCommand} as gateway
+import shared/money.{type Money}
 import shared/project_details/command.{
   type ProjectDetailsCommand, UpdateProjectPlan, UpdateProjectProfile,
 }
@@ -73,7 +73,7 @@ pub fn update_project_profile(
 pub fn update_project_plan(
   command: ProjectDetailsCommand,
   project_id project_id: Int,
-  budget budget: Float,
+  budget budget: Money,
   target_completion target_completion: Date,
   effective effective: Date,
 ) -> Result(Recorded, OperationError) {
@@ -84,7 +84,7 @@ pub fn update_project_plan(
         summary: "Update plan for project "
           <> int.to_string(project_id)
           <> " (budget "
-          <> float.to_string(budget)
+          <> money.to_string(budget)
           <> ") from "
           <> operation.iso(effective),
         payload: gateway.encode_command(ProjectDetailsCommand(command)),

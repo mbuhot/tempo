@@ -440,7 +440,7 @@ fn seed_detail_fields(
           |> ui.update_op_form(ui.FSummary, detail.profile.summary)
         ui.OpUpdateProjectPlan ->
           form
-          |> ui.update_op_form(ui.FBudget, float_text(detail.plan.budget))
+          |> ui.update_op_form(ui.FBudget, float_text(money.to_float(detail.plan.budget)))
           |> ui.update_op_form(
             ui.FTargetCompletion,
             iso_date(detail.plan.target_completion),
@@ -549,7 +549,9 @@ fn project_row(row: ProjectListRow, index: Int) -> Element(Msg) {
       html.td([attribute.class("num")], [
         html.text(int.to_string(row.team_size)),
       ]),
-      html.td([attribute.class("num")], [html.text(ui.money_k(row.budget))]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money_k(money.to_float(row.budget))),
+      ]),
       html.td([attribute.class("mono muted")], [
         html.text(time.format_date(row.target_completion)),
       ]),
@@ -634,7 +636,7 @@ fn view_project_detail(
   let stats =
     html.div([attribute.class("stats")], [
       ui.stat(
-        value: ui.money_k(detail.plan.budget),
+        value: ui.money_k(money.to_float(detail.plan.budget)),
         unit: "",
         label: "Budget",
         pct: ui.NoPct,
@@ -646,7 +648,7 @@ fn view_project_detail(
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(run_rate_of(detail.team)),
+        value: ui.money_k(money.to_float(run_rate_of(detail.team))),
         unit: "/day",
         label: "Run-rate",
         pct: ui.NoPct,
@@ -713,7 +715,9 @@ fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
           html.span([attribute.class("level-pill")], [
             html.text(ui.level_band(member.level)),
           ]),
-          html.span([], [html.text(ui.money(member.day_rate) <> "/d")]),
+          html.span([], [
+            html.text(ui.money(money.to_float(member.day_rate)) <> "/d"),
+          ]),
         ]),
       ]),
       html.div([attribute.class("board-card__action")], [
@@ -813,7 +817,11 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
   ui.panel(title: "Plan", count: "", right: [], body: [
     html.div([attribute.class("pad-detail")], [
       html.div([attribute.class("kv")], [
-        ui.kv(key: "Budget", value: ui.money(detail.plan.budget), mono: True),
+        ui.kv(
+          key: "Budget",
+          value: ui.money(money.to_float(detail.plan.budget)),
+          mono: True,
+        ),
         ui.kv(
           key: "Target completion",
           value: time.format_date(detail.plan.target_completion),
@@ -1096,10 +1104,10 @@ fn state_pill(active: Bool) -> #(String, String) {
   }
 }
 
-fn run_rate_of(team: List(TeamMember)) -> Float {
-  list.fold(team, 0.0, fn(total, member) {
-    total +. member.fraction *. member.day_rate
-  })
+fn run_rate_of(team: List(TeamMember)) -> money.Money {
+  money.sum(
+    list.map(team, fn(member) { money.scale_by(member.day_rate, member.fraction) }),
+  )
 }
 
 // --- Date / number formatting -----------------------------------------------

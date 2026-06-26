@@ -9,6 +9,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import shared/pagination
 import shared/wire
 
@@ -36,7 +37,7 @@ pub type ClientProjectRow {
   ClientProjectRow(
     project_id: Int,
     title: String,
-    budget: Float,
+    budget: Money,
     target_completion: Date,
     valid_from: Date,
     valid_to: Date,
@@ -134,7 +135,7 @@ pub fn encode_client_project_row(project: ClientProjectRow) -> Json {
   json.object([
     #("project_id", json.int(project_id)),
     #("title", json.string(title)),
-    #("budget", json.float(budget)),
+    #("budget", money.encode(budget)),
     #("target_completion", wire.encode_date(target_completion)),
     #("valid_from", wire.encode_date(valid_from)),
     #("valid_to", wire.encode_date(valid_to)),
@@ -146,7 +147,7 @@ pub fn encode_client_project_row(project: ClientProjectRow) -> Json {
 pub fn client_project_row_decoder() -> Decoder(ClientProjectRow) {
   use project_id <- decode.field("project_id", decode.int)
   use title <- decode.field("title", decode.string)
-  use budget <- decode.field("budget", wire.lenient_float_decoder())
+  use budget <- decode.field("budget", money.decoder())
   use target_completion <- decode.field(
     "target_completion",
     wire.date_decoder(),

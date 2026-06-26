@@ -355,7 +355,7 @@ fn write(
         conn,
         project_id,
         from,
-        budget,
+        money.to_string(budget),
         target_completion,
         audit_id,
       )

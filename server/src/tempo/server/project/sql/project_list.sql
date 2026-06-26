@@ -28,7 +28,7 @@ FROM (
     project_run.project_id,
     coalesce(project_current.title, '') AS title,
     coalesce(client_current.name, '') AS client,
-    coalesce(plan.budget, 0)::numeric AS budget,
+    coalesce(plan.budget, 0)::text AS budget,
     coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
     (
       SELECT count(DISTINCT allocation.engineer_id)

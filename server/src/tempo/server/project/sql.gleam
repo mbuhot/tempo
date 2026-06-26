@@ -51,7 +51,7 @@ pub type ProjectInvoicesRow {
     billing_from: Date,
     billing_to: Date,
     status: String,
-    total: Float,
+    total: String,
     issued_at: Option(Date),
     paid_at: Option(Date),
   )
@@ -90,7 +90,7 @@ pub fn project_invoices(
     use billing_from <- decode.field(3, pog.calendar_date_decoder())
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
-    use total <- decode.field(6, pog.numeric_decoder())
+    use total <- decode.field(6, decode.string)
     use issued_at <- decode.field(
       7,
       decode.optional(pog.calendar_date_decoder()),
@@ -148,7 +148,7 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total,
+  ), 0)::text AS total,
   (
     SELECT lower(issued.status_during)
       FROM invoice_status issued
@@ -190,7 +190,7 @@ pub type ProjectListRow {
     project_id: Int,
     title: String,
     client: String,
-    budget: Float,
+    budget: String,
     target_completion: Date,
     team_size: Int,
     active: Bool,
@@ -234,7 +234,7 @@ pub fn project_list(
     use project_id <- decode.field(0, decode.int)
     use title <- decode.field(1, decode.string)
     use client <- decode.field(2, decode.string)
-    use budget <- decode.field(3, pog.numeric_decoder())
+    use budget <- decode.field(3, decode.string)
     use target_completion <- decode.field(4, pog.calendar_date_decoder())
     use team_size <- decode.field(5, decode.int)
     use active <- decode.field(6, decode.bool)
@@ -279,7 +279,7 @@ FROM (
     project_run.project_id,
     coalesce(project_current.title, '') AS title,
     coalesce(client_current.name, '') AS client,
-    coalesce(plan.budget, 0)::numeric AS budget,
+    coalesce(plan.budget, 0)::text AS budget,
     coalesce(plan.target_completion, upper(project_run.active_during)) AS target_completion,
     (
       SELECT count(DISTINCT allocation.engineer_id)
@@ -365,7 +365,11 @@ SELECT nextval('project_id_seq')::int AS id;
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type ProjectPlanCurrentRow {
-  ProjectPlanCurrentRow(project_id: Int, budget: Float, target_completion: Date)
+  ProjectPlanCurrentRow(
+    project_id: Int,
+    budget: String,
+    target_completion: Date,
+  )
 }
 
 /// project_plan_current.sql — a project's CURRENT plan (latest read).
@@ -385,7 +389,7 @@ pub fn project_plan_current(
 ) -> Result(pog.Returned(ProjectPlanCurrentRow), pog.QueryError) {
   let decoder = {
     use project_id <- decode.field(0, decode.int)
-    use budget <- decode.field(1, pog.numeric_decoder())
+    use budget <- decode.field(1, decode.string)
     use target_completion <- decode.field(2, pog.calendar_date_decoder())
     decode.success(ProjectPlanCurrentRow(
       project_id:,
@@ -403,7 +407,7 @@ pub fn project_plan_current(
 -- record is scalar-only). $1 = project_id.
 SELECT DISTINCT ON (project_id)
   project_id,
-  budget,
+  budget::text AS budget,
   target_completion
 FROM project_plan
 WHERE project_id = $1
@@ -419,8 +423,8 @@ ORDER BY project_id, lower(planned_during) DESC;
 /// semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
 /// rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
 /// as the upper bound asserts the new plan holds to infinity, superseding any scheduled
-/// future versions. $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion,
-/// $5 = audit_id.
+/// future versions. $1 = project_id, $2 = effective, $3 = budget (exact decimal
+/// text, cast to numeric), $4 = target_completion, $5 = audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -429,7 +433,7 @@ pub fn project_plan_upsert(
   db: pog.Connection,
   project_id: Int,
   arg_2: Date,
-  arg_3: Float,
+  arg_3: String,
   arg_4: Date,
   arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
@@ -439,8 +443,8 @@ pub fn project_plan_upsert(
 -- semantics). The temporal DELETE clips the row covering $2 to [start, $2) and removes any
 -- rows that start at or after $2, then inserts [$2, NULL) with the new values. Passing NULL
 -- as the upper bound asserts the new plan holds to infinity, superseding any scheduled
--- future versions. $1 = project_id, $2 = effective, $3 = budget, $4 = target_completion,
--- $5 = audit_id.
+-- future versions. $1 = project_id, $2 = effective, $3 = budget (exact decimal
+-- text, cast to numeric), $4 = target_completion, $5 = audit_id.
 WITH deleted AS (
   DELETE FROM project_plan
      FOR PORTION OF planned_during FROM $2::date TO NULL
@@ -448,12 +452,12 @@ WITH deleted AS (
 )
 INSERT INTO project_plan
   (project_id, budget, target_completion, planned_during, audit_id)
-VALUES ($1, $3, $4::date, daterange($2::date, NULL, '[)'), $5);
+VALUES ($1, $3::text::numeric, $4::date, daterange($2::date, NULL, '[)'), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.parameter(pog.float(arg_3))
+  |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.calendar_date(arg_4))
   |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
@@ -843,7 +847,7 @@ pub type ProjectTeamRow {
     name: String,
     level: Int,
     fraction: Float,
-    day_rate: Float,
+    day_rate: String,
   )
 }
 
@@ -874,7 +878,7 @@ pub fn project_team(
     use name <- decode.field(1, decode.string)
     use level <- decode.field(2, decode.int)
     use fraction <- decode.field(3, pog.numeric_decoder())
-    use day_rate <- decode.field(4, pog.numeric_decoder())
+    use day_rate <- decode.field(4, decode.string)
     decode.success(ProjectTeamRow(
       engineer_id:,
       name:,
@@ -902,7 +906,7 @@ SELECT
   coalesce(engineer_current.name, '') AS name,
   engineer_role.level,
   allocation.fraction,
-  rate_card.day_rate
+  rate_card.day_rate::text AS day_rate
 FROM employment
 JOIN engineer ON engineer.id = employment.engineer_id
 JOIN engineer_current ON engineer_current.id = engineer.id

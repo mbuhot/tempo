@@ -22,6 +22,7 @@ import shared/command.{EngagementCommand} as gateway
 import shared/engagement/command.{
   type EngagementCommand, SignContract, StartProject,
 }
+import shared/money
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/repository
@@ -118,7 +119,7 @@ pub fn start_project(
         ),
         fact.ProjectPlan(
           project_id:,
-          budget: 0.0,
+          budget: money.zero(),
           target_completion: valid_to,
           from: valid_from,
         ),

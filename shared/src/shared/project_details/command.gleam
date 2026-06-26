@@ -7,7 +7,8 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
-import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+import shared/money.{type Money}
+import shared/wire.{date_decoder, encode_date}
 
 pub type ProjectDetailsCommand {
   /// Record a new profile for a project effective from a date: close the
@@ -27,7 +28,7 @@ pub type ProjectDetailsCommand {
   /// Change on the append-only project_plan fact). `budget` is a money amount.
   UpdateProjectPlan(
     project_id: Int,
-    budget: Float,
+    budget: Money,
     target_completion: Date,
     effective: Date,
   )
@@ -48,7 +49,7 @@ pub fn encode(command: ProjectDetailsCommand) -> Json {
       json.object([
         #("op", json.string("update_project_plan")),
         #("project_id", json.int(project_id)),
-        #("budget", json.float(budget)),
+        #("budget", money.encode(budget)),
         #("target_completion", encode_date(target_completion)),
         #("effective", encode_date(effective)),
       ])
@@ -75,7 +76,7 @@ pub fn decoder(op: String) -> Result(Decoder(ProjectDetailsCommand), Nil) {
     "update_project_plan" ->
       Ok({
         use project_id <- decode.field("project_id", decode.int)
-        use budget <- decode.field("budget", lenient_float_decoder())
+        use budget <- decode.field("budget", money.decoder())
         use target_completion <- decode.field(
           "target_completion",
           date_decoder(),
