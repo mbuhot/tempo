@@ -19,6 +19,7 @@ import client/ui
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
 import lustre/attribute
@@ -237,14 +238,19 @@ fn project_refs(model: Model) -> List(Ref) {
 
 /// Render the list mode: the page head with the Onboard action, the op modal, and
 /// the roster panel (its own loading / failed guards).
-pub fn view(model: Model) -> Element(Msg) {
+pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let head =
     ui.page_head(
       title: "People",
       blurb: "Everyone employed as of "
         <> time.iso_date(model.as_of)
         <> ". Open a person for their full record and history.",
-      actions: [op_button("+ Onboard", ui.OpOnboardEngineer, False)],
+      actions: [
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpOnboardEngineer),
+          op_button("+ Onboard", ui.OpOnboardEngineer, False),
+        ),
+      ],
     )
   let op_modal = view_op_modal(model.op)
   case model.people {

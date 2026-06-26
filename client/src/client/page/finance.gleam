@@ -28,6 +28,7 @@ import client/time
 import client/ui
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -186,7 +187,11 @@ fn finalize(
 
 // --- View -------------------------------------------------------------------
 
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   case page_status(model) {
     Failed(message:) ->
       html.div([], [page_head(as_of), ui.empty_state(message: message)])
@@ -195,7 +200,7 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
         page_head(as_of),
         ui.empty_state(message: "Loading finance…"),
       ])
-    Ready -> view_ready(model, as_of)
+    Ready -> view_ready(model, as_of, permissions)
   }
 }
 
@@ -307,17 +312,21 @@ fn page_head(as_of: calendar.Date) -> Element(Msg) {
   )
 }
 
-fn view_ready(model: Model, as_of: calendar.Date) -> Element(Msg) {
+fn view_ready(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   html.div([], [
     page_head(as_of),
     view_tabs(model.tab),
     subpage(
       model.tab == route.Invoices,
-      element.map(invoices_tab.view(model.invoices), InvoicesMsg),
+      element.map(invoices_tab.view(model.invoices, permissions), InvoicesMsg),
     ),
     subpage(
       model.tab == route.Payroll,
-      element.map(payroll_tab.view(model.payroll), PayrollMsg),
+      element.map(payroll_tab.view(model.payroll, permissions), PayrollMsg),
     ),
     subpage(
       model.tab == route.Pnl,

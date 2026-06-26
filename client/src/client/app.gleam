@@ -1032,20 +1032,30 @@ fn first_letter(word: String) -> String {
 
 /// The active page's view, wrapped into the shell's message via the matching
 /// `*Msg` constructor.
+/// Render the active page, threading the principal's effective `permissions` (and, for
+/// People, the viewer's own `engineer_id`) so each page can hide the in-page action
+/// launchers the principal could not run. The server stays the boundary; this is the UI
+/// mirror of the sidebar gating.
 fn view_page(model: Model) -> Element(Msg) {
+  let permissions = model.permissions
   case model.page {
-    BoardPage(page) -> element.map(board.view(page, model.as_of), BoardMsg)
-    PeoplePage(page) -> element.map(people.view(page, model.as_of), PeopleMsg)
+    BoardPage(page) ->
+      element.map(board.view(page, model.as_of, permissions), BoardMsg)
+    PeoplePage(page) ->
+      element.map(
+        people.view(page, model.as_of, permissions, model.engineer_id),
+        PeopleMsg,
+      )
     ClientsPage(page) ->
-      element.map(clients.view(page, model.as_of), ClientsMsg)
+      element.map(clients.view(page, model.as_of, permissions), ClientsMsg)
     ProjectsPage(page) ->
-      element.map(projects.view(page, model.as_of), ProjectsMsg)
+      element.map(projects.view(page, model.as_of, permissions), ProjectsMsg)
     FinancePage(page) ->
-      element.map(finance.view(page, model.as_of), FinanceMsg)
+      element.map(finance.view(page, model.as_of, permissions), FinanceMsg)
     ActivityPage(page) ->
       element.map(activity.view(page, model.as_of), ActivityMsg)
     SettingsPage(page) ->
-      element.map(settings.view(page, model.as_of), SettingsMsg)
+      element.map(settings.view(page, model.as_of, permissions), SettingsMsg)
     AccessPage(page) -> element.map(access.view(page, model.as_of), AccessMsg)
   }
 }

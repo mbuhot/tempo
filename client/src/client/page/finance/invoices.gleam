@@ -26,6 +26,7 @@ import client/ui
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -303,15 +304,16 @@ fn project_refs(model: Model) -> List(Ref) {
 
 /// Render the tab: its loading guard and the op panel, delegating the list/detail
 /// render to `list` / `detail`.
-pub fn view(model: Model) -> Element(Msg) {
+pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
+  let actions = invoice_actions(permissions)
   let body = case model.invoices {
     Loading -> ui.empty_state(message: "Loading invoices…")
     LoadFailed(message:) -> ui.empty_state(message: message)
     Loaded(invoices:, ..) ->
       case model.detail, model.selected {
-        Some(detail_data), Some(_) -> detail(detail_data, invoice_actions())
+        Some(detail_data), Some(_) -> detail(detail_data, actions)
         _, Some(_) -> ui.empty_state(message: "Loading invoice…")
-        _, None -> list(invoices, invoice_actions())
+        _, None -> list(invoices, actions)
       }
   }
   html.div([], [op_panel(model), body])
@@ -327,13 +329,14 @@ fn op_panel(model: Model) -> Element(Msg) {
 
 /// The Invoices tab's user actions, mapped onto its own `Msg`: draft / issue / pay
 /// open the matching op form, opening a row selects it, closing returns to the list.
-fn invoice_actions() -> Actions(Msg) {
+fn invoice_actions(permissions: Set(String)) -> Actions(Msg) {
   Actions(
     on_draft: OpOpened(ui.OpDraftInvoice),
     on_issue: fn(id) { OpOpenedForInvoice(ui.OpIssueInvoice, id) },
     on_pay: fn(id) { OpOpenedForInvoice(ui.OpPayInvoice, id) },
     on_open: fn(id) { InvoiceClicked(id) },
     on_close: DetailClosed,
+    permitted: ui.can_op(permissions, False, ui.OpDraftInvoice),
   )
 }
 
@@ -449,6 +452,9 @@ pub type Actions(msg) {
     on_pay: fn(Int) -> msg,
     on_open: fn(Int) -> msg,
     on_close: msg,
+    /// Whether the viewer holds `invoice.manage`; the draft/issue/pay launchers are
+    /// hidden when not (the server still 403s either way).
+    permitted: Bool,
   )
 }
 
@@ -526,8 +532,8 @@ pub fn list(invoices: List(Invoice), actions: Actions(msg)) -> Element(msg) {
 /// paid row). The action stays a raw `html.button` so the row click can be
 /// stopped from propagating (the `ui.button` primitive carries no such handle).
 fn invoice_row(invoice: Invoice, actions: Actions(msg)) -> Element(msg) {
-  let action = case invoice.status {
-    "draft" ->
+  let action = case actions.permitted, invoice.status {
+    True, "draft" ->
       html.button(
         [
           attribute.class("btn btn--sm"),
@@ -536,7 +542,7 @@ fn invoice_row(invoice: Invoice, actions: Actions(msg)) -> Element(msg) {
         ],
         [html.text("Issue")],
       )
-    "issued" ->
+    True, "issued" ->
       html.button(
         [
           attribute.class("btn btn--sm"),
@@ -545,7 +551,7 @@ fn invoice_row(invoice: Invoice, actions: Actions(msg)) -> Element(msg) {
         ],
         [html.text("Mark paid")],
       )
-    _ -> element.none()
+    _, _ -> element.none()
   }
   let lifecycle = case invoice.status {
     "draft" -> action
@@ -593,11 +599,14 @@ fn transition_pill(verb: String, at: Option(calendar.Date)) -> Element(msg) {
 }
 
 fn draft_button(actions: Actions(msg)) -> Element(msg) {
-  ui.button(
-    label: "+ Draft",
-    kind: ui.Primary,
-    size: ui.Small,
-    on_press: actions.on_draft,
+  ui.gate(
+    actions.permitted,
+    ui.button(
+      label: "+ Draft",
+      kind: ui.Primary,
+      size: ui.Small,
+      on_press: actions.on_draft,
+    ),
   )
 }
 
@@ -605,22 +614,22 @@ fn draft_button(actions: Actions(msg)) -> Element(msg) {
 /// its line items, with a back link to the list.
 pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
   let invoice = detail.invoice
-  let action = case invoice.status {
-    "draft" ->
+  let action = case actions.permitted, invoice.status {
+    True, "draft" ->
       ui.button(
         label: "Issue",
         kind: ui.Primary,
         size: ui.Small,
         on_press: actions.on_issue(invoice.id),
       )
-    "issued" ->
+    True, "issued" ->
       ui.button(
         label: "Mark paid",
         kind: ui.Primary,
         size: ui.Small,
         on_press: actions.on_pay(invoice.id),
       )
-    _ -> element.none()
+    _, _ -> element.none()
   }
   let line_rows = list.map(detail.lines, invoice_line_row)
   html.div([], [

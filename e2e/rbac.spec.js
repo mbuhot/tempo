@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { signInAs, navigateTo } = require("./helpers");
+const { signInAs, navigateTo, clickContent, rosterRow } = require("./helpers");
 
 // Behaviour-driven coverage of role-based access on the new shell: the sidebar shows
 // only the tabs a role's permissions allow, and the Owner-only Access page visualizes
@@ -52,6 +52,66 @@ test("the Access page visualizes the role-permission matrix and lists users", as
   await expect(page.getByText("roles.manage", { exact: true })).toBeVisible();
   // The users list carries the seeded accounts.
   await expect(page.getByText("finance@alembic.com.au")).toBeVisible();
+});
+
+// In-page launcher gating: a role that may VIEW a page but not perform a given action
+// does not see that action's launcher, while the owner (who may) does. Each gated case
+// is paired with an owner case over the same page/button — across separate tests, since
+// each runs in its own browser context (a fresh login) — so a broken gate fails either
+// the hide or the show, never the mere absence of a non-feature.
+
+test("an engineer viewing the board does not see the Assign launcher", async ({
+  page,
+}) => {
+  // Priya (engineer) has read.projects so she lands on the Board, but lacks
+  // allocation.manage — so the "+ Assign" launcher is hidden.
+  await signInAs(page, "Priya Sharma");
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Assign" })).toHaveCount(0);
+});
+
+test("the owner viewing the board sees the Assign launcher", async ({ page }) => {
+  await signInAs(page, "Admin");
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Assign" })).toBeVisible();
+});
+
+test("finance viewing an engineer does not see the Promote launcher", async ({
+  page,
+}) => {
+  // Finance has read.engineers (so it can open the detail) but not engineer.promote.
+  await signInAs(page, "Finance");
+  await navigateTo(page, "People");
+  await clickContent(rosterRow(page, "Marcus Chen"));
+  await expect(page.getByText("‹ All engineers")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Promote" })).toHaveCount(0);
+});
+
+test("the owner viewing an engineer sees the Promote launcher", async ({
+  page,
+}) => {
+  await signInAs(page, "Admin");
+  await navigateTo(page, "People");
+  await clickContent(rosterRow(page, "Marcus Chen"));
+  await expect(page.getByRole("button", { name: "Promote" })).toBeVisible();
+});
+
+test("a manager viewing settings does not see the Revise-rate launcher", async ({
+  page,
+}) => {
+  // Ops (manager) has read.finances (so Settings opens) but not ratecard.manage.
+  await signInAs(page, "Ops");
+  await navigateTo(page, "Settings");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revise rate" })).toHaveCount(0);
+});
+
+test("the owner viewing settings sees the Revise-rate launcher", async ({
+  page,
+}) => {
+  await signInAs(page, "Admin");
+  await navigateTo(page, "Settings");
+  await expect(page.getByRole("button", { name: "Revise rate" })).toBeVisible();
 });
 
 test("the owner can grant and revoke a user's role", async ({ page }) => {

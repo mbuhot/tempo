@@ -26,6 +26,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
 import lustre/attribute
@@ -483,7 +484,11 @@ fn parse_hours(raw: String) -> Float {
 
 // --- View -------------------------------------------------------------------
 
-pub fn view(model: Model) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  permissions: Set(String),
+  viewer_engineer_id: Option(Int),
+) -> Element(Msg) {
   let back =
     html.a([attribute.class("back-link"), event.on_click(BackClicked)], [
       html.text("‹ All engineers"),
@@ -492,13 +497,19 @@ pub fn view(model: Model) -> Element(Msg) {
     DetailLoading -> column([back, ui.empty_state("Loading engineer…")])
     DetailFailed(message:) ->
       column([back, ui.empty_state("Could not load this engineer: " <> message)])
-    DetailLoaded(detail:) ->
+    DetailLoaded(detail:) -> {
+      let permits =
+        permits(
+          permissions,
+          own: viewer_engineer_id == Some(detail.engineer_id),
+        )
       column([
         back,
-        detail_head(detail),
+        detail_head(detail, permits),
         view_op_modal(model, model.op),
-        detail_grid(detail, model.timesheet),
+        detail_grid(detail, model.timesheet, permits),
       ])
+    }
   }
 }
 
@@ -506,7 +517,34 @@ fn column(children: List(Element(Msg))) -> Element(Msg) {
   html.div([], children)
 }
 
-fn detail_head(detail: EngineerDetail) -> Element(Msg) {
+/// Which of the detail page's launchers the viewer may use, resolved once per render
+/// from the effective permissions and whether the viewer owns this record (themselves).
+/// `profile` covers the contact/banking/emergency edits (all `profile.update.*`);
+/// `timesheet` the week-log grid. Mirrors the server's gate; the server stays the
+/// boundary, this just hides what would 403.
+type Permits {
+  Permits(
+    profile: Bool,
+    leave: Bool,
+    rolloff: Bool,
+    terminate: Bool,
+    promote: Bool,
+    timesheet: Bool,
+  )
+}
+
+fn permits(permissions: Set(String), own own: Bool) -> Permits {
+  Permits(
+    profile: ui.can_op(permissions, own, ui.OpUpdateContact),
+    leave: ui.can_op(permissions, own, ui.OpTakeLeave),
+    rolloff: ui.can_op(permissions, own, ui.OpRollOff),
+    terminate: ui.can_op(permissions, own, ui.OpTerminateEmployment),
+    promote: ui.can_op(permissions, own, ui.OpPromote),
+    timesheet: ui.can_op(permissions, own, ui.OpLogWeek),
+  )
+}
+
+fn detail_head(detail: EngineerDetail, permits: Permits) -> Element(Msg) {
   let EngineerDetail(engineer_id:, name:, level:, allocations:, ..) = detail
   html.div([attribute.class("page-head")], [
     html.div([], [
@@ -520,10 +558,13 @@ fn detail_head(detail: EngineerDetail) -> Element(Msg) {
       html.p([], [html.text(situation(allocations))]),
     ]),
     html.div([attribute.class("action-row")], [
-      op_button("Take leave", ui.OpTakeLeave, True),
-      op_button("Roll off", ui.OpRollOff, True),
-      op_button("Terminate", ui.OpTerminateEmployment, True),
-      op_button("Promote", ui.OpPromote, False),
+      ui.gate(permits.leave, op_button("Take leave", ui.OpTakeLeave, True)),
+      ui.gate(permits.rolloff, op_button("Roll off", ui.OpRollOff, True)),
+      ui.gate(
+        permits.terminate,
+        op_button("Terminate", ui.OpTerminateEmployment, True),
+      ),
+      ui.gate(permits.promote, op_button("Promote", ui.OpPromote, False)),
     ]),
   ])
 }
@@ -549,17 +590,23 @@ fn situation(allocations: List(allocation_view.AllocationRow)) -> String {
 fn detail_grid(
   detail: EngineerDetail,
   timesheet: TimesheetData,
+  permits: Permits,
 ) -> Element(Msg) {
   html.div([attribute.class("detail-grid")], [
     html.div([], [
       allocations_panel(detail.allocations),
-      timesheet_panel(timesheet),
+      timesheet_panel(timesheet, permits),
     ]),
     html.div([], [
       balance_panel(detail.balance),
-      contact_panel(detail.contact),
-      banking_panel(detail.banking),
-      employment_panel(detail.employment, detail.level, detail.emergency),
+      contact_panel(detail.contact, permits),
+      banking_panel(detail.banking, permits),
+      employment_panel(
+        detail.employment,
+        detail.level,
+        detail.emergency,
+        permits,
+      ),
     ]),
   ])
 }
@@ -616,7 +663,7 @@ fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
 /// The detail's timesheet panel: its Loading/Failed guards, delegating the loaded
 /// week's grid to the self-contained `page/people/timesheet` module. The grid's two
 /// actions (submit the week, edit a cell) are wired from this module's `Msg`.
-fn timesheet_panel(timesheet: TimesheetData) -> Element(Msg) {
+fn timesheet_panel(timesheet: TimesheetData, permits: Permits) -> Element(Msg) {
   case timesheet {
     TimesheetLoading ->
       ui.panel(title: "Timesheet", count: "", right: [], body: [
@@ -634,6 +681,7 @@ fn timesheet_panel(timesheet: TimesheetData) -> Element(Msg) {
         on_cell_edit: fn(project_id, day, value) {
           CellEdited(project_id:, day:, value:)
         },
+        permitted: permits.timesheet,
       )
   }
 }
@@ -665,26 +713,39 @@ fn balance_bar(label: String, value: Float, max: Float) -> Element(Msg) {
   ])
 }
 
-fn contact_panel(contact: engineer_view.EngineerContact) -> Element(Msg) {
+fn contact_panel(
+  contact: engineer_view.EngineerContact,
+  permits: Permits,
+) -> Element(Msg) {
   let EngineerContact(name:, email:, phone:, postal_address:, ..) = contact
   let _ = name
-  ui.panel(title: "Contact", count: "", right: [contact_edit_button()], body: [
-    html.div([attribute.class("pad-detail")], [
-      html.div([attribute.class("kv")], [
-        ui.kv(key: "Email", value: email, mono: False),
-        ui.kv(key: "Phone", value: phone, mono: True),
-        ui.kv(key: "Address", value: postal_address, mono: False),
+  ui.panel(
+    title: "Contact",
+    count: "",
+    right: [contact_edit_button(permits)],
+    body: [
+      html.div([attribute.class("pad-detail")], [
+        html.div([attribute.class("kv")], [
+          ui.kv(key: "Email", value: email, mono: False),
+          ui.kv(key: "Phone", value: phone, mono: True),
+          ui.kv(key: "Address", value: postal_address, mono: False),
+        ]),
       ]),
-    ]),
-  ])
+    ],
+  )
 }
 
-fn banking_panel(banking: engineer_view.EngineerBanking) -> Element(Msg) {
+fn banking_panel(
+  banking: engineer_view.EngineerBanking,
+  permits: Permits,
+) -> Element(Msg) {
   let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) = banking
   ui.panel(
     title: "Banking",
     count: "",
-    right: [op_button("Edit", ui.OpUpdateBanking, True)],
+    right: [
+      ui.gate(permits.profile, op_button("Edit", ui.OpUpdateBanking, True)),
+    ],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
@@ -698,14 +759,15 @@ fn banking_panel(banking: engineer_view.EngineerBanking) -> Element(Msg) {
   )
 }
 
-fn contact_edit_button() -> Element(Msg) {
-  op_button("Edit", ui.OpUpdateContact, True)
+fn contact_edit_button(permits: Permits) -> Element(Msg) {
+  ui.gate(permits.profile, op_button("Edit", ui.OpUpdateContact, True))
 }
 
 fn employment_panel(
   employment: engineer_view.Employment,
   level: Int,
   emergency: engineer_view.EngineerEmergency,
+  permits: Permits,
 ) -> Element(Msg) {
   let Employment(started:, monthly_salary:, ..) = employment
   let EngineerEmergency(relation:, name:, phone:, ..) = emergency
@@ -713,7 +775,12 @@ fn employment_panel(
   ui.panel(
     title: "Employment",
     count: "",
-    right: [op_button("Emergency", ui.OpUpdateEmergency, True)],
+    right: [
+      ui.gate(
+        permits.profile,
+        op_button("Emergency", ui.OpUpdateEmergency, True),
+      ),
+    ],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [

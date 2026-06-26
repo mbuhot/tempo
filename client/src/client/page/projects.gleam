@@ -35,6 +35,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -468,11 +469,16 @@ fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
 // --- View -------------------------------------------------------------------
 
 /// Render the page for `as_of`.
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   case model {
-    ListView(list:, roster:, op:, ..) -> view_list(list, roster, op, as_of)
+    ListView(list:, roster:, op:, ..) ->
+      view_list(list, roster, op, as_of, permissions)
     DetailView(detail:, roster:, op:, ..) ->
-      view_detail(detail, roster, op, as_of)
+      view_detail(detail, roster, op, as_of, permissions)
   }
 }
 
@@ -481,6 +487,7 @@ fn view_list(
   roster: Load(Roster),
   op: Option(ui.OpState),
   as_of: calendar.Date,
+  permissions: Set(String),
 ) -> Element(Msg) {
   let head =
     ui.page_head(
@@ -489,11 +496,14 @@ fn view_list(
         <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        ui.button(
-          label: "+ Start project",
-          kind: ui.Primary,
-          size: ui.Medium,
-          on_press: OpStarted(ui.OpStartProject),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpStartProject),
+          ui.button(
+            label: "+ Start project",
+            kind: ui.Primary,
+            size: ui.Medium,
+            on_press: OpStarted(ui.OpStartProject),
+          ),
         ),
       ],
     )
@@ -567,6 +577,7 @@ fn view_detail(
   roster: Load(Roster),
   op: Option(ui.OpState),
   as_of: calendar.Date,
+  permissions: Set(String),
 ) -> Element(Msg) {
   let back =
     html.a([attribute.class("back-link"), event.on_click(BackToListClicked)], [
@@ -576,7 +587,7 @@ fn view_detail(
     Loading -> ui.empty_state(message: "Loading project…")
     Failed(message:) ->
       ui.empty_state(message: "Could not load project: " <> message)
-    Loaded(value:) -> view_project_detail(value, roster, op, as_of)
+    Loaded(value:) -> view_project_detail(value, roster, op, as_of, permissions)
   }
   html.div([], [back, body])
 }
@@ -586,6 +597,7 @@ fn view_project_detail(
   roster: Load(Roster),
   op: Option(ui.OpState),
   as_of: calendar.Date,
+  permissions: Set(String),
 ) -> Element(Msg) {
   let head =
     html.div([attribute.class("page-head")], [
@@ -598,41 +610,59 @@ fn view_project_detail(
         html.p([], [html.text(detail.profile.summary)]),
       ]),
       html.div([attribute.class("action-row")], [
-        ui.button(
-          label: "Assign",
-          kind: ui.Ghost,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpAssignToProject),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpAssignToProject),
+          ui.button(
+            label: "Assign",
+            kind: ui.Ghost,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpAssignToProject),
+          ),
         ),
-        ui.button(
-          label: "Adjust allocation",
-          kind: ui.Ghost,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpChangeAllocationFraction),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpChangeAllocationFraction),
+          ui.button(
+            label: "Adjust allocation",
+            kind: ui.Ghost,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpChangeAllocationFraction),
+          ),
         ),
-        ui.button(
-          label: "Edit profile",
-          kind: ui.Ghost,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpUpdateProjectProfile),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpUpdateProjectProfile),
+          ui.button(
+            label: "Edit profile",
+            kind: ui.Ghost,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpUpdateProjectProfile),
+          ),
         ),
-        ui.button(
-          label: "Edit plan",
-          kind: ui.Ghost,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpUpdateProjectPlan),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpUpdateProjectPlan),
+          ui.button(
+            label: "Edit plan",
+            kind: ui.Ghost,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpUpdateProjectPlan),
+          ),
         ),
-        ui.button(
-          label: "Set requirement",
-          kind: ui.Ghost,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpSetProjectRequirement),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpSetProjectRequirement),
+          ui.button(
+            label: "Set requirement",
+            kind: ui.Ghost,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpSetProjectRequirement),
+          ),
         ),
-        ui.button(
-          label: "Draft invoice",
-          kind: ui.Primary,
-          size: ui.Small,
-          on_press: OpStarted(ui.OpDraftInvoice),
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpDraftInvoice),
+          ui.button(
+            label: "Draft invoice",
+            kind: ui.Primary,
+            size: ui.Small,
+            on_press: OpStarted(ui.OpDraftInvoice),
+          ),
         ),
       ]),
     ])
@@ -666,7 +696,7 @@ fn view_project_detail(
   let grid =
     html.div([attribute.class("detail-grid")], [
       html.div([], [
-        team_panel(detail.team, as_of),
+        team_panel(detail.team, as_of, permissions),
         requirements_panel(detail.requirements),
         invoices_panel(detail.invoices),
       ]),
@@ -680,10 +710,17 @@ fn view_project_detail(
   ])
 }
 
-fn team_panel(team: List(TeamMember), as_of: calendar.Date) -> Element(Msg) {
+fn team_panel(
+  team: List(TeamMember),
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   let cards = case team {
     [] -> [ui.empty_state(message: "No one allocated on this date.")]
-    members -> list.index_map(members, team_card)
+    members ->
+      list.index_map(members, fn(member, index) {
+        team_card(member, index, permissions)
+      })
   }
   ui.panel(
     title: "Team on " <> time.format_date(as_of),
@@ -701,7 +738,11 @@ fn team_panel(team: List(TeamMember), as_of: calendar.Date) -> Element(Msg) {
 /// detail; the right-aligned "Adjust" action opens the ChangeAllocationFraction
 /// modal pre-filled with this engineer (and the locked project), without firing
 /// the card's drill-in via `stop_propagation`.
-fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
+fn team_card(
+  member: TeamMember,
+  index: Int,
+  permissions: Set(String),
+) -> Element(Msg) {
   html.div(
     [
       attribute.class("board-card"),
@@ -724,17 +765,20 @@ fn team_card(member: TeamMember, index: Int) -> Element(Msg) {
         ]),
       ]),
       html.div([attribute.class("board-card__action")], [
-        html.button(
-          [
-            attribute.class("btn btn--ghost btn--sm"),
-            event.stop_propagation(
-              event.on_click(OpStartedFor(
-                kind: ui.OpChangeAllocationFraction,
-                engineer_id: member.engineer_id,
-              )),
-            ),
-          ],
-          [html.text("Adjust")],
+        ui.gate(
+          ui.can_op(permissions, False, ui.OpChangeAllocationFraction),
+          html.button(
+            [
+              attribute.class("btn btn--ghost btn--sm"),
+              event.stop_propagation(
+                event.on_click(OpStartedFor(
+                  kind: ui.OpChangeAllocationFraction,
+                  engineer_id: member.engineer_id,
+                )),
+              ),
+            ],
+            [html.text("Adjust")],
+          ),
         ),
       ]),
     ],

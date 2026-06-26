@@ -32,23 +32,29 @@ pub fn view(
   edits: Dict(#(Int, Int), String),
   on_submit on_submit: msg,
   on_cell_edit on_cell_edit: fn(Int, calendar.Date, String) -> msg,
+  permitted permitted: Bool,
 ) -> Element(msg) {
   ui.panel(
     title: "Timesheet",
     count: "week of " <> time.iso_date(week.week_start),
-    right: [submit_week_button(week, on_submit)],
+    right: [submit_week_button(week, on_submit, permitted)],
     body: [
       html.div([attribute.class("pad-block")], [
-        grid(week, edits, on_cell_edit),
+        grid(week, edits, on_cell_edit, permitted),
       ]),
     ],
   )
 }
 
-fn submit_week_button(week: TimesheetWeek, on_submit: msg) -> Element(msg) {
-  case week.rows {
-    [] -> element.none()
-    _ ->
+fn submit_week_button(
+  week: TimesheetWeek,
+  on_submit: msg,
+  permitted: Bool,
+) -> Element(msg) {
+  case permitted, week.rows {
+    _, [] -> element.none()
+    False, _ -> element.none()
+    True, _ ->
       ui.button(
         label: "Log week",
         kind: ui.Primary,
@@ -62,6 +68,7 @@ fn grid(
   week: TimesheetWeek,
   edits: Dict(#(Int, Int), String),
   on_cell_edit: fn(Int, calendar.Date, String) -> msg,
+  permitted: Bool,
 ) -> Element(msg) {
   let header =
     html.tr([], [
@@ -76,7 +83,8 @@ fn grid(
         ]),
       ]),
     ]
-    rows -> list.map(rows, fn(row) { row_view(row, edits, on_cell_edit) })
+    rows ->
+      list.map(rows, fn(row) { row_view(row, edits, on_cell_edit, permitted) })
   }
   html.table([attribute.class("timesheet")], [
     html.thead([], [header]),
@@ -103,6 +111,7 @@ fn row_view(
   row: TimesheetWeekRow,
   edits: Dict(#(Int, Int), String),
   on_cell_edit: fn(Int, calendar.Date, String) -> msg,
+  permitted: Bool,
 ) -> Element(msg) {
   let TimesheetWeekRow(project_id:, project:, cells:) = row
   html.tr([], [
@@ -111,7 +120,7 @@ fn row_view(
       html.text(project),
     ]),
     ..list.map(cells, fn(cell) {
-      cell_view(project_id, cell, edits, on_cell_edit)
+      cell_view(project_id, cell, edits, on_cell_edit, permitted)
     })
   ])
 }
@@ -121,6 +130,7 @@ fn cell_view(
   cell: TimesheetCell,
   edits: Dict(#(Int, Int), String),
   on_cell_edit: fn(Int, calendar.Date, String) -> msg,
+  permitted: Bool,
 ) -> Element(msg) {
   let TimesheetCell(date:, allocated:, hours:) = cell
   let key = #(project_id, time.date_to_day_index(date))
@@ -128,7 +138,7 @@ fn cell_view(
     Ok(typed) -> typed
     Error(Nil) -> hours_display(hours)
   }
-  let #(class, disabled) = case allocated {
+  let #(class, disabled) = case allocated && permitted {
     True -> #("timesheet__cell", False)
     False -> #("timesheet__cell timesheet__cell--disabled", True)
   }

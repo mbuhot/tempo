@@ -23,7 +23,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/set
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
 import lustre/attribute
@@ -305,51 +305,63 @@ fn project_id_for(model: Model, title: String) -> Option(Int) {
 /// Render the board for `as_of`: while either fetch is in flight, a loading state;
 /// if either failed, the failure; otherwise the stats hero, the per-project blocks,
 /// and the On-leave / Unassigned panels, with the op-form modal overlaid when open.
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   let _ = as_of
   case model.data.snapshot, model.data.roster {
-    Some(Error(message)), _ -> view_failed(message)
-    _, Some(Error(message)) -> view_failed(message)
-    Some(Ok(snapshot)), Some(Ok(_roster)) -> view_loaded(model, snapshot)
-    _, _ -> view_loading()
+    Some(Error(message)), _ -> view_failed(message, permissions)
+    _, Some(Error(message)) -> view_failed(message, permissions)
+    Some(Ok(snapshot)), Some(Ok(_roster)) ->
+      view_loaded(model, snapshot, permissions)
+    _, _ -> view_loading(permissions)
   }
 }
 
-fn view_loading() -> Element(Msg) {
+fn view_loading(permissions: Set(String)) -> Element(Msg) {
   html.div([], [
-    head(),
+    head(permissions),
     ui.empty_state(message: "Loading the board…"),
   ])
 }
 
-fn view_failed(message: String) -> Element(Msg) {
+fn view_failed(message: String, permissions: Set(String)) -> Element(Msg) {
   html.div([], [
-    head(),
+    head(permissions),
     ui.empty_state(message: "Could not load the board: " <> message),
   ])
 }
 
-fn head() -> Element(Msg) {
+fn head(permissions: Set(String)) -> Element(Msg) {
   ui.page_head(
     title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
-      ui.button(
-        label: "+ Assign",
-        kind: ui.Primary,
-        size: ui.Medium,
-        on_press: OpStarted(ui.OpAssignToProject),
+      ui.gate(
+        ui.can_op(permissions, False, ui.OpAssignToProject),
+        ui.button(
+          label: "+ Assign",
+          kind: ui.Primary,
+          size: ui.Medium,
+          on_press: OpStarted(ui.OpAssignToProject),
+        ),
       ),
     ],
   )
 }
 
-fn view_loaded(model: Model, snapshot: BoardSnapshot) -> Element(Msg) {
+fn view_loaded(
+  model: Model,
+  snapshot: BoardSnapshot,
+  permissions: Set(String),
+) -> Element(Msg) {
   let on_project = list.filter(snapshot.rows, is_on_project)
   let on_leave = list.filter(snapshot.rows, is_on_leave)
   let unassigned = list.filter(snapshot.rows, is_unassigned)
   html.div([], [
-    head(),
+    head(permissions),
     stats_hero(on_project, on_leave, snapshot),
     on_projects_panel(model, on_project),
     unstaffed_projects_panel(model, snapshot.unstaffed),

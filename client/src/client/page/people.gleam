@@ -20,7 +20,8 @@ import client/page.{type OutMsg}
 import client/page/people/detail as detail_mode
 import client/page/people/roster as roster_mode
 import client/route
-import gleam/option.{None, Some}
+import gleam/option.{type Option, Some}
+import gleam/set.{type Set}
 import gleam/time/calendar
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -105,10 +106,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
 // --- View -------------------------------------------------------------------
 
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+  viewer_engineer_id: Option(Int),
+) -> Element(Msg) {
   let _ = as_of
   case model {
-    ListView(mode) -> element.map(roster_mode.view(mode), RosterMsg)
-    DetailView(mode) -> element.map(detail_mode.view(mode), DetailMsg)
+    ListView(mode) ->
+      element.map(roster_mode.view(mode, permissions), RosterMsg)
+    DetailView(mode) ->
+      element.map(
+        detail_mode.view(mode, permissions, viewer_engineer_id),
+        DetailMsg,
+      )
   }
 }

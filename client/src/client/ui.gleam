@@ -25,12 +25,14 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/result
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import shared/access
 import shared/allocation/command as allocation_command
 import shared/client_details/command as client_details_command
 import shared/command.{type Command} as gateway
@@ -403,6 +405,73 @@ pub type OpKind {
   OpAdjustRateForPortion
   OpSetSalary
   OpSetProjectRequirement
+}
+
+// --- Op authorization (client-side launcher gating) -------------------------
+
+/// What an op requires to run: a single permission (`Direct`), or — for the
+/// ownership-sensitive ops — the `any` permission OR the `own` permission when acting
+/// on one's OWN record (`Owned`). The client analogue of the server's `auth.Requirement`.
+pub type OpAccess {
+  Direct(permission: String)
+  Owned(own: String, any: String)
+}
+
+/// The access an op requires, TOTAL over `OpKind` — the client mirror of the server's
+/// exhaustive `auth.requirement`, so a new op must declare its permission here too. The
+/// client hides launchers the principal could not run; the server stays the boundary (a
+/// gated-around request still 403s).
+pub fn op_access(kind: OpKind) -> OpAccess {
+  case kind {
+    OpOnboardEngineer -> Direct(access.engineer_onboard)
+    OpPromote -> Direct(access.engineer_promote)
+    OpTakeLeave -> Owned(access.leave_take_own, access.leave_take_any)
+    OpRollOff -> Direct(access.allocation_manage)
+    OpTerminateEmployment -> Direct(access.engineer_terminate)
+    OpUpdateContact ->
+      Owned(access.profile_update_own, access.profile_update_any)
+    OpUpdateBanking ->
+      Owned(access.profile_update_own, access.profile_update_any)
+    OpUpdateEmergency ->
+      Owned(access.profile_update_own, access.profile_update_any)
+    OpLogWeek -> Owned(access.timesheet_log_own, access.timesheet_log_any)
+    OpSignContract -> Direct(access.engagement_manage)
+    OpUpdateClientProfile -> Direct(access.client_manage)
+    OpStartProject -> Direct(access.engagement_manage)
+    OpAssignToProject -> Direct(access.allocation_manage)
+    OpChangeAllocationFraction -> Direct(access.allocation_manage)
+    OpUpdateProjectProfile -> Direct(access.project_manage)
+    OpUpdateProjectPlan -> Direct(access.project_manage)
+    OpDraftInvoice -> Direct(access.invoice_manage)
+    OpIssueInvoice -> Direct(access.invoice_manage)
+    OpPayInvoice -> Direct(access.invoice_manage)
+    OpRunPayroll -> Direct(access.payroll_run)
+    OpReviseRateCard -> Direct(access.ratecard_manage)
+    OpAdjustRateForPortion -> Direct(access.ratecard_manage)
+    OpSetSalary -> Direct(access.salary_set)
+    OpSetProjectRequirement -> Direct(access.project_manage)
+  }
+}
+
+/// Whether `permissions` may run `kind`. `own` is whether the acting principal owns the
+/// record the op targets (i.e. it is their own) — it only changes the outcome for the
+/// ownership-sensitive ops.
+pub fn can_op(permissions: Set(String), own: Bool, kind: OpKind) -> Bool {
+  case op_access(kind) {
+    Direct(permission:) -> set.contains(permissions, permission)
+    Owned(own: own_permission, any:) ->
+      set.contains(permissions, any)
+      || { own && set.contains(permissions, own_permission) }
+  }
+}
+
+/// `node` when `allowed`, otherwise nothing — the launcher-gating primitive: keep a list
+/// of action buttons literal and wrap each in `gate(can_op(...), button)`.
+pub fn gate(allowed: Bool, node: Element(msg)) -> Element(msg) {
+  case allowed {
+    True -> node
+    False -> element.none()
+  }
 }
 
 /// Names a slot of the shared `OpForm`, so one edit message targets every text

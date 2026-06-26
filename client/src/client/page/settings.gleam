@@ -24,6 +24,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -296,12 +297,16 @@ fn with_actor(model: Model, actor: String) -> Model {
 // --- View -------------------------------------------------------------------
 
 /// Render the page for `as_of`.
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   let _ = as_of
   case model {
     Loading(..) -> view_shell([ui.empty_state(message: "Loading settings…")])
     Failed(message:, ..) -> view_shell([ui.empty_state(message: message)])
-    Loaded(settings:, op:, ..) -> view_loaded(settings, op)
+    Loaded(settings:, op:, ..) -> view_loaded(settings, op, permissions)
   }
 }
 
@@ -322,31 +327,44 @@ fn head(actions: List(Element(Msg))) -> Element(Msg) {
 /// The loaded view: the page head with the New rate / New salary actions, the
 /// `.settings-grid` two-column layout of the rate-card & salary table and the
 /// read-only leave-policy table, then the op-form modal overlaid when open.
-fn view_loaded(settings: Settings, op: Option(ui.OpState)) -> Element(Msg) {
+fn view_loaded(
+  settings: Settings,
+  op: Option(ui.OpState),
+  permissions: Set(String),
+) -> Element(Msg) {
   let actions = [
-    ui.button(
-      label: "Adjust window",
-      kind: ui.Ghost,
-      size: ui.Small,
-      on_press: OpStarted(ui.OpAdjustRateForPortion),
+    ui.gate(
+      ui.can_op(permissions, False, ui.OpAdjustRateForPortion),
+      ui.button(
+        label: "Adjust window",
+        kind: ui.Ghost,
+        size: ui.Small,
+        on_press: OpStarted(ui.OpAdjustRateForPortion),
+      ),
     ),
-    ui.button(
-      label: "Set salary",
-      kind: ui.Ghost,
-      size: ui.Small,
-      on_press: OpStarted(ui.OpSetSalary),
+    ui.gate(
+      ui.can_op(permissions, False, ui.OpSetSalary),
+      ui.button(
+        label: "Set salary",
+        kind: ui.Ghost,
+        size: ui.Small,
+        on_press: OpStarted(ui.OpSetSalary),
+      ),
     ),
-    ui.button(
-      label: "Revise rate",
-      kind: ui.Primary,
-      size: ui.Small,
-      on_press: OpStarted(ui.OpReviseRateCard),
+    ui.gate(
+      ui.can_op(permissions, False, ui.OpReviseRateCard),
+      ui.button(
+        label: "Revise rate",
+        kind: ui.Primary,
+        size: ui.Small,
+        on_press: OpStarted(ui.OpReviseRateCard),
+      ),
     ),
   ]
   html.div([], [
     head(actions),
     html.div([attribute.class("settings-grid")], [
-      view_rate_card(settings),
+      view_rate_card(settings, permissions),
       view_leave_policy(settings),
     ]),
     view_op(settings, op),
@@ -357,7 +375,10 @@ fn view_loaded(settings: Settings, op: Option(ui.OpState)) -> Element(Msg) {
 /// showing the level band, day rate, monthly salary (from the salaries list, "—"
 /// when absent), a per-row Revise button (pre-filling this level's day rate), and a
 /// per-row Set-salary button (pre-filling this level's monthly salary).
-fn view_rate_card(settings: Settings) -> Element(Msg) {
+fn view_rate_card(
+  settings: Settings,
+  permissions: Set(String),
+) -> Element(Msg) {
   let rows =
     list.map(settings.rate_card, fn(rate) {
       let salary = salary_for(settings.salaries, rate.level)
@@ -373,24 +394,30 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
         html.td([attribute.class("num")], [html.text(salary)]),
         html.td([attribute.class("num")], [
           html.div([attribute.class("action-row")], [
-            ui.button(
-              label: "Revise",
-              kind: ui.Ghost,
-              size: ui.Small,
-              on_press: OpStartedForLevel(
-                kind: ui.OpReviseRateCard,
-                level: rate.level,
-                amount: money.to_float(rate.day_rate),
+            ui.gate(
+              ui.can_op(permissions, False, ui.OpReviseRateCard),
+              ui.button(
+                label: "Revise",
+                kind: ui.Ghost,
+                size: ui.Small,
+                on_press: OpStartedForLevel(
+                  kind: ui.OpReviseRateCard,
+                  level: rate.level,
+                  amount: money.to_float(rate.day_rate),
+                ),
               ),
             ),
-            ui.button(
-              label: "Set salary",
-              kind: ui.Ghost,
-              size: ui.Small,
-              on_press: OpStartedForLevel(
-                kind: ui.OpSetSalary,
-                level: rate.level,
-                amount: salary_amount(settings.salaries, rate.level),
+            ui.gate(
+              ui.can_op(permissions, False, ui.OpSetSalary),
+              ui.button(
+                label: "Set salary",
+                kind: ui.Ghost,
+                size: ui.Small,
+                on_press: OpStartedForLevel(
+                  kind: ui.OpSetSalary,
+                  level: rate.level,
+                  amount: salary_amount(settings.salaries, rate.level),
+                ),
               ),
             ),
           ]),

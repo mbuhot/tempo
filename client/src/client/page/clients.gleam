@@ -34,6 +34,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar.{type Date}
 import lustre/attribute
@@ -436,7 +437,11 @@ fn mark_detail_loading(detail: Detail) -> Detail {
 
 /// Render the page for `as_of`: the client detail when one is drilled in,
 /// otherwise the client roster. The optional op form is layered above either view.
-pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  as_of: calendar.Date,
+  permissions: Set(String),
+) -> Element(Msg) {
   let _ = as_of
   case model {
     Loading(..) -> ui.empty_state(message: "Loading clients…")
@@ -444,8 +449,8 @@ pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
       ui.empty_state(message: "Could not load clients: " <> message)
     Loaded(list:, roster:, detail:, op:, ..) ->
       case detail {
-        NoDetail -> view_list(list, roster, op)
-        _ -> view_detail(detail, roster, op)
+        NoDetail -> view_list(list, roster, op, permissions)
+        _ -> view_detail(detail, roster, op, permissions)
       }
   }
 }
@@ -457,13 +462,16 @@ fn view_list(
   client_list: ClientList,
   roster: Option(Result(Roster, String)),
   op: Option(ui.OpState),
+  permissions: Set(String),
 ) -> Element(Msg) {
   let clients = client_list.clients
   html.div([], [
     ui.page_head(
       title: "Clients",
       blurb: "Who we work for, and the contracts behind the projects.",
-      actions: [op_trigger("+ Sign contract", ui.OpSignContract)],
+      actions: [
+        op_trigger(permissions, "+ Sign contract", ui.OpSignContract),
+      ],
     ),
     op_panel(roster, op),
     ui.panel(
@@ -528,6 +536,7 @@ fn view_detail(
   detail: Detail,
   roster: Option(Result(Roster, String)),
   op: Option(ui.OpState),
+  permissions: Set(String),
 ) -> Element(Msg) {
   case detail {
     NoDetail -> ui.empty_state(message: "No client selected.")
@@ -538,7 +547,8 @@ fn view_detail(
         back_link(),
         ui.empty_state(message: "Could not load client: " <> message),
       ])
-    DetailLoaded(detail: loaded) -> view_detail_loaded(loaded, roster, op)
+    DetailLoaded(detail: loaded) ->
+      view_detail_loaded(loaded, roster, op, permissions)
   }
 }
 
@@ -546,6 +556,7 @@ fn view_detail_loaded(
   detail: ClientDetail,
   roster: Option(Result(Roster, String)),
   op: Option(ui.OpState),
+  permissions: Set(String),
 ) -> Element(Msg) {
   let client_view.ClientDetail(profile:, since:, contracts:, projects:) = detail
   let client_view.ClientProfile(name:, ..) = profile
@@ -555,8 +566,8 @@ fn view_detail_loaded(
       title: name,
       blurb: "Client since " <> option_date(since) <> ".",
       actions: [
-        op_trigger("Sign contract", ui.OpSignContract),
-        op_trigger("Edit profile", ui.OpUpdateClientProfile),
+        op_trigger(permissions, "Sign contract", ui.OpSignContract),
+        op_trigger(permissions, "Edit profile", ui.OpUpdateClientProfile),
       ],
     ),
     op_panel(roster, op),
@@ -671,12 +682,19 @@ fn view_contract_row(contract: ContractRow) -> Element(Msg) {
 // --- Op form ----------------------------------------------------------------
 
 /// A header button that opens a contextual operation's form.
-fn op_trigger(label: String, kind: ui.OpKind) -> Element(Msg) {
-  ui.button(
-    label: label,
-    kind: ui.Primary,
-    size: ui.Medium,
-    on_press: OpStarted(kind:),
+fn op_trigger(
+  permissions: Set(String),
+  label: String,
+  kind: ui.OpKind,
+) -> Element(Msg) {
+  ui.gate(
+    ui.can_op(permissions, False, kind),
+    ui.button(
+      label: label,
+      kind: ui.Primary,
+      size: ui.Medium,
+      on_press: OpStarted(kind:),
+    ),
   )
 }
 
