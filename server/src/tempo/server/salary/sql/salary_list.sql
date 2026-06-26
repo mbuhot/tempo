@@ -4,7 +4,7 @@
 -- level with no salary covering $1 is simply absent. Param: $1 = the as-of date.
 SELECT
   salary.level,
-  salary.monthly_salary
+  salary.monthly_salary::text AS monthly_salary
 FROM salary
 WHERE salary.effective_during @> $1::date
 ORDER BY salary.level;

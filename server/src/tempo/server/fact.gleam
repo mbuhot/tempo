@@ -23,6 +23,7 @@
 
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import tempo/server/operation.{type Event}
 
 /// What a command records: its journal `entry` (the audit log row) plus the `facts`
@@ -122,9 +123,9 @@ pub type Fact {
   // --- rates & salary ---------------------------------------------------------
   /// A level's billable day rate. `None` revises it from `from` onward; `Some(to)`
   /// is a bounded surgical edit over `[from, to)`.
-  RateCard(level: Int, day_rate: Float, from: Date, to: Option(Date))
+  RateCard(level: Int, day_rate: Money, from: Date, to: Option(Date))
   /// A level's monthly salary from `from` onward.
-  Salary(level: Int, monthly_salary: Float, from: Date)
+  Salary(level: Int, monthly_salary: Money, from: Date)
 
   // --- engagement -------------------------------------------------------------
   /// A contract's term with a client over `[from, to)`.

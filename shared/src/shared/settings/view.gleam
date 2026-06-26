@@ -7,18 +7,19 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import shared/wire
 
 /// One row of the rate card on the settings read model: the current `day_rate`
 /// (charge rate) for a `level` as-of the date.
 pub type RateCardRow {
-  RateCardRow(level: Int, day_rate: Float)
+  RateCardRow(level: Int, day_rate: Money)
 }
 
 /// One row of the salary table on the settings read model: the current
 /// `monthly_salary` (cost) for a `level` as-of the date.
 pub type SalaryRow {
-  SalaryRow(level: Int, monthly_salary: Float)
+  SalaryRow(level: Int, monthly_salary: Money)
 }
 
 /// One row of the leave policy on the settings read model: the `days_per_year`
@@ -44,14 +45,14 @@ pub fn encode_rate_card_row(rate: RateCardRow) -> Json {
   let RateCardRow(level:, day_rate:) = rate
   json.object([
     #("level", json.int(level)),
-    #("day_rate", json.float(day_rate)),
+    #("day_rate", money.encode(day_rate)),
   ])
 }
 
 /// Decode a `RateCardRow` from a JSON object.
 pub fn rate_card_row_decoder() -> Decoder(RateCardRow) {
   use level <- decode.field("level", decode.int)
-  use day_rate <- decode.field("day_rate", wire.lenient_float_decoder())
+  use day_rate <- decode.field("day_rate", money.decoder())
   decode.success(RateCardRow(level:, day_rate:))
 }
 
@@ -60,17 +61,14 @@ pub fn encode_salary_row(salary: SalaryRow) -> Json {
   let SalaryRow(level:, monthly_salary:) = salary
   json.object([
     #("level", json.int(level)),
-    #("monthly_salary", json.float(monthly_salary)),
+    #("monthly_salary", money.encode(monthly_salary)),
   ])
 }
 
 /// Decode a `SalaryRow` from a JSON object.
 pub fn salary_row_decoder() -> Decoder(SalaryRow) {
   use level <- decode.field("level", decode.int)
-  use monthly_salary <- decode.field(
-    "monthly_salary",
-    wire.lenient_float_decoder(),
-  )
+  use monthly_salary <- decode.field("monthly_salary", money.decoder())
   decode.success(SalaryRow(level:, monthly_salary:))
 }
 

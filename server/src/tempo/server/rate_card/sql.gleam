@@ -11,7 +11,8 @@ import pog
 /// rate_card_for_portion_of.sql — surgical charge-rate edit. FOR PORTION OF splits the
 /// covering rate_card row, setting day_rate + audit_id only on [$1, $2) and carving
 /// off the unchanged before/after remainders keeping their original audit_id.
-/// $1 = from, $2 = to, $3 = new rate, $4 = level, $5 = audit_id.
+/// $1 = from, $2 = to, $3 = new rate (exact decimal text, cast to numeric),
+/// $4 = level, $5 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 /// from the affected-row count — read the rows back instead.
@@ -23,7 +24,7 @@ pub fn rate_card_for_portion_of(
   db: pog.Connection,
   arg_1: Date,
   arg_2: Date,
-  arg_3: Float,
+  arg_3: String,
   arg_4: Int,
   audit_id: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
@@ -32,19 +33,20 @@ pub fn rate_card_for_portion_of(
   "-- rate_card_for_portion_of.sql — surgical charge-rate edit. FOR PORTION OF splits the
 -- covering rate_card row, setting day_rate + audit_id only on [$1, $2) and carving
 -- off the unchanged before/after remainders keeping their original audit_id.
--- $1 = from, $2 = to, $3 = new rate, $4 = level, $5 = audit_id.
+-- $1 = from, $2 = to, $3 = new rate (exact decimal text, cast to numeric),
+-- $4 = level, $5 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces extra rows, so never infer a split
 -- from the affected-row count — read the rows back instead.
 UPDATE rate_card
    FOR PORTION OF effective_during FROM $1::date TO $2::date
-   SET day_rate = $3, audit_id = $5
+   SET day_rate = $3::text::numeric, audit_id = $5
  WHERE level = $4;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
   |> pog.parameter(pog.calendar_date(arg_2))
-  |> pog.parameter(pog.float(arg_3))
+  |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.int(arg_4))
   |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
@@ -58,7 +60,7 @@ UPDATE rate_card
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type RateCardListRow {
-  RateCardListRow(level: Int, day_rate: Float)
+  RateCardListRow(level: Int, day_rate: String)
 }
 
 /// rate_card_list.sql — the current charge rate per level as of $1 (GET
@@ -75,7 +77,7 @@ pub fn rate_card_list(
 ) -> Result(pog.Returned(RateCardListRow), pog.QueryError) {
   let decoder = {
     use level <- decode.field(0, decode.int)
-    use day_rate <- decode.field(1, pog.numeric_decoder())
+    use day_rate <- decode.field(1, decode.string)
     decode.success(RateCardListRow(level:, day_rate:))
   }
 
@@ -85,7 +87,7 @@ pub fn rate_card_list(
 -- A level with no rate covering $1 is simply absent. Param: $1 = the as-of date.
 SELECT
   rate_card.level,
-  rate_card.day_rate
+  rate_card.day_rate::text AS day_rate
 FROM rate_card
 WHERE rate_card.effective_during @> $1::date
 ORDER BY rate_card.level;
@@ -110,7 +112,7 @@ pub type RateCardReviseRow {
 /// PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
 /// carves off the unchanged [start, $1) remainder keeping its original audit_id. The
 /// `@>` guard leaves a scheduled future version untouched. $1 = effective,
-/// $2 = new rate, $3 = level, $4 = audit_id.
+/// $2 = new rate (exact decimal text, cast to numeric), $3 = level, $4 = audit_id.
 ///
 /// PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 /// infer a split from the affected-row count — read the rows back instead. With no
@@ -123,7 +125,7 @@ pub type RateCardReviseRow {
 pub fn rate_card_revise(
   db: pog.Connection,
   arg_1: Date,
-  arg_2: Float,
+  arg_2: String,
   level: Int,
   audit_id: Int,
 ) -> Result(pog.Returned(RateCardReviseRow), pog.QueryError) {
@@ -136,7 +138,7 @@ pub fn rate_card_revise(
 -- PORTION OF re-rates [$1, ∞) of the covering row, setting day_rate + audit_id; PG
 -- carves off the unchanged [start, $1) remainder keeping its original audit_id. The
 -- `@>` guard leaves a scheduled future version untouched. $1 = effective,
--- $2 = new rate, $3 = level, $4 = audit_id.
+-- $2 = new rate (exact decimal text, cast to numeric), $3 = level, $4 = audit_id.
 --
 -- PG reports `UPDATE 1` even when it produces an extra remainder row, so never
 -- infer a split from the affected-row count — read the rows back instead. With no
@@ -144,14 +146,14 @@ pub fn rate_card_revise(
 -- repository rejects that (NoSuchVersion) rather than journalling a silent no-op.
 UPDATE rate_card
    FOR PORTION OF effective_during FROM $1::date TO NULL
-   SET day_rate = $2, audit_id = $4
+   SET day_rate = $2::text::numeric, audit_id = $4
  WHERE level = $3
    AND effective_during @> $1::date
 RETURNING 1 AS revised;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
-  |> pog.parameter(pog.float(arg_2))
+  |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.int(level))
   |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)

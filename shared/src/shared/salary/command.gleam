@@ -7,12 +7,13 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
-import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+import shared/money.{type Money}
+import shared/wire.{date_decoder, encode_date}
 
 pub type SalaryCommand {
   /// Publish a new monthly salary for a level effective from a date (the cost
   /// analogue of `ReviseRateCard`, via `FOR PORTION OF` on `salary`).
-  SetSalary(level: Int, monthly_salary: Float, effective: Date)
+  SetSalary(level: Int, monthly_salary: Money, effective: Date)
 }
 
 /// Encode a `SalaryCommand` as a tagged JSON object keyed by `op`.
@@ -22,7 +23,7 @@ pub fn encode(command: SalaryCommand) -> Json {
       json.object([
         #("op", json.string("set_salary")),
         #("level", json.int(level)),
-        #("monthly_salary", json.float(monthly_salary)),
+        #("monthly_salary", money.encode(monthly_salary)),
         #("effective", encode_date(effective)),
       ])
   }
@@ -35,10 +36,7 @@ pub fn decoder(op: String) -> Result(Decoder(SalaryCommand), Nil) {
     "set_salary" ->
       Ok({
         use level <- decode.field("level", decode.int)
-        use monthly_salary <- decode.field(
-          "monthly_salary",
-          lenient_float_decoder(),
-        )
+        use monthly_salary <- decode.field("monthly_salary", money.decoder())
         use effective <- decode.field("effective", date_decoder())
         decode.success(SetSalary(level:, monthly_salary:, effective:))
       })

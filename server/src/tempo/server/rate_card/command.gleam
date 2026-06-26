@@ -8,11 +8,11 @@
 //// change); `adjust_rate_for_portion` is the bounded surgical edit (`to: Some`,
 //// splitting the covering version into before/during/after).
 
-import gleam/float
 import gleam/int
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date}
 import shared/command.{RateCardCommand} as gateway
+import shared/money.{type Money}
 import shared/rate_card/command.{
   type RateCardCommand, AdjustRateForPortion, ReviseRateCard,
 }
@@ -40,7 +40,7 @@ pub fn route(command: RateCardCommand) -> Result(Recorded, OperationError) {
 pub fn revise_rate_card(
   command: RateCardCommand,
   level level: Int,
-  day_rate day_rate: Float,
+  day_rate day_rate: Money,
   effective effective: Date,
 ) -> Result(Recorded, OperationError) {
   Ok(
@@ -50,7 +50,7 @@ pub fn revise_rate_card(
         summary: "Revise L"
           <> int.to_string(level)
           <> " rate to "
-          <> float.to_string(day_rate)
+          <> money.to_string(day_rate)
           <> " from "
           <> operation.iso(effective),
         payload: gateway.encode_command(RateCardCommand(command)),
@@ -65,7 +65,7 @@ pub fn revise_rate_card(
 pub fn adjust_rate_for_portion(
   command: RateCardCommand,
   level level: Int,
-  day_rate day_rate: Float,
+  day_rate day_rate: Money,
   valid_from valid_from: Date,
   valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
@@ -76,7 +76,7 @@ pub fn adjust_rate_for_portion(
         summary: "Adjust L"
           <> int.to_string(level)
           <> " rate to "
-          <> float.to_string(day_rate)
+          <> money.to_string(day_rate)
           <> " over "
           <> operation.span(valid_from, valid_to),
         payload: gateway.encode_command(RateCardCommand(command)),

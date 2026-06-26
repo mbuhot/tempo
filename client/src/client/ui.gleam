@@ -39,6 +39,7 @@ import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
+import shared/money
 import shared/payroll/command as payroll_command
 import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
@@ -851,7 +852,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     }
     OpReviseRateCard -> {
       use level <- result.try(require_int(form.level, "level"))
-      use day_rate <- result.try(require_float(form.day_rate, "day rate"))
+      use day_rate <- result.try(require_money(form.day_rate, "day rate"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
         gateway.RateCardCommand(rate_card_command.ReviseRateCard(
@@ -863,7 +864,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     }
     OpAdjustRateForPortion -> {
       use level <- result.try(require_int(form.level, "level"))
-      use day_rate <- result.try(require_float(form.day_rate, "day rate"))
+      use day_rate <- result.try(require_money(form.day_rate, "day rate"))
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
@@ -877,7 +878,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
     }
     OpSetSalary -> {
       use level <- result.try(require_int(form.level, "level"))
-      use monthly_salary <- result.try(require_float(
+      use monthly_salary <- result.try(require_money(
         form.monthly_salary,
         "monthly salary",
       ))
@@ -1071,6 +1072,14 @@ fn require_float(raw: String, label: String) -> Result(Float, String) {
   case parse_number(string.trim(raw)) {
     Ok(value) -> Ok(value)
     Error(Nil) -> Error("Enter a number for " <> label <> ".")
+  }
+}
+
+/// Parse a money field into the exact `Money` type, or a prompt naming it.
+fn require_money(raw: String, label: String) -> Result(money.Money, String) {
+  case money.from_string(string.trim(raw)) {
+    Ok(amount) -> Ok(amount)
+    Error(Nil) -> Error("Enter an amount for " <> label <> ".")
   }
 }
 

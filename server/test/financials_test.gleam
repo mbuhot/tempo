@@ -23,6 +23,7 @@ import gleam/time/calendar.{type Date, August, Date, July, June, March}
 import pog
 import shared/command.{type Command} as gateway
 import shared/invoice/command as invoice_command
+import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
@@ -44,6 +45,11 @@ fn rolling_back(body: fn(pog.Connection) -> a) -> a {
 fn apply(conn: pog.Connection, command: Command) -> Nil {
   let assert Ok(_) = command.dispatch_in(conn, "tester", command)
   Nil
+}
+
+fn money_of(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
 }
 
 /// Run a parameterless statement, asserting it succeeds. Used for raw fixture
@@ -383,7 +389,7 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
         conn,
         gateway.SalaryCommand(salary_command.SetSalary(
           1,
-          3500.0,
+          money_of("3500.00"),
           Date(2026, July, 1),
         )),
       )
@@ -401,12 +407,12 @@ pub fn set_salary_caps_the_level_from_the_effective_date_test() {
   assert row.actor == "tester"
   assert row.operation == "set_salary"
   // float.to_string renders 3500.0 in scientific form (matching rate_card summaries).
-  assert row.summary == "Set L1 salary to 3.5e3 from 2026-07-01"
+  assert row.summary == "Set L1 salary to 3500.00 from 2026-07-01"
   assert json.parse(row.payload, gateway.command_decoder())
     == Ok(
       gateway.SalaryCommand(salary_command.SetSalary(
         1,
-        3500.0,
+        money_of("3500.00"),
         Date(2026, July, 1),
       )),
     )
@@ -435,7 +441,7 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
         conn,
         gateway.RateCardCommand(rate_card_command.ReviseRateCard(
           1,
-          9999.0,
+          money_of("9999.00"),
           Date(2026, March, 1),
         )),
       )

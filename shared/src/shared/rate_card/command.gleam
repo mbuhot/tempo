@@ -7,16 +7,17 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
-import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
+import shared/money.{type Money}
+import shared/wire.{date_decoder, encode_date}
 
 pub type RateCardCommand {
   /// Publish a new day rate for a level effective from a date.
-  ReviseRateCard(level: Int, day_rate: Float, effective: Date)
+  ReviseRateCard(level: Int, day_rate: Money, effective: Date)
   /// Bump a level's day rate for a bounded window, splitting the rate-card row
   /// into before/during/after.
   AdjustRateForPortion(
     level: Int,
-    day_rate: Float,
+    day_rate: Money,
     valid_from: Date,
     valid_to: Date,
   )
@@ -29,14 +30,14 @@ pub fn encode(command: RateCardCommand) -> Json {
       json.object([
         #("op", json.string("revise_rate_card")),
         #("level", json.int(level)),
-        #("day_rate", json.float(day_rate)),
+        #("day_rate", money.encode(day_rate)),
         #("effective", encode_date(effective)),
       ])
     AdjustRateForPortion(level:, day_rate:, valid_from:, valid_to:) ->
       json.object([
         #("op", json.string("adjust_rate_for_portion")),
         #("level", json.int(level)),
-        #("day_rate", json.float(day_rate)),
+        #("day_rate", money.encode(day_rate)),
         #("valid_from", encode_date(valid_from)),
         #("valid_to", encode_date(valid_to)),
       ])
@@ -50,14 +51,14 @@ pub fn decoder(op: String) -> Result(Decoder(RateCardCommand), Nil) {
     "revise_rate_card" ->
       Ok({
         use level <- decode.field("level", decode.int)
-        use day_rate <- decode.field("day_rate", lenient_float_decoder())
+        use day_rate <- decode.field("day_rate", money.decoder())
         use effective <- decode.field("effective", date_decoder())
         decode.success(ReviseRateCard(level:, day_rate:, effective:))
       })
     "adjust_rate_for_portion" ->
       Ok({
         use level <- decode.field("level", decode.int)
-        use day_rate <- decode.field("day_rate", lenient_float_decoder())
+        use day_rate <- decode.field("day_rate", money.decoder())
         use valid_from <- decode.field("valid_from", date_decoder())
         use valid_to <- decode.field("valid_to", date_decoder())
         decode.success(AdjustRateForPortion(

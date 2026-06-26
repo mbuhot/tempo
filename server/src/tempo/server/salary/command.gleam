@@ -8,10 +8,10 @@
 //// `set_salary` re-rates the level's monthly salary from `effective` onward (the
 //// repository's change), exactly like `revise_rate_card` on `rate_card`.
 
-import gleam/float
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/command.{SalaryCommand} as gateway
+import shared/money.{type Money}
 import shared/salary/command.{type SalaryCommand, SetSalary}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -29,7 +29,7 @@ pub fn route(command: SalaryCommand) -> Result(Recorded, OperationError) {
 pub fn set_salary(
   command: SalaryCommand,
   level level: Int,
-  monthly_salary monthly_salary: Float,
+  monthly_salary monthly_salary: Money,
   effective effective: Date,
 ) -> Result(Recorded, OperationError) {
   Ok(
@@ -39,7 +39,7 @@ pub fn set_salary(
         summary: "Set L"
           <> int.to_string(level)
           <> " salary to "
-          <> float.to_string(monthly_salary)
+          <> money.to_string(monthly_salary)
           <> " from "
           <> operation.iso(effective),
         payload: gateway.encode_command(SalaryCommand(command)),

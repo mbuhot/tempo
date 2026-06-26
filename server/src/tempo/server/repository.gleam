@@ -34,6 +34,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{type Event}
+import shared/money
 import tempo/server/allocation/sql as allocation_sql
 import tempo/server/client/sql as client_sql
 import tempo/server/engineer/sql as engineer_sql
@@ -275,14 +276,20 @@ fn write(
     RateCard(level:, day_rate:, from:, to:) ->
       case to {
         None ->
-          rate_card_sql.rate_card_revise(conn, from, day_rate, level, audit_id)
+          rate_card_sql.rate_card_revise(
+            conn,
+            from,
+            money.to_string(day_rate),
+            level,
+            audit_id,
+          )
           |> require_covering_version
         Some(to_date) ->
           rate_card_sql.rate_card_for_portion_of(
             conn,
             from,
             to_date,
-            day_rate,
+            money.to_string(day_rate),
             level,
             audit_id,
           )
@@ -290,7 +297,13 @@ fn write(
       }
 
     Salary(level:, monthly_salary:, from:) ->
-      salary_sql.salary_revise(conn, from, monthly_salary, level, audit_id)
+      salary_sql.salary_revise(
+        conn,
+        from,
+        money.to_string(monthly_salary),
+        level,
+        audit_id,
+      )
       |> require_covering_version
 
     // --- engagement -----------------------------------------------------------

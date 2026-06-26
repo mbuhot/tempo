@@ -33,6 +33,7 @@ import shared/client_details/command as client_details_command
 import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
+import shared/money.{type Money}
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
@@ -55,6 +56,11 @@ fn rolling_back(body: fn(pog.Connection) -> a) -> a {
 fn apply(conn: pog.Connection, command: Command) -> Nil {
   let assert Ok(_) = command.dispatch_in(conn, "tester", command)
   Nil
+}
+
+fn money_of(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
 }
 
 // --- fixtures ---------------------------------------------------------------
@@ -1033,7 +1039,7 @@ pub fn adjust_rate_for_portion_splits_three_ways_test() {
         conn,
         gateway.RateCardCommand(rate_card_command.AdjustRateForPortion(
           1,
-          600.0,
+          money_of("600.00"),
           Date(2026, April, 1),
           Date(2026, July, 1),
         )),
@@ -1077,7 +1083,7 @@ pub fn revise_rate_card_caps_from_date_preserving_scheduled_future_test() {
         conn,
         gateway.RateCardCommand(rate_card_command.ReviseRateCard(
           2,
-          800.0,
+          money_of("800.00"),
           Date(2026, April, 1),
         )),
       )
@@ -1113,7 +1119,7 @@ pub fn revise_rate_card_with_no_covering_version_is_rejected_test() {
         "tester",
         gateway.RateCardCommand(rate_card_command.ReviseRateCard(
           1,
-          800.0,
+          money_of("800.00"),
           Date(2026, April, 1),
         )),
       )
@@ -1143,7 +1149,7 @@ pub fn set_salary_caps_from_date_splitting_covering_version_test() {
         conn,
         gateway.SalaryCommand(salary_command.SetSalary(
           2,
-          5000.0,
+          money_of("5000.00"),
           Date(2026, April, 1),
         )),
       )
@@ -1178,7 +1184,7 @@ pub fn set_salary_with_no_covering_version_is_rejected_test() {
         "tester",
         gateway.SalaryCommand(salary_command.SetSalary(
           1,
-          5000.0,
+          money_of("5000.00"),
           Date(2026, April, 1),
         )),
       )

@@ -554,7 +554,7 @@ pub fn command_revise_rate_card_round_trips_test() {
   let original =
     gateway.RateCardCommand(rate_card_command.ReviseRateCard(
       level: 5,
-      day_rate: 1400.0,
+      day_rate: money_of("1400.00"),
       effective: Date(2026, July, 1),
     ))
 
@@ -566,7 +566,7 @@ pub fn command_adjust_rate_for_portion_round_trips_test() {
   let original =
     gateway.RateCardCommand(rate_card_command.AdjustRateForPortion(
       level: 5,
-      day_rate: 1500.0,
+      day_rate: money_of("1500.00"),
       valid_from: Date(2026, July, 1),
       valid_to: Date(2027, January, 1),
     ))
@@ -678,7 +678,7 @@ pub fn command_set_salary_round_trips_test() {
   let original =
     gateway.SalaryCommand(salary_command.SetSalary(
       level: 5,
-      monthly_salary: 10_000.0,
+      monthly_salary: money_of("10000.00"),
       effective: Date(2026, July, 1),
     ))
 

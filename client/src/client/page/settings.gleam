@@ -32,6 +32,7 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/command as gateway
+import shared/money
 import shared/settings/view.{type Settings} as settings_view
 
 // --- Model ------------------------------------------------------------------
@@ -366,7 +367,9 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
             html.text(ui.level_band(rate.level)),
           ]),
         ]),
-        html.td([attribute.class("num")], [html.text(ui.money(rate.day_rate))]),
+        html.td([attribute.class("num")], [
+          html.text(ui.money(money.to_float(rate.day_rate))),
+        ]),
         html.td([attribute.class("num")], [html.text(salary)]),
         html.td([attribute.class("num")], [
           html.div([attribute.class("action-row")], [
@@ -377,7 +380,7 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
               on_press: OpStartedForLevel(
                 kind: ui.OpReviseRateCard,
                 level: rate.level,
-                amount: rate.day_rate,
+                amount: money.to_float(rate.day_rate),
               ),
             ),
             ui.button(
@@ -411,7 +414,7 @@ fn view_rate_card(settings: Settings) -> Element(Msg) {
 /// covers the level as-of the date.
 fn salary_for(salaries: List(settings_view.SalaryRow), level: Int) -> String {
   case list.find(salaries, fn(salary) { salary.level == level }) {
-    Ok(salary) -> ui.money(salary.monthly_salary)
+    Ok(salary) -> ui.money(money.to_float(salary.monthly_salary))
     Error(Nil) -> "—"
   }
 }
@@ -420,7 +423,7 @@ fn salary_for(salaries: List(settings_view.SalaryRow), level: Int) -> String {
 /// pre-fill the Set-salary form's amount from the row on screen.
 fn salary_amount(salaries: List(settings_view.SalaryRow), level: Int) -> Float {
   case list.find(salaries, fn(salary) { salary.level == level }) {
-    Ok(salary) -> salary.monthly_salary
+    Ok(salary) -> money.to_float(salary.monthly_salary)
     Error(Nil) -> 0.0
   }
 }

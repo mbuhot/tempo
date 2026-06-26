@@ -4,7 +4,7 @@
 -- A level with no rate covering $1 is simply absent. Param: $1 = the as-of date.
 SELECT
   rate_card.level,
-  rate_card.day_rate
+  rate_card.day_rate::text AS day_rate
 FROM rate_card
 WHERE rate_card.effective_during @> $1::date
 ORDER BY rate_card.level;

@@ -352,7 +352,7 @@ pub fn rate_card_for_portion_of_splits_test() {
           conn,
           Date(2026, April, 1),
           Date(2026, August, 1),
-          950.0,
+          "950.00",
           4,
           mint_audit_id(conn),
         )
