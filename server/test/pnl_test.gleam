@@ -27,6 +27,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June, September}
 import pog
+import serial_pool
 import shared/command as gateway
 import shared/invoice/command as invoice_command
 import shared/invoice/view.{type Invoice, Invoice, InvoiceDetail, InvoiceLine} as _
@@ -321,18 +322,18 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
 // 40000/54000, fully utilized.
 pub fn pnl_totals_and_per_engineer_row_test() {
   let pnl =
-    rolling_back(fn(conn) {
+    serial_pool.run(fn(context) {
       apply(
-        conn,
+        context.db,
         gateway.PayrollCommand(payroll_command.RunPayroll(
           Date(2026, June, 1),
           Date(2026, July, 1),
         )),
       )
-      let _ = draft_and_issue(conn, 100, Date(2026, June, 10))
-      let _ = draft_and_issue(conn, 200, Date(2026, June, 10))
-      let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
-      let assert Ok(pnl) = pnl_read.pnl(Context(db: conn), Date(2026, June, 15))
+      let _ = draft_and_issue(context.db, 100, Date(2026, June, 10))
+      let _ = draft_and_issue(context.db, 200, Date(2026, June, 10))
+      let _ = draft_and_issue(context.db, 300, Date(2026, June, 10))
+      let assert Ok(pnl) = pnl_read.pnl(context, Date(2026, June, 15))
       pnl
     })
 
@@ -376,9 +377,9 @@ pub fn pnl_totals_and_per_engineer_row_test() {
 // the invoices table + cash, not the P&L.
 pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
   let pnl =
-    rolling_back(fn(conn) {
+    serial_pool.run(fn(context) {
       apply(
-        conn,
+        context.db,
         gateway.PayrollCommand(payroll_command.RunPayroll(
           Date(2026, June, 1),
           Date(2026, July, 1),
@@ -386,7 +387,7 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
       )
       // Draft the three invoices but DO NOT issue them.
       apply(
-        conn,
+        context.db,
         gateway.InvoiceCommand(invoice_command.DraftInvoice(
           100,
           Date(2026, June, 1),
@@ -394,7 +395,7 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
         )),
       )
       apply(
-        conn,
+        context.db,
         gateway.InvoiceCommand(invoice_command.DraftInvoice(
           200,
           Date(2026, June, 1),
@@ -402,14 +403,14 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
         )),
       )
       apply(
-        conn,
+        context.db,
         gateway.InvoiceCommand(invoice_command.DraftInvoice(
           300,
           Date(2026, June, 1),
           Date(2026, July, 1),
         )),
       )
-      let assert Ok(pnl) = pnl_read.pnl(Context(db: conn), Date(2026, June, 15))
+      let assert Ok(pnl) = pnl_read.pnl(context, Date(2026, June, 15))
       pnl
     })
 
@@ -427,9 +428,8 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
 // 2026-07-01) + Aisha L6 14000 = 34000.
 pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
   let pnl =
-    rolling_back(fn(conn) {
-      let assert Ok(pnl) =
-        pnl_read.pnl(Context(db: conn), Date(2026, September, 15))
+    serial_pool.run(fn(context) {
+      let assert Ok(pnl) = pnl_read.pnl(context, Date(2026, September, 15))
       pnl
     })
 

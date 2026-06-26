@@ -1,11 +1,13 @@
 import concurrency_pool
 import gleeunit
+import serial_pool
 import tempo/server/context
 import test_pool
 
 pub fn main() -> Nil {
   test_pool.start()
   concurrency_pool.start()
+  serial_pool.start()
   gleeunit.main()
 }
 
