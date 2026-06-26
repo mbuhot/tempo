@@ -96,7 +96,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     OpOpened -> {
-      let form = ui.blank_op_form(kind: ui.OpRunPayroll, default_date: model.as_of)
+      let form =
+        ui.blank_op_form(kind: ui.OpRunPayroll, default_date: model.as_of)
       #(
         Model(
           ..model,
@@ -245,7 +246,8 @@ pub fn reconciled(lines: List(PayrollLine)) -> Bool {
 fn view_preview(payroll: Payroll, on_run: msg) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
-  let total = money.sum(list.map(payroll.lines, fn(line) { line.preview_amount }))
+  let total =
+    money.sum(list.map(payroll.lines, fn(line) { line.preview_amount }))
   let run_button =
     ui.button(
       label: "Run payroll",
@@ -355,7 +357,10 @@ fn view_variance(payroll: Payroll) -> Element(msg) {
 /// The back-pay Δ for a line: the live recompute minus the frozen paid amount (a
 /// not-yet-paid line owes its full preview).
 fn line_delta(line: PayrollLine) -> money.Money {
-  money.subtract(line.preview_amount, option.unwrap(line.paid_amount, money.zero()))
+  money.subtract(
+    line.preview_amount,
+    option.unwrap(line.paid_amount, money.zero()),
+  )
 }
 
 fn variance_row(line: PayrollLine) -> Element(msg) {

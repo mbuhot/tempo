@@ -1,5 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const {
+  signIn,
   signInAs,
   scrubTo,
   navigateTo,
@@ -109,7 +110,7 @@ test("the selected date lives in the URL and is restored on load", async ({
   await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
 
   await page.goto("/?date=2025-01-01");
-  await page.getByRole("button", { name: "Priya Sharma" }).click();
+  await signIn(page, "Priya Sharma");
   await expect(page.getByText("1 Jan 2025")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Board" }),

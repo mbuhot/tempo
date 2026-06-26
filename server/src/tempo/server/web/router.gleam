@@ -33,6 +33,7 @@ import tempo/server/settings/http as settings
 import tempo/server/timesheet/http as timesheet
 import tempo/server/web/events
 import tempo/server/web/login
+import tempo/server/web/logout
 import tempo/server/web/operations
 import wisp
 
@@ -49,6 +50,7 @@ pub fn handle_request(
 
   case wisp.path_segments(request) {
     ["api", "login"] -> login.handle(request, context)
+    ["api", "logout"] -> logout.handle(request, context)
     ["api", "board"] -> board.handle(request, context)
     ["api", "timesheet"] -> timesheet.handle_read(request, context)
     ["api", "operations"] -> operations.handle(request, context)

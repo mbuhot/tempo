@@ -258,8 +258,20 @@ pub fn invoice_detail_returns_header_and_lines_test() {
   assert invoice.total == money_of("84000.00")
   assert lines
     == [
-      InvoiceLine("Aisha Okafor", 6, money_of("1800.00"), 30.0, money_of("54000.00")),
-      InvoiceLine("Marcus Chen", 4, money_of("1000.00"), 30.0, money_of("30000.00")),
+      InvoiceLine(
+        "Aisha Okafor",
+        6,
+        money_of("1800.00"),
+        30.0,
+        money_of("54000.00"),
+      ),
+      InvoiceLine(
+        "Marcus Chen",
+        4,
+        money_of("1000.00"),
+        30.0,
+        money_of("30000.00"),
+      ),
     ]
 }
 
@@ -311,9 +323,27 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
       period_to: Date(2026, July, 1),
       run: Some(PayrollRunInfo(run_id:)),
       lines: [
-        PayrollLine("Aisha Okafor", money_of("14000.00"), 30.0, Some(money_of("14000.00")), Some(30.0)),
-        PayrollLine("Marcus Chen", money_of("8000.00"), 30.0, Some(money_of("8000.00")), Some(30.0)),
-        PayrollLine("Priya Sharma", money_of("10000.00"), 30.0, Some(money_of("10000.00")), Some(30.0)),
+        PayrollLine(
+          "Aisha Okafor",
+          money_of("14000.00"),
+          30.0,
+          Some(money_of("14000.00")),
+          Some(30.0),
+        ),
+        PayrollLine(
+          "Marcus Chen",
+          money_of("8000.00"),
+          30.0,
+          Some(money_of("8000.00")),
+          Some(30.0),
+        ),
+        PayrollLine(
+          "Priya Sharma",
+          money_of("10000.00"),
+          30.0,
+          Some(money_of("10000.00")),
+          Some(30.0),
+        ),
       ],
     )
 }

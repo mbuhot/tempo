@@ -133,7 +133,10 @@ pub fn init(as_of: calendar.Date, engineer_id: Int) -> #(Model, Effect(Msg)) {
       roster: DirectoryLoading,
       op: None,
     )
-  #(model, effect.batch([fetch_detail(as_of, engineer_id), fetch_directory(as_of)]))
+  #(
+    model,
+    effect.batch([fetch_detail(as_of, engineer_id), fetch_directory(as_of)]),
+  )
 }
 
 /// Re-fetch the detail mode for a new `as_of` (stale-while-revalidate), keeping any
@@ -147,7 +150,10 @@ pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
       timesheet: TimesheetLoading,
       roster: DirectoryLoading,
     ),
-    effect.batch([fetch_detail(as_of, model.engineer_id), fetch_directory(as_of)]),
+    effect.batch([
+      fetch_detail(as_of, model.engineer_id),
+      fetch_directory(as_of),
+    ]),
   )
 }
 
@@ -301,7 +307,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OperationReturned(result:) ->
       case result {
         Ok(_events) -> {
-          let #(refreshed, fetch) = refetch(Model(..model, op: None), model.as_of)
+          let #(refreshed, fetch) =
+            refetch(Model(..model, op: None), model.as_of)
           #(refreshed, fetch, [OperationCommitted])
         }
         Error(error) -> #(
@@ -539,7 +546,10 @@ fn situation(allocations: List(allocation_view.AllocationRow)) -> String {
   }
 }
 
-fn detail_grid(detail: EngineerDetail, timesheet: TimesheetData) -> Element(Msg) {
+fn detail_grid(
+  detail: EngineerDetail,
+  timesheet: TimesheetData,
+) -> Element(Msg) {
   html.div([attribute.class("detail-grid")], [
     html.div([], [
       allocations_panel(detail.allocations),

@@ -440,7 +440,10 @@ fn seed_detail_fields(
           |> ui.update_op_form(ui.FSummary, detail.profile.summary)
         ui.OpUpdateProjectPlan ->
           form
-          |> ui.update_op_form(ui.FBudget, float_text(money.to_float(detail.plan.budget)))
+          |> ui.update_op_form(
+            ui.FBudget,
+            float_text(money.to_float(detail.plan.budget)),
+          )
           |> ui.update_op_form(
             ui.FTargetCompletion,
             iso_date(detail.plan.target_completion),
@@ -1106,7 +1109,9 @@ fn state_pill(active: Bool) -> #(String, String) {
 
 fn run_rate_of(team: List(TeamMember)) -> money.Money {
   money.sum(
-    list.map(team, fn(member) { money.scale_by(member.day_rate, member.fraction) }),
+    list.map(team, fn(member) {
+      money.scale_by(member.day_rate, member.fraction)
+    }),
   )
 }
 

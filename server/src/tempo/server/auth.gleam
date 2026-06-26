@@ -6,16 +6,15 @@
 //// session cookie) and hands the derived `Principal` inward; this module decides
 //// whether that principal may run a given `Command`. Identity is stamped on the
 //// journal from the principal's `actor`, never from the request body — so the
-//// audit `actor` is unforgeable (ADR-035: real auth "slots in behind the same
-//// gate").
+//// audit `actor` is unforgeable.
 ////
-//// The principal registry is the demo cast: the three seeded engineers plus the
-//// Admin and Ops roles. Admin may run every command; everyone else is denied the
-//// financial commands (salary, payroll, invoicing) — the gate that makes the
-//// difference observable in a test. A free-text actor is not a principal: only a
-//// known identity authenticates.
+//// Credentials live in the `account` table (the `account` concept owns login); this
+//// module no longer keeps a hardcoded identity registry. Session validation is
+//// stateless: the cookie is HMAC-signed, so a well-formed `actor|role` payload that
+//// verifies is TRUSTED without a DB read — only the signing key could have produced
+//// it. Admin may run every command; everyone else is denied the financial commands
+//// (salary, payroll, invoicing) — the gate that makes the difference observable.
 
-import gleam/list
 import gleam/string
 import shared/command.{
   type Command, InvoiceCommand, PayrollCommand, SalaryCommand,
@@ -33,8 +32,8 @@ pub type Role {
 }
 
 /// An authenticated identity: the display `actor` stamped on the journal and the
-/// `role` the authorization gate keys on. Built ONLY from a verified session, so a
-/// caller can never present a forged actor.
+/// `role` the authorization gate keys on. Built ONLY from a verified session (or a
+/// verified credential at login), so a caller can never present a forged actor.
 pub type Principal {
   Principal(actor: String, role: Role)
 }
@@ -42,26 +41,6 @@ pub type Principal {
 /// Why authorization refused a command: the principal's role does not grant it.
 pub type AuthzError {
   Forbidden(actor: String, command: String)
-}
-
-/// The demo principal registry (ADR-035): the three seeded engineers and the two
-/// named roles. Authenticating as one of these is the demo's "sign in"; an unknown
-/// actor is not a principal and cannot authenticate.
-pub fn principals() -> List(Principal) {
-  [
-    Principal(actor: "Priya Sharma", role: Engineer),
-    Principal(actor: "Marcus Chen", role: Engineer),
-    Principal(actor: "Aisha Okafor", role: Engineer),
-    Principal(actor: "Admin", role: Admin),
-    Principal(actor: "Ops", role: Ops),
-  ]
-}
-
-/// Look up the principal for an actor display name, or `Error(Nil)` when the name
-/// is not in the registry. The login endpoint uses this to refuse an unknown
-/// identity before issuing a session.
-pub fn lookup(actor: String) -> Result(Principal, Nil) {
-  list.find(principals(), fn(principal) { principal.actor == actor })
 }
 
 /// Authorize a principal to run a command, BEFORE any transaction opens (issue
@@ -95,26 +74,24 @@ fn is_financial(command: Command) -> Bool {
 // A session is the principal serialized as `actor|role`. The web layer signs the
 // string into a cookie (so the client cannot tamper with it) and verifies it back;
 // this module owns the string<->Principal mapping so the wire format lives in one
-// place beside the registry.
+// place.
 
 /// Serialize a principal to its signed-cookie payload `actor|role`.
 pub fn to_session(principal: Principal) -> String {
   principal.actor <> "|" <> role_to_string(principal.role)
 }
 
-/// Parse a verified session payload back to its `Principal`, re-checking the actor
-/// against the registry so a session for a retired identity (or one whose role no
-/// longer matches) is rejected rather than trusted. `Error(Nil)` on any mismatch.
+/// Parse a verified session payload back to its `Principal`. The cookie is signed,
+/// so a payload that verified is trusted: this only re-checks shape — a non-empty
+/// actor and a known role. `Error(Nil)` on a missing separator, an empty actor, or
+/// an unknown role string.
 pub fn from_session(session: String) -> Result(Principal, Nil) {
   case string.split_once(session, "|") {
     Ok(#(actor, role)) ->
-      case lookup(actor) {
-        Ok(principal) ->
-          case role_to_string(principal.role) == role {
-            True -> Ok(principal)
-            False -> Error(Nil)
-          }
-        Error(Nil) -> Error(Nil)
+      case actor, role_from_string(role) {
+        "", _ -> Error(Nil)
+        _, Ok(role) -> Ok(Principal(actor:, role:))
+        _, Error(Nil) -> Error(Nil)
       }
     Error(Nil) -> Error(Nil)
   }
@@ -125,6 +102,17 @@ fn role_to_string(role: Role) -> String {
     Admin -> "admin"
     Ops -> "ops"
     Engineer -> "engineer"
+  }
+}
+
+/// Map a role's wire string back to its `Role`. Shared by session decoding and the
+/// `account` concept (whose `role` column carries the same strings). Unknown → error.
+pub fn role_from_string(role: String) -> Result(Role, Nil) {
+  case role {
+    "admin" -> Ok(Admin)
+    "ops" -> Ok(Ops)
+    "engineer" -> Ok(Engineer)
+    _ -> Error(Nil)
   }
 }
 

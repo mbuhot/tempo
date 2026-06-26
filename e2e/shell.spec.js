@@ -1,5 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const {
+  signIn,
   signInAs,
   navigateTo,
   scrubTo,
@@ -17,13 +18,14 @@ const {
 // classes, ids, or DOM structure.
 
 test("signing in as a person lands on the Board", async ({ page }) => {
-  // Nothing is usable until you pick an identity on the gate. Picking a seeded
-  // person reveals the shell on the Board ("Who's doing what"), at the seed "now".
+  // Nothing is usable until you sign in on the gate's credentials form. Signing in
+  // as a seeded person reveals the shell on the Board ("Who's doing what"), at the
+  // seed "now".
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Priya Sharma" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Admin" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
 
-  await page.getByRole("button", { name: "Aisha Okafor" }).click();
+  await signIn(page, "Aisha Okafor");
 
   await expect(page.getByText(railReadout("2026-06-15"), { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
@@ -64,7 +66,7 @@ test("a cold deep link opens the engineer detail, not the roster", async ({
   // timesheet, allocations, the back link — and NOT the roster list.
   await page.goto("/people/2?date=2026-06-15");
 
-  await page.getByRole("button", { name: "Priya Sharma" }).click();
+  await signIn(page, "Priya Sharma");
   await expect(page.getByText(railReadout("2026-06-15"), { exact: true })).toBeVisible();
 
   await expect(page.getByRole("heading", { name: /Marcus Chen/ })).toBeVisible();
@@ -113,7 +115,7 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
 for (const path of ["/board", "/people", "/finance"]) {
   test(`the as-of set on the rail sticks (no snap-back) on ${path}`, async ({ page }) => {
     await page.goto(`${path}?date=2026-06-15`);
-    await page.getByRole("button", { name: "Priya Sharma" }).click();
+    await signIn(page, "Priya Sharma");
     await expect(
       page.getByText(railReadout("2026-06-15"), { exact: true }),
     ).toBeVisible();

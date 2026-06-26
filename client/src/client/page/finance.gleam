@@ -110,15 +110,7 @@ pub fn refetch(
   let #(pnl, pnl_effect) = pnl_tab.refetch(model.pnl, as_of)
   let #(forecast, forecast_effect) = forecast_tab.refetch(model.forecast, as_of)
   let next =
-    Model(
-      ..model,
-      actor:,
-      as_of:,
-      invoices:,
-      payroll:,
-      pnl:,
-      forecast:,
-    )
+    Model(..model, actor:, as_of:, invoices:, payroll:, pnl:, forecast:)
   #(
     next,
     effect.batch([
@@ -139,13 +131,21 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     InvoicesMsg(tab_msg) -> {
       let #(invoices, tab_effect, outs) =
         invoices_tab.update(model.invoices, tab_msg)
-      finalize(Model(..model, invoices:), effect.map(tab_effect, InvoicesMsg), outs)
+      finalize(
+        Model(..model, invoices:),
+        effect.map(tab_effect, InvoicesMsg),
+        outs,
+      )
     }
 
     PayrollMsg(tab_msg) -> {
       let #(payroll, tab_effect, outs) =
         payroll_tab.update(model.payroll, tab_msg)
-      finalize(Model(..model, payroll:), effect.map(tab_effect, PayrollMsg), outs)
+      finalize(
+        Model(..model, payroll:),
+        effect.map(tab_effect, PayrollMsg),
+        outs,
+      )
     }
 
     PnlMsg(tab_msg) -> {
@@ -177,7 +177,8 @@ fn finalize(
   case list.contains(outs, OperationCommitted) {
     False -> #(model, tab_effect, outs)
     True -> {
-      let #(refreshed, refetch_effect) = refetch(model, model.as_of, model.actor)
+      let #(refreshed, refetch_effect) =
+        refetch(model, model.as_of, model.actor)
       #(refreshed, effect.batch([tab_effect, refetch_effect]), outs)
     }
   }

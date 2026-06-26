@@ -29,20 +29,40 @@ pub fn get(
   rsvp.get(url, rsvp.expect_json(decoder, to_msg))
 }
 
-/// POST `{actor}` to `/api/login` to authenticate an identity. On success the
-/// server sets a signed session cookie (carried automatically on later requests)
-/// and echoes the authenticated `actor`, decoded out of the `{actor, role}` body
-/// and handed to `to_msg`. An unknown identity is a 401 (an `rsvp.HttpError`).
+/// POST `{username, password, remember_me}` to `/api/login`. On success the server
+/// verifies the password, sets a signed session cookie (persistent when
+/// `remember_me`, else a session cookie cleared on browser close), and echoes the
+/// authenticated `actor` — decoded out of the `{actor, role}` body and handed to
+/// `to_msg`. Bad credentials are a uniform 401 (an `rsvp.HttpError`).
 pub fn login(
-  actor: String,
+  username: String,
+  password: String,
+  remember_me: Bool,
   to_msg: fn(Result(String, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
-  let body = json.object([#("actor", json.string(actor))])
+  let body =
+    json.object([
+      #("username", json.string(username)),
+      #("password", json.string(password)),
+      #("remember_me", json.bool(remember_me)),
+    ])
   let decoder = {
     use authenticated <- decode.field("actor", decode.string)
     decode.success(authenticated)
   }
   rsvp.post("/api/login", body, rsvp.expect_json(decoder, to_msg))
+}
+
+/// POST to `/api/logout` to clear the session cookie server-side. The client also
+/// drops its local actor and returns to the gate, so the result is ignored.
+pub fn logout(
+  to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
+) -> Effect(msg) {
+  rsvp.post(
+    "/api/logout",
+    json.object([]),
+    rsvp.expect_json(decode.success(Nil), to_msg),
+  )
 }
 
 /// POST `{command}` to `/api/operations` on the authenticated session's behalf.

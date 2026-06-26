@@ -22,6 +22,7 @@ import gleam/result
 import gleam/string
 import pog
 import simplifile
+import tempo/server/account/seed as account_seed
 import tempo/server/context.{type Context}
 import tempo/server/migrate
 
@@ -41,6 +42,7 @@ pub type SeedReport {
 pub type SeedError {
   NotDevEnvironment(env: String)
   MigrateFailed(error: migrate.MigrateError)
+  AccountSeedFailed(error: pog.QueryError)
   SeedNotFound
   SeedReadError(error: simplifile.FileError)
   SeedApplyFailed(error: pog.QueryError)
@@ -68,13 +70,18 @@ pub fn env_or_dev() -> String {
   context.env_string("TEMPO_ENV", dev_env)
 }
 
-/// Ensure the schema is migrated, then apply the base seed if (a) `env` is dev
-/// and (b) the DB is empty. A non-dev `env` refuses up front; a non-empty DB is a
-/// no-op (`AlreadySeeded`). Applies every statement of the seed file in one
-/// transaction so a failure leaves the DB unseeded rather than half-seeded.
+/// Ensure the schema is migrated, provision the dev login accounts, then apply the
+/// base seed if (a) `env` is dev and (b) the DB is empty. A non-dev `env` refuses up
+/// front; a non-empty DB is a no-op for the base cast (`AlreadySeeded`). The dev
+/// accounts are upserted UNCONDITIONALLY (idempotent), so they are backfilled even on
+/// an already-seeded DB. The base seed runs every statement in one transaction so a
+/// failure leaves the DB unseeded rather than half-seeded.
 pub fn run(context: Context, env: String) -> Result(SeedReport, SeedError) {
   use <- guard_dev(env)
   use _ <- result.try(migrate.run(context) |> result.map_error(MigrateFailed))
+  use _ <- result.try(
+    account_seed.seed(context.db) |> result.map_error(AccountSeedFailed),
+  )
   case already_seeded(context) {
     True -> Ok(AlreadySeeded)
     False -> {

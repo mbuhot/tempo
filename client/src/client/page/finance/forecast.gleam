@@ -100,7 +100,8 @@ pub fn panel(forecast: Forecast) -> Element(msg) {
       ])
     months -> {
       let count = list.length(months)
-      let total_revenue = money.sum(list.map(months, fn(month) { month.revenue }))
+      let total_revenue =
+        money.sum(list.map(months, fn(month) { month.revenue }))
       let total_cost = money.sum(list.map(months, fn(month) { month.cost }))
       let total_profit = money.subtract(total_revenue, total_cost)
       let total_margin = case money.to_float(total_revenue) >. 0.0 {
@@ -168,7 +169,9 @@ fn forecast_total_row(
     html.td([attribute.class("num")], [
       html.text(ui.money(money.to_float(revenue))),
     ]),
-    html.td([attribute.class("num")], [html.text(ui.money(money.to_float(cost)))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(cost))),
+    ]),
     html.td([attribute.class(profit_class)], [html.text(profit_text)]),
     html.td([attribute.class("num")], [html.text(ui.pct(margin))]),
   ])

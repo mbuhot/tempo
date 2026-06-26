@@ -34,10 +34,10 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/command.{type Event}
-import shared/money
 import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, type InvoicePage,
 } as invoice_view
+import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
 /// The Invoices tab's state: the as-of its data answers, the load state of the
@@ -209,7 +209,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case model.op {
         Some(op) -> {
           let form = ui.update_op_form(op.form, field, value)
-          #(Model(..model, op: Some(ui.OpState(..op, form:))), effect.none(), [])
+          #(
+            Model(..model, op: Some(ui.OpState(..op, form:))),
+            effect.none(),
+            [],
+          )
         }
         None -> #(model, effect.none(), [])
       }
@@ -238,7 +242,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case result {
         Ok(_) -> {
           let next =
-            Model(..model, invoices: Loading, detail: None, roster: None, op: None)
+            Model(
+              ..model,
+              invoices: Loading,
+              detail: None,
+              roster: None,
+              op: None,
+            )
           #(next, fetch_all(model.as_of, model.selected), [OperationCommitted])
         }
         Error(error) ->

@@ -7,11 +7,11 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
+import shared/money.{type Money}
 import shared/settings/view.{
   type LeavePolicyRow, type RateCardRow, type SalaryRow, type Settings,
   LeavePolicyRow, RateCardRow, SalaryRow, Settings,
 }
-import shared/money.{type Money}
 import tempo/server/context.{type Context}
 import tempo/server/leave/sql as leave_sql
 import tempo/server/rate_card/sql as rate_card_sql

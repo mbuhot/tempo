@@ -72,13 +72,40 @@ async function scrubTo(page, isoDate) {
 }
 
 // --- The login gate ----------------------------------------------------------
-// Nothing is usable until you sign in as a seeded person or a role. Each identity
-// is a button labelled with its name; clicking it signs in and reveals the shell,
-// landing on the Board. We wait for the rail's seed-now readout as the visible
-// confirmation the app booted. (client/app.gleam: view_login / view_identity.)
+// Nothing is usable until you sign in with real credentials. The gate is an
+// email/password form with a separate "remember me" opt-in; submitting authenticates
+// server-side and reveals the shell, landing on the Board. We wait for the rail's
+// seed-now readout as the visible confirmation the app booted. (client/app.gleam:
+// view_login.) The dev cast all share one seeded password; their usernames are
+// emails (server account/seed.gleam — keep these two in sync with it).
+const DEV_PASSWORD = "tempo-dev-password";
+
+const USERNAMES = {
+  "Priya Sharma": "priya.sharma@alembic.com.au",
+  "Marcus Chen": "marcus.chen@alembic.com.au",
+  "Aisha Okafor": "aisha.okafor@alembic.com.au",
+  Admin: "admin@alembic.com.au",
+  Ops: "ops@alembic.com.au",
+};
+
+// Fill and submit the login form for a seeded identity WITHOUT navigating first (so
+// a deep-linked URL stays put) and without waiting for any particular page — the
+// caller asserts what should appear. The gate is shown whenever signed out, on any
+// route, so this works after a deep-link goto.
+async function signIn(page, identity) {
+  const username = USERNAMES[identity];
+  if (!username) throw new Error(`No seeded username for identity ${identity}`);
+  await page.getByLabel("Email").fill(username);
+  await page.getByLabel("Password").fill(DEV_PASSWORD);
+  await page.getByRole("button", { name: "Sign in" }).click();
+}
+
+// Sign in as a seeded identity from the root and wait for the shell to boot (the
+// rail's seed-now readout) — the common case for specs that just need to be inside
+// the app.
 async function signInAs(page, identity) {
   await page.goto("/");
-  await page.getByRole("button", { name: identity }).click();
+  await signIn(page, identity);
   await expect(
     page.getByText(railReadout("2026-06-15"), { exact: true }),
   ).toBeVisible();
@@ -144,8 +171,11 @@ function escapeRegExp(text) {
 
 module.exports = {
   DAY_INDEX,
+  DEV_PASSWORD,
+  USERNAMES,
   railReadout,
   scrubTo,
+  signIn,
   signInAs,
   navigateTo,
   clickContent,

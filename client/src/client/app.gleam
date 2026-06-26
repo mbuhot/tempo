@@ -4,9 +4,10 @@
 //// same frozen interface (Model/Msg/OutMsg/init/update/view/refetch), so the
 //// per-page work never touches this file.
 ////
-//// The shell owns the cross-cutting messages — LoginRequested/LoginReturned/
-//// SignedOut (the login gate, ADR-035 + the real auth of issue #6), AsOfChanged (a
-//// discrete as-of change), AsOfScrubbed + AsOfScrubSettled (the debounced slider
+//// The shell owns the cross-cutting messages — the login form
+//// (LoginUsernameChanged/LoginPasswordChanged/LoginRememberToggled/LoginSubmitted/
+//// LoginReturned) and SignedOut/LogoutReturned (real password auth, issue #6),
+//// AsOfChanged (a discrete as-of change), AsOfScrubbed + AsOfScrubSettled (the debounced slider
 //// scrub), RouteChanged (URL change) — plus one wrapper per page. The time rail
 //// (`client/time`) maps its messages into these via `element.map` (Gleam has no
 //// constructor re-export). A discrete change (step/pick/Today) applies at once:
@@ -17,10 +18,12 @@
 //// does not flood the network). The URL is synced on the scrub tick rather than
 //// the settle so its same-route RouteChanged echo is a clean no-op, never a
 //// settle's `replace` racing a navigation. Sidebar and drill-in navigation `push`.
-//// Picking an identity AUTHENTICATES it server-side (`api.login`, which issues a
-//// signed session cookie); the actor is then the server-confirmed name, and the
-//// browser carries the cookie on every `api.submit_operation(...)` so the server
-//// derives the journal actor from the session, never the request body (issue #6).
+//// Submitting the login form AUTHENTICATES the credentials server-side (`api.login`,
+//// which verifies the password and issues a signed session cookie); the actor is
+//// then the server-confirmed name, and the browser carries the cookie on every
+//// `api.submit_operation(...)` so the server derives the journal actor from the
+//// session, never the request body (issue #6). Sign-out clears the cookie via
+//// `api.logout`.
 ////
 //// Imports `client/*` and `shared/*` only — never `server/*`.
 
@@ -62,10 +65,11 @@ pub type Page {
 }
 
 /// The shell model: who is signed in (the login gate — `None` shows the gate),
-/// the current route, the one global as-of date, the active page sub-model, and the
-/// scrub generation token. The as-of lives ONLY here; pages receive it as a
-/// parameter and never store it. `scrub_token` is bumped on every as-of/route
-/// change so a debounced scrub-settle only refetches when it is still the latest.
+/// the current route, the one global as-of date, the active page sub-model, the
+/// scrub generation token, and the login form's state. The as-of lives ONLY here;
+/// pages receive it as a parameter and never store it. `scrub_token` is bumped on
+/// every as-of/route change so a debounced scrub-settle only refetches when it is
+/// still the latest.
 pub type Model {
   Model(
     actor: Option(String),
@@ -73,6 +77,31 @@ pub type Model {
     as_of: calendar.Date,
     page: Page,
     scrub_token: Int,
+    login: LoginForm,
+  )
+}
+
+/// The login gate's form state: the typed credentials, the "remember me" opt-in, an
+/// inline `error` shown after a rejected attempt, and `submitting` while the login
+/// request is in flight (so the button can disable and not double-submit).
+pub type LoginForm {
+  LoginForm(
+    username: String,
+    password: String,
+    remember: Bool,
+    error: Option(String),
+    submitting: Bool,
+  )
+}
+
+/// A blank login form: the gate's resting state (signed out, nothing typed).
+fn empty_login() -> LoginForm {
+  LoginForm(
+    username: "",
+    password: "",
+    remember: False,
+    error: None,
+    submitting: False,
   )
 }
 
@@ -85,15 +114,24 @@ const scrub_refetch_ms = 150
 /// constructor; the rail's `time.Msg(AsOfChanged)` is mapped into it at the view
 /// boundary via `element.map` (not re-exported).
 pub type Msg {
-  /// An identity was chosen on the login gate: authenticate it server-side
-  /// (POST /api/login, which issues the signed session cookie) before entering.
-  LoginRequested(actor: String)
+  /// The login form's email field changed.
+  LoginUsernameChanged(value: String)
+  /// The login form's password field changed.
+  LoginPasswordChanged(value: String)
+  /// The "remember me" checkbox was toggled.
+  LoginRememberToggled(value: Bool)
+  /// The login form was submitted: authenticate the typed credentials server-side
+  /// (POST /api/login, which verifies the password and issues the session cookie).
+  LoginSubmitted
   /// The login POST returned: `Ok(actor)` is the server-authenticated identity
   /// (now becomes the shell's actor and enters the app); an `Error` keeps the gate
-  /// up so an unknown identity cannot pretend to sign in.
+  /// up with an inline message so bad credentials cannot sign in.
   LoginReturned(result: Result(String, rsvp.Error(String)))
-  /// The signed-in actor signed out, returning to the login gate.
+  /// The signed-in actor signed out: clear the session cookie server-side
+  /// (POST /api/logout) and return to the login gate.
   SignedOut
+  /// The logout POST returned; the gate is already shown, so the result is ignored.
+  LogoutReturned(result: Result(Nil, rsvp.Error(String)))
   /// A discrete as-of change (rail step/pick/Today). The shell stores it,
   /// `modem.replace`s the new `?date=`, and refetches ONLY the active page — all
   /// at once.
@@ -135,7 +173,15 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   let as_of = initial_as_of()
   let route = initial_route()
   let #(page, page_effect) = init_page(route, as_of, "")
-  let model = Model(actor: None, route:, as_of:, page:, scrub_token: 0)
+  let model =
+    Model(
+      actor: None,
+      route:,
+      as_of:,
+      page:,
+      scrub_token: 0,
+      login: empty_login(),
+    )
   #(
     model,
     effect.batch([
@@ -170,18 +216,62 @@ fn initial_route() -> Route {
 /// Fold a message into the model.
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    LoginRequested(actor:) -> #(model, api.login(actor, LoginReturned))
+    LoginUsernameChanged(value:) -> #(
+      Model(..model, login: LoginForm(..model.login, username: value)),
+      effect.none(),
+    )
+
+    LoginPasswordChanged(value:) -> #(
+      Model(..model, login: LoginForm(..model.login, password: value)),
+      effect.none(),
+    )
+
+    LoginRememberToggled(value:) -> #(
+      Model(..model, login: LoginForm(..model.login, remember: value)),
+      effect.none(),
+    )
+
+    LoginSubmitted -> #(
+      Model(
+        ..model,
+        login: LoginForm(..model.login, error: None, submitting: True),
+      ),
+      api.login(
+        model.login.username,
+        model.login.password,
+        model.login.remember,
+        LoginReturned,
+      ),
+    )
 
     LoginReturned(result:) ->
       case result {
         Ok(actor) -> {
           let #(page, page_effect) = init_page(model.route, model.as_of, actor)
-          #(Model(..model, actor: Some(actor), page:), page_effect)
+          #(
+            Model(..model, actor: Some(actor), page:, login: empty_login()),
+            page_effect,
+          )
         }
-        Error(_) -> #(model, effect.none())
+        Error(error) -> #(
+          Model(
+            ..model,
+            login: LoginForm(
+              ..model.login,
+              error: Some(api.describe_error(error)),
+              submitting: False,
+            ),
+          ),
+          effect.none(),
+        )
       }
 
-    SignedOut -> #(Model(..model, actor: None), effect.none())
+    SignedOut -> #(
+      Model(..model, actor: None, login: empty_login()),
+      api.logout(LogoutReturned),
+    )
+
+    LogoutReturned(result: _) -> #(model, effect.none())
 
     AsOfChanged(date:) -> {
       let as_of = time.clamp_date(date)
@@ -537,84 +627,109 @@ fn as_of_query(as_of: calendar.Date) -> String {
 /// the active page's view.
 pub fn view(model: Model) -> Element(Msg) {
   case model.actor {
-    None -> view_login()
+    None -> view_login(model.login)
     Some(actor) -> view_app(model, actor)
   }
 }
 
-/// The signed-out login gate (ADR-035): the brand, the seeded engineers as
-/// identities, and the Admin/Ops roles. Picking one signs in under that name,
-/// which then stamps every operation. Mirrors the prototype's `#login` markup.
-fn view_login() -> Element(Msg) {
+/// The signed-out login gate: the brand and a real credentials form — email,
+/// password, and a separate "remember me" opt-in (off by default → a session cookie;
+/// on → a persistent one). Submitting authenticates server-side; a rejected attempt
+/// shows an inline error and keeps the gate up. The authenticated name stamps every
+/// later operation.
+fn view_login(form: LoginForm) -> Element(Msg) {
   html.div([attribute.id("login")], [
     html.div([attribute.class("login__card")], [
       view_brand(),
       html.h1([], [html.text("Sign in")]),
       html.p([attribute.class("login__sub")], [
         html.text(
-          "Pick who you are. Tempo stamps every change with your name in the activity log.",
+          "Sign in with your Tempo account. Every change is stamped with your name in the activity log.",
         ),
       ]),
-      html.div([attribute.class("eyebrow")], [html.text("People")]),
-      html.div(
-        [attribute.class("login__identities")],
-        list.map(login_people, fn(person) {
-          let #(name, sublabel) = person
-          view_identity(name, sublabel, arrow: True)
-        }),
+      html.form(
+        [attribute.class("login__form"), event.on_submit(submit_login)],
+        [
+          view_field(
+            id: "login-email",
+            label: "Email",
+            control: html.input([
+              attribute.id("login-email"),
+              attribute.type_("email"),
+              attribute.name("username"),
+              attribute.value(form.username),
+              attribute.attribute("autocomplete", "username"),
+              event.on_input(LoginUsernameChanged),
+            ]),
+          ),
+          view_field(
+            id: "login-password",
+            label: "Password",
+            control: html.input([
+              attribute.id("login-password"),
+              attribute.type_("password"),
+              attribute.name("password"),
+              attribute.value(form.password),
+              attribute.attribute("autocomplete", "current-password"),
+              event.on_input(LoginPasswordChanged),
+            ]),
+          ),
+          html.label([attribute.class("login__remember")], [
+            html.input([
+              attribute.type_("checkbox"),
+              attribute.checked(form.remember),
+              event.on_check(LoginRememberToggled),
+            ]),
+            html.text("Remember me"),
+          ]),
+          view_login_error(form.error),
+          html.button(
+            [
+              attribute.class("login__submit"),
+              attribute.type_("submit"),
+              attribute.disabled(form.submitting),
+            ],
+            [
+              html.text(case form.submitting {
+                True -> "Signing in…"
+                False -> "Sign in"
+              }),
+            ],
+          ),
+        ],
       ),
-      html.div([attribute.class("eyebrow login__eyebrow--spaced")], [
-        html.text("Roles"),
-      ]),
-      html.div(
-        [attribute.class("login__roles")],
-        list.map(login_roles, fn(role) {
-          let #(name, sublabel) = role
-          view_identity(name, sublabel, arrow: False)
-        }),
-      ),
-      html.div([attribute.class("login__foot")], [
-        html.text("Demo workspace · no password required"),
-      ]),
     ]),
   ])
 }
 
-/// The seeded engineers offered on the login gate (the first three seed
-/// engineers, FR-11), each #(name, "L<n> · band") matching the prototype.
-const login_people = [
-  #("Priya Sharma", "L5 · Principal"),
-  #("Marcus Chen", "L3 · Senior"),
-  #("Aisha Okafor", "L4 · Staff"),
-]
+/// `LoginSubmitted` regardless of the browser-collected form data — the typed values
+/// are already in the model via the per-field `on_input` handlers.
+fn submit_login(_form_data: List(#(String, String))) -> Msg {
+  LoginSubmitted
+}
 
-/// The non-engineer roles offered on the login gate.
-const login_roles = [
-  #("Admin", "full access"),
-  #("Ops", "scheduling & delivery"),
-]
-
-/// One login identity button: a name and sub-label, optionally with a trailing
-/// arrow. Clicking it signs in under that name.
-fn view_identity(
-  name: String,
-  sublabel: String,
-  arrow arrow: Bool,
+/// A labelled form field: a `<label for>` bound to the control's id so it is
+/// reachable by its accessible name.
+fn view_field(
+  id id: String,
+  label label: String,
+  control control: Element(Msg),
 ) -> Element(Msg) {
-  let trailing = case arrow {
-    True -> [html.span([attribute.class("identity__arrow")], [html.text("→")])]
-    False -> []
+  html.div([attribute.class("login__field")], [
+    html.label([attribute.for(id)], [html.text(label)]),
+    control,
+  ])
+}
+
+/// The inline login error, shown only after a rejected attempt.
+fn view_login_error(error: Option(String)) -> Element(Msg) {
+  case error {
+    Some(message) ->
+      html.p([attribute.class("login__error"), attribute.role("alert")], [
+        html.text(message),
+      ])
+    None -> element.none()
   }
-  html.button(
-    [attribute.class("identity"), event.on_click(LoginRequested(actor: name))],
-    [
-      html.div([attribute.class("identity__meta")], [
-        html.div([attribute.class("identity__name")], [html.text(name)]),
-        html.div([attribute.class("identity__role")], [html.text(sublabel)]),
-      ]),
-      ..trailing
-    ],
-  )
 }
 
 /// The signed-in chrome: the sidebar, the global as-of rail, and the active

@@ -15,15 +15,16 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option
+import gleam/string
 import gleam/time/calendar
 import pog
 import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
-import shared/money.{type Money}
 import shared/engineer/command as engineer_command
 import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/invoice/view.{type InvoicePage} as invoice_view
+import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
 import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
@@ -32,6 +33,7 @@ import shared/timesheet/command as timesheet_command
 import shared/timesheet/view.{
   type TimesheetWeek, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 } as timesheet_view
+import tempo/server/account/seed as account_seed
 import tempo/server/context.{type Context}
 import tempo/server/event
 import tempo/server/web/router
@@ -48,15 +50,32 @@ fn ctx() -> Context {
 
 // --- auth helpers -----------------------------------------------------------
 
-/// Sign in as `actor` through POST /api/login against `context`, returning the
-/// login request and its response so a follow-up call can carry the issued session
-/// cookie via `simulate.session`. The write-path tests authenticate as "Admin"
-/// (full access) so authorization never masks the behaviour under test.
+/// Sign in as `actor` (a display name) through POST /api/login against `context`,
+/// posting the seeded dev credentials for that identity and returning the login
+/// request and its response so a follow-up call can carry the issued session cookie
+/// via `simulate.session`. The write-path tests authenticate as "Admin" (full
+/// access) so authorization never masks the behaviour under test.
 fn sign_in(context: Context, actor: String) -> #(wisp.Request, wisp.Response) {
   let request =
     simulate.request(http.Post, "/api/login")
-    |> simulate.json_body(json.object([#("actor", json.string(actor))]))
+    |> simulate.json_body(
+      json.object([
+        #("username", json.string(username_for(actor))),
+        #("password", json.string(account_seed.dev_password)),
+      ]),
+    )
   #(request, router.handle_request(request, context))
+}
+
+/// The seeded login username (email) for an actor display name — the inverse of the
+/// dev account cast, so the tests sign in with real credentials without hardcoding
+/// emails.
+fn username_for(actor: String) -> String {
+  let assert Ok(account) =
+    list.find(account_seed.dev_accounts(), fn(account) {
+      account.display_name == actor
+    })
+  account.username
 }
 
 /// POST a command to /api/operations on an authenticated "Admin" session: sign in,
@@ -543,18 +562,55 @@ pub fn operation_forbidden_for_unauthorized_role_is_403_test() {
   assert event_count(context) == before
 }
 
-// Login of a KNOWN identity succeeds (200) and issues a session; login of an
-// UNKNOWN identity is refused with 401, so the journal can never be stamped with a
-// junk actor.
-pub fn login_accepts_known_identity_and_rejects_unknown_test() {
+// Correct credentials succeed (200) and issue a session; a wrong password and an
+// unknown username are both refused with the SAME uniform 401, so login leaks no
+// oracle for which accounts exist and the journal can never be stamped with a junk
+// actor.
+pub fn login_accepts_correct_credentials_and_rejects_bad_ones_test() {
   let context = ctx()
 
   let #(_, known) = sign_in(context, "Admin")
   assert known.status == 200
 
-  let #(_, unknown) = sign_in(context, "Mallory")
-  assert unknown.status == 401
-  assert decode_error_code(unknown) == "unauthenticated"
+  let wrong_password = attempt_login(context, "admin@alembic.com.au", "nope")
+  assert wrong_password.status == 401
+  assert decode_error_code(wrong_password) == "unauthenticated"
+
+  let unknown_user =
+    attempt_login(context, "mallory@alembic.com.au", account_seed.dev_password)
+  assert unknown_user.status == 401
+  assert decode_error_code(unknown_user) == "unauthenticated"
+}
+
+// Logout expires the session cookie: a 200 carrying a `Set-Cookie` that clears
+// `tempo_session` (Max-Age 0), so the browser drops it and the next request is
+// unauthenticated.
+pub fn logout_clears_the_session_cookie_test() {
+  let response =
+    simulate.request(http.Post, "/api/logout")
+    |> router.handle_request(ctx())
+
+  assert response.status == 200
+  let assert Ok(set_cookie) = list.key_find(response.headers, "set-cookie")
+  assert string.contains(set_cookie, "tempo_session=")
+  assert string.contains(set_cookie, "Max-Age=0")
+}
+
+/// POST raw credentials to /api/login (no dev-cast lookup), for the rejection cases
+/// that use a username with no seeded account.
+fn attempt_login(
+  context: Context,
+  username: String,
+  password: String,
+) -> wisp.Response {
+  simulate.request(http.Post, "/api/login")
+  |> simulate.json_body(
+    json.object([
+      #("username", json.string(username)),
+      #("password", json.string(password)),
+    ]),
+  )
+  |> router.handle_request(context)
 }
 
 // --- GET /api/events --------------------------------------------------------

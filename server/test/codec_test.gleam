@@ -32,6 +32,7 @@ import shared/invoice/command as invoice_command
 import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
 import shared/leave/command as leave_command
 import shared/leave/view.{LeaveBalance} as _
+import shared/money
 import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as payroll_view
 import shared/pnl/view.{Pnl, PnlRow} as pnl_view
@@ -41,7 +42,6 @@ import shared/rate_card/command as rate_card_command
 import shared/roster/view.{Ref, Roster} as roster_view
 import shared/salary/command as salary_command
 import shared/timesheet/command as timesheet_command
-import shared/money
 import shared/timesheet/view.{TimesheetCell, TimesheetWeek, TimesheetWeekRow} as timesheet_view
 import shared/wire
 

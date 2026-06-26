@@ -112,8 +112,7 @@ pub fn init(
 /// The result is tagged with the `filters` it answers so a stale response can be
 /// dropped.
 fn fetch(filters: Filters) -> Effect(Msg) {
-  let decoder =
-    decode.map(event_page_decoder(), fn(page) { page.events })
+  let decoder = decode.map(event_page_decoder(), fn(page) { page.events })
   api.get(events_url(filters), decoder, fn(result) {
     GotEvents(filters:, result:)
   })

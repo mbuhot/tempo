@@ -477,7 +477,10 @@ fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
     OnProject(day_rate:, fraction:, ..) -> [
       ui.chip(label: ui.fraction(fraction), tone: ui.Accent),
       ui.chip(label: short_level(row.level), tone: ui.Neutral),
-      ui.chip(label: ui.money(money.to_float(day_rate)) <> "/d", tone: ui.Neutral),
+      ui.chip(
+        label: ui.money(money.to_float(day_rate)) <> "/d",
+        tone: ui.Neutral,
+      ),
     ]
     _ -> []
   }
