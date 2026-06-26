@@ -21,7 +21,7 @@ pub type PeopleListRow {
     name: String,
     email: String,
     level: Int,
-    day_rate: Float,
+    day_rate: String,
     allocated_fraction: Float,
     projects: String,
     leave_kind: Option(String),
@@ -80,7 +80,7 @@ pub fn people_list(
     use name <- decode.field(1, decode.string)
     use email <- decode.field(2, decode.string)
     use level <- decode.field(3, decode.int)
-    use day_rate <- decode.field(4, pog.numeric_decoder())
+    use day_rate <- decode.field(4, decode.string)
     use allocated_fraction <- decode.field(5, pog.numeric_decoder())
     use projects <- decode.field(6, decode.string)
     use leave_kind <- decode.field(7, decode.optional(decode.string))
@@ -138,7 +138,7 @@ SELECT
   coalesce(engineer_current.name, '') AS name,
   coalesce(engineer_current.email, '') AS email,
   engineer_role.level,
-  rate_card.day_rate,
+  rate_card.day_rate::text AS day_rate,
   coalesce(alloc.allocated_fraction, 0)::numeric AS allocated_fraction,
   coalesce(alloc.projects, '') AS projects,
   on_leave.kind AS leave_kind

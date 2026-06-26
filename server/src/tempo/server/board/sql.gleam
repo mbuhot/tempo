@@ -22,7 +22,7 @@ pub type BoardEngagedRow {
     project: String,
     client: String,
     fraction: Float,
-    day_rate: Float,
+    day_rate: String,
     valid_from: Date,
     valid_to: Date,
   )
@@ -60,7 +60,7 @@ pub fn board_engaged(
     use project <- decode.field(2, decode.string)
     use client <- decode.field(3, decode.string)
     use fraction <- decode.field(4, pog.numeric_decoder())
-    use day_rate <- decode.field(5, pog.numeric_decoder())
+    use day_rate <- decode.field(5, decode.string)
     use valid_from <- decode.field(6, pog.calendar_date_decoder())
     use valid_to <- decode.field(7, pog.calendar_date_decoder())
     decode.success(BoardEngagedRow(
@@ -99,7 +99,7 @@ SELECT
   coalesce(project.title, '') AS project,
   coalesce(client.name, '') AS client,
   allocation.fraction,
-  rate_card.day_rate,
+  rate_card.day_rate::text AS day_rate,
   lower(allocation.allocated_during) AS valid_from,
   upper(allocation.allocated_during) AS valid_to
 FROM employment

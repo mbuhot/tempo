@@ -12,7 +12,7 @@ SELECT
   employment.engineer_id,
   lower(employment.employed_during) AS started,
   engineer_role.level,
-  salary.monthly_salary
+  salary.monthly_salary::text AS monthly_salary
 FROM employment
 JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
                   AND engineer_role.held_during @> $2::date

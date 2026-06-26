@@ -538,7 +538,7 @@ pub type EngineerEmploymentAsofRow {
     engineer_id: Int,
     started: Date,
     level: Int,
-    monthly_salary: Float,
+    monthly_salary: String,
   )
 }
 
@@ -565,7 +565,7 @@ pub fn engineer_employment_asof(
     use engineer_id <- decode.field(0, decode.int)
     use started <- decode.field(1, pog.calendar_date_decoder())
     use level <- decode.field(2, decode.int)
-    use monthly_salary <- decode.field(3, pog.numeric_decoder())
+    use monthly_salary <- decode.field(3, decode.string)
     decode.success(EngineerEmploymentAsofRow(
       engineer_id:,
       started:,
@@ -588,7 +588,7 @@ SELECT
   employment.engineer_id,
   lower(employment.employed_during) AS started,
   engineer_role.level,
-  salary.monthly_salary
+  salary.monthly_salary::text AS monthly_salary
 FROM employment
 JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
                   AND engineer_role.held_during @> $2::date

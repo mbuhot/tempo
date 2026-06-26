@@ -9,6 +9,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
 import shared/leave/view as leave_view
+import shared/money.{type Money}
 import shared/wire
 
 /// An engineer's situation on the org board for a date. Leave takes precedence
@@ -22,7 +23,7 @@ pub type Engagement {
     project: String,
     client: String,
     fraction: Float,
-    day_rate: Float,
+    day_rate: Money,
     valid_from: Date,
     valid_to: Date,
   )
@@ -66,7 +67,7 @@ pub fn encode_engagement(engagement: Engagement) -> Json {
         #("project", json.string(project)),
         #("client", json.string(client)),
         #("fraction", json.float(fraction)),
-        #("day_rate", json.float(day_rate)),
+        #("day_rate", money.encode(day_rate)),
         #("valid_from", wire.encode_date(valid_from)),
         #("valid_to", wire.encode_date(valid_to)),
       ])
@@ -89,7 +90,7 @@ pub fn engagement_decoder() -> Decoder(Engagement) {
       use project <- decode.field("project", decode.string)
       use client <- decode.field("client", decode.string)
       use fraction <- decode.field("fraction", wire.lenient_float_decoder())
-      use day_rate <- decode.field("day_rate", wire.lenient_float_decoder())
+      use day_rate <- decode.field("day_rate", money.decoder())
       use valid_from <- decode.field("valid_from", wire.date_decoder())
       use valid_to <- decode.field("valid_to", wire.date_decoder())
       decode.success(OnProject(

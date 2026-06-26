@@ -18,6 +18,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/money.{type Money}
 import shared/pagination
 import shared/people/view.{
   type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
@@ -27,6 +28,12 @@ import tempo/server/context.{type Context}
 import tempo/server/leave/sql as leave_sql
 import tempo/server/people/sql as people_sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
+
+/// Parse a money amount from a trusted SQL `numeric::text` column.
+fn money(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 /// Compute one keyset page of the people roster as-of `as_of` (issue #12): run
 /// `people_list` over the page starting strictly after `after` (at most `limit`
@@ -82,7 +89,7 @@ fn person_row_to_shared(
     status: status_of(row),
     allocated_fraction: row.allocated_fraction,
     annual_balance:,
-    day_rate: row.day_rate,
+    day_rate: money(row.day_rate),
   )
 }
 

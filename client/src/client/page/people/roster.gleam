@@ -28,6 +28,7 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/command.{type Event}
+import shared/money
 import shared/people/view.{
   type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
   RosterOnLeave, RosterOnProjects, RosterUnassigned,
@@ -390,7 +391,9 @@ fn roster_row(person: PersonRow, on_open: fn(Int) -> msg) -> Element(msg) {
     html.td([], [ui.pill(variant:, label:)]),
     html.td([attribute.class("num")], [html.text(allocated)]),
     html.td([attribute.class("num")], [html.text(ui.days(annual_balance))]),
-    html.td([attribute.class("num")], [html.text(ui.money(day_rate))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(day_rate))),
+    ]),
   ])
 }
 

@@ -11,6 +11,7 @@ import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
 import shared/allocation/view as allocation_view
 import shared/leave/view as leave_view
+import shared/money.{type Money}
 import shared/wire
 
 /// An engineer's contact details as one edit-grouped fact: the person's
@@ -61,7 +62,7 @@ pub type EngineerEmergency {
 /// employment row joined to `engineer_role` (level) and `salary` (monthly_salary)
 /// as-of. Band is derived client-side from `level`.
 pub type Employment {
-  Employment(engineer_id: Int, started: Date, level: Int, monthly_salary: Float)
+  Employment(engineer_id: Int, started: Date, level: Int, monthly_salary: Money)
 }
 
 /// One version of an engineer's role history (a `engineer_role` period decomposed
@@ -189,7 +190,7 @@ pub fn encode_employment(employment: Employment) -> Json {
     #("engineer_id", json.int(engineer_id)),
     #("started", wire.encode_date(started)),
     #("level", json.int(level)),
-    #("monthly_salary", json.float(monthly_salary)),
+    #("monthly_salary", money.encode(monthly_salary)),
   ])
 }
 
@@ -198,10 +199,7 @@ pub fn employment_decoder() -> Decoder(Employment) {
   use engineer_id <- decode.field("engineer_id", decode.int)
   use started <- decode.field("started", wire.date_decoder())
   use level <- decode.field("level", decode.int)
-  use monthly_salary <- decode.field(
-    "monthly_salary",
-    wire.lenient_float_decoder(),
-  )
+  use monthly_salary <- decode.field("monthly_salary", money.decoder())
   decode.success(Employment(engineer_id:, started:, level:, monthly_salary:))
 }
 

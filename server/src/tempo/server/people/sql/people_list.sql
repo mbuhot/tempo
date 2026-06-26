@@ -40,7 +40,7 @@ SELECT
   coalesce(engineer_current.name, '') AS name,
   coalesce(engineer_current.email, '') AS email,
   engineer_role.level,
-  rate_card.day_rate,
+  rate_card.day_rate::text AS day_rate,
   coalesce(alloc.allocated_fraction, 0)::numeric AS allocated_fraction,
   coalesce(alloc.projects, '') AS projects,
   on_leave.kind AS leave_kind

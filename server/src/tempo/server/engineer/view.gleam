@@ -31,10 +31,17 @@ import shared/engineer/view.{
 import shared/leave/view.{
   type LeaveBalance, type LeaveRecord, LeaveBalance, LeaveRecord,
 } as _
+import shared/money.{type Money}
 import tempo/server/async.{type AsyncQuery}
 import tempo/server/context.{type Context, query_timeout}
 import tempo/server/engineer/sql as engineer_sql
 import tempo/server/leave/sql as leave_sql
+
+/// Parse a money amount from a trusted SQL `numeric::text` column.
+fn money(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 /// One engineer's detail as-of `as_of`. `Ok(Error(Nil))` when no current contact
 /// (unknown engineer) → the handler answers 404; `Ok(Ok(detail))` otherwise.
@@ -177,7 +184,7 @@ fn employment_to_shared(
     engineer_id: row.engineer_id,
     started: row.started,
     level: row.level,
-    monthly_salary: row.monthly_salary,
+    monthly_salary: money(row.monthly_salary),
   )
 }
 

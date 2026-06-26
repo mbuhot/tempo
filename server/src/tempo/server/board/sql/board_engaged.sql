@@ -22,7 +22,7 @@ SELECT
   coalesce(project.title, '') AS project,
   coalesce(client.name, '') AS client,
   allocation.fraction,
-  rate_card.day_rate,
+  rate_card.day_rate::text AS day_rate,
   lower(allocation.allocated_during) AS valid_from,
   upper(allocation.allocated_during) AS valid_to
 FROM employment

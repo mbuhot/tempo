@@ -37,6 +37,7 @@ import shared/board/view.{
   OnProject, Unassigned, UnstaffedProject,
 } as board_view
 import shared/command.{type Event}
+import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model -------------------------------------------------------------------
@@ -380,9 +381,11 @@ fn stats_hero(
     count -> float.round(billable_fraction /. int.to_float(count) *. 100.0)
   }
   let day_revenue =
-    list.fold(on_project, 0.0, fn(sum, row) {
-      sum +. fraction_of(row) *. day_rate_of(row)
-    })
+    money.sum(
+      list.map(on_project, fn(row) {
+        money.scale_by(day_rate_of(row), fraction_of(row))
+      }),
+    )
   html.div([attribute.class("stats")], [
     ui.stat(
       value: int.to_string(headcount),
@@ -403,7 +406,7 @@ fn stats_hero(
       pct: ui.NoPct,
     ),
     ui.stat(
-      value: ui.money_k(day_revenue),
+      value: ui.money_k(money.to_float(day_revenue)),
       unit: "/day",
       label: "Billable run-rate",
       pct: ui.NoPct,
@@ -443,11 +446,13 @@ fn proj_block(
 ) -> Element(Msg) {
   let #(project, client, rows) = group
   let project_revenue =
-    list.fold(rows, 0.0, fn(sum, row) {
-      sum +. fraction_of(row) *. day_rate_of(row)
-    })
+    money.sum(
+      list.map(rows, fn(row) {
+        money.scale_by(day_rate_of(row), fraction_of(row))
+      }),
+    )
   let meta =
-    ui.money_k(project_revenue)
+    ui.money_k(money.to_float(project_revenue))
     <> "/day · "
     <> int.to_string(list.length(rows))
     <> " on team"
@@ -472,7 +477,7 @@ fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
     OnProject(day_rate:, fraction:, ..) -> [
       ui.chip(label: ui.fraction(fraction), tone: ui.Accent),
       ui.chip(label: short_level(row.level), tone: ui.Neutral),
-      ui.chip(label: ui.money(day_rate) <> "/d", tone: ui.Neutral),
+      ui.chip(label: ui.money(money.to_float(day_rate)) <> "/d", tone: ui.Neutral),
     ]
     _ -> []
   }
@@ -806,10 +811,10 @@ fn fraction_of(row: BoardRow) -> Float {
   }
 }
 
-fn day_rate_of(row: BoardRow) -> Float {
+fn day_rate_of(row: BoardRow) -> money.Money {
   case row.engagement {
     OnProject(day_rate:, ..) -> day_rate
-    _ -> 0.0
+    _ -> money.zero()
   }
 }
 

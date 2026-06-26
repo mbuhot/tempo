@@ -41,6 +41,7 @@ import shared/engineer/view.{
   EngineerDetail, EngineerEmergency,
 } as engineer_view
 import shared/leave/view.{LeaveBalance} as leave_view
+import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 import shared/timesheet/command.{type TimesheetEntry, LogWeek, TimesheetEntry}
 import shared/timesheet/view.{
@@ -710,7 +711,7 @@ fn employment_panel(
           ui.kv(key: "Level", value: ui.level_band(level), mono: False),
           ui.kv(
             key: "Monthly salary",
-            value: ui.money(monthly_salary),
+            value: ui.money(money.to_float(monthly_salary)),
             mono: True,
           ),
           ui.kv(key: "Emergency", value: emergency_line, mono: False),

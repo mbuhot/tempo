@@ -8,6 +8,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import shared/pagination
 import shared/wire
 
@@ -37,7 +38,7 @@ pub type PersonRow {
     status: RosterStatus,
     allocated_fraction: Float,
     annual_balance: Float,
-    day_rate: Float,
+    day_rate: Money,
   )
 }
 
@@ -107,7 +108,7 @@ pub fn encode_person_row(person: PersonRow) -> Json {
     #("status", encode_roster_status(status)),
     #("allocated_fraction", json.float(allocated_fraction)),
     #("annual_balance", json.float(annual_balance)),
-    #("day_rate", json.float(day_rate)),
+    #("day_rate", money.encode(day_rate)),
   ])
 }
 
@@ -126,7 +127,7 @@ pub fn person_row_decoder() -> Decoder(PersonRow) {
     "annual_balance",
     wire.lenient_float_decoder(),
   )
-  use day_rate <- decode.field("day_rate", wire.lenient_float_decoder())
+  use day_rate <- decode.field("day_rate", money.decoder())
   decode.success(PersonRow(
     engineer_id:,
     name:,

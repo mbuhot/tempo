@@ -8,6 +8,7 @@
 
 import gleam/time/calendar
 import shared/board/view as board_view
+import shared/money
 import tempo/server/board/sql
 import tempo/server/board/view as board
 import test_pool
@@ -44,8 +45,10 @@ pub fn snapshot_includes_unassigned_test() {
       project: "Ledger Migration",
       client: "Northwind Trading",
       fraction: 0.5,
-      day_rate: 1200.0,
+      day_rate:,
       ..,
     ),
   ) = priya
+  let assert Ok(expected_rate) = money.from_string("1200.00")
+  assert day_rate == expected_rate
 }
