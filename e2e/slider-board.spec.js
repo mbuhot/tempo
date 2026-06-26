@@ -1,6 +1,5 @@
 const { test, expect } = require("@playwright/test");
 const {
-  signIn,
   signInAs,
   scrubTo,
   navigateTo,
@@ -106,11 +105,12 @@ test("the selected date lives in the URL and is restored on load", async ({
 }) => {
   // The as-of is mirrored in ?date=, so the view is shareable and survives a
   // reload: scrubbing updates ?date, and reloading the root with ?date opens there.
+  // The session also survives the reload — the signed cookie is restored via
+  // /api/me on boot — so we land straight in the app, no re-login.
   await scrubTo(page, "2026-07-15");
   await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
 
   await page.goto("/?date=2025-01-01");
-  await signIn(page, "Priya Sharma");
   await expect(page.getByText("1 Jan 2025")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Board" }),

@@ -39,7 +39,7 @@ test("the global as-of is preserved as you navigate Board → People → Finance
   // The as-of is one application-wide value owned by the rail. Scrub it forward,
   // then move through the sidebar: each destination resolves as of the SAME date,
   // shown unchanged on the rail's readout — the as-of survives navigation.
-  await signInAs(page, "Priya Sharma");
+  await signInAs(page, "Admin");
   await scrubTo(page, "2026-07-15");
   await expect(page).toHaveURL(/[?&]date=2026-07-15(\b|$)/);
 
@@ -66,7 +66,7 @@ test("a cold deep link opens the engineer detail, not the roster", async ({
   // timesheet, allocations, the back link — and NOT the roster list.
   await page.goto("/people/2?date=2026-06-15");
 
-  await signIn(page, "Priya Sharma");
+  await signIn(page, "Admin");
   await expect(page.getByText(railReadout("2026-06-15"), { exact: true })).toBeVisible();
 
   await expect(page.getByRole("heading", { name: /Marcus Chen/ })).toBeVisible();
@@ -84,7 +84,7 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
   // operation's summary is listed. Matched by a distinctive substring (≥1) so
   // repeated runs — which append another identical entry — stay green. Promoting
   // Priya to L6 from a fixed past date is idempotent, so re-runs do not conflict.
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await navigateTo(page, "People");
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   await clickContent(rosterRow(page, "Priya Sharma"));
@@ -115,7 +115,7 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
 for (const path of ["/board", "/people", "/finance"]) {
   test(`the as-of set on the rail sticks (no snap-back) on ${path}`, async ({ page }) => {
     await page.goto(`${path}?date=2026-06-15`);
-    await signIn(page, "Priya Sharma");
+    await signIn(page, "Admin");
     await expect(
       page.getByText(railReadout("2026-06-15"), { exact: true }),
     ).toBeVisible();

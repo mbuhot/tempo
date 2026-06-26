@@ -11,11 +11,18 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json
+import gleam/option.{type Option}
 import lustre/effect.{type Effect}
 import rsvp
 import shared/command.{
   type Command, type Event, OperationRequest, decode_error_detail,
   encode_operation_request, event_decoder,
+}
+
+/// The signed-in identity the login endpoint returns: the journal actor, the linked
+/// engineer (for own-resource UI), and the effective permission keys (for UI gating).
+pub type Identity {
+  Identity(actor: String, engineer_id: Option(Int), permissions: List(String))
 }
 
 /// Fetch JSON from `url`, decode it with `decoder`, and hand the outcome to
@@ -38,7 +45,7 @@ pub fn login(
   username: String,
   password: String,
   remember_me: Bool,
-  to_msg: fn(Result(String, rsvp.Error(String))) -> msg,
+  to_msg: fn(Result(Identity, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   let body =
     json.object([
@@ -46,11 +53,24 @@ pub fn login(
       #("password", json.string(password)),
       #("remember_me", json.bool(remember_me)),
     ])
-  let decoder = {
-    use authenticated <- decode.field("actor", decode.string)
-    decode.success(authenticated)
-  }
-  rsvp.post("/api/login", body, rsvp.expect_json(decoder, to_msg))
+  rsvp.post("/api/login", body, rsvp.expect_json(identity_decoder(), to_msg))
+}
+
+/// GET `/api/me` — the authenticated identity + effective permissions, resolved as-of
+/// now (the canonical source). The client calls it on boot to restore a session from
+/// the cookie, and to refresh permissions after a change. A missing/invalid session is
+/// a 401 (`rsvp.HttpError`), which the shell treats as "show the gate".
+pub fn me(
+  to_msg: fn(Result(Identity, rsvp.Error(String))) -> msg,
+) -> Effect(msg) {
+  get("/api/me", identity_decoder(), to_msg)
+}
+
+fn identity_decoder() -> Decoder(Identity) {
+  use actor <- decode.field("actor", decode.string)
+  use engineer_id <- decode.field("engineer_id", decode.optional(decode.int))
+  use permissions <- decode.field("permissions", decode.list(decode.string))
+  decode.success(Identity(actor:, engineer_id:, permissions:))
 }
 
 /// POST to `/api/logout` to clear the session cookie server-side. The client also

@@ -30,8 +30,8 @@ import tempo/server/operation.{
   InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
   ProjectNotRunning, Unauthorized,
 }
+import tempo/server/web/guard
 import tempo/server/web/response
-import tempo/server/web/session
 import wisp
 
 /// Handle POST /api/operations — apply a domain command on the AUTHENTICATED
@@ -44,22 +44,7 @@ import wisp
 /// `OperationError` to the matching 4xx/5xx.
 pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.require_method(req, http.Post)
-  case session.principal(req) {
-    Error(Nil) ->
-      response.error_response(
-        401,
-        "unauthenticated",
-        "sign in before applying an operation",
-      )
-    Ok(principal) -> authenticated(req, ctx, principal)
-  }
-}
-
-fn authenticated(
-  req: wisp.Request,
-  ctx: Context,
-  principal: Principal,
-) -> wisp.Response {
+  use principal <- guard.authenticated(req, ctx)
   use body <- wisp.require_json(req)
   case decode.run(body, shared_command.operation_request_decoder()) {
     Error(_) ->

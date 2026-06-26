@@ -24,7 +24,7 @@ import shared/command.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
   LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, SalaryCommand, TimesheetCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -42,6 +42,7 @@ import tempo/server/project_details/command as project_details
 import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
 import tempo/server/repository
+import tempo/server/role/command as role
 import tempo/server/salary/command as salary
 import tempo/server/timesheet/command as timesheet
 
@@ -123,5 +124,6 @@ fn route(
     InvoiceCommand(command) -> invoice.route(conn, command)
     PayrollCommand(command) -> payroll.route(conn, command)
     ProjectRequirementCommand(command) -> project_requirement.route(command)
+    RoleCommand(command) -> role.route(command)
   }
 }

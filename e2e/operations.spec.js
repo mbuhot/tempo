@@ -40,7 +40,7 @@ test("promoting an engineer re-renders their level and charge rate and is journa
   // (before the seed "now", so it is in effect now). Her detail header steps to L6
   // (Distinguished); the Board, refetched for the current date, reads her Ledger
   // engagement at the L6 rate ($1,800/day); and the Activity journal records it.
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await openDetail(page, "Priya Sharma");
 
   // The Promote form opens in the modal (its New-level / Effective fields appear),
@@ -83,7 +83,7 @@ test("a containment violation is refused with the reason and leaves the board un
   // window that begins before her employment — the allocation would dangle outside
   // its containing employment. The assign guard refuses it up front with the typed
   // employment reason; the board is unchanged (read-only refusal, re-run safe).
-  await signInAs(page, "Priya Sharma");
+  await signInAs(page, "Admin");
   await navigateTo(page, "Board");
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
 
@@ -111,7 +111,7 @@ test("a leave request beyond the accrued balance is refused with the reason", as
   // Priya has well under four months of annual leave accrued by late 2026. The
   // take_leave guard checks the balance on return; the op form surfaces the typed
   // reason. Read-only refusal, so re-run safe.
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await openDetail(page, "Priya Sharma");
 
   // Take leave opens in the modal; Kind is now a <select> (defaulting to Annual),

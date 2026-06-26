@@ -143,7 +143,10 @@ pub fn encode_invoice_page(page: InvoicePage) -> Json {
 /// Decode an `InvoicePage` from JSON.
 pub fn invoice_page_decoder() -> Decoder(InvoicePage) {
   use invoices <- decode.field("invoices", decode.list(invoice_decoder()))
-  use next_cursor <- decode.field("next_cursor", pagination.next_cursor_decoder())
+  use next_cursor <- decode.field(
+    "next_cursor",
+    pagination.next_cursor_decoder(),
+  )
   decode.success(InvoicePage(invoices:, next_cursor:))
 }
 

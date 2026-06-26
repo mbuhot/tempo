@@ -29,6 +29,7 @@
 
 import client/api
 import client/page.{type OutMsg}
+import client/page/access
 import client/page/activity
 import client/page/board
 import client/page/clients
@@ -41,6 +42,7 @@ import client/scheduler
 import client/time
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
 import lustre
@@ -51,6 +53,7 @@ import lustre/element/html
 import lustre/event
 import modem
 import rsvp
+import shared/access as perm
 
 /// The active page and its opaque sub-model. The shell never inspects a page
 /// model; it only routes the matching `*Msg` into the matching `*Page`.
@@ -62,6 +65,7 @@ pub type Page {
   FinancePage(finance.Model)
   ActivityPage(activity.Model)
   SettingsPage(settings.Model)
+  AccessPage(access.Model)
 }
 
 /// The shell model: who is signed in (the login gate — `None` shows the gate),
@@ -73,6 +77,8 @@ pub type Page {
 pub type Model {
   Model(
     actor: Option(String),
+    engineer_id: Option(Int),
+    permissions: Set(String),
     route: Route,
     as_of: calendar.Date,
     page: Page,
@@ -123,15 +129,20 @@ pub type Msg {
   /// The login form was submitted: authenticate the typed credentials server-side
   /// (POST /api/login, which verifies the password and issues the session cookie).
   LoginSubmitted
-  /// The login POST returned: `Ok(actor)` is the server-authenticated identity
-  /// (now becomes the shell's actor and enters the app); an `Error` keeps the gate
-  /// up with an inline message so bad credentials cannot sign in.
-  LoginReturned(result: Result(String, rsvp.Error(String)))
+  /// The login POST returned: `Ok(identity)` is the server-authenticated identity
+  /// (actor + linked engineer + permission keys; becomes the shell's identity and
+  /// enters the app); an `Error` keeps the gate up with an inline message so bad
+  /// credentials cannot sign in.
+  LoginReturned(result: Result(api.Identity, rsvp.Error(String)))
   /// The signed-in actor signed out: clear the session cookie server-side
   /// (POST /api/logout) and return to the login gate.
   SignedOut
   /// The logout POST returned; the gate is already shown, so the result is ignored.
   LogoutReturned(result: Result(Nil, rsvp.Error(String)))
+  /// GET /api/me returned: `Ok` restores the session from the cookie (on boot, or
+  /// refreshes permissions after a write); an `Error` (no valid session) leaves the
+  /// gate up. The canonical source of the actor + effective permissions.
+  MeReturned(result: Result(api.Identity, rsvp.Error(String)))
   /// A discrete as-of change (rail step/pick/Today). The shell stores it,
   /// `modem.replace`s the new `?date=`, and refetches ONLY the active page — all
   /// at once.
@@ -156,6 +167,7 @@ pub type Msg {
   FinanceMsg(finance.Msg)
   ActivityMsg(activity.Msg)
   SettingsMsg(settings.Msg)
+  AccessMsg(access.Msg)
 }
 
 /// Client entrypoint: start the Lustre application mounted on `#app`.
@@ -165,17 +177,21 @@ pub fn main() -> Nil {
   Nil
 }
 
-/// Initial state: signed out (the login gate), the as-of resolved from the URL's
-/// `?date=` (falling back to the seed "now"), and the route resolved from the
-/// URL path. The initial effect subscribes to URL changes and kicks off the
-/// resting page's fetch.
+/// Initial state: the as-of and route resolved from the URL. We do NOT fetch the page
+/// yet — instead we ask `GET /api/me` to restore the session from the cookie. If it
+/// resolves `Ok`, `MeReturned` enters the app and fetches the page; if `Error` (no valid
+/// session), the login gate stays. This keeps a reload signed in (the cookie survives)
+/// without trusting any client-held permissions. The initial effect also subscribes to
+/// URL changes.
 fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   let as_of = initial_as_of()
   let route = initial_route()
-  let #(page, page_effect) = init_page(route, as_of, "")
+  let #(page, _page_effect) = init_page(route, as_of, "")
   let model =
     Model(
       actor: None,
+      engineer_id: None,
+      permissions: set.new(),
       route:,
       as_of:,
       page:,
@@ -186,7 +202,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
     model,
     effect.batch([
       modem.init(fn(uri) { RouteChanged(route.parse(uri), route.as_of_of(uri)) }),
-      page_effect,
+      api.me(MeReturned),
     ]),
   )
 }
@@ -246,13 +262,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     LoginReturned(result:) ->
       case result {
-        Ok(actor) -> {
-          let #(page, page_effect) = init_page(model.route, model.as_of, actor)
-          #(
-            Model(..model, actor: Some(actor), page:, login: empty_login()),
-            page_effect,
-          )
-        }
+        Ok(identity) -> enter(model, identity)
         Error(error) -> #(
           Model(
             ..model,
@@ -267,11 +277,26 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     SignedOut -> #(
-      Model(..model, actor: None, login: empty_login()),
+      Model(
+        ..model,
+        actor: None,
+        engineer_id: None,
+        permissions: set.new(),
+        login: empty_login(),
+      ),
       api.logout(LogoutReturned),
     )
 
     LogoutReturned(result: _) -> #(model, effect.none())
+
+    // Boot-restore / refresh: `Ok` enters the app (or updates permissions in place);
+    // `Error` (no valid session) leaves the gate up. Never an error to the user — a
+    // failed /api/me on boot simply means "not signed in".
+    MeReturned(result:) ->
+      case result {
+        Ok(identity) -> enter(model, identity)
+        Error(_) -> #(model, effect.none())
+      }
 
     AsOfChanged(date:) -> {
       let as_of = time.clamp_date(date)
@@ -452,14 +477,28 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
+
+    AccessMsg(page_msg) ->
+      case model.page {
+        AccessPage(page_model) -> {
+          let #(next, page_effect, outs) = access.update(page_model, page_msg)
+          handle_page(
+            model,
+            AccessPage(next),
+            effect.map(page_effect, AccessMsg),
+            page_outs(outs),
+          )
+        }
+        _ -> #(model, effect.none())
+      }
   }
 }
 
 /// A page's cross-cutting effects, lifted from the shared `page.OutMsg` into the
 /// shell's own neutral form. The two-variant `OutMsg` is the ONLY cross-page
 /// coupling (one shared type, `client/page`, since issue #10): `Navigate` pushes a
-/// route URL, `OperationCommitted` is a global no-op for now (a future Activity
-/// badge or cross-page cache invalidation hooks here).
+/// route URL; `OperationCommitted` re-reads `/api/me` so the actor's permissions
+/// converge if a write changed them.
 type Out {
   NavigateTo(Route)
   Committed
@@ -503,7 +542,35 @@ fn fold_outs(model: Model, outs: List(Out)) -> Effect(Msg) {
     [] -> effect.none()
     [NavigateTo(route), ..rest] ->
       effect.batch([push_route(route, model.as_of), fold_outs(model, rest)])
-    [Committed, ..rest] -> fold_outs(model, rest)
+    // A write committed: re-read `/api/me` so the actor's own permissions converge if
+    // the write changed them (e.g. an Owner granting/revoking on the Access page).
+    [Committed, ..rest] ->
+      effect.batch([api.me(MeReturned), fold_outs(model, rest)])
+  }
+}
+
+/// Enter the app with a resolved identity. On boot/login (was signed OUT) it seats the
+/// actor + permissions and fetches the current route's page. On a refresh (already
+/// signed in — e.g. after a write re-reads `/api/me`) it updates the actor and
+/// permissions IN PLACE, leaving the current page untouched so an in-flight view is not
+/// reset.
+fn enter(model: Model, identity: api.Identity) -> #(Model, Effect(Msg)) {
+  let was_signed_in = model.actor != None
+  let model =
+    Model(
+      ..model,
+      actor: Some(identity.actor),
+      engineer_id: identity.engineer_id,
+      permissions: set.from_list(identity.permissions),
+      login: empty_login(),
+    )
+  case was_signed_in {
+    True -> #(model, effect.none())
+    False -> {
+      let #(page, page_effect) =
+        init_page(model.route, model.as_of, identity.actor)
+      #(Model(..model, page:), page_effect)
+    }
   }
 }
 
@@ -542,6 +609,10 @@ fn init_page(
     route.Settings -> {
       let #(page, eff) = settings.init(route, as_of, actor)
       #(SettingsPage(page), effect.map(eff, SettingsMsg))
+    }
+    route.Access -> {
+      let #(page, eff) = access.init(route, as_of, actor)
+      #(AccessPage(page), effect.map(eff, AccessMsg))
     }
     route.NotFound -> {
       let #(page, eff) = board.init(route, as_of, actor)
@@ -586,6 +657,10 @@ fn refetch_page(
     SettingsPage(model) -> {
       let #(next, eff) = settings.refetch(model, as_of, actor)
       #(SettingsPage(next), effect.map(eff, SettingsMsg))
+    }
+    AccessPage(model) -> {
+      let #(next, eff) = access.refetch(model, as_of, actor)
+      #(AccessPage(next), effect.map(eff, AccessMsg))
     }
   }
 }
@@ -736,7 +811,7 @@ fn view_login_error(error: Option(String)) -> Element(Msg) {
 /// page's content. Mirrors the prototype's `#app` grid.
 fn view_app(model: Model, actor: String) -> Element(Msg) {
   html.div([attribute.class("app")], [
-    view_sidebar(model.route, model.as_of, actor),
+    view_sidebar(model.route, model.as_of, actor, model.permissions),
     html.div([attribute.class("main")], [
       element.map(time.view(model.as_of), fn(rail_msg) {
         case rail_msg {
@@ -756,29 +831,119 @@ fn view_sidebar(
   active: Route,
   as_of: calendar.Date,
   actor: String,
+  permissions: Set(String),
 ) -> Element(Msg) {
   html.aside([attribute.class("sidebar")], [
     view_brand(),
     html.nav([attribute.class("sidebar__nav")], [
-      view_nav_link(active, as_of, route.Board, "▦", "Board"),
-      view_nav_link(active, as_of, route.People(id: None), "◔", "People"),
-      view_nav_link(active, as_of, route.Clients(id: None), "◇", "Clients"),
-      view_nav_link(active, as_of, route.Projects(id: None), "▪", "Projects"),
-      view_nav_link(
+      nav_link_if(
+        permissions,
+        perm.read_projects,
+        active,
+        as_of,
+        route.Board,
+        "▦",
+        "Board",
+      ),
+      nav_link_if(
+        permissions,
+        perm.read_engineers,
+        active,
+        as_of,
+        route.People(id: None),
+        "◔",
+        "People",
+      ),
+      nav_link_if(
+        permissions,
+        perm.read_projects,
+        active,
+        as_of,
+        route.Clients(id: None),
+        "◇",
+        "Clients",
+      ),
+      nav_link_if(
+        permissions,
+        perm.read_projects,
+        active,
+        as_of,
+        route.Projects(id: None),
+        "▪",
+        "Projects",
+      ),
+      nav_link_if(
+        permissions,
+        perm.read_finances,
         active,
         as_of,
         route.Finance(tab: route.Invoices, invoice: None),
         "$",
         "Finance",
       ),
-      view_nav_link(active, as_of, route.Activity, "≋", "Activity"),
-      html.div([attribute.class("sidebar__nav-group eyebrow")], [
-        html.text("Admin"),
-      ]),
-      view_nav_link(active, as_of, route.Settings, "⚙", "Settings"),
+      nav_link_if(
+        permissions,
+        perm.read_engineers,
+        active,
+        as_of,
+        route.Activity,
+        "≋",
+        "Activity",
+      ),
+      admin_header(permissions),
+      nav_link_if(
+        permissions,
+        perm.read_finances,
+        active,
+        as_of,
+        route.Settings,
+        "⚙",
+        "Settings",
+      ),
+      nav_link_if(
+        permissions,
+        perm.roles_manage,
+        active,
+        as_of,
+        route.Access,
+        "⛭",
+        "Access",
+      ),
     ]),
     view_who(actor),
   ])
+}
+
+/// Render a nav link only when the principal holds the permission its page needs
+/// (server-side gating is the security boundary; this just hides what would 403).
+fn nav_link_if(
+  permissions: Set(String),
+  permission: String,
+  active: Route,
+  as_of: calendar.Date,
+  target: Route,
+  icon: String,
+  label: String,
+) -> Element(Msg) {
+  case set.contains(permissions, permission) {
+    True -> view_nav_link(active, as_of, target, icon, label)
+    False -> element.none()
+  }
+}
+
+/// The "Admin" group header, shown only when the principal has at least one admin item
+/// (Settings or Access) so it never sits above an empty group.
+fn admin_header(permissions: Set(String)) -> Element(Msg) {
+  case
+    set.contains(permissions, perm.read_finances)
+    || set.contains(permissions, perm.roles_manage)
+  {
+    True ->
+      html.div([attribute.class("sidebar__nav-group eyebrow")], [
+        html.text("Admin"),
+      ])
+    False -> element.none()
+  }
 }
 
 /// One nav link. Navigation is a `RouteChanged` raised on click (the shell then
@@ -821,6 +986,7 @@ fn same_page(a: Route, b: Route) -> Bool {
     route.Finance(..), route.Finance(..) -> True
     route.Activity, route.Activity -> True
     route.Settings, route.Settings -> True
+    route.Access, route.Access -> True
     route.NotFound, route.NotFound -> True
     _, _ -> False
   }
@@ -880,6 +1046,7 @@ fn view_page(model: Model) -> Element(Msg) {
       element.map(activity.view(page, model.as_of), ActivityMsg)
     SettingsPage(page) ->
       element.map(settings.view(page, model.as_of), SettingsMsg)
+    AccessPage(page) -> element.map(access.view(page, model.as_of), AccessMsg)
   }
 }
 

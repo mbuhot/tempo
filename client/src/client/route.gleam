@@ -38,6 +38,7 @@ pub type Route {
   Finance(tab: FinanceTab, invoice: Option(Int))
   Activity
   Settings
+  Access
   NotFound
 }
 
@@ -65,6 +66,7 @@ pub fn parse(uri: Uri) -> Route {
       )
     ["activity"] -> Activity
     ["settings"] -> Settings
+    ["access"] -> Access
     _ -> NotFound
   }
 }
@@ -85,6 +87,7 @@ pub fn to_path(route: Route) -> String {
       "/finance/" <> finance_tab_to_string(tab) <> "/" <> int.to_string(invoice)
     Activity -> "/activity"
     Settings -> "/settings"
+    Access -> "/access"
     NotFound -> "/"
   }
 }

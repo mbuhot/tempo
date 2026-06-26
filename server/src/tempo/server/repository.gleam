@@ -48,6 +48,7 @@ import tempo/server/fact.{
   EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
   PayrollLine, PayrollPeriod, PayrollRunId, ProjectId, ProjectPlan,
   ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
+  UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -55,6 +56,7 @@ import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/payroll/sql as payroll_sql
 import tempo/server/project/sql as project_sql
 import tempo/server/rate_card/sql as rate_card_sql
+import tempo/server/role/sql as role_sql
 import tempo/server/salary/sql as salary_sql
 import tempo/server/timesheet/sql as timesheet_sql
 
@@ -448,6 +450,15 @@ fn write(
         days,
         audit_id,
       )
+      |> operation.run
+
+    // --- access control -------------------------------------------------------
+    UserRoleGranted(account_id:, role:, from:) ->
+      role_sql.user_role_grant(conn, account_id, role, from, audit_id)
+      |> operation.run
+
+    UserRoleRevoked(account_id:, role:, from:) ->
+      role_sql.user_role_revoke(conn, account_id, role, from)
       |> operation.run
   }
 }

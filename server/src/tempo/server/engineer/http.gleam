@@ -10,6 +10,7 @@ import gleam/http
 import gleam/int
 import gleam/time/calendar.{type Date}
 import shared/engineer/view as engineer_view
+import tempo/server/auth.{type Principal}
 import tempo/server/context.{type Context}
 import tempo/server/engineer/view as engineer_detail
 import tempo/server/web/request
@@ -18,19 +19,31 @@ import wisp
 
 /// Handle GET /api/engineers/:id?as_of=YYYY-MM-DD — the engineer's profile,
 /// contact/banking/emergency, as-of employment, role/allocation/leave history, and
-/// leave balance. A non-integer id is a 400, an unknown id a 404.
+/// leave balance. Authorized to a principal with `read.engineers`, or the engineer
+/// reading their OWN record. A non-integer id is a 400, an unauthorized read a 403, an
+/// unknown id a 404.
 pub fn handle_detail(
   req: wisp.Request,
   ctx: Context,
   id_segment: String,
+  principal: Principal,
 ) -> wisp.Response {
   use <- wisp.require_method(req, http.Get)
   case int.parse(id_segment) {
     Error(Nil) -> wisp.bad_request("invalid engineer id '" <> id_segment <> "'")
     Ok(engineer_id) ->
-      case request.date_from_query(req, "as_of") {
-        Error(detail) -> wisp.bad_request(detail)
-        Ok(as_of) -> detail_response(ctx, engineer_id, as_of)
+      case auth.can_read_engineer(principal, engineer_id) {
+        False ->
+          response.error_response(
+            403,
+            "forbidden",
+            "you do not have permission to view this engineer",
+          )
+        True ->
+          case request.date_from_query(req, "as_of") {
+            Error(detail) -> wisp.bad_request(detail)
+            Ok(as_of) -> detail_response(ctx, engineer_id, as_of)
+          }
       }
   }
 }

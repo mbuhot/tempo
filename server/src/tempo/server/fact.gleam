@@ -204,4 +204,10 @@ pub type Fact {
     amount: Money,
     days: Float,
   )
+
+  // --- access control ---------------------------------------------------------
+  /// An account holds `role` from `from` onward (open-ended; a re-grant re-opens it).
+  UserRoleGranted(account_id: Int, role: String, from: Date)
+  /// An account's `role` is revoked from `from`: the held period is capped there.
+  UserRoleRevoked(account_id: Int, role: String, from: Date)
 }

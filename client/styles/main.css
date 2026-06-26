@@ -18,6 +18,7 @@
 @import "./finance.css";
 @import "./activity.css";
 @import "./settings.css";
+@import "./access.css";
 @import "./login.css";
 /* responsive overrides last so they win the cascade over component base rules */
 @import "./responsive.css";

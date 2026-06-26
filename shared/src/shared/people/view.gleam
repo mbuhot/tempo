@@ -47,11 +47,7 @@ pub type PersonRow {
 /// `next_cursor` for the following keyset page (`None` on the last page; issue
 /// #12). The item shape is unchanged — `next_cursor` is purely additive.
 pub type PeopleList {
-  PeopleList(
-    date: Date,
-    people: List(PersonRow),
-    next_cursor: Option(String),
-  )
+  PeopleList(date: Date, people: List(PersonRow), next_cursor: Option(String))
 }
 
 /// Encode a `RosterStatus` as a tagged JSON object keyed by `status`.

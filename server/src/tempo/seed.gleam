@@ -79,15 +79,37 @@ pub fn env_or_dev() -> String {
 pub fn run(context: Context, env: String) -> Result(SeedReport, SeedError) {
   use <- guard_dev(env)
   use _ <- result.try(migrate.run(context) |> result.map_error(MigrateFailed))
+  // Base cast (engineers etc.) FIRST so account_upsert can link an account to its
+  // engineer by email; then the dev accounts; then the RBAC catalog/matrix/assignments
+  // (which references those accounts by username). All three steps are idempotent.
+  use report <- result.try(seed_base(context))
   use _ <- result.try(
     account_seed.seed(context.db) |> result.map_error(AccountSeedFailed),
   )
+  use _ <- result.map(seed_rbac(context))
+  report
+}
+
+/// Apply the base demo cast on an empty DB (a no-op once seeded).
+fn seed_base(context: Context) -> Result(SeedReport, SeedError) {
   case already_seeded(context) {
     True -> Ok(AlreadySeeded)
     False -> {
-      use statements <- result.try(seed_statements())
+      use statements <- result.try(seed_statements("/seed/base_seed.sql"))
       use _ <- result.map(apply_seed(context.db, statements))
       Seeded
+    }
+  }
+}
+
+/// Apply the RBAC catalog, role->permission matrix, and role assignments when the
+/// permission catalog is still empty (a no-op once seeded), backfilling an existing DB.
+fn seed_rbac(context: Context) -> Result(Nil, SeedError) {
+  case rbac_seeded(context) {
+    True -> Ok(Nil)
+    False -> {
+      use statements <- result.try(seed_statements("/seed/rbac_seed.sql"))
+      apply_seed(context.db, statements)
     }
   }
 }
@@ -104,14 +126,24 @@ fn guard_dev(
 }
 
 /// True when the demo cast is already present (any engineer row) — the signal the
-/// seed has run, used to keep a re-run a no-op.
+/// base seed has run, used to keep a re-run a no-op.
 fn already_seeded(context: Context) -> Bool {
+  table_has_rows(context, "SELECT count(*) FROM engineer")
+}
+
+/// True when the RBAC catalog is already present (any permission row), so re-running the
+/// RBAC seed is a no-op.
+fn rbac_seeded(context: Context) -> Bool {
+  table_has_rows(context, "SELECT count(*) FROM permission")
+}
+
+fn table_has_rows(context: Context, count_query: String) -> Bool {
   let row_decoder = {
     use count <- decode.field(0, decode.int)
     decode.success(count)
   }
   case
-    pog.query("SELECT count(*) FROM engineer")
+    pog.query(count_query)
     |> pog.returning(row_decoder)
     |> pog.execute(on: context.db)
   {
@@ -124,16 +156,15 @@ fn already_seeded(context: Context) -> Bool {
   }
 }
 
-/// Read and split `priv/seed/base_seed.sql` into individual statements, reusing
+/// Read and split a `priv`-relative seed SQL file into individual statements, reusing
 /// the migration runner's dollar-quote-aware lexer.
-fn seed_statements() -> Result(List(String), SeedError) {
+fn seed_statements(relative_path: String) -> Result(List(String), SeedError) {
   use priv <- result.try(
     application.priv_directory("tempo")
     |> result.replace_error(SeedNotFound),
   )
-  let path = priv <> "/seed/base_seed.sql"
   use body <- result.map(
-    simplifile.read(path) |> result.map_error(SeedReadError),
+    simplifile.read(priv <> relative_path) |> result.map_error(SeedReadError),
   )
   migrate.split_statements(body)
 }

@@ -16,12 +16,13 @@ import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
+import shared/pagination
 import shared/payroll/command as payroll_command
 import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
+import shared/role/command as role_command
 import shared/salary/command as salary_command
-import shared/pagination
 import shared/timesheet/command as timesheet_command
 import shared/wire
 
@@ -59,6 +60,7 @@ pub type Command {
   ProjectRequirementCommand(
     project_requirement_command.ProjectRequirementCommand,
   )
+  RoleCommand(role_command.RoleCommand)
 }
 
 /// Encode a `Command` as a tagged JSON object keyed by `op`, delegating to the
@@ -79,6 +81,7 @@ pub fn encode_command(command: Command) -> Json {
     PayrollCommand(command) -> payroll_command.encode(command)
     ProjectRequirementCommand(command) ->
       project_requirement_command.encode(command)
+    RoleCommand(command) -> role_command.encode(command)
   }
 }
 
@@ -103,6 +106,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
     project_requirement_command.decoder(op),
     ProjectRequirementCommand,
   )
+  use <- try_group(role_command.decoder(op), RoleCommand)
   Error(Nil)
 }
 

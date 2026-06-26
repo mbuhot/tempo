@@ -47,19 +47,21 @@ import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/set
 import gleam/string
 import gleam/time/calendar.{
   type Date, type TimeOfDay, April, Date, February, January, July, June, March,
   May, TimeOfDay,
 }
 import gleam/time/timestamp
+import shared/access
 import shared/command.{type Command} as gateway
 import shared/engineer/command as engineer_command
 import shared/invoice/command as invoice_command
 import shared/invoice/view.{type Invoice}
 import shared/payroll/command as payroll_command
 import shared/timesheet/command as timesheet_command
-import tempo/server/auth.{Admin, Principal}
+import tempo/server/auth.{type Principal, Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/engineer/sql as engineer_sql
@@ -69,10 +71,18 @@ import tempo/server/payroll/view as payroll_read
 import tempo/server/timesheet/sql as timesheet_sql
 import tempo/server/web/cursor
 
-/// The principal every demo command is dispatched as: actor "seed" (stamped on
-/// every `event_log` row), with the `Admin` role so the financial demo commands
-/// (invoices, payroll, salary) pass the authorization gate.
-const seed_principal = Principal(actor: "seed", role: Admin)
+/// The principal every demo command is dispatched as: actor "seed" (stamped on every
+/// `event_log` row), holding every permission so the financial demo commands (invoices,
+/// payroll, salary) pass the authorization gate. A dev-only synthetic principal — not a
+/// real account (account_id 0, no linked engineer).
+fn seed_principal() -> Principal {
+  Principal(
+    account_id: 0,
+    actor: "seed",
+    engineer_id: None,
+    permissions: set.from_list(access.all()),
+  )
+}
 
 /// The back-dated variance demo: promote Priya (engineer 1) from her seeded L5 to L6,
 /// effective the start of the already-run MAY month. The L6 salary band ($14,000)
@@ -489,7 +499,7 @@ fn variance_promotion_present(ctx: Context) -> Bool {
 /// realistic timeline rather than all at the instant the seed ran. A failure
 /// `panic`s with the operation error so the seed gates loudly.
 fn apply(ctx: Context, command: Command, occurred_on: Date) -> Nil {
-  case command.dispatch(ctx, principal: seed_principal, command: command) {
+  case command.dispatch(ctx, principal: seed_principal(), command: command) {
     Error(error) ->
       panic as {
         "seed-financials: dispatching "

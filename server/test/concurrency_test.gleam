@@ -18,21 +18,31 @@ import concurrency_pool
 import gleam/erlang/process
 import gleam/int
 import gleam/list
+import gleam/option.{None}
 import gleam/result
+import gleam/set
 import gleam/time/calendar.{Date, July, June}
 import pog
+import shared/access
 import shared/command.{type Command, type Event} as gateway
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
-import tempo/server/auth.{Admin, Principal}
+import tempo/server/auth.{type Principal, Principal}
 import tempo/server/command
 import tempo/server/operation.{
   type OperationError, InsufficientLeaveBalance, InvalidValue,
 }
 
-/// The principal the race commands dispatch as: actor "racer" with the `Admin`
-/// role, so a financial command (PayInvoice) passes the authorization gate.
-const racer = Principal(actor: "racer", role: Admin)
+/// The principal the race commands dispatch as: actor "racer" holding every permission,
+/// so a financial command (PayInvoice) passes the authorization gate.
+fn racer() -> Principal {
+  Principal(
+    account_id: 0,
+    actor: "racer",
+    engineer_id: None,
+    permissions: set.from_list(access.all()),
+  )
+}
 
 /// The pair of outcomes from a race, in launch order.
 type Outcomes =
@@ -48,14 +58,14 @@ fn race(first: Command, second: Command) -> Outcomes {
     process.spawn(fn() {
       process.send(mailbox, #(
         0,
-        command.dispatch(concurrency_pool.ctx(), racer, first),
+        command.dispatch(concurrency_pool.ctx(), racer(), first),
       ))
     })
   let _ =
     process.spawn(fn() {
       process.send(mailbox, #(
         1,
-        command.dispatch(concurrency_pool.ctx(), racer, second),
+        command.dispatch(concurrency_pool.ctx(), racer(), second),
       ))
     })
   let assert Ok(one) = process.receive(mailbox, 5000)

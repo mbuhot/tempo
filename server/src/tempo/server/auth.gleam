@@ -1,130 +1,173 @@
-//// Domain: who may do what. The authenticated `Principal` (an actor display name
-//// plus a role) and the authorization gate `command.dispatch` consults before any
-//// transaction opens — ONE place that covers all 24 commands (issue #6).
+//// Domain: who may do what — the permission-based authorization gate (issue #6).
 ////
-//// No HTTP and no database: the web layer authenticates the request (a signed
-//// session cookie) and hands the derived `Principal` inward; this module decides
-//// whether that principal may run a given `Command`. Identity is stamped on the
-//// journal from the principal's `actor`, never from the request body — so the
-//// audit `actor` is unforgeable.
+//// A request's `Principal` carries the account identity, the linked engineer (for
+//// ownership), and the SET of permission keys it holds as-of today — resolved from the
+//// temporal `user_role`/`role_permission` maps by `access.resolve`, never from the
+//// cookie. `authorize` maps each command to the permission it requires (and, for the
+//// ownership-sensitive ones, whose engineer it targets) and checks the set. ONE place
+//// covering every command; it refuses BEFORE any transaction opens, so a denied command
+//// never touches the database, and the journal `actor` is the principal's display name.
 ////
-//// Credentials live in the `account` table (the `account` concept owns login); this
-//// module no longer keeps a hardcoded identity registry. Session validation is
-//// stateless: the cookie is HMAC-signed, so a well-formed `actor|role` payload that
-//// verifies is TRUSTED without a DB read — only the signing key could have produced
-//// it. Admin may run every command; everyone else is denied the financial commands
-//// (salary, payroll, invoicing) — the gate that makes the difference observable.
+//// No HTTP and no database: the web layer authenticates the request (a signed cookie
+//// carrying the account id) and `access.resolve` builds the `Principal`; this module
+//// only decides whether that principal may run a command or read a resource.
 
-import gleam/string
+import gleam/option.{type Option, Some}
+import gleam/set.{type Set}
+import shared/access
 import shared/command.{
-  type Command, InvoiceCommand, PayrollCommand, SalaryCommand,
+  type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
+  EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
+  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
 }
-import shared/invoice/command as invoice_command
-import shared/payroll/command as payroll_command
-import shared/salary/command as salary_command
+import shared/engineer/command as engineer_command
+import shared/engineer_details/command as engineer_details_command
+import shared/leave/command as leave_command
+import shared/role/command as role_command
+import shared/timesheet/command as timesheet_command
 
-/// A role bundles the commands a principal may run. `Admin` is unrestricted; `Ops`
-/// and `Engineer` are denied the financial commands.
-pub type Role {
-  Admin
-  Ops
-  Engineer
-}
-
-/// An authenticated identity: the display `actor` stamped on the journal and the
-/// `role` the authorization gate keys on. Built ONLY from a verified session (or a
-/// verified credential at login), so a caller can never present a forged actor.
+/// An authenticated identity: the `account_id` (carried in the signed cookie), the
+/// `actor` display name stamped on the journal, the `engineer_id` it is linked to (for
+/// ownership; `None` for non-engineer accounts), and the permission keys it holds
+/// as-of today. Built ONLY by `access.resolve` from a verified session.
 pub type Principal {
-  Principal(actor: String, role: Role)
+  Principal(
+    account_id: Int,
+    actor: String,
+    engineer_id: Option(Int),
+    permissions: Set(String),
+  )
 }
 
-/// Why authorization refused a command: the principal's role does not grant it.
+/// Why authorization refused a command: the principal lacks the permission it needs.
 pub type AuthzError {
   Forbidden(actor: String, command: String)
 }
 
-/// Authorize a principal to run a command, BEFORE any transaction opens (issue
-/// #6): the ONE gate covering all 24 commands. `Admin` may run everything;
-/// everyone else is denied the financial commands (set salary, run payroll, and
-/// the invoice lifecycle). Returns the principal's actor for stamping when allowed.
+/// Whether the principal holds a permission key.
+pub fn can(principal: Principal, permission: String) -> Bool {
+  set.contains(principal.permissions, permission)
+}
+
+/// Whether the principal may read engineer `engineer_id`: anyone with `read.engineers`,
+/// or the engineer reading their OWN record.
+pub fn can_read_engineer(principal: Principal, engineer_id: Int) -> Bool {
+  can(principal, access.read_engineers) || owns(principal, engineer_id)
+}
+
+fn owns(principal: Principal, engineer_id: Int) -> Bool {
+  principal.engineer_id == Some(engineer_id)
+}
+
+/// Authorize a principal to run a command, BEFORE any transaction opens: the ONE gate
+/// covering every command. Returns the principal's actor (to stamp on the journal) when
+/// allowed, or `Forbidden` naming the refused command.
 pub fn authorize(
   principal: Principal,
   command: Command,
 ) -> Result(String, AuthzError) {
-  case principal.role, is_financial(command) {
-    Admin, _ -> Ok(principal.actor)
-    _, False -> Ok(principal.actor)
-    _, True ->
+  case permitted(principal, command) {
+    True -> Ok(principal.actor)
+    False ->
       Error(Forbidden(actor: principal.actor, command: command_tag(command)))
   }
 }
 
-/// Whether a command moves money: setting a salary, running payroll, or any
-/// invoice-lifecycle transition. These are the commands only `Admin` may run.
-fn is_financial(command: Command) -> Bool {
+/// What a command needs: a single permission, or an ownership pair (the `any` form on
+/// some engineer, else the `own` form when the principal IS that engineer).
+type Requirement {
+  Direct(permission: String)
+  Owned(own: String, any: String, engineer_id: Int)
+}
+
+fn permitted(principal: Principal, command: Command) -> Bool {
+  case requirement(command) {
+    Direct(permission:) -> can(principal, permission)
+    Owned(own:, any:, engineer_id:) ->
+      can(principal, any)
+      || { can(principal, own) && owns(principal, engineer_id) }
+  }
+}
+
+/// Map each command to the permission it requires. Exhaustive over `Command`, so a new
+/// command with no arm is a compile error rather than a silently-unguarded write.
+fn requirement(command: Command) -> Requirement {
   case command {
-    SalaryCommand(salary_command.SetSalary(..))
-    | PayrollCommand(payroll_command.RunPayroll(..))
-    | InvoiceCommand(_) -> True
-    _ -> False
+    EngineerCommand(engineer_command.OnboardEngineer(..)) ->
+      Direct(access.engineer_onboard)
+    EngineerCommand(engineer_command.Promote(..)) ->
+      Direct(access.engineer_promote)
+    EngineerCommand(engineer_command.TerminateEmployment(..)) ->
+      Direct(access.engineer_terminate)
+    EngineerDetailsCommand(details) ->
+      Owned(
+        access.profile_update_own,
+        access.profile_update_any,
+        engineer_details_target(details),
+      )
+    AllocationCommand(_) -> Direct(access.allocation_manage)
+    EngagementCommand(_) -> Direct(access.engagement_manage)
+    LeaveCommand(leave_command.TakeLeave(engineer_id:, ..)) ->
+      Owned(access.leave_take_own, access.leave_take_any, engineer_id)
+    TimesheetCommand(entry) ->
+      Owned(
+        access.timesheet_log_own,
+        access.timesheet_log_any,
+        timesheet_target(entry),
+      )
+    ClientDetailsCommand(_) -> Direct(access.client_manage)
+    ProjectDetailsCommand(_) -> Direct(access.project_manage)
+    ProjectRequirementCommand(_) -> Direct(access.project_manage)
+    RateCardCommand(_) -> Direct(access.ratecard_manage)
+    SalaryCommand(_) -> Direct(access.salary_set)
+    InvoiceCommand(_) -> Direct(access.invoice_manage)
+    PayrollCommand(_) -> Direct(access.payroll_run)
+    RoleCommand(_) -> Direct(access.roles_manage)
   }
 }
 
-// --- session encoding --------------------------------------------------------
-// A session is the principal serialized as `actor|role`. The web layer signs the
-// string into a cookie (so the client cannot tamper with it) and verifies it back;
-// this module owns the string<->Principal mapping so the wire format lives in one
-// place.
-
-/// Serialize a principal to its signed-cookie payload `actor|role`.
-pub fn to_session(principal: Principal) -> String {
-  principal.actor <> "|" <> role_to_string(principal.role)
-}
-
-/// Parse a verified session payload back to its `Principal`. The cookie is signed,
-/// so a payload that verified is trusted: this only re-checks shape — a non-empty
-/// actor and a known role. `Error(Nil)` on a missing separator, an empty actor, or
-/// an unknown role string.
-pub fn from_session(session: String) -> Result(Principal, Nil) {
-  case string.split_once(session, "|") {
-    Ok(#(actor, role)) ->
-      case actor, role_from_string(role) {
-        "", _ -> Error(Nil)
-        _, Ok(role) -> Ok(Principal(actor:, role:))
-        _, Error(Nil) -> Error(Nil)
-      }
-    Error(Nil) -> Error(Nil)
+fn engineer_details_target(
+  command: engineer_details_command.EngineerDetailsCommand,
+) -> Int {
+  case command {
+    engineer_details_command.UpdateContactDetails(engineer_id:, ..) ->
+      engineer_id
+    engineer_details_command.UpdateBankingDetails(engineer_id:, ..) ->
+      engineer_id
+    engineer_details_command.UpdateEmergencyContact(engineer_id:, ..) ->
+      engineer_id
   }
 }
 
-fn role_to_string(role: Role) -> String {
-  case role {
-    Admin -> "admin"
-    Ops -> "ops"
-    Engineer -> "engineer"
+fn timesheet_target(command: timesheet_command.TimesheetCommand) -> Int {
+  case command {
+    timesheet_command.LogTimesheet(engineer_id:, ..) -> engineer_id
+    timesheet_command.LogWeek(engineer_id:, ..) -> engineer_id
   }
 }
 
-/// Map a role's wire string back to its `Role`. Shared by session decoding and the
-/// `account` concept (whose `role` column carries the same strings). Unknown → error.
-pub fn role_from_string(role: String) -> Result(Role, Nil) {
-  case role {
-    "admin" -> Ok(Admin)
-    "ops" -> Ok(Ops)
-    "engineer" -> Ok(Engineer)
-    _ -> Error(Nil)
-  }
-}
-
-/// A short tag naming a command for an authorization-error message (so a 403 body
-/// can say which command was refused without leaking its parameters).
+/// A short tag naming a command for an authorization-error message (so a 403 body can
+/// say which command was refused without leaking its parameters).
 fn command_tag(command: Command) -> String {
   case command {
-    SalaryCommand(salary_command.SetSalary(..)) -> "set_salary"
-    PayrollCommand(payroll_command.RunPayroll(..)) -> "run_payroll"
-    InvoiceCommand(invoice_command.DraftInvoice(..)) -> "draft_invoice"
-    InvoiceCommand(invoice_command.IssueInvoice(..)) -> "issue_invoice"
-    InvoiceCommand(invoice_command.PayInvoice(..)) -> "pay_invoice"
-    _ -> "command"
+    EngineerCommand(engineer_command.OnboardEngineer(..)) -> "onboard_engineer"
+    EngineerCommand(engineer_command.Promote(..)) -> "promote"
+    EngineerCommand(engineer_command.TerminateEmployment(..)) ->
+      "terminate_employment"
+    EngineerDetailsCommand(_) -> "update_profile"
+    AllocationCommand(_) -> "manage_allocation"
+    EngagementCommand(_) -> "manage_engagement"
+    LeaveCommand(_) -> "take_leave"
+    TimesheetCommand(_) -> "log_timesheet"
+    ClientDetailsCommand(_) -> "update_client"
+    ProjectDetailsCommand(_) -> "manage_project"
+    ProjectRequirementCommand(_) -> "set_project_requirement"
+    RateCardCommand(_) -> "manage_rate_card"
+    SalaryCommand(_) -> "set_salary"
+    InvoiceCommand(_) -> "manage_invoice"
+    PayrollCommand(_) -> "run_payroll"
+    RoleCommand(role_command.GrantUserRole(..)) -> "grant_user_role"
+    RoleCommand(role_command.RevokeUserRole(..)) -> "revoke_user_role"
   }
 }

@@ -1,18 +1,21 @@
-//// Unit tests for the authorization gate and session mapping (issue #6). Pure —
-//// no database, no HTTP: `authorize` (Admin runs everything, Ops and Engineer are
-//// denied the financial commands), and the `to_session`/`from_session` round-trip
-//// that the signed cookie carries.
+//// Unit tests for the permission-based authorization gate (issue #6). Pure — no
+//// database, no HTTP: `authorize` checks a command against a principal's permission set,
+//// the ownership pairs scope `.own` to the principal's own engineer, and
+//// `can_read_engineer` allows `read.engineers` or one's own record.
 
+import gleam/option.{type Option, None, Some}
+import gleam/set
 import gleam/time/calendar
+import shared/access
 import shared/command.{
-  EngineerCommand, PayrollCommand, SalaryCommand, TimesheetCommand,
+  EngineerCommand, EngineerDetailsCommand, PayrollCommand, SalaryCommand,
 }
 import shared/engineer/command as engineer_command
+import shared/engineer_details/command as engineer_details_command
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/salary/command as salary_command
-import shared/timesheet/command as timesheet_command
-import tempo/server/auth.{Admin, Engineer, Forbidden, Ops, Principal}
+import tempo/server/auth.{type Principal, Forbidden, Principal}
 
 fn date() -> calendar.Date {
   calendar.Date(2026, calendar.June, 15)
@@ -23,81 +26,79 @@ fn money_of(text: String) -> Money {
   amount
 }
 
-// Admin may run a financial command.
-pub fn admin_may_run_financial_command_test() {
-  let principal = Principal(actor: "Admin", role: Admin)
+fn principal_with(
+  permissions: List(String),
+  engineer_id: Option(Int),
+) -> Principal {
+  Principal(
+    account_id: 1,
+    actor: "Test",
+    engineer_id:,
+    permissions: set.from_list(permissions),
+  )
+}
+
+fn update_contact(engineer_id: Int) -> command.Command {
+  EngineerDetailsCommand(engineer_details_command.UpdateContactDetails(
+    engineer_id:,
+    name: "A",
+    email: "a@x",
+    phone: "1",
+    postal_address: "addr",
+    effective: date(),
+  ))
+}
+
+// A command runs only when the principal holds its required permission.
+pub fn authorize_requires_the_commands_permission_test() {
+  let promote =
+    EngineerCommand(engineer_command.Promote(
+      engineer_id: 2,
+      level: 6,
+      effective: date(),
+    ))
   assert auth.authorize(
-      principal,
-      SalaryCommand(salary_command.SetSalary(5, money_of("12000.00"), date())),
+      principal_with([access.engineer_promote], None),
+      promote,
     )
-    == Ok("Admin")
+    == Ok("Test")
+  assert auth.authorize(principal_with([], None), promote)
+    == Error(Forbidden(actor: "Test", command: "promote"))
 }
 
-// Ops is denied the financial commands but may run the rest.
-pub fn ops_is_denied_financial_but_allowed_operational_test() {
-  let principal = Principal(actor: "Ops", role: Ops)
-  assert auth.authorize(
-      principal,
-      PayrollCommand(payroll_command.RunPayroll(date(), date())),
-    )
-    == Error(Forbidden(actor: "Ops", command: "run_payroll"))
-  assert auth.authorize(
-      principal,
-      TimesheetCommand(timesheet_command.LogTimesheet(
-        engineer_id: 2,
-        project_id: 300,
-        day: date(),
-        hours: 7.5,
-      )),
-    )
-    == Ok("Ops")
+// The four financial commands key on distinct permissions, so a manager-style set
+// (no money permissions) is refused payroll and salary.
+pub fn financial_commands_need_their_own_permissions_test() {
+  let payroll = PayrollCommand(payroll_command.RunPayroll(date(), date()))
+  let salary =
+    SalaryCommand(salary_command.SetSalary(5, money_of("12000.00"), date()))
+  assert auth.authorize(principal_with([access.payroll_run], None), payroll)
+    == Ok("Test")
+  assert auth.authorize(principal_with([access.salary_set], None), salary)
+    == Ok("Test")
+  assert auth.authorize(principal_with([access.payroll_run], None), salary)
+    == Error(Forbidden(actor: "Test", command: "set_salary"))
 }
 
-// An engineer is denied a financial command too (only Admin moves money).
-pub fn engineer_is_denied_financial_command_test() {
-  let principal = Principal(actor: "Priya Sharma", role: Engineer)
-  assert auth.authorize(
-      principal,
-      SalaryCommand(salary_command.SetSalary(5, money_of("12000.00"), date())),
-    )
-    == Error(Forbidden(actor: "Priya Sharma", command: "set_salary"))
-  assert auth.authorize(
-      principal,
-      EngineerCommand(engineer_command.Promote(
-        engineer_id: 2,
-        level: 6,
-        effective: date(),
-      )),
-    )
-    == Ok("Priya Sharma")
+// profile.update is ownership-scoped: `.own` lets the engineer edit their OWN record
+// but not another's; `.any` edits anyone's.
+pub fn profile_update_is_ownership_scoped_test() {
+  let own_set = principal_with([access.profile_update_own], Some(5))
+  assert auth.authorize(own_set, update_contact(5)) == Ok("Test")
+  assert auth.authorize(own_set, update_contact(9))
+    == Error(Forbidden(actor: "Test", command: "update_profile"))
+
+  let any_set = principal_with([access.profile_update_any], None)
+  assert auth.authorize(any_set, update_contact(9)) == Ok("Test")
 }
 
-// A session round-trips: a principal serialized to its cookie payload parses back
-// to the same principal.
-pub fn session_round_trips_test() {
-  let principal = Principal(actor: "Ops", role: Ops)
-  let session = auth.to_session(principal)
-  assert auth.from_session(session) == Ok(principal)
-}
-
-// The cookie is signed, so a well-formed payload that verified is trusted as-is —
-// the actor and role are taken from it without a registry lookup.
-pub fn session_trusts_a_well_formed_signed_payload_test() {
-  assert auth.from_session("Priya Sharma|engineer")
-    == Ok(Principal(actor: "Priya Sharma", role: Engineer))
-}
-
-// A malformed payload is rejected: no separator, an empty actor, or an unknown role.
-pub fn session_rejects_a_malformed_payload_test() {
-  assert auth.from_session("garbage") == Error(Nil)
-  assert auth.from_session("Admin|wizard") == Error(Nil)
-  assert auth.from_session("|admin") == Error(Nil)
-}
-
-// The role wire-string maps both ways; an unknown role string is an error.
-pub fn role_from_string_maps_known_roles_test() {
-  assert auth.role_from_string("admin") == Ok(Admin)
-  assert auth.role_from_string("ops") == Ok(Ops)
-  assert auth.role_from_string("engineer") == Ok(Engineer)
-  assert auth.role_from_string("wizard") == Error(Nil)
+// can_read_engineer: anyone with read.engineers reads any engineer; otherwise only one's
+// own record.
+pub fn can_read_engineer_allows_any_with_permission_or_own_test() {
+  assert auth.can_read_engineer(
+    principal_with([access.read_engineers], None),
+    9,
+  )
+  assert !auth.can_read_engineer(principal_with([], Some(5)), 9)
+  assert auth.can_read_engineer(principal_with([], Some(5)), 5)
 }

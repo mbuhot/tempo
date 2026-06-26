@@ -96,6 +96,18 @@ fn money_of(text: String) -> Money {
   amount
 }
 
+/// Run a request carrying an authenticated "Admin" session (owner = every permission),
+/// so a gated read endpoint's permission guard is satisfied. Reads are authorized, so
+/// every read test signs in first; the handler still validates params (a 400/404 still
+/// surfaces, no longer masked by the 401).
+fn read(request: wisp.Request) -> wisp.Response {
+  let context = ctx()
+  let #(login_request, login_response) = sign_in(context, "Admin")
+  request
+  |> simulate.session(login_request, login_response)
+  |> router.handle_request(context)
+}
+
 // --- GET /api/board ---------------------------------------------------------
 
 // On the seed "now" the board has Marcus on Data Platform, Priya on her two
@@ -104,7 +116,7 @@ fn money_of(text: String) -> Money {
 pub fn board_now_returns_snapshot_test() {
   let response =
     simulate.request(http.Get, "/api/board?date=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -169,7 +181,7 @@ pub fn board_now_returns_snapshot_test() {
 pub fn board_without_date_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/board")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -178,7 +190,7 @@ pub fn board_without_date_is_bad_request_test() {
 pub fn board_with_bad_date_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/board?date=not-a-date")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -193,7 +205,7 @@ pub fn board_with_bad_date_is_bad_request_test() {
 pub fn timesheet_read_returns_week_test() {
   let response =
     simulate.request(http.Get, "/api/timesheet?engineer=1&week=2026-06-08")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -238,7 +250,7 @@ pub fn timesheet_read_returns_week_test() {
 pub fn timesheet_read_on_leave_has_no_rows_test() {
   let response =
     simulate.request(http.Get, "/api/timesheet?engineer=3&week=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -251,7 +263,7 @@ pub fn timesheet_read_on_leave_has_no_rows_test() {
 pub fn timesheet_read_without_week_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/timesheet?engineer=1")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -285,7 +297,7 @@ pub fn log_timesheet_operation_logs_hours_test() {
   // the Data Platform (300) row.
   let week =
     simulate.request(http.Get, "/api/timesheet?engineer=2&week=2026-06-08")
-    |> router.handle_request(context)
+    |> read()
   let logged =
     decode_timesheet(week).rows
     |> list.filter(fn(row) { row.project_id == 300 })
@@ -340,7 +352,7 @@ pub fn log_week_operation_logs_two_cells_test() {
   // Re-read the week; both cells of the Data Platform (300) row are on record.
   let week =
     simulate.request(http.Get, "/api/timesheet?engineer=2&week=2026-06-08")
-    |> router.handle_request(context)
+    |> read()
   let logged =
     decode_timesheet(week).rows
     |> list.filter(fn(row) { row.project_id == 300 })
@@ -502,12 +514,13 @@ pub fn operation_with_forged_session_is_unauthenticated_test() {
 }
 
 // The journal actor is DERIVED FROM THE SESSION, not the body. Authenticate as a
-// specific identity and assert the recorded event carries THAT actor, regardless
-// of what a body could have claimed (the body no longer carries an actor at all).
+// specific identity (Ops, a manager who may promote) and assert the recorded event
+// carries THAT actor, regardless of what a body could have claimed (the body no longer
+// carries an actor at all).
 pub fn operation_actor_is_derived_from_session_test() {
   let context = ctx()
 
-  let #(login_request, login_response) = sign_in(context, "Marcus Chen")
+  let #(login_request, login_response) = sign_in(context, "Ops")
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(
@@ -531,7 +544,7 @@ pub fn operation_actor_is_derived_from_session_test() {
   delete_event(context, event.id)
 
   assert status == 200
-  assert event.actor == "Marcus Chen"
+  assert event.actor == "Ops"
 }
 
 // The authorization gate refuses a financial command for a non-Admin principal
@@ -588,7 +601,7 @@ pub fn login_accepts_correct_credentials_and_rejects_bad_ones_test() {
 pub fn logout_clears_the_session_cookie_test() {
   let response =
     simulate.request(http.Post, "/api/logout")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
   let assert Ok(set_cookie) = list.key_find(response.headers, "set-cookie")
@@ -646,11 +659,11 @@ pub fn events_window_filters_by_occurred_at_test() {
   // 2026-02-10 falls in [2026-02-10, 2026-02-11) ...
   let visible =
     simulate.request(http.Get, "/api/events?from=2026-02-10&to=2026-02-11")
-    |> router.handle_request(context)
+    |> read()
   // ... but is excluded by a window ending at 2026-02-10 (the upper bound is open).
   let hidden =
     simulate.request(http.Get, "/api/events?from=2026-02-01&to=2026-02-10")
-    |> router.handle_request(context)
+    |> read()
 
   // Restore the seed regardless of the assertion outcome.
   restore_engineer_2_roles(context)
@@ -687,7 +700,7 @@ pub fn events_without_params_returns_the_whole_journal_test() {
 
   let response =
     simulate.request(http.Get, "/api/events")
-    |> router.handle_request(context)
+    |> read()
 
   restore_engineer_2_roles(context)
   delete_event(context, created.id)
@@ -702,7 +715,7 @@ pub fn events_without_params_returns_the_whole_journal_test() {
 pub fn events_with_malformed_from_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/events?from=not-a-date")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -713,7 +726,7 @@ pub fn events_with_malformed_from_is_bad_request_test() {
 pub fn events_cursor_pages_newest_first_without_overlap_test() {
   let first =
     simulate.request(http.Get, "/api/events?limit=1")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_event_page
 
   assert list.length(first.events) == 1
@@ -722,7 +735,7 @@ pub fn events_cursor_pages_newest_first_without_overlap_test() {
 
   let second =
     simulate.request(http.Get, "/api/events?limit=1&cursor=" <> cursor)
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_event_page
 
   let assert [second_event] = second.events
@@ -733,7 +746,7 @@ pub fn events_cursor_pages_newest_first_without_overlap_test() {
 pub fn events_malformed_cursor_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/events?cursor=@@bad@@")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -746,7 +759,7 @@ pub fn events_malformed_cursor_is_bad_request_test() {
 pub fn people_roster_now_returns_rows_test() {
   let response =
     simulate.request(http.Get, "/api/people?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -766,7 +779,7 @@ pub fn people_roster_now_returns_rows_test() {
 pub fn people_without_as_of_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/people")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -777,7 +790,7 @@ pub fn people_without_as_of_is_bad_request_test() {
 pub fn people_cursor_pages_without_overlap_test() {
   let first =
     simulate.request(http.Get, "/api/people?as_of=2026-06-15&limit=1")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_people
 
   assert list.length(first.people) == 1
@@ -788,7 +801,7 @@ pub fn people_cursor_pages_without_overlap_test() {
       http.Get,
       "/api/people?as_of=2026-06-15&limit=1&cursor=" <> cursor,
     )
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_people
 
   let first_ids = list.map(first.people, fn(person) { person.engineer_id })
@@ -797,7 +810,7 @@ pub fn people_cursor_pages_without_overlap_test() {
 
   let unpaged =
     simulate.request(http.Get, "/api/people?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_people
   let expected =
     list.take(list.map(unpaged.people, fn(person) { person.engineer_id }), 2)
@@ -810,7 +823,7 @@ pub fn people_cursor_pages_without_overlap_test() {
 pub fn engineer_detail_returns_bundle_test() {
   let response =
     simulate.request(http.Get, "/api/engineers/2?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -826,7 +839,7 @@ pub fn engineer_detail_returns_bundle_test() {
 pub fn engineer_detail_unknown_is_not_found_test() {
   let response =
     simulate.request(http.Get, "/api/engineers/999?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 404
 }
@@ -835,7 +848,7 @@ pub fn engineer_detail_unknown_is_not_found_test() {
 pub fn engineer_detail_bad_id_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/engineers/abc?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -850,7 +863,7 @@ pub fn engineer_detail_bad_id_is_bad_request_test() {
 pub fn invoices_default_page_on_empty_seed_is_empty_test() {
   let response =
     simulate.request(http.Get, "/api/invoices?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -867,7 +880,7 @@ pub fn invoices_malformed_cursor_is_bad_request_test() {
       http.Get,
       "/api/invoices?as_of=2026-06-15&cursor=not-a-real-cursor",
     )
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -878,7 +891,7 @@ pub fn invoices_malformed_cursor_is_bad_request_test() {
 pub fn clients_list_now_returns_rows_test() {
   let response =
     simulate.request(http.Get, "/api/clients?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -900,7 +913,7 @@ pub fn clients_list_now_returns_rows_test() {
 pub fn clients_list_excludes_not_yet_started_clients_test() {
   let response =
     simulate.request(http.Get, "/api/clients?as_of=2024-06-04")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -915,7 +928,7 @@ pub fn clients_list_excludes_not_yet_started_clients_test() {
 pub fn clients_cursor_pages_without_overlap_test() {
   let first =
     simulate.request(http.Get, "/api/clients?as_of=2026-06-15&limit=1")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_client_list
 
   assert list.length(first.clients) == 1
@@ -926,7 +939,7 @@ pub fn clients_cursor_pages_without_overlap_test() {
       http.Get,
       "/api/clients?as_of=2026-06-15&limit=1&cursor=" <> cursor,
     )
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_client_list
 
   let first_ids = list.map(first.clients, fn(client) { client.client_id })
@@ -935,7 +948,7 @@ pub fn clients_cursor_pages_without_overlap_test() {
 
   let unpaged =
     simulate.request(http.Get, "/api/clients?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_client_list
   assert unpaged.next_cursor == option.None
   let expected =
@@ -947,7 +960,7 @@ pub fn clients_cursor_pages_without_overlap_test() {
 pub fn clients_malformed_cursor_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/clients?as_of=2026-06-15&cursor=@@bad@@")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -958,7 +971,7 @@ pub fn clients_malformed_cursor_is_bad_request_test() {
 pub fn client_detail_returns_bundle_test() {
   let response =
     simulate.request(http.Get, "/api/clients/1?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -972,7 +985,7 @@ pub fn client_detail_returns_bundle_test() {
 pub fn client_detail_unknown_is_not_found_test() {
   let response =
     simulate.request(http.Get, "/api/clients/999?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 404
 }
@@ -984,7 +997,7 @@ pub fn client_detail_unknown_is_not_found_test() {
 pub fn projects_list_now_returns_rows_test() {
   let response =
     simulate.request(http.Get, "/api/projects?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -1006,7 +1019,7 @@ pub fn projects_list_now_returns_rows_test() {
 pub fn projects_cursor_pages_without_overlap_test() {
   let first =
     simulate.request(http.Get, "/api/projects?as_of=2026-06-15&limit=1")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_project_list
 
   assert list.length(first.projects) == 1
@@ -1017,7 +1030,7 @@ pub fn projects_cursor_pages_without_overlap_test() {
       http.Get,
       "/api/projects?as_of=2026-06-15&limit=1&cursor=" <> cursor,
     )
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_project_list
 
   let first_ids = list.map(first.projects, fn(project) { project.project_id })
@@ -1026,7 +1039,7 @@ pub fn projects_cursor_pages_without_overlap_test() {
 
   let unpaged =
     simulate.request(http.Get, "/api/projects?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
     |> decode_project_list
   let expected =
     list.take(list.map(unpaged.projects, fn(project) { project.project_id }), 2)
@@ -1039,7 +1052,7 @@ pub fn projects_cursor_pages_without_overlap_test() {
 pub fn project_detail_returns_bundle_test() {
   let response =
     simulate.request(http.Get, "/api/projects/100?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -1055,7 +1068,7 @@ pub fn project_detail_returns_bundle_test() {
 pub fn project_detail_unknown_is_not_found_test() {
   let response =
     simulate.request(http.Get, "/api/projects/999?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 404
 }
@@ -1066,7 +1079,7 @@ pub fn project_detail_unknown_is_not_found_test() {
 pub fn settings_now_returns_tables_test() {
   let response =
     simulate.request(http.Get, "/api/settings?as_of=2026-06-15")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 
@@ -1080,7 +1093,7 @@ pub fn settings_now_returns_tables_test() {
 pub fn settings_without_as_of_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/settings")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 400
 }
@@ -1092,7 +1105,7 @@ pub fn settings_without_as_of_is_bad_request_test() {
 pub fn unknown_client_path_serves_the_spa_shell_test() {
   let response =
     simulate.request(http.Get, "/no/such/route")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 200
 }
@@ -1101,7 +1114,7 @@ pub fn unknown_client_path_serves_the_spa_shell_test() {
 pub fn unknown_api_path_is_not_found_test() {
   let response =
     simulate.request(http.Get, "/api/no-such-endpoint")
-    |> router.handle_request(ctx())
+    |> read()
 
   assert response.status == 404
 }

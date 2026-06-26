@@ -48,7 +48,7 @@ test("shows the engineer's allocated projects as rows, with logged hours in the 
   // "I'm Aisha looking at Priya." Open Priya's detail and scrub into the week of
   // her logged Tuesday (2026-06-09). Both her half-time projects are rows, and the
   // 4h she logged on Tuesday sit on that day's cell of each.
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await scrubTo(page, "2026-06-09");
   await openDetail(page, "Priya Sharma");
 
@@ -70,7 +70,7 @@ test("logging a whole week persists across navigation", async ({ page }) => {
   // navigate away and back (a client-side refetch from the database) — both cells
   // survive, proving one atomic submit. Re-run safe: the write overwrites the same
   // cells with the same values each run (no reliance on the cells starting empty).
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await scrubTo(page, "2026-06-10");
   await openDetail(page, "Marcus Chen");
   await expect(page.getByText("week of 2026-06-08")).toBeVisible();
@@ -98,7 +98,7 @@ test("a day the project does not yet cover is not editable", async ({ page }) =>
   // into the week of Monday 2025-05-26: Inventory Sync begins the SUNDAY
   // 2025-06-01, so its Monday cell is disabled while its Sunday cell is enabled;
   // Ledger Migration covers the whole week, so its Monday cell is editable.
-  await signInAs(page, "Aisha Okafor");
+  await signInAs(page, "Admin");
   await scrubTo(page, "2025-05-26");
   await openDetail(page, "Priya Sharma");
   await expect(page.getByText("week of 2025-05-26")).toBeVisible();
@@ -114,7 +114,7 @@ test("an engineer on leave the whole week has nothing to log", async ({
   // Aisha is on annual leave across the entire week of Monday 2026-06-15. Leave
   // takes precedence over allocation, so her grid shows the empty-week message and
   // offers no cell to log against.
-  await signInAs(page, "Priya Sharma");
+  await signInAs(page, "Admin");
   await scrubTo(page, "2026-06-15");
   await openDetail(page, "Aisha Okafor");
 

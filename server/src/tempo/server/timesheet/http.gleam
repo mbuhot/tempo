@@ -13,6 +13,7 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/timesheet/view as timesheet_view
+import tempo/server/auth.{type Principal}
 import tempo/server/context.{type Context}
 import tempo/server/timesheet/command as timesheet
 import tempo/server/web/request
@@ -21,13 +22,27 @@ import wisp
 
 /// Handle GET /api/timesheet?engineer=ID&week=YYYY-MM-DD — the engineer's weekly
 /// grid for the week beginning on `week` (the Monday), with any logged hours.
-/// Missing/malformed params are a 400; a DB failure is a 500.
-pub fn handle_read(req: wisp.Request, ctx: Context) -> wisp.Response {
+/// Authorized to a principal with `read.engineers`, or the engineer reading their OWN
+/// timesheet. Missing/malformed params are a 400; an unauthorized read a 403; a DB
+/// failure a 500.
+pub fn handle_read(
+  req: wisp.Request,
+  ctx: Context,
+  principal: Principal,
+) -> wisp.Response {
   use <- wisp.require_method(req, http.Get)
   case read_params(req) {
     Error(detail) -> wisp.bad_request(detail)
     Ok(#(engineer_id, week_start)) ->
-      read_form_response(ctx, engineer_id, week_start)
+      case auth.can_read_engineer(principal, engineer_id) {
+        False ->
+          response.error_response(
+            403,
+            "forbidden",
+            "you do not have permission to view this timesheet",
+          )
+        True -> read_form_response(ctx, engineer_id, week_start)
+      }
   }
 }
 

@@ -86,6 +86,7 @@ const USERNAMES = {
   "Aisha Okafor": "aisha.okafor@alembic.com.au",
   Admin: "admin@alembic.com.au",
   Ops: "ops@alembic.com.au",
+  Finance: "finance@alembic.com.au",
 };
 
 // Fill and submit the login form for a seeded identity WITHOUT navigating first (so
