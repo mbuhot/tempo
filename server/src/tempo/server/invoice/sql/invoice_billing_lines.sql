@@ -71,11 +71,11 @@ SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
   sub.level,
-  rate_card.day_rate::numeric AS day_rate,
+  rate_card.day_rate::text AS day_rate,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
     AS days,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period))
-      * rate_card.day_rate)::numeric AS amount
+      * rate_card.day_rate)::text AS amount
 FROM sub
 CROSS JOIN agreed
 JOIN engineer_current engineer ON engineer.id = sub.engineer_id

@@ -19,7 +19,7 @@ pub type PayrollAmountsRow {
   PayrollAmountsRow(
     engineer_id: Int,
     engineer: String,
-    amount: Float,
+    amount: String,
     days: Float,
   )
 }
@@ -70,7 +70,7 @@ pub fn payroll_amounts(
   let decoder = {
     use engineer_id <- decode.field(0, decode.int)
     use engineer <- decode.field(1, decode.string)
-    use amount <- decode.field(2, pog.numeric_decoder())
+    use amount <- decode.field(2, decode.string)
     use days <- decode.field(3, pog.numeric_decoder())
     decode.success(PayrollAmountsRow(engineer_id:, engineer:, amount:, days:))
   }
@@ -133,7 +133,7 @@ sub AS (
 SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
-  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::numeric
+  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::text
     AS amount,
   sum(range_days(sub.sub_period))::numeric AS days
 FROM sub
@@ -151,7 +151,7 @@ ORDER BY engineer.name;
 }
 
 /// payroll_line_insert.sql — one prorated payroll line. Last param is the audit_id.
-/// $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
+/// $1 = run_id, $2 = engineer_id, $3 = amount (exact decimal text), $4 = days.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -160,21 +160,21 @@ pub fn payroll_line_insert(
   db: pog.Connection,
   arg_1: Int,
   arg_2: Int,
-  arg_3: Float,
+  arg_3: String,
   arg_4: Float,
   arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
   "-- payroll_line_insert.sql — one prorated payroll line. Last param is the audit_id.
--- $1 = run_id, $2 = engineer_id, $3 = amount, $4 = days.
+-- $1 = run_id, $2 = engineer_id, $3 = amount (exact decimal text), $4 = days.
 INSERT INTO payroll_line (run_id, engineer_id, amount, days, audit_id)
-VALUES ($1, $2, $3, $4, $5);
+VALUES ($1, $2, $3::text::numeric, $4, $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
-  |> pog.parameter(pog.float(arg_3))
+  |> pog.parameter(pog.text(arg_3))
   |> pog.parameter(pog.float(arg_4))
   |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)

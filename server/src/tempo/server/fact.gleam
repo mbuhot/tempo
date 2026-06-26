@@ -191,9 +191,9 @@ pub type Fact {
     invoice_id: InvoiceId,
     engineer_id: EngineerId,
     level: Int,
-    day_rate: Float,
+    day_rate: Money,
     days: Float,
-    amount: Float,
+    amount: Money,
   )
   /// The period a payroll run covers, `[from, to)`.
   PayrollPeriod(run_id: PayrollRunId, from: Date, to: Date)
@@ -201,7 +201,7 @@ pub type Fact {
   PayrollLine(
     run_id: PayrollRunId,
     engineer_id: EngineerId,
-    amount: Float,
+    amount: Money,
     days: Float,
   )
 }

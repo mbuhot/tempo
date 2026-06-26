@@ -423,9 +423,9 @@ fn write(
         invoice_id,
         engineer_id,
         level,
-        day_rate,
+        money.to_string(day_rate),
         days,
-        amount,
+        money.to_string(amount),
         audit_id,
       )
       |> operation.run
@@ -444,7 +444,7 @@ fn write(
         conn,
         run_id,
         engineer_id,
-        amount,
+        money.to_string(amount),
         days,
         audit_id,
       )

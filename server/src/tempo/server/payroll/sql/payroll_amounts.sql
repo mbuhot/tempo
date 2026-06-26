@@ -56,7 +56,7 @@ sub AS (
 SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
-  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::numeric
+  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::text
     AS amount,
   sum(range_days(sub.sub_period))::numeric AS days
 FROM sub

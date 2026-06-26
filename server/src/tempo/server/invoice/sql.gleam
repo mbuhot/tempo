@@ -20,9 +20,9 @@ pub type InvoiceBillingLinesRow {
     engineer_id: Int,
     engineer: String,
     level: Int,
-    day_rate: Float,
+    day_rate: String,
     days: Float,
-    amount: Float,
+    amount: String,
   )
 }
 
@@ -79,9 +79,9 @@ pub fn invoice_billing_lines(
     use engineer_id <- decode.field(0, decode.int)
     use engineer <- decode.field(1, decode.string)
     use level <- decode.field(2, decode.int)
-    use day_rate <- decode.field(3, pog.numeric_decoder())
+    use day_rate <- decode.field(3, decode.string)
     use days <- decode.field(4, pog.numeric_decoder())
-    use amount <- decode.field(5, pog.numeric_decoder())
+    use amount <- decode.field(5, decode.string)
     decode.success(InvoiceBillingLinesRow(
       engineer_id:,
       engineer:,
@@ -165,11 +165,11 @@ SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
   sub.level,
-  rate_card.day_rate::numeric AS day_rate,
+  rate_card.day_rate::text AS day_rate,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
     AS days,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period))
-      * rate_card.day_rate)::numeric AS amount
+      * rate_card.day_rate)::text AS amount
 FROM sub
 CROSS JOIN agreed
 JOIN engineer_current engineer ON engineer.id = sub.engineer_id
@@ -357,8 +357,8 @@ WHERE invoice.id = $1;
 }
 
 /// invoice_line_insert.sql — one snapshotted billing line. Last param is the
-/// audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate,
-/// $5 = days, $6 = amount.
+/// audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate (exact
+/// decimal text), $5 = days, $6 = amount (exact decimal text).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -368,26 +368,26 @@ pub fn invoice_line_insert(
   arg_1: Int,
   arg_2: Int,
   arg_3: Int,
-  arg_4: Float,
+  arg_4: String,
   arg_5: Float,
-  arg_6: Float,
+  arg_6: String,
   arg_7: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
   "-- invoice_line_insert.sql — one snapshotted billing line. Last param is the
--- audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate,
--- $5 = days, $6 = amount.
+-- audit_id. $1 = invoice_id, $2 = engineer_id, $3 = level, $4 = day_rate (exact
+-- decimal text), $5 = days, $6 = amount (exact decimal text).
 INSERT INTO invoice_line (invoice_id, engineer_id, level, day_rate, days, amount, audit_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+VALUES ($1, $2, $3, $4::text::numeric, $5, $6::text::numeric, $7);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.int(arg_2))
   |> pog.parameter(pog.int(arg_3))
-  |> pog.parameter(pog.float(arg_4))
+  |> pog.parameter(pog.text(arg_4))
   |> pog.parameter(pog.float(arg_5))
-  |> pog.parameter(pog.float(arg_6))
+  |> pog.parameter(pog.text(arg_6))
   |> pog.parameter(pog.int(arg_7))
   |> pog.returning(decoder)
   |> pog.execute(db)
