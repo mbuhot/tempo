@@ -31,92 +31,101 @@ import shared/engineer/view.{
 import shared/leave/view.{
   type LeaveBalance, type LeaveRecord, LeaveBalance, LeaveRecord,
 } as _
-import tempo/server/context.{type Context}
+import tempo/server/async.{type AsyncQuery}
+import tempo/server/context.{type Context, query_timeout}
 import tempo/server/engineer/sql as engineer_sql
 import tempo/server/leave/sql as leave_sql
 
 /// One engineer's detail as-of `as_of`. `Ok(Error(Nil))` when no current contact
 /// (unknown engineer) → the handler answers 404; `Ok(Ok(detail))` otherwise.
+///
+/// All nine component queries are independent, so they fan out CONCURRENTLY and are
+/// awaited together — the wall-clock cost is the slowest one, not their sum. The
+/// contact query is the 404 gate: for an unknown engineer the other eight queries
+/// still run (returning empty), a few wasted reads on the rare miss in exchange for
+/// a single round-trip on the common hit.
 pub fn detail(
   context: Context,
   engineer_id: Int,
   as_of: Date,
 ) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use contact <- result.try(engineer_sql.engineer_contact_current(
-    context.db,
-    engineer_id,
-  ))
+  let contact: AsyncQuery(engineer_sql.EngineerContactCurrentRow) =
+    async.start(fn() {
+      engineer_sql.engineer_contact_current(context.db, engineer_id)
+    })
+  let banking: AsyncQuery(engineer_sql.EngineerBankingCurrentRow) =
+    async.start(fn() {
+      engineer_sql.engineer_banking_current(context.db, engineer_id)
+    })
+  let emergency: AsyncQuery(engineer_sql.EngineerEmergencyCurrentRow) =
+    async.start(fn() {
+      engineer_sql.engineer_emergency_current(context.db, engineer_id)
+    })
+  let employment: AsyncQuery(engineer_sql.EngineerEmploymentAsofRow) =
+    async.start(fn() {
+      engineer_sql.engineer_employment_asof(context.db, engineer_id, as_of)
+    })
+  let roles: AsyncQuery(engineer_sql.EngineerRoleHistoryRow) =
+    async.start(fn() {
+      engineer_sql.engineer_role_history(context.db, engineer_id)
+    })
+  let allocations: AsyncQuery(engineer_sql.EngineerAllocationsRow) =
+    async.start(fn() {
+      engineer_sql.engineer_allocations(context.db, engineer_id, as_of)
+    })
+  let leave_history: AsyncQuery(leave_sql.LeaveHistoryRow) =
+    async.start(fn() { leave_sql.leave_history(context.db, engineer_id) })
+  let annual: AsyncQuery(leave_sql.LeaveBalanceRow) =
+    async.start(fn() {
+      leave_sql.leave_balance(context.db, engineer_id, "annual", as_of)
+    })
+  let sick: AsyncQuery(leave_sql.LeaveBalanceRow) =
+    async.start(fn() {
+      leave_sql.leave_balance(context.db, engineer_id, "sick", as_of)
+    })
+
+  let contact = async.await(contact, query_timeout)
+  let banking = async.await(banking, query_timeout)
+  let emergency = async.await(emergency, query_timeout)
+  let employment = async.await(employment, query_timeout)
+  let roles = async.await(roles, query_timeout)
+  let allocations = async.await(allocations, query_timeout)
+  let leave_history = async.await(leave_history, query_timeout)
+  let annual = async.await(annual, query_timeout)
+  let sick = async.await(sick, query_timeout)
+
+  use contact <- result.try(contact)
+  use banking <- result.try(banking)
+  use emergency <- result.try(emergency)
+  use employment <- result.try(employment)
+  use roles <- result.try(roles)
+  use allocations <- result.try(allocations)
+  use leave_history <- result.try(leave_history)
+  use annual <- result.try(annual)
+  use sick <- result.map(sick)
+
   case contact.rows {
-    [] -> Ok(Error(Nil))
-    [row, ..] -> assemble(context, engineer_id, as_of, contact_to_shared(row))
-  }
-}
-
-/// Read the remaining component facts and bundle them into an `EngineerDetail`. The
-/// contact (and the engineer's `name`/`level`) anchor the bundle; banking/emergency,
-/// the as-of employment, the role/allocation/leave timelines, and the annual/sick
-/// balance each come from their own query.
-fn assemble(
-  context: Context,
-  engineer_id: Int,
-  as_of: Date,
-  contact: EngineerContact,
-) -> Result(Result(EngineerDetail, Nil), pog.QueryError) {
-  use banking <- result.try(engineer_sql.engineer_banking_current(
-    context.db,
-    engineer_id,
-  ))
-  use emergency <- result.try(engineer_sql.engineer_emergency_current(
-    context.db,
-    engineer_id,
-  ))
-  use employment <- result.try(engineer_sql.engineer_employment_asof(
-    context.db,
-    engineer_id,
-    as_of,
-  ))
-  use roles <- result.try(engineer_sql.engineer_role_history(
-    context.db,
-    engineer_id,
-  ))
-  use allocations <- result.try(engineer_sql.engineer_allocations(
-    context.db,
-    engineer_id,
-    as_of,
-  ))
-  use leave_history <- result.try(leave_sql.leave_history(
-    context.db,
-    engineer_id,
-  ))
-  use annual <- result.try(leave_sql.leave_balance(
-    context.db,
-    engineer_id,
-    "annual",
-    as_of,
-  ))
-  use sick <- result.map(leave_sql.leave_balance(
-    context.db,
-    engineer_id,
-    "sick",
-    as_of,
-  ))
-
-  case banking.rows, emergency.rows, employment.rows {
-    [banking, ..], [emergency, ..], [employment, ..] ->
-      Ok(EngineerDetail(
-        engineer_id:,
-        name: contact.name,
-        level: employment.level,
-        contact:,
-        banking: banking_to_shared(banking),
-        emergency: emergency_to_shared(emergency),
-        employment: employment_to_shared(employment),
-        roles: list.map(roles.rows, role_to_shared),
-        allocations: list.map(allocations.rows, allocation_to_shared),
-        balance: balance(contact.name, annual.rows, sick.rows),
-        leave_history: list.map(leave_history.rows, leave_record_to_shared),
-      ))
-    _, _, _ -> Error(Nil)
+    [] -> Error(Nil)
+    [contact_row, ..] -> {
+      let contact = contact_to_shared(contact_row)
+      case banking.rows, emergency.rows, employment.rows {
+        [banking, ..], [emergency, ..], [employment, ..] ->
+          Ok(EngineerDetail(
+            engineer_id:,
+            name: contact.name,
+            level: employment.level,
+            contact:,
+            banking: banking_to_shared(banking),
+            emergency: emergency_to_shared(emergency),
+            employment: employment_to_shared(employment),
+            roles: list.map(roles.rows, role_to_shared),
+            allocations: list.map(allocations.rows, allocation_to_shared),
+            balance: balance(contact.name, annual.rows, sick.rows),
+            leave_history: list.map(leave_history.rows, leave_record_to_shared),
+          ))
+        _, _, _ -> Error(Nil)
+      }
+    }
   }
 }
 

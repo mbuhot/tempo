@@ -20,9 +20,12 @@ import tempo/server/pnl/sql
 /// month containing `as_of`; "year-to-date" runs from Jan 1 of that year to the
 /// end of that month. Per-engineer rows are the MONTH breakdown (revenue, cost,
 /// derived profit/margin/utilization); the month totals are their sums, and the
-/// YTD totals are a second `pnl_rows` pass over the wider window. Revenue is
-/// recognized on issue and read AS OF each window's exclusive upper bound, so an
-/// unissued invoice contributes nothing (carried through by `pnl_rows`).
+/// YTD totals are a second `pnl_rows` pass over the wider window. The two queries
+/// stay sequential (not fanned out): `pnl_test` drives this through a rolled-back
+/// `pog.transaction` fixture on a single connection, which a concurrent fan-out
+/// cannot share. Revenue is recognized on issue and read AS OF each window's
+/// exclusive upper bound, so an unissued invoice contributes nothing (carried
+/// through by `pnl_rows`).
 pub fn pnl(context: Context, as_of: Date) -> Result(Pnl, pog.QueryError) {
   let month_start = first_of_month(as_of)
   let month_end = first_of_next_month(as_of)

@@ -60,6 +60,12 @@ pub fn settings_from_env() -> DbSettings {
 /// `settings_from_env` for the sizing rationale.
 pub const default_pool_size = 20
 
+/// How long (ms) to wait for a single fanned-out query before giving up. The read
+/// endpoints that fan their independent queries out across the pool await each with
+/// this; a query that exceeds it is treated as a crash (surfaced as a 500). Defined
+/// once here so the views share it rather than each carrying their own copy.
+pub const query_timeout = 30_000
+
 /// Default page size for the keyset-paginated list endpoints (issue #12) when the
 /// request omits `limit`. Chosen large enough that the seed's whole first page
 /// (~18 invoices, a handful of clients/projects/people, the bounded event log)

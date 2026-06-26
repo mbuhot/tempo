@@ -20,25 +20,46 @@ import shared/board/view.{
   BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as _
 import shared/leave/view.{type LeaveBalance, LeaveBalance} as _
+import tempo/server/async.{type AsyncQuery}
 import tempo/server/board/sql as board_sql
-import tempo/server/context.{type Context}
+import tempo/server/context.{type Context, query_timeout}
 import tempo/server/leave/sql as leave_sql
 
-/// Compute the board snapshot for a date: run the three engagement queries, the
-/// unstaffed-projects query, and the leave balances; map each to its shared type,
-/// and merge the engagement rows sorted by engineer name.
+/// Compute the board snapshot for a date: spawn the three engagement queries, the
+/// unstaffed-projects query, and the leave balances CONCURRENTLY against the pool,
+/// await all of them, then map each to its shared type and merge the engagement
+/// rows sorted by engineer name. The queries are independent, so the wall-clock
+/// cost is the slowest one rather than their sum.
 pub fn snapshot(
   context: Context,
   date: Date,
 ) -> Result(BoardSnapshot, pog.QueryError) {
-  use board <- result.try(board_sql.board_engaged(context.db, date))
-  use unassigned <- result.try(board_sql.board_unassigned(context.db, date))
-  use leave <- result.try(board_sql.board_leave(context.db, date))
-  use unstaffed <- result.try(board_sql.board_unstaffed(context.db, date))
-  use balances <- result.try(leave_sql.leave_balances(context.db, date))
+  let engaged: AsyncQuery(board_sql.BoardEngagedRow) =
+    async.start(fn() { board_sql.board_engaged(context.db, date) })
+  let unassigned: AsyncQuery(board_sql.BoardUnassignedRow) =
+    async.start(fn() { board_sql.board_unassigned(context.db, date) })
+  let leave: AsyncQuery(board_sql.BoardLeaveRow) =
+    async.start(fn() { board_sql.board_leave(context.db, date) })
+  let unstaffed: AsyncQuery(board_sql.BoardUnstaffedRow) =
+    async.start(fn() { board_sql.board_unstaffed(context.db, date) })
+  let balances: AsyncQuery(leave_sql.LeaveBalancesRow) =
+    async.start(fn() { leave_sql.leave_balances(context.db, date) })
+
+  let engaged = async.await(engaged, query_timeout)
+  let unassigned = async.await(unassigned, query_timeout)
+  let leave = async.await(leave, query_timeout)
+  let unstaffed = async.await(unstaffed, query_timeout)
+  let balances = async.await(balances, query_timeout)
+
+  use engaged <- result.try(engaged)
+  use unassigned <- result.try(unassigned)
+  use leave <- result.try(leave)
+  use unstaffed <- result.try(unstaffed)
+  use balances <- result.try(balances)
+
   let rows =
     list.flatten([
-      list.map(board.rows, board_row_to_shared),
+      list.map(engaged.rows, board_row_to_shared),
       list.map(unassigned.rows, unassigned_row_to_shared),
       list.map(leave.rows, leave_row_to_shared),
     ])
