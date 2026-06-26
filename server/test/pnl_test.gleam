@@ -311,9 +311,9 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
       period_to: Date(2026, July, 1),
       run: Some(PayrollRunInfo(run_id:)),
       lines: [
-        PayrollLine("Aisha Okafor", 14_000.0, 30.0, Some(14_000.0), Some(30.0)),
-        PayrollLine("Marcus Chen", 8000.0, 30.0, Some(8000.0), Some(30.0)),
-        PayrollLine("Priya Sharma", 10_000.0, 30.0, Some(10_000.0), Some(30.0)),
+        PayrollLine("Aisha Okafor", money_of("14000.00"), 30.0, Some(money_of("14000.00")), Some(30.0)),
+        PayrollLine("Marcus Chen", money_of("8000.00"), 30.0, Some(money_of("8000.00")), Some(30.0)),
+        PayrollLine("Priya Sharma", money_of("10000.00"), 30.0, Some(money_of("10000.00")), Some(30.0)),
       ],
     )
 }

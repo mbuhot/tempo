@@ -22,10 +22,10 @@ import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/time
 import client/ui
-import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -33,6 +33,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import rsvp
 import shared/command.{type Event}
+import shared/money
 import shared/payroll/view.{type Payroll, type PayrollLine} as payroll_view
 
 /// The Payroll tab's state: the as-of its data answers, the load state of the
@@ -226,13 +227,14 @@ pub fn panel(payroll: Payroll, on_run on_run: msg) -> Element(msg) {
   }
 }
 
-/// Whether every line's frozen paid amount still equals the live recompute (within
-/// a sub-cent epsilon) — i.e. nothing has been back-dated since the run. A line
-/// with no paid amount (employed-but-not-in-run) counts as a variance.
+/// Whether every line's frozen paid amount still equals the live recompute exactly
+/// — i.e. nothing has been back-dated since the run. Money is exact, so this is a
+/// true equality, not a sub-cent tolerance. A line with no paid amount
+/// (employed-but-not-in-run) counts as a variance.
 pub fn reconciled(lines: List(PayrollLine)) -> Bool {
   list.all(lines, fn(line) {
     case line.paid_amount {
-      Some(paid) -> float.absolute_value(line.preview_amount -. paid) <. 0.005
+      Some(paid) -> money.compare(line.preview_amount, paid) == order.Eq
       None -> False
     }
   })
@@ -243,8 +245,7 @@ pub fn reconciled(lines: List(PayrollLine)) -> Bool {
 fn view_preview(payroll: Payroll, on_run: msg) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
-  let total =
-    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line.preview_amount })
+  let total = money.sum(list.map(payroll.lines, fn(line) { line.preview_amount }))
   let run_button =
     ui.button(
       label: "Run payroll",
@@ -257,7 +258,7 @@ fn view_preview(payroll: Payroll, on_run: msg) -> Element(msg) {
     count: int.to_string(count) <> " employed · not yet run",
     right: [
       html.span([attribute.class("finance__total-note")], [
-        html.text(ui.money(total) <> " to pay"),
+        html.text(ui.money(money.to_float(total)) <> " to pay"),
       ]),
       run_button,
     ],
@@ -275,7 +276,7 @@ fn preview_row(line: PayrollLine) -> Element(msg) {
     html.td([], [html.text(line.engineer)]),
     html.td([attribute.class("num")], [html.text(ui.days(line.preview_days))]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(line.preview_amount)),
+      html.text(ui.money(money.to_float(line.preview_amount))),
     ]),
   ])
 }
@@ -286,15 +287,17 @@ fn view_reconciled(payroll: Payroll) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
   let total =
-    list.fold(payroll.lines, 0.0, fn(sum, line) {
-      sum +. option.unwrap(line.paid_amount, 0.0)
-    })
+    money.sum(
+      list.map(payroll.lines, fn(line) {
+        option.unwrap(line.paid_amount, money.zero())
+      }),
+    )
   ui.panel(
     title: "Payroll run · " <> month,
     count: int.to_string(count) <> " employed · reconciled",
     right: [
       html.span([attribute.class("finance__total-note")], [
-        html.text(ui.money(total) <> " paid"),
+        html.text(ui.money(money.to_float(total)) <> " paid"),
       ]),
     ],
     body: [
@@ -313,7 +316,9 @@ fn paid_row(line: PayrollLine) -> Element(msg) {
       html.text(ui.days(option.unwrap(line.paid_days, 0.0))),
     ]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
+      html.text(
+        ui.money(money.to_float(option.unwrap(line.paid_amount, money.zero()))),
+      ),
     ]),
   ])
 }
@@ -324,14 +329,13 @@ fn paid_row(line: PayrollLine) -> Element(msg) {
 /// should-be with the per-line Δ, the varying rows flagged.
 fn view_variance(payroll: Payroll) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
-  let owed =
-    list.fold(payroll.lines, 0.0, fn(sum, line) { sum +. line_delta(line) })
+  let owed = money.sum(list.map(payroll.lines, line_delta))
   ui.panel(
     title: "Payroll run · " <> month,
     count: "",
     right: [
       html.span([attribute.class("finance__owed")], [
-        html.text("⚠ " <> ui.money(owed) <> " back-pay owed"),
+        html.text("⚠ " <> ui.money(money.to_float(owed)) <> " back-pay owed"),
       ]),
     ],
     body: [
@@ -350,19 +354,19 @@ fn view_variance(payroll: Payroll) -> Element(msg) {
 
 /// The back-pay Δ for a line: the live recompute minus the frozen paid amount (a
 /// not-yet-paid line owes its full preview).
-fn line_delta(line: PayrollLine) -> Float {
-  line.preview_amount -. option.unwrap(line.paid_amount, 0.0)
+fn line_delta(line: PayrollLine) -> money.Money {
+  money.subtract(line.preview_amount, option.unwrap(line.paid_amount, money.zero()))
 }
 
 fn variance_row(line: PayrollLine) -> Element(msg) {
   let delta = line_delta(line)
-  let varies = float.absolute_value(delta) >=. 0.005
+  let varies = money.compare(delta, money.zero()) != order.Eq
   let row_class = case varies {
     True -> "finance__variance-row"
     False -> ""
   }
   let delta_text = case varies {
-    True -> ui.money(delta)
+    True -> ui.money(money.to_float(delta))
     False -> "—"
   }
   let delta_class = case varies {
@@ -372,10 +376,12 @@ fn variance_row(line: PayrollLine) -> Element(msg) {
   html.tr([attribute.class(row_class)], [
     html.td([], [html.text(line.engineer)]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(option.unwrap(line.paid_amount, 0.0))),
+      html.text(
+        ui.money(money.to_float(option.unwrap(line.paid_amount, money.zero()))),
+      ),
     ]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(line.preview_amount)),
+      html.text(ui.money(money.to_float(line.preview_amount))),
     ]),
     html.td([attribute.class(delta_class)], [html.text(delta_text)]),
   ])

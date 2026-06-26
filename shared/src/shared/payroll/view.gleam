@@ -8,6 +8,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import shared/wire
 
 /// Identifies the materialized payroll run for a month (FR-F5/FR-F6) once it
@@ -23,9 +24,9 @@ pub type PayrollRunInfo {
 pub type PayrollLine {
   PayrollLine(
     engineer: String,
-    preview_amount: Float,
+    preview_amount: Money,
     preview_days: Float,
-    paid_amount: Option(Float),
+    paid_amount: Option(Money),
     paid_days: Option(Float),
   )
 }
@@ -54,9 +55,9 @@ pub fn encode_payroll_line(line: PayrollLine) -> Json {
   ) = line
   json.object([
     #("engineer", json.string(engineer)),
-    #("preview_amount", json.float(preview_amount)),
+    #("preview_amount", money.encode(preview_amount)),
     #("preview_days", json.float(preview_days)),
-    #("paid_amount", json.nullable(paid_amount, json.float)),
+    #("paid_amount", json.nullable(paid_amount, money.encode)),
     #("paid_days", json.nullable(paid_days, json.float)),
   ])
 }
@@ -64,14 +65,11 @@ pub fn encode_payroll_line(line: PayrollLine) -> Json {
 /// Decode a `PayrollLine` from a JSON object.
 pub fn payroll_line_decoder() -> Decoder(PayrollLine) {
   use engineer <- decode.field("engineer", decode.string)
-  use preview_amount <- decode.field(
-    "preview_amount",
-    wire.lenient_float_decoder(),
-  )
+  use preview_amount <- decode.field("preview_amount", money.decoder())
   use preview_days <- decode.field("preview_days", wire.lenient_float_decoder())
   use paid_amount <- decode.field(
     "paid_amount",
-    decode.optional(wire.lenient_float_decoder()),
+    decode.optional(money.decoder()),
   )
   use paid_days <- decode.field(
     "paid_days",

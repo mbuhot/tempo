@@ -921,9 +921,9 @@ pub fn payroll_line_round_trips_test() {
   let original =
     PayrollLine(
       engineer: "Marcus Chen",
-      preview_amount: 8000.0,
+      preview_amount: money_of("8000.00"),
       preview_days: 30.0,
-      paid_amount: Some(8000.0),
+      paid_amount: Some(money_of("8000.00")),
       paid_days: Some(30.0),
     )
 
@@ -948,14 +948,14 @@ pub fn payroll_round_trips_test() {
       lines: [
         PayrollLine(
           engineer: "Marcus Chen",
-          preview_amount: 8000.0,
+          preview_amount: money_of("8000.00"),
           preview_days: 30.0,
-          paid_amount: Some(8000.0),
+          paid_amount: Some(money_of("8000.00")),
           paid_days: Some(30.0),
         ),
         PayrollLine(
           engineer: "Priya Sharma",
-          preview_amount: 5000.0,
+          preview_amount: money_of("5000.00"),
           preview_days: 15.0,
           paid_amount: None,
           paid_days: None,

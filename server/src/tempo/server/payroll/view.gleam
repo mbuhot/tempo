@@ -8,12 +8,19 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
+import shared/money.{type Money}
 import shared/payroll/view.{
   type Payroll, type PayrollLine, type PayrollRunInfo, Payroll, PayrollLine,
   PayrollRunInfo,
 } as _
 import tempo/server/context.{type Context}
 import tempo/server/payroll/sql
+
+/// Parse a money amount from a trusted SQL `numeric::text` column.
+fn money(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 /// The month's payroll panel (`GET /api/payroll?from=&to=`): one `PayrollLine`
 /// per engineer present on either side of the reconciliation — the LIVE recompute
@@ -58,9 +65,9 @@ fn run_info(
 fn payroll_row_to_line(row: sql.PayrollReconciliationRow) -> PayrollLine {
   PayrollLine(
     engineer: row.engineer,
-    preview_amount: row.preview_amount,
+    preview_amount: money(row.preview_amount),
     preview_days: row.preview_days,
-    paid_amount: row.paid_amount,
+    paid_amount: option.map(row.paid_amount, money),
     paid_days: row.paid_days,
   )
 }

@@ -71,9 +71,9 @@ paid AS (
 SELECT
   (SELECT run_id FROM run) AS "run_id?",
   coalesce(engineer.name, '') AS engineer,
-  coalesce(preview.amount, 0)::numeric AS preview_amount,
+  coalesce(preview.amount, 0)::text AS preview_amount,
   coalesce(preview.days, 0)::numeric AS preview_days,
-  paid.amount AS "paid_amount?",
+  paid.amount::text AS "paid_amount?",
   paid.days AS "paid_days?"
 FROM preview
 FULL OUTER JOIN paid ON paid.engineer_id = preview.engineer_id

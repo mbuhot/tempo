@@ -290,9 +290,9 @@ pub type PayrollReconciliationRow {
   PayrollReconciliationRow(
     run_id: Option(Int),
     engineer: String,
-    preview_amount: Float,
+    preview_amount: String,
     preview_days: Float,
-    paid_amount: Option(Float),
+    paid_amount: Option(String),
     paid_days: Option(Float),
   )
 }
@@ -334,9 +334,9 @@ pub fn payroll_reconciliation(
   let decoder = {
     use run_id <- decode.field(0, decode.optional(decode.int))
     use engineer <- decode.field(1, decode.string)
-    use preview_amount <- decode.field(2, pog.numeric_decoder())
+    use preview_amount <- decode.field(2, decode.string)
     use preview_days <- decode.field(3, pog.numeric_decoder())
-    use paid_amount <- decode.field(4, decode.optional(pog.numeric_decoder()))
+    use paid_amount <- decode.field(4, decode.optional(decode.string))
     use paid_days <- decode.field(5, decode.optional(pog.numeric_decoder()))
     decode.success(PayrollReconciliationRow(
       run_id:,
@@ -421,9 +421,9 @@ paid AS (
 SELECT
   (SELECT run_id FROM run) AS \"run_id?\",
   coalesce(engineer.name, '') AS engineer,
-  coalesce(preview.amount, 0)::numeric AS preview_amount,
+  coalesce(preview.amount, 0)::text AS preview_amount,
   coalesce(preview.days, 0)::numeric AS preview_days,
-  paid.amount AS \"paid_amount?\",
+  paid.amount::text AS \"paid_amount?\",
   paid.days AS \"paid_days?\"
 FROM preview
 FULL OUTER JOIN paid ON paid.engineer_id = preview.engineer_id
