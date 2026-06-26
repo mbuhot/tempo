@@ -179,8 +179,8 @@ cost AS (
 SELECT
   emp.engineer_id,
   coalesce(engineer.name, '') AS engineer,
-  coalesce(rev.revenue, 0)::numeric AS revenue,
-  coalesce(cost.cost, 0)::numeric AS cost,
+  coalesce(rev.revenue, 0)::text AS revenue,
+  coalesce(cost.cost, 0)::text AS cost,
   coalesce(util.utilization_days, 0)::numeric AS utilization_days,
   emp.employed_days
 FROM emp

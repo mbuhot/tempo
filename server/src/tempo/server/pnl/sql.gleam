@@ -18,8 +18,8 @@ pub type PnlRowsRow {
   PnlRowsRow(
     engineer_id: Int,
     engineer: String,
-    revenue: Float,
-    cost: Float,
+    revenue: String,
+    cost: String,
     utilization_days: Float,
     employed_days: Float,
   )
@@ -89,8 +89,8 @@ pub fn pnl_rows(
   let decoder = {
     use engineer_id <- decode.field(0, decode.int)
     use engineer <- decode.field(1, decode.string)
-    use revenue <- decode.field(2, pog.numeric_decoder())
-    use cost <- decode.field(3, pog.numeric_decoder())
+    use revenue <- decode.field(2, decode.string)
+    use cost <- decode.field(3, decode.string)
     use utilization_days <- decode.field(4, pog.numeric_decoder())
     use employed_days <- decode.field(5, pog.numeric_decoder())
     decode.success(PnlRowsRow(
@@ -284,8 +284,8 @@ cost AS (
 SELECT
   emp.engineer_id,
   coalesce(engineer.name, '') AS engineer,
-  coalesce(rev.revenue, 0)::numeric AS revenue,
-  coalesce(cost.cost, 0)::numeric AS cost,
+  coalesce(rev.revenue, 0)::text AS revenue,
+  coalesce(cost.cost, 0)::text AS cost,
   coalesce(util.utilization_days, 0)::numeric AS utilization_days,
   emp.employed_days
 FROM emp

@@ -5,6 +5,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import shared/money.{type Money}
 import shared/wire
 
 /// One per-employee row of the P&L statement (FR-F8): the engineer's `revenue`
@@ -14,9 +15,9 @@ import shared/wire
 pub type PnlRow {
   PnlRow(
     engineer: String,
-    revenue: Float,
-    cost: Float,
-    profit: Float,
+    revenue: Money,
+    cost: Money,
+    profit: Money,
     margin_pct: Float,
     utilization_pct: Float,
   )
@@ -26,12 +27,12 @@ pub type PnlRow {
 /// year-to-date totals for revenue/cost/profit, plus the per-employee `rows`.
 pub type Pnl {
   Pnl(
-    month_revenue: Float,
-    month_cost: Float,
-    month_profit: Float,
-    ytd_revenue: Float,
-    ytd_cost: Float,
-    ytd_profit: Float,
+    month_revenue: Money,
+    month_cost: Money,
+    month_profit: Money,
+    ytd_revenue: Money,
+    ytd_cost: Money,
+    ytd_profit: Money,
     rows: List(PnlRow),
   )
 }
@@ -42,9 +43,9 @@ pub fn encode_pnl_row(row: PnlRow) -> Json {
     row
   json.object([
     #("engineer", json.string(engineer)),
-    #("revenue", json.float(revenue)),
-    #("cost", json.float(cost)),
-    #("profit", json.float(profit)),
+    #("revenue", money.encode(revenue)),
+    #("cost", money.encode(cost)),
+    #("profit", money.encode(profit)),
     #("margin_pct", json.float(margin_pct)),
     #("utilization_pct", json.float(utilization_pct)),
   ])
@@ -53,9 +54,9 @@ pub fn encode_pnl_row(row: PnlRow) -> Json {
 /// Decode a `PnlRow` from a JSON object.
 pub fn pnl_row_decoder() -> Decoder(PnlRow) {
   use engineer <- decode.field("engineer", decode.string)
-  use revenue <- decode.field("revenue", wire.lenient_float_decoder())
-  use cost <- decode.field("cost", wire.lenient_float_decoder())
-  use profit <- decode.field("profit", wire.lenient_float_decoder())
+  use revenue <- decode.field("revenue", money.decoder())
+  use cost <- decode.field("cost", money.decoder())
+  use profit <- decode.field("profit", money.decoder())
   use margin_pct <- decode.field("margin_pct", wire.lenient_float_decoder())
   use utilization_pct <- decode.field(
     "utilization_pct",
@@ -83,27 +84,24 @@ pub fn encode_pnl(pnl: Pnl) -> Json {
     rows:,
   ) = pnl
   json.object([
-    #("month_revenue", json.float(month_revenue)),
-    #("month_cost", json.float(month_cost)),
-    #("month_profit", json.float(month_profit)),
-    #("ytd_revenue", json.float(ytd_revenue)),
-    #("ytd_cost", json.float(ytd_cost)),
-    #("ytd_profit", json.float(ytd_profit)),
+    #("month_revenue", money.encode(month_revenue)),
+    #("month_cost", money.encode(month_cost)),
+    #("month_profit", money.encode(month_profit)),
+    #("ytd_revenue", money.encode(ytd_revenue)),
+    #("ytd_cost", money.encode(ytd_cost)),
+    #("ytd_profit", money.encode(ytd_profit)),
     #("rows", json.array(rows, encode_pnl_row)),
   ])
 }
 
 /// Decode a `Pnl` statement from JSON.
 pub fn pnl_decoder() -> Decoder(Pnl) {
-  use month_revenue <- decode.field(
-    "month_revenue",
-    wire.lenient_float_decoder(),
-  )
-  use month_cost <- decode.field("month_cost", wire.lenient_float_decoder())
-  use month_profit <- decode.field("month_profit", wire.lenient_float_decoder())
-  use ytd_revenue <- decode.field("ytd_revenue", wire.lenient_float_decoder())
-  use ytd_cost <- decode.field("ytd_cost", wire.lenient_float_decoder())
-  use ytd_profit <- decode.field("ytd_profit", wire.lenient_float_decoder())
+  use month_revenue <- decode.field("month_revenue", money.decoder())
+  use month_cost <- decode.field("month_cost", money.decoder())
+  use month_profit <- decode.field("month_profit", money.decoder())
+  use ytd_revenue <- decode.field("ytd_revenue", money.decoder())
+  use ytd_cost <- decode.field("ytd_cost", money.decoder())
+  use ytd_profit <- decode.field("ytd_profit", money.decoder())
   use rows <- decode.field("rows", decode.list(pnl_row_decoder()))
   decode.success(Pnl(
     month_revenue:,

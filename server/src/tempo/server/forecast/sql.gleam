@@ -15,7 +15,7 @@ import pog
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type ForecastRow {
-  ForecastRow(month: Date, revenue: Float, cost: Float)
+  ForecastRow(month: Date, revenue: String, cost: String)
 }
 
 /// forecast.sql — the forward P&L from COMMITTED DEMAND (the demand-side mirror of
@@ -84,8 +84,8 @@ pub fn forecast(
 ) -> Result(pog.Returned(ForecastRow), pog.QueryError) {
   let decoder = {
     use month <- decode.field(0, pog.calendar_date_decoder())
-    use revenue <- decode.field(1, pog.numeric_decoder())
-    use cost <- decode.field(2, pog.numeric_decoder())
+    use revenue <- decode.field(1, decode.string)
+    use cost <- decode.field(2, decode.string)
     decode.success(ForecastRow(month:, revenue:, cost:))
   }
 
@@ -247,8 +247,8 @@ cost AS (
 )
 SELECT
   months.month,
-  coalesce(revenue.revenue, 0)::numeric AS revenue,
-  coalesce(cost.cost, 0)::numeric AS cost
+  coalesce(revenue.revenue, 0)::text AS revenue,
+  coalesce(cost.cost, 0)::text AS cost
 FROM months
 LEFT JOIN revenue ON revenue.month = months.month
 LEFT JOIN cost    ON cost.month = months.month

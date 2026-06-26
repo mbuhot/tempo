@@ -17,6 +17,7 @@ import gleam/time/calendar.{
 }
 import pog
 import shared/forecast/view.{type Forecast}
+import shared/money
 import tempo/server/context.{Context}
 import tempo/server/forecast/view as forecast_read
 import test_pool
@@ -80,8 +81,8 @@ pub fn forecast_profit_and_margin_are_derived_per_month_test() {
     rolling_back(fn(conn) { forecast(conn, Date(2026, June, 15)).months })
 
   assert list.all(months, fn(month) {
-    month.profit == month.revenue -. month.cost
-    && month.revenue >. 0.0
-    && month.margin_pct == month.profit /. month.revenue *. 100.0
+    month.profit == money.subtract(month.revenue, month.cost)
+    && money.to_float(month.revenue) >. 0.0
+    && month.margin_pct == money.ratio(month.profit, month.revenue) *. 100.0
   })
 }

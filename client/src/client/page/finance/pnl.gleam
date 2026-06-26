@@ -21,6 +21,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import rsvp
+import shared/money
 import shared/pnl/view.{type Pnl, type PnlRow} as pnl_view
 
 /// The P&L tab's state: the as-of its data answers (so a stale fetch is dropped)
@@ -91,32 +92,26 @@ pub fn view(model: Model) -> Element(Msg) {
 /// raises none.
 pub fn panel(pnl: Pnl, as_of: calendar.Date) -> Element(msg) {
   let month = time.format_month(time.first_of_month(as_of))
-  let margin_pct = case pnl.month_revenue >. 0.0 {
-    True -> ui.Pct(float.round(pnl.month_profit /. pnl.month_revenue *. 100.0))
-    False -> ui.NoPct
-  }
-  let ytd_margin_pct = case pnl.ytd_revenue >. 0.0 {
-    True -> ui.Pct(float.round(pnl.ytd_profit /. pnl.ytd_revenue *. 100.0))
-    False -> ui.NoPct
-  }
+  let margin_pct = margin(pnl.month_profit, of: pnl.month_revenue)
+  let ytd_margin_pct = margin(pnl.ytd_profit, of: pnl.ytd_revenue)
   let year = int.to_string(time.first_of_month(as_of).year)
   let rows = list.map(pnl.rows, pnl_row)
   html.div([], [
     html.div([attribute.class("stats stats--cols-3")], [
       ui.stat(
-        value: ui.money_k(pnl.month_revenue),
+        value: ui.money_k(money.to_float(pnl.month_revenue)),
         unit: "/mo",
         label: "Revenue · " <> month,
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(pnl.month_cost),
+        value: ui.money_k(money.to_float(pnl.month_cost)),
         unit: "/mo",
         label: "Cost · " <> month,
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(pnl.month_profit),
+        value: ui.money_k(money.to_float(pnl.month_profit)),
         unit: "/mo",
         label: "Profit · " <> month,
         pct: margin_pct,
@@ -124,19 +119,19 @@ pub fn panel(pnl: Pnl, as_of: calendar.Date) -> Element(msg) {
     ]),
     html.div([attribute.class("stats stats--cols-3")], [
       ui.stat(
-        value: ui.money_k(pnl.ytd_revenue),
+        value: ui.money_k(money.to_float(pnl.ytd_revenue)),
         unit: "YTD",
         label: "Revenue · since Jan " <> year,
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(pnl.ytd_cost),
+        value: ui.money_k(money.to_float(pnl.ytd_cost)),
         unit: "YTD",
         label: "Cost · since Jan " <> year,
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(pnl.ytd_profit),
+        value: ui.money_k(money.to_float(pnl.ytd_profit)),
         unit: "YTD",
         label: "Profit · since Jan " <> year,
         pct: ytd_margin_pct,
@@ -163,19 +158,33 @@ pub fn panel(pnl: Pnl, as_of: calendar.Date) -> Element(msg) {
   ])
 }
 
+/// The month margin badge: `profit / revenue` as a whole percent, or no badge when
+/// revenue is zero (avoids a 0%-on-no-revenue reading).
+fn margin(profit: money.Money, of revenue: money.Money) -> ui.StatPct {
+  case money.to_float(revenue) >. 0.0 {
+    True -> ui.Pct(float.round(money.ratio(profit, revenue) *. 100.0))
+    False -> ui.NoPct
+  }
+}
+
 fn pnl_row(row: PnlRow) -> Element(msg) {
-  let profit_class = case row.profit >=. 0.0 {
+  let profit = money.to_float(row.profit)
+  let profit_class = case profit >=. 0.0 {
     True -> "num pnl__profit--positive"
     False -> "num pnl__profit--negative"
   }
-  let profit_text = case row.profit >=. 0.0 {
-    True -> ui.money(row.profit)
-    False -> "−" <> ui.money(float.absolute_value(row.profit))
+  let profit_text = case profit >=. 0.0 {
+    True -> ui.money(profit)
+    False -> "−" <> ui.money(float.absolute_value(profit))
   }
   html.tr([], [
     html.td([], [html.text(row.engineer)]),
-    html.td([attribute.class("num")], [html.text(ui.money(row.revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(row.cost))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(row.revenue))),
+    ]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(row.cost))),
+    ]),
     html.td([attribute.class(profit_class)], [html.text(profit_text)]),
     html.td([attribute.class("num")], [html.text(ui.pct(row.margin_pct))]),
     html.td([attribute.class("num")], [html.text(ui.pct(row.utilization_pct))]),

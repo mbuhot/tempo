@@ -995,9 +995,9 @@ pub fn pnl_row_round_trips_test() {
   let original =
     PnlRow(
       engineer: "Priya Sharma",
-      revenue: 13_200.0,
-      cost: 10_000.0,
-      profit: 3200.0,
+      revenue: money_of("13200.00"),
+      cost: money_of("10000.00"),
+      profit: money_of("3200.00"),
       margin_pct: 24.24,
       utilization_pct: 50.0,
     )
@@ -1017,26 +1017,26 @@ pub fn pnl_row_round_trips_test() {
 pub fn pnl_round_trips_test() {
   let original =
     Pnl(
-      month_revenue: 26_400.0,
-      month_cost: 18_000.0,
-      month_profit: 8400.0,
-      ytd_revenue: 158_400.0,
-      ytd_cost: 108_000.0,
-      ytd_profit: 50_400.0,
+      month_revenue: money_of("26400.00"),
+      month_cost: money_of("18000.00"),
+      month_profit: money_of("8400.00"),
+      ytd_revenue: money_of("158400.00"),
+      ytd_cost: money_of("108000.00"),
+      ytd_profit: money_of("50400.00"),
       rows: [
         PnlRow(
           engineer: "Priya Sharma",
-          revenue: 13_200.0,
-          cost: 10_000.0,
-          profit: 3200.0,
+          revenue: money_of("13200.00"),
+          cost: money_of("10000.00"),
+          profit: money_of("3200.00"),
           margin_pct: 24.24,
           utilization_pct: 50.0,
         ),
         PnlRow(
           engineer: "Marcus Chen",
-          revenue: 13_200.0,
-          cost: 8000.0,
-          profit: 5200.0,
+          revenue: money_of("13200.00"),
+          cost: money_of("8000.00"),
+          profit: money_of("5200.00"),
           margin_pct: 39.39,
           utilization_pct: 100.0,
         ),
@@ -1052,12 +1052,12 @@ pub fn pnl_round_trips_test() {
 pub fn pnl_empty_round_trips_test() {
   let original =
     Pnl(
-      month_revenue: 0.0,
-      month_cost: 0.0,
-      month_profit: 0.0,
-      ytd_revenue: 0.0,
-      ytd_cost: 0.0,
-      ytd_profit: 0.0,
+      month_revenue: money_of("0.00"),
+      month_cost: money_of("0.00"),
+      month_profit: money_of("0.00"),
+      ytd_revenue: money_of("0.00"),
+      ytd_cost: money_of("0.00"),
+      ytd_profit: money_of("0.00"),
       rows: [],
     )
 
@@ -1193,9 +1193,9 @@ pub fn forecast_month_round_trips_test() {
   let original =
     ForecastMonth(
       month: Date(2026, August, 1),
-      revenue: 102_300.0,
-      cost: 40_000.0,
-      profit: 62_300.0,
+      revenue: money_of("102300.00"),
+      cost: money_of("40000.00"),
+      profit: money_of("62300.00"),
       margin_pct: 60.9,
     )
 
@@ -1216,16 +1216,16 @@ pub fn forecast_round_trips_test() {
     Forecast(months: [
       ForecastMonth(
         month: Date(2026, August, 1),
-        revenue: 102_300.0,
-        cost: 40_000.0,
-        profit: 62_300.0,
+        revenue: money_of("102300.00"),
+        cost: money_of("40000.00"),
+        profit: money_of("62300.00"),
         margin_pct: 60.9,
       ),
       ForecastMonth(
         month: Date(2026, September, 1),
-        revenue: 102_300.0,
-        cost: 40_000.0,
-        profit: 62_300.0,
+        revenue: money_of("102300.00"),
+        cost: money_of("40000.00"),
+        profit: money_of("62300.00"),
         margin_pct: 60.9,
       ),
     ])

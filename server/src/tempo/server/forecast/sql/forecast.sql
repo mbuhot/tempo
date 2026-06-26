@@ -156,8 +156,8 @@ cost AS (
 )
 SELECT
   months.month,
-  coalesce(revenue.revenue, 0)::numeric AS revenue,
-  coalesce(cost.cost, 0)::numeric AS cost
+  coalesce(revenue.revenue, 0)::text AS revenue,
+  coalesce(cost.cost, 0)::text AS cost
 FROM months
 LEFT JOIN revenue ON revenue.month = months.month
 LEFT JOIN cost    ON cost.month = months.month

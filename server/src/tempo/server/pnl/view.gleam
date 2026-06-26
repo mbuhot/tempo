@@ -12,10 +12,17 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date, Date, January}
 import pog
+import shared/money.{type Money}
 import shared/pnl/view.{type Pnl, type PnlRow, Pnl, PnlRow} as _
 import tempo/server/async.{type AsyncQuery}
 import tempo/server/context.{type Context, query_timeout}
 import tempo/server/pnl/sql
+
+/// Parse a money amount from a trusted SQL `numeric::text` column.
+fn money(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 /// The P&L statement for an as-of date (FR-F7/FR-F8). The "month" is the calendar
 /// month containing `as_of`; "year-to-date" runs from Jan 1 of that year to the
@@ -47,10 +54,10 @@ pub fn pnl(context: Context, as_of: Date) -> Result(Pnl, pog.QueryError) {
   Pnl(
     month_revenue:,
     month_cost:,
-    month_profit: month_revenue -. month_cost,
+    month_profit: money.subtract(month_revenue, month_cost),
     ytd_revenue:,
     ytd_cost:,
-    ytd_profit: ytd_revenue -. ytd_cost,
+    ytd_profit: money.subtract(ytd_revenue, ytd_cost),
     rows:,
   )
 }
@@ -60,23 +67,26 @@ pub fn pnl(context: Context, as_of: Date) -> Result(Pnl, pog.QueryError) {
 /// (0 when revenue is 0), utilization % = utilization_days / employed_days (0 when
 /// employed_days is 0). Margin and utilization are expressed as percentages.
 fn raw_row_to_pnl_row(row: sql.PnlRowsRow) -> PnlRow {
+  let revenue = money(row.revenue)
+  let cost = money(row.cost)
+  let profit = money.subtract(revenue, cost)
   PnlRow(
     engineer: row.engineer,
-    revenue: row.revenue,
-    cost: row.cost,
-    profit: row.revenue -. row.cost,
-    margin_pct: percentage(row.revenue -. row.cost, of: row.revenue),
+    revenue:,
+    cost:,
+    profit:,
+    margin_pct: money.ratio(profit, revenue) *. 100.0,
     utilization_pct: percentage(row.utilization_days, of: row.employed_days),
   )
 }
 
 /// Sum revenue and cost across the per-engineer rows (the statement totals are the
-/// sum of the breakdown, so the rows reconcile to the totals).
-fn totals(rows: List(sql.PnlRowsRow)) -> #(Float, Float) {
-  list.fold(rows, #(0.0, 0.0), fn(acc, row) {
-    let #(revenue, cost) = acc
-    #(revenue +. row.revenue, cost +. row.cost)
-  })
+/// sum of the breakdown, so the rows reconcile to the totals exactly).
+fn totals(rows: List(sql.PnlRowsRow)) -> #(Money, Money) {
+  #(
+    money.sum(list.map(rows, fn(row) { money(row.revenue) })),
+    money.sum(list.map(rows, fn(row) { money(row.cost) })),
+  )
 }
 
 /// `part / whole` as a percentage; 0.0 when `whole` is 0 (a guard against a

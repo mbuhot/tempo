@@ -23,6 +23,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import rsvp
 import shared/forecast/view.{type Forecast, type ForecastMonth} as forecast_view
+import shared/money
 
 /// The Forecast tab's state: the as-of its data answers and the load state of the
 /// forecast read model.
@@ -99,13 +100,11 @@ pub fn panel(forecast: Forecast) -> Element(msg) {
       ])
     months -> {
       let count = list.length(months)
-      let total_revenue =
-        list.fold(months, 0.0, fn(sum, month) { sum +. month.revenue })
-      let total_cost =
-        list.fold(months, 0.0, fn(sum, month) { sum +. month.cost })
-      let total_profit = total_revenue -. total_cost
-      let total_margin = case total_revenue >. 0.0 {
-        True -> total_profit /. total_revenue *. 100.0
+      let total_revenue = money.sum(list.map(months, fn(month) { month.revenue }))
+      let total_cost = money.sum(list.map(months, fn(month) { month.cost }))
+      let total_profit = money.subtract(total_revenue, total_cost)
+      let total_margin = case money.to_float(total_revenue) >. 0.0 {
+        True -> money.ratio(total_profit, total_revenue) *. 100.0
         False -> 0.0
       }
       ui.panel(
@@ -113,7 +112,9 @@ pub fn panel(forecast: Forecast) -> Element(msg) {
         count: int.to_string(count) <> " months",
         right: [
           html.span([attribute.class("finance__total-note")], [
-            html.text(ui.money(total_revenue) <> " revenue to the cliff"),
+            html.text(
+              ui.money(money.to_float(total_revenue)) <> " revenue to the cliff",
+            ),
           ]),
         ],
         body: [
@@ -144,24 +145,30 @@ fn forecast_row(month: ForecastMonth) -> Element(msg) {
   let #(profit_class, profit_text) = forecast_profit(month.profit)
   html.tr([], [
     html.td([], [html.text(time.format_month(month.month))]),
-    html.td([attribute.class("num")], [html.text(ui.money(month.revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(month.cost))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(month.revenue))),
+    ]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(month.cost))),
+    ]),
     html.td([attribute.class(profit_class)], [html.text(profit_text)]),
     html.td([attribute.class("num")], [html.text(ui.pct(month.margin_pct))]),
   ])
 }
 
 fn forecast_total_row(
-  revenue: Float,
-  cost: Float,
-  profit: Float,
+  revenue: money.Money,
+  cost: money.Money,
+  profit: money.Money,
   margin: Float,
 ) -> Element(msg) {
   let #(profit_class, profit_text) = forecast_profit(profit)
   html.tr([attribute.class("finance__total-row")], [
     html.td([], [html.text("Total")]),
-    html.td([attribute.class("num")], [html.text(ui.money(revenue))]),
-    html.td([attribute.class("num")], [html.text(ui.money(cost))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(revenue))),
+    ]),
+    html.td([attribute.class("num")], [html.text(ui.money(money.to_float(cost)))]),
     html.td([attribute.class(profit_class)], [html.text(profit_text)]),
     html.td([attribute.class("num")], [html.text(ui.pct(margin))]),
   ])
@@ -169,7 +176,8 @@ fn forecast_total_row(
 
 /// The profit cell's class and signed text, mirroring the P&L table's positive /
 /// negative colouring (a leading minus glyph on a loss).
-fn forecast_profit(profit: Float) -> #(String, String) {
+fn forecast_profit(profit: money.Money) -> #(String, String) {
+  let profit = money.to_float(profit)
   case profit >=. 0.0 {
     True -> #("num pnl__profit--positive", ui.money(profit))
     False -> #(

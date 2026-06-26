@@ -344,18 +344,18 @@ pub fn pnl_totals_and_per_engineer_row_test() {
     })
 
   // Month totals.
-  assert pnl.month_revenue == 120_000.0
-  assert pnl.month_cost == 32_000.0
-  assert pnl.month_profit == 88_000.0
+  assert pnl.month_revenue == money_of("120000.00")
+  assert pnl.month_cost == money_of("32000.00")
+  assert pnl.month_profit == money_of("88000.00")
   // YTD revenue is CAPACITY-based (ADR-043): the billable value of the work over
   // Jan–June from the seed allocations, not just June's issued invoices — so it far
   // exceeds the single month. YTD cost blends ACTUALS and ESTIMATE month by month:
   // June ran (snapshot 32000), and Jan–May have no run so each shows the EXPECTED
   // salary per employed engineer (Priya L5 10000 + Marcus L4 8000 + Aisha L6 14000 =
   // 32000/month × 5 = 160000) — 192000 in all.
-  assert pnl.ytd_revenue == 724_000.0
-  assert pnl.ytd_cost == 192_000.0
-  assert pnl.ytd_profit == 532_000.0
+  assert pnl.ytd_revenue == money_of("724000.00")
+  assert pnl.ytd_cost == money_of("192000.00")
+  assert pnl.ytd_profit == money_of("532000.00")
 
   // Aisha's per-engineer month row (revenue/cost/profit/margin/utilization). The
   // margin uses the same float arithmetic the domain does, so the comparison is
@@ -363,17 +363,16 @@ pub fn pnl_totals_and_per_engineer_row_test() {
   assert row_for(pnl.rows, "Aisha Okafor")
     == PnlRow(
       engineer: "Aisha Okafor",
-      revenue: 54_000.0,
-      cost: 14_000.0,
-      profit: 40_000.0,
+      revenue: money_of("54000.00"),
+      cost: money_of("14000.00"),
+      profit: money_of("40000.00"),
       margin_pct: { 54_000.0 -. 14_000.0 } /. 54_000.0 *. 100.0,
       utilization_pct: 100.0,
     )
 
   // The per-engineer rows reconcile to the month totals.
-  let row_revenue =
-    list.fold(pnl.rows, 0.0, fn(sum, row) { sum +. row.revenue })
-  assert row_revenue == 120_000.0
+  let row_revenue = money.sum(list.map(pnl.rows, fn(row) { row.revenue }))
+  assert row_revenue == money_of("120000.00")
 }
 
 // Capacity-based recognition (ADR-043): P&L revenue is the billable value of the
@@ -421,9 +420,9 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
     })
 
   // Capacity recognizes June's work in full despite no issued invoice.
-  assert pnl.month_revenue == 120_000.0
-  assert pnl.month_cost == 32_000.0
-  assert pnl.month_profit == 88_000.0
+  assert pnl.month_revenue == money_of("120000.00")
+  assert pnl.month_cost == money_of("32000.00")
+  assert pnl.month_profit == money_of("88000.00")
 }
 
 // FORECASTED COST (the cost-side mirror of capacity revenue): scrubbing the P&L to a
@@ -439,8 +438,8 @@ pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
       pnl
     })
 
-  assert pnl.month_cost == 34_000.0
-  assert row_for(pnl.rows, "Priya Sharma").cost == 10_000.0
-  assert row_for(pnl.rows, "Marcus Chen").cost == 10_000.0
-  assert row_for(pnl.rows, "Aisha Okafor").cost == 14_000.0
+  assert pnl.month_cost == money_of("34000.00")
+  assert row_for(pnl.rows, "Priya Sharma").cost == money_of("10000.00")
+  assert row_for(pnl.rows, "Marcus Chen").cost == money_of("10000.00")
+  assert row_for(pnl.rows, "Aisha Okafor").cost == money_of("14000.00")
 }

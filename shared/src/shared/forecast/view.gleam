@@ -7,6 +7,7 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
+import shared/money.{type Money}
 import shared/wire
 
 /// One month of the forecast (`GET /api/forecast?as_of=`): the first-of-`month`
@@ -15,9 +16,9 @@ import shared/wire
 pub type ForecastMonth {
   ForecastMonth(
     month: Date,
-    revenue: Float,
-    cost: Float,
-    profit: Float,
+    revenue: Money,
+    cost: Money,
+    profit: Money,
     margin_pct: Float,
   )
 }
@@ -33,9 +34,9 @@ pub fn encode_forecast_month(month: ForecastMonth) -> Json {
   let ForecastMonth(month:, revenue:, cost:, profit:, margin_pct:) = month
   json.object([
     #("month", wire.encode_date(month)),
-    #("revenue", json.float(revenue)),
-    #("cost", json.float(cost)),
-    #("profit", json.float(profit)),
+    #("revenue", money.encode(revenue)),
+    #("cost", money.encode(cost)),
+    #("profit", money.encode(profit)),
     #("margin_pct", json.float(margin_pct)),
   ])
 }
@@ -43,9 +44,9 @@ pub fn encode_forecast_month(month: ForecastMonth) -> Json {
 /// Decode a `ForecastMonth` from a JSON object.
 pub fn forecast_month_decoder() -> Decoder(ForecastMonth) {
   use month <- decode.field("month", wire.date_decoder())
-  use revenue <- decode.field("revenue", wire.lenient_float_decoder())
-  use cost <- decode.field("cost", wire.lenient_float_decoder())
-  use profit <- decode.field("profit", wire.lenient_float_decoder())
+  use revenue <- decode.field("revenue", money.decoder())
+  use cost <- decode.field("cost", money.decoder())
+  use profit <- decode.field("profit", money.decoder())
   use margin_pct <- decode.field("margin_pct", wire.lenient_float_decoder())
   decode.success(ForecastMonth(month:, revenue:, cost:, profit:, margin_pct:))
 }
