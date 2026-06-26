@@ -11,6 +11,7 @@
 //// whose random suffix differs on every call).
 
 import gleam/erlang/process
+import gleam/option.{None}
 import pog
 import tempo/server/context
 
@@ -41,7 +42,8 @@ pub fn db() -> pog.Connection {
   pog.named_connection(pool_name())
 }
 
-/// A `Context` wrapping the shared pool.
+/// A `Context` wrapping the shared pool, with no principal (an unauthenticated
+/// context — tests that drive an authenticated route inject one).
 pub fn ctx() -> context.Context {
-  context.Context(db())
+  context.Context(db(), None)
 }

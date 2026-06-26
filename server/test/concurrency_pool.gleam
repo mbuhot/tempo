@@ -11,6 +11,7 @@
 //// `start` and `db` independently derive the SAME `process.Name`.
 
 import gleam/erlang/process
+import gleam/option.{None}
 import pog
 import tempo/seed
 import tempo/server/context.{type DbSettings, DbSettings}
@@ -46,7 +47,7 @@ pub fn db() -> pog.Connection {
 
 /// A `Context` wrapping the dedicated pool.
 pub fn ctx() -> context.Context {
-  context.Context(db())
+  context.Context(db(), None)
 }
 
 /// The base settings with the database swapped to the dedicated one.
@@ -90,6 +91,7 @@ fn migrate_and_seed_database() -> Nil {
   let migrate_name = binary_to_atom("tempo_concurrency_migrate_pool")
   let assert Ok(started) =
     pog.start(context.pool_config(settings(), migrate_name) |> pog.pool_size(1))
-  let assert Ok(seed.Seeded) = seed.run(context.Context(started.data), "dev")
+  let assert Ok(seed.Seeded) =
+    seed.run(context.Context(started.data, None), "dev")
   Nil
 }

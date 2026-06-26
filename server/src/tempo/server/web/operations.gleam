@@ -44,7 +44,7 @@ import wisp
 /// `OperationError` to the matching 4xx/5xx.
 pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.require_method(req, http.Post)
-  use principal <- guard.authenticated(req, ctx)
+  use principal <- guard.authenticated(ctx)
   use body <- wisp.require_json(req)
   case decode.run(body, shared_command.operation_request_decoder()) {
     Error(_) ->

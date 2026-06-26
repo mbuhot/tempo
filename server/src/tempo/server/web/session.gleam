@@ -2,9 +2,9 @@
 //// The signed cookie carries ONLY the authenticated account id — roles and permissions
 //// are temporal, so they are resolved from the database as-of each request (never baked
 //// into the cookie), and a revoked role takes effect immediately. Login issues the
-//// cookie; the operations handler and the read guard read it back and `access.resolve`
-//// the full `Principal`. A signed cookie cannot be forged, so the account id — and the
-//// permissions resolved from it — are trustworthy.
+//// cookie; the router's authentication middleware reads it back and `access.resolve`s the
+//// full `Principal` once per request (into `Context.principal`). A signed cookie cannot
+//// be forged, so the account id — and the permissions resolved from it — are trustworthy.
 ////
 //// The cookie is built by hand (not `wisp.set_cookie`) for the "remember me" opt-in:
 //// unchecked is a true SESSION cookie (no Max-Age, dropped on browser close), checked is
@@ -62,15 +62,18 @@ pub fn clear(response: wisp.Response, request: wisp.Request) -> wisp.Response {
 
 /// Read and verify the signed session cookie, then resolve the full `Principal` (display
 /// name, linked engineer, and effective permissions as-of today) from the database.
-/// Returns `Error(Nil)` when the cookie is absent/invalid or the account no longer
-/// exists — every "not authenticated" case the handler turns into a 401.
-pub fn principal(
-  request: wisp.Request,
-  context: Context,
-) -> Result(Principal, Nil) {
-  use raw <- result.try(wisp.get_cookie(request, cookie_name, wisp.Signed))
-  use account_id <- result.try(int.parse(raw))
-  access.resolve(context, account_id)
+/// `None` when the cookie is absent/invalid or the account no longer exists — every "not
+/// authenticated" case. The router's authentication middleware calls this once per
+/// request and stashes the result in `Context.principal`; an absent cookie short-circuits
+/// before any database hit (`get_cookie` fails first), so an unauthenticated request pays
+/// no query.
+pub fn principal(request: wisp.Request, context: Context) -> Option(Principal) {
+  {
+    use raw <- result.try(wisp.get_cookie(request, cookie_name, wisp.Signed))
+    use account_id <- result.try(int.parse(raw))
+    access.resolve(context, account_id)
+  }
+  |> option.from_result
 }
 
 fn set_session_cookie(

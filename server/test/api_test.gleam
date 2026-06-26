@@ -15,9 +15,11 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option
+import gleam/set
 import gleam/string
 import gleam/time/calendar
 import pog
+import shared/access
 import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
@@ -34,7 +36,8 @@ import shared/timesheet/view.{
   type TimesheetWeek, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
 } as timesheet_view
 import tempo/server/account/seed as account_seed
-import tempo/server/context.{type Context}
+import tempo/server/auth.{type Principal, Principal}
+import tempo/server/context.{type Context, Context}
 import tempo/server/event
 import tempo/server/web/router
 import test_pool
@@ -43,18 +46,40 @@ import wisp/simulate
 
 // --- context ----------------------------------------------------------------
 
-/// A `Context` over the suite's shared pool.
+/// A `Context` over the suite's shared pool, unauthenticated.
 fn ctx() -> Context {
   test_pool.ctx()
 }
 
-// --- auth helpers -----------------------------------------------------------
+/// The suite's shared `Context` with `principal` injected — the test seam the
+/// principal-in-`Context` middleware unlocks. Routing a request through
+/// `router.route_request(_, ctx_as(p))` exercises the full router + guards with `p`
+/// as the authenticated principal, with no login/cookie round-trip and no coupling
+/// to the account/role seed. The cookie→principal resolution itself stays covered by
+/// the login and session tests, which go through `router.handle_request`.
+fn ctx_as(principal: Principal) -> Context {
+  Context(..ctx(), principal: option.Some(principal))
+}
+
+/// An "Admin" principal holding every permission — what most read/write tests inject,
+/// so authorization never masks the behaviour under test. account_id 0 / no linked
+/// engineer (a synthetic test principal, not a seeded account).
+fn admin() -> Principal {
+  Principal(
+    account_id: 0,
+    actor: "Admin",
+    engineer_id: option.None,
+    permissions: set.from_list(access.all()),
+  )
+}
+
+// --- auth helpers (real login → cookie → resolve, for the session glue tests) --
 
 /// Sign in as `actor` (a display name) through POST /api/login against `context`,
 /// posting the seeded dev credentials for that identity and returning the login
 /// request and its response so a follow-up call can carry the issued session cookie
-/// via `simulate.session`. The write-path tests authenticate as "Admin" (full
-/// access) so authorization never masks the behaviour under test.
+/// via `simulate.session`. Used only by the tests that exercise the real
+/// cookie→principal path (the session is otherwise injected via `ctx_as`).
 fn sign_in(context: Context, actor: String) -> #(wisp.Request, wisp.Response) {
   let request =
     simulate.request(http.Post, "/api/login")
@@ -78,17 +103,16 @@ fn username_for(actor: String) -> String {
   account.username
 }
 
-/// POST a command to /api/operations on an authenticated "Admin" session: sign in,
-/// then send the `{command}` envelope carrying the issued session cookie. The
-/// server derives the actor from the session, never the body.
+/// POST a command to /api/operations as an authenticated "Admin" principal (every
+/// permission), injected straight into the context — so the write path is exercised
+/// without a login round-trip. The server still derives the journal actor from the
+/// principal, never the body.
 fn post_operation(context: Context, command: gateway.Command) -> wisp.Response {
-  let #(login_request, login_response) = sign_in(context, "Admin")
   simulate.request(http.Post, "/api/operations")
   |> simulate.json_body(
     gateway.encode_operation_request(gateway.OperationRequest(command:)),
   )
-  |> simulate.session(login_request, login_response)
-  |> router.handle_request(context)
+  |> router.route_request(Context(..context, principal: option.Some(admin())))
 }
 
 fn money_of(text: String) -> Money {
@@ -96,16 +120,11 @@ fn money_of(text: String) -> Money {
   amount
 }
 
-/// Run a request carrying an authenticated "Admin" session (owner = every permission),
-/// so a gated read endpoint's permission guard is satisfied. Reads are authorized, so
-/// every read test signs in first; the handler still validates params (a 400/404 still
-/// surfaces, no longer masked by the 401).
+/// Route a request as an authenticated "Admin" principal (every permission), so a gated
+/// read endpoint's permission guard is satisfied. The handler still validates params (a
+/// 400/404 surfaces as before, no longer masked by a 401).
 fn read(request: wisp.Request) -> wisp.Response {
-  let context = ctx()
-  let #(login_request, login_response) = sign_in(context, "Admin")
-  request
-  |> simulate.session(login_request, login_response)
-  |> router.handle_request(context)
+  router.route_request(request, ctx_as(admin()))
 }
 
 // --- GET /api/board ---------------------------------------------------------
@@ -447,13 +466,10 @@ pub fn operation_containment_violation_is_conflict_test() {
 
 // On an authenticated session, a body missing the `command` is a 400, not a 500.
 pub fn operation_bad_body_is_bad_request_test() {
-  let context = ctx()
-  let #(login_request, login_response) = sign_in(context, "Admin")
   let response =
     simulate.request(http.Post, "/api/operations")
     |> simulate.json_body(json.object([#("not_a_command", json.string("x"))]))
-    |> simulate.session(login_request, login_response)
-    |> router.handle_request(context)
+    |> router.route_request(ctx_as(admin()))
 
   assert response.status == 400
 }

@@ -21,7 +21,7 @@ import shared/access
 import simplifile
 import tempo/server/board/http as board
 import tempo/server/client/http as clients
-import tempo/server/context.{type Context}
+import tempo/server/context.{type Context, Context}
 import tempo/server/engineer/http as engineers
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
@@ -39,11 +39,19 @@ import tempo/server/web/login
 import tempo/server/web/logout
 import tempo/server/web/me
 import tempo/server/web/operations
+import tempo/server/web/session
 import wisp
 
-/// Top-level request handler: wrap every request in the standard Wisp
-/// middleware, then route by path. `/api/*` hits the JSON handlers; anything
+/// Top-level request handler: wrap every request in the standard Wisp middleware,
+/// AUTHENTICATE it (resolve the signed session cookie into `Context.principal`,
+/// once, up front), then route by path. `/api/*` hits the JSON handlers; anything
 /// else falls through to static file serving from `priv/static`.
+///
+/// This is the production entry. The cookie→principal resolution lives here (not in
+/// `route_request`) so a test can build a `Context` with an injected `principal` and
+/// drive `route_request` directly, exercising the full routing + guards without a
+/// login/cookie round-trip; the cookie path itself stays covered by the login and
+/// session tests, which go through this entry.
 pub fn handle_request(
   request: wisp.Request,
   context: Context,
@@ -51,7 +59,20 @@ pub fn handle_request(
   use <- wisp.log_request(request)
   use <- wisp.rescue_crashes
   use <- serve_static_no_cache(request)
+  route_request(request, authenticate(request, context))
+}
 
+/// Resolve the request `Principal` from the signed session cookie and stash it in a
+/// request-scoped clone of the (app-scoped) context. Runs only for non-static paths
+/// (static is served before this), and an absent cookie costs no query.
+fn authenticate(request: wisp.Request, context: Context) -> Context {
+  Context(..context, principal: session.principal(request, context))
+}
+
+/// Route a request whose `Context.principal` is already resolved. The guards read
+/// `context.principal`; they neither touch the cookie nor the database. Public so a
+/// test can inject a principal and drive routing + guards directly.
+pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
   case wisp.path_segments(request) {
     ["api", "login"] -> login.handle(request, context)
     ["api", "logout"] -> logout.handle(request, context)
@@ -60,79 +81,79 @@ pub fn handle_request(
     ["api", "operations"] -> operations.handle(request, context)
     // GET /api/me — the authenticated identity + effective permissions (boot-restore).
     ["api", "me"] -> {
-      use principal <- guard.authenticated(request, context)
+      use principal <- guard.authenticated(context)
       me.handle(request, principal)
     }
     // Reads are gated by the permission their data needs; the two ownership reads
     // (an engineer's detail and timesheet) additionally allow the engineer their own.
     ["api", "access"] -> {
-      use _principal <- guard.require(request, context, access.roles_manage)
+      use _principal <- guard.require(context, access.roles_manage)
       access_admin.handle(request, context)
     }
     ["api", "board"] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       board.handle(request, context)
     }
     ["api", "timesheet"] -> {
-      use principal <- guard.authenticated(request, context)
+      use principal <- guard.authenticated(context)
       timesheet.handle_read(request, context, principal)
     }
     ["api", "events"] -> {
-      use _principal <- guard.require(request, context, access.read_engineers)
+      use _principal <- guard.require(context, access.read_engineers)
       events.handle(request, context)
     }
     ["api", "invoices"] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       invoices.handle_list(request, context)
     }
     ["api", "invoices", id] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       invoices.handle_detail(request, context, id)
     }
     ["api", "payroll"] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       payroll.handle(request, context)
     }
     ["api", "pnl"] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       pnl.handle(request, context)
     }
     ["api", "forecast"] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       forecast.handle(request, context)
     }
     // The bench/roster lane is part of the operational Board view, so it shares
     // read.projects (not the HR-level read.engineers the People page needs).
     ["api", "roster"] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       roster.handle(request, context)
     }
     ["api", "people"] -> {
-      use _principal <- guard.require(request, context, access.read_engineers)
+      use _principal <- guard.require(context, access.read_engineers)
       people.handle(request, context)
     }
     ["api", "engineers", id] -> {
-      use principal <- guard.authenticated(request, context)
+      use principal <- guard.authenticated(context)
       engineers.handle_detail(request, context, id, principal)
     }
     ["api", "clients"] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       clients.handle_list(request, context)
     }
     ["api", "clients", id] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       clients.handle_detail(request, context, id)
     }
     ["api", "projects"] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       projects.handle_list(request, context)
     }
     ["api", "projects", id] -> {
-      use _principal <- guard.require(request, context, access.read_projects)
+      use _principal <- guard.require(context, access.read_projects)
       projects.handle_detail(request, context, id)
     }
     ["api", "settings"] -> {
-      use _principal <- guard.require(request, context, access.read_finances)
+      use _principal <- guard.require(context, access.read_finances)
       settings.handle(request, context)
     }
     // An unmatched /api/* path is a genuine 404; every other path serves the SPA

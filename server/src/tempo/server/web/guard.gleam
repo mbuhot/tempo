@@ -1,37 +1,39 @@
 //// Web: the read-side authorization guard — the GET-endpoint analogue of the write gate
-//// in `command.dispatch`. `authenticated` resolves the request `Principal` (401 if the
-//// session is absent/invalid) and hands it to the handler; `require` additionally checks
-//// a permission (403 otherwise). Keeps each read handler free of session/permission
-//// plumbing — the router wraps a route with the permission it needs.
+//// in `command.dispatch`. `authenticated` reads the request `Principal` the router's
+//// authentication middleware already resolved into `Context.principal` (401 when it is
+//// `None`) and hands it to the handler; `require` additionally checks a permission (403
+//// otherwise). Pure — no cookie, no database: the middleware did that once up front, so
+//// each read handler stays free of session/permission plumbing and the router wraps a
+//// route with only the permission it needs.
 
+import gleam/option.{None, Some}
 import tempo/server/auth.{type Principal}
 import tempo/server/context.{type Context}
 import tempo/server/web/response
-import tempo/server/web/session
 import wisp
 
-/// Resolve the request principal or 401. Use for endpoints whose own logic decides
-/// access (e.g. an ownership read that allows the engineer their own record).
+/// Hand the request principal to the handler, or 401 when there is none. Use for
+/// endpoints whose own logic decides access (e.g. an ownership read that allows the
+/// engineer their own record).
 pub fn authenticated(
-  request: wisp.Request,
   context: Context,
   next: fn(Principal) -> wisp.Response,
 ) -> wisp.Response {
-  case session.principal(request, context) {
-    Ok(principal) -> next(principal)
-    Error(Nil) ->
+  case context.principal {
+    Some(principal) -> next(principal)
+    None ->
       response.error_response(401, "unauthenticated", "sign in to continue")
   }
 }
 
-/// Resolve the principal (401) and require `permission` (403) before running the handler.
+/// Require an authenticated principal (401) holding `permission` (403) before running the
+/// handler.
 pub fn require(
-  request: wisp.Request,
   context: Context,
   permission: String,
   next: fn(Principal) -> wisp.Response,
 ) -> wisp.Response {
-  use principal <- authenticated(request, context)
+  use principal <- authenticated(context)
   case auth.can(principal, permission) {
     True -> next(principal)
     False ->

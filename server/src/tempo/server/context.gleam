@@ -4,15 +4,23 @@ import envoy
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/int
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/result
 import pog
+import tempo/server/auth.{type Principal}
 
-/// Application context threaded through every Wisp handler. Holds the live
-/// `pog` connection that handlers run queries against.
+/// Context threaded through every Wisp handler. Holds the live `pog` connection
+/// handlers run queries against, and the request `Principal` resolved from the
+/// signed session cookie.
+///
+/// REQUEST-SCOPED: the pool/`db` is shared and app-lived, but `principal` is
+/// per-request — `start` builds the app context with `principal: None`, and the
+/// router's authentication middleware clones it per request, filling in the
+/// principal it resolved from the cookie (`None` for an unauthenticated request).
+/// The guards then read `ctx.principal` rather than re-touching the cookie/db.
 pub type Context {
-  Context(db: pog.Connection)
+  Context(db: pog.Connection, principal: Option(Principal))
 }
 
 /// Database connection settings, parsed from the environment (with dev
@@ -109,7 +117,7 @@ pub fn start() -> Result(Context, actor.StartError) {
   let pool_name = process.new_name(prefix: "tempo_db")
   let config = pool_config(settings_from_env(), pool_name)
   use started <- result.map(pog.start(config))
-  Context(db: started.data)
+  Context(db: started.data, principal: None)
 }
 
 /// Run `SELECT 1` against the pool to confirm a live PG19 connection. Returns

@@ -134,7 +134,7 @@ pub fn list_invoices_shows_status_and_total_test() {
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(#(invoices, _)) =
         invoice_read.list_invoices(
-          Context(db: conn),
+          Context(db: conn, principal: None),
           Date(2026, June, 15),
           cursor.date_id_start(),
           200,
@@ -171,14 +171,14 @@ pub fn list_invoices_status_is_as_of_the_date_test() {
       let _ = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(#(before, _)) =
         invoice_read.list_invoices(
-          Context(db: conn),
+          Context(db: conn, principal: None),
           Date(2026, June, 5),
           cursor.date_id_start(),
           200,
         )
       let assert Ok(#(after, _)) =
         invoice_read.list_invoices(
-          Context(db: conn),
+          Context(db: conn, principal: None),
           Date(2026, June, 15),
           cursor.date_id_start(),
           200,
@@ -203,7 +203,7 @@ pub fn list_invoices_pages_by_cursor_test() {
       let a = draft_and_issue(conn, 100, Date(2026, June, 10))
       let b = draft_and_issue(conn, 200, Date(2026, June, 10))
       let c = draft_and_issue(conn, 300, Date(2026, June, 10))
-      let context = Context(db: conn)
+      let context = Context(db: conn, principal: None)
 
       let assert Ok(#(first, first_cursor)) =
         invoice_read.list_invoices(
@@ -245,7 +245,7 @@ pub fn invoice_detail_returns_header_and_lines_test() {
       let invoice_id = draft_and_issue(conn, 300, Date(2026, June, 10))
       let assert Ok(Ok(detail)) =
         invoice_read.invoice_detail(
-          Context(db: conn),
+          Context(db: conn, principal: None),
           invoice_id,
           Date(2026, June, 15),
         )
@@ -280,7 +280,7 @@ pub fn invoice_detail_unknown_id_is_not_found_test() {
   let outcome =
     rolling_back(fn(conn) {
       invoice_read.invoice_detail(
-        Context(db: conn),
+        Context(db: conn, principal: None),
         999_999,
         Date(2026, June, 15),
       )
@@ -308,7 +308,7 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
       )
       let assert Ok(run) =
         payroll_read.payroll(
-          Context(db: conn),
+          Context(db: conn, principal: None),
           Date(2026, June, 1),
           Date(2026, July, 1),
         )

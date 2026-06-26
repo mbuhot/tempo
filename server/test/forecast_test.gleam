@@ -12,6 +12,7 @@
 //// and the shared seed is undisturbed. These tests only READ, so they add no fixture.
 
 import gleam/list
+import gleam/option.{None}
 import gleam/time/calendar.{
   type Date, August, Date, December, July, June, November, October, September,
 }
@@ -32,7 +33,8 @@ fn rolling_back(body: fn(pog.Connection) -> a) -> a {
 
 /// The forecast as-of `as_of`, asserted to succeed.
 fn forecast(conn: pog.Connection, as_of: Date) -> Forecast {
-  let assert Ok(forecast) = forecast_read.forecast(Context(db: conn), as_of)
+  let assert Ok(forecast) =
+    forecast_read.forecast(Context(db: conn, principal: None), as_of)
   forecast
 }
 
