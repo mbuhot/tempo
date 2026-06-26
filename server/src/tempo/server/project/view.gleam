@@ -27,7 +27,8 @@ import shared/project/view.{
   ProjectList, ProjectListRow, ProjectPlan, ProjectProfile, ProjectRequirement,
   TeamMember,
 } as _
-import tempo/server/context.{type Context}
+import tempo/server/async.{type AsyncQuery}
+import tempo/server/context.{type Context, query_timeout}
 import tempo/server/project/sql
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
 
@@ -76,47 +77,61 @@ fn list_row_to_shared(row: sql.ProjectListRow) -> ProjectListRow {
 /// One project's detail as-of `as_of`. `Ok(Error(Nil))` when no profile or no run
 /// (unknown id) → 404. The as-of drives the run `active` flag and the team/invoices
 /// snapshot.
+///
+/// The six component queries are independent, so they fan out CONCURRENTLY and are
+/// awaited together — the wall-clock cost is the slowest one, not their sum. The
+/// profile query is the 404 gate: for an unknown project the other five still run
+/// (returning empty), a few wasted reads on the rare miss for a single round-trip on
+/// the common hit.
 pub fn detail(
   context: Context,
   project_id: Int,
   as_of: Date,
 ) -> Result(Result(ProjectDetail, Nil), pog.QueryError) {
-  use profile_rows <- result.try(current_profile(context, project_id))
+  let profile = async.start(fn() { current_profile(context, project_id) })
+  let plan: AsyncQuery(sql.ProjectPlanCurrentRow) =
+    async.start(fn() { sql.project_plan_current(context.db, project_id) })
+  let run: AsyncQuery(sql.ProjectRunPeriodRow) =
+    async.start(fn() { sql.project_run_period(context.db, project_id, as_of) })
+  let team: AsyncQuery(sql.ProjectTeamRow) =
+    async.start(fn() { sql.project_team(context.db, project_id, as_of) })
+  let requirements: AsyncQuery(sql.ProjectRequirementsRow) =
+    async.start(fn() { sql.project_requirements(context.db, project_id) })
+  let invoices: AsyncQuery(sql.ProjectInvoicesRow) =
+    async.start(fn() { sql.project_invoices(context.db, project_id, as_of) })
+
+  let profile = async.await(profile, query_timeout)
+  let plan = async.await(plan, query_timeout)
+  let run = async.await(run, query_timeout)
+  let team = async.await(team, query_timeout)
+  let requirements = async.await(requirements, query_timeout)
+  let invoices = async.await(invoices, query_timeout)
+
+  use profile_rows <- result.try(profile)
+  use plan <- result.try(plan)
+  use run <- result.try(run)
+  use team <- result.try(team)
+  use requirements <- result.try(requirements)
+  use invoices <- result.map(invoices)
+
   case profile_rows {
-    [] -> Ok(Error(Nil))
-    [profile, ..] -> assemble(context, project_id, as_of, profile)
-  }
-}
-
-fn assemble(
-  context: Context,
-  project_id: Int,
-  as_of: Date,
-  profile: ProjectProfile,
-) -> Result(Result(ProjectDetail, Nil), pog.QueryError) {
-  use plan <- result.try(sql.project_plan_current(context.db, project_id))
-  use run <- result.try(sql.project_run_period(context.db, project_id, as_of))
-  use team <- result.try(sql.project_team(context.db, project_id, as_of))
-  use requirements <- result.try(sql.project_requirements(
-    context.db,
-    project_id,
-  ))
-  use invoices <- result.map(sql.project_invoices(context.db, project_id, as_of))
-
-  case plan.rows, run.rows {
-    [plan, ..], [run, ..] ->
-      Ok(ProjectDetail(
-        profile:,
-        client: run.client,
-        plan: plan_to_shared(plan),
-        valid_from: run.valid_from,
-        valid_to: run.valid_to,
-        active: run.active,
-        team: list.map(team.rows, team_member_to_shared),
-        requirements: list.map(requirements.rows, requirement_to_shared),
-        invoices: list.map(invoices.rows, invoice_to_shared),
-      ))
-    _, _ -> Error(Nil)
+    [] -> Error(Nil)
+    [profile, ..] ->
+      case plan.rows, run.rows {
+        [plan, ..], [run, ..] ->
+          Ok(ProjectDetail(
+            profile:,
+            client: run.client,
+            plan: plan_to_shared(plan),
+            valid_from: run.valid_from,
+            valid_to: run.valid_to,
+            active: run.active,
+            team: list.map(team.rows, team_member_to_shared),
+            requirements: list.map(requirements.rows, requirement_to_shared),
+            invoices: list.map(invoices.rows, invoice_to_shared),
+          ))
+        _, _ -> Error(Nil)
+      }
   }
 }
 
