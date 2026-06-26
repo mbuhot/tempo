@@ -229,7 +229,7 @@ pub type InvoiceHeaderRow {
     billing_from: Date,
     billing_to: Date,
     status: String,
-    total: Float,
+    total: String,
     issued_at: Option(Date),
     paid_at: Option(Date),
   )
@@ -267,7 +267,7 @@ pub fn invoice_header(
     use billing_from <- decode.field(3, pog.calendar_date_decoder())
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
-    use total <- decode.field(6, pog.numeric_decoder())
+    use total <- decode.field(6, decode.string)
     use issued_at <- decode.field(
       7,
       decode.optional(pog.calendar_date_decoder()),
@@ -328,7 +328,7 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total,
+  ), 0)::text AS total,
   (
     SELECT lower(issued.status_during)
       FROM invoice_status issued
@@ -403,9 +403,9 @@ pub type InvoiceLinesRow {
   InvoiceLinesRow(
     engineer: String,
     level: Int,
-    day_rate: Float,
+    day_rate: String,
     days: Float,
-    amount: Float,
+    amount: String,
   )
 }
 
@@ -428,9 +428,9 @@ pub fn invoice_lines(
   let decoder = {
     use engineer <- decode.field(0, decode.string)
     use level <- decode.field(1, decode.int)
-    use day_rate <- decode.field(2, pog.numeric_decoder())
+    use day_rate <- decode.field(2, decode.string)
     use days <- decode.field(3, pog.numeric_decoder())
-    use amount <- decode.field(4, pog.numeric_decoder())
+    use amount <- decode.field(4, decode.string)
     decode.success(InvoiceLinesRow(engineer:, level:, day_rate:, days:, amount:))
   }
 
@@ -445,9 +445,9 @@ pub fn invoice_lines(
 SELECT
   coalesce(engineer.name, '') AS engineer,
   invoice_line.level,
-  invoice_line.day_rate::numeric AS day_rate,
+  invoice_line.day_rate::text AS day_rate,
   invoice_line.days::numeric AS days,
-  invoice_line.amount::numeric AS amount
+  invoice_line.amount::text AS amount
 FROM invoice_line
 JOIN engineer_current engineer ON engineer.id = invoice_line.engineer_id
 WHERE invoice_line.invoice_id = $1
@@ -473,7 +473,7 @@ pub type InvoiceListRow {
     billing_from: Date,
     billing_to: Date,
     status: String,
-    total: Float,
+    total: String,
     issued_at: Option(Date),
     paid_at: Option(Date),
   )
@@ -533,7 +533,7 @@ pub fn invoice_list(
     use billing_from <- decode.field(3, pog.calendar_date_decoder())
     use billing_to <- decode.field(4, pog.calendar_date_decoder())
     use status <- decode.field(5, decode.string)
-    use total <- decode.field(6, pog.numeric_decoder())
+    use total <- decode.field(6, decode.string)
     use issued_at <- decode.field(
       7,
       decode.optional(pog.calendar_date_decoder()),
@@ -611,7 +611,7 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total,
+  ), 0)::text AS total,
   (
     SELECT lower(issued.status_during)
       FROM invoice_status issued

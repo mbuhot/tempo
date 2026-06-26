@@ -31,6 +31,7 @@ import serial_pool
 import shared/command as gateway
 import shared/invoice/command as invoice_command
 import shared/invoice/view.{type Invoice, Invoice, InvoiceDetail, InvoiceLine} as _
+import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
 import shared/pnl/view.{type PnlRow, PnlRow} as _
@@ -41,6 +42,11 @@ import tempo/server/payroll/view as payroll_read
 import tempo/server/pnl/view as pnl_read
 import tempo/server/web/cursor
 import test_pool
+
+fn money_of(text: String) -> Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
+}
 
 // --- rollback harness -------------------------------------------------------
 
@@ -145,7 +151,7 @@ pub fn list_invoices_shows_status_and_total_test() {
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
       status: "issued",
-      total: 84_000.0,
+      total: money_of("84000.00"),
       issued_at: Some(Date(2026, June, 10)),
       paid_at: None,
     )
@@ -153,7 +159,7 @@ pub fn list_invoices_shows_status_and_total_test() {
   let ledger = invoice_for(invoices, "Ledger Migration")
   assert ledger.client == "Northwind Trading"
   assert ledger.status == "issued"
-  assert ledger.total == 18_000.0
+  assert ledger.total == money_of("18000.00")
 }
 
 // FR-F4 carried into the list: an invoice issued on Jun 10 reads `draft` as of a
@@ -249,11 +255,11 @@ pub fn invoice_detail_returns_header_and_lines_test() {
   let InvoiceDetail(invoice:, lines:) = detail
   assert invoice.project == "Data Platform"
   assert invoice.status == "issued"
-  assert invoice.total == 84_000.0
+  assert invoice.total == money_of("84000.00")
   assert lines
     == [
-      InvoiceLine("Aisha Okafor", 6, 1800.0, 30.0, 54_000.0),
-      InvoiceLine("Marcus Chen", 4, 1000.0, 30.0, 30_000.0),
+      InvoiceLine("Aisha Okafor", 6, money_of("1800.00"), 30.0, money_of("54000.00")),
+      InvoiceLine("Marcus Chen", 4, money_of("1000.00"), 30.0, money_of("30000.00")),
     ]
 }
 

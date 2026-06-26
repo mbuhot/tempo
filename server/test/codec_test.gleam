@@ -41,6 +41,7 @@ import shared/rate_card/command as rate_card_command
 import shared/roster/view.{Ref, Roster} as roster_view
 import shared/salary/command as salary_command
 import shared/timesheet/command as timesheet_command
+import shared/money
 import shared/timesheet/view.{TimesheetCell, TimesheetWeek, TimesheetWeekRow} as timesheet_view
 import shared/wire
 
@@ -54,6 +55,11 @@ fn round_trip(value: a, encode: fn(a) -> Json, decoder: Decoder(a)) -> a {
     |> json.to_string
     |> json.parse(decoder)
   decoded
+}
+
+fn money_of(text: String) -> money.Money {
+  let assert Ok(amount) = money.from_string(text)
+  amount
 }
 
 // --- Date -------------------------------------------------------------------
@@ -781,7 +787,7 @@ pub fn invoice_round_trips_test() {
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
       status: "issued",
-      total: 26_400.0,
+      total: money_of("26400.00"),
       issued_at: Some(Date(2026, July, 5)),
       paid_at: None,
     )
@@ -795,7 +801,7 @@ pub fn invoice_round_trips_test() {
 }
 
 // A still-draft invoice with no lines yet computed sums to a zero total — the
-// 0.0 must survive the JSON float round trip.
+// "0.00" decimal string must survive the JSON round trip.
 pub fn invoice_draft_zero_total_round_trips_test() {
   let original =
     Invoice(
@@ -805,7 +811,7 @@ pub fn invoice_draft_zero_total_round_trips_test() {
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
       status: "draft",
-      total: 0.0,
+      total: money_of("0.00"),
       issued_at: None,
       paid_at: None,
     )
@@ -825,9 +831,9 @@ pub fn invoice_line_round_trips_test() {
     InvoiceLine(
       engineer: "Priya Sharma",
       level: 5,
-      day_rate: 1200.0,
+      day_rate: money_of("1200.00"),
       days: 11.0,
-      amount: 13_200.0,
+      amount: money_of("13200.00"),
     )
 
   assert round_trip(
@@ -852,7 +858,7 @@ pub fn invoice_detail_round_trips_test() {
         billing_from: Date(2026, June, 1),
         billing_to: Date(2026, July, 1),
         status: "issued",
-        total: 26_400.0,
+        total: money_of("26400.00"),
         issued_at: Some(Date(2026, July, 5)),
         paid_at: None,
       ),
@@ -860,16 +866,16 @@ pub fn invoice_detail_round_trips_test() {
         InvoiceLine(
           engineer: "Priya Sharma",
           level: 5,
-          day_rate: 1200.0,
+          day_rate: money_of("1200.00"),
           days: 11.0,
-          amount: 13_200.0,
+          amount: money_of("13200.00"),
         ),
         InvoiceLine(
           engineer: "Marcus Chen",
           level: 4,
-          day_rate: 1000.0,
+          day_rate: money_of("1000.00"),
           days: 13.2,
-          amount: 13_200.0,
+          amount: money_of("13200.00"),
         ),
       ],
     )
@@ -894,7 +900,7 @@ pub fn invoice_detail_empty_round_trips_test() {
         billing_from: Date(2026, June, 1),
         billing_to: Date(2026, July, 1),
         status: "draft",
-        total: 0.0,
+        total: money_of("0.00"),
         issued_at: None,
         paid_at: None,
       ),

@@ -40,7 +40,7 @@ SELECT
     SELECT sum(invoice_line.amount)
       FROM invoice_line
      WHERE invoice_line.invoice_id = invoice.id
-  ), 0)::numeric AS total,
+  ), 0)::text AS total,
   (
     SELECT lower(issued.status_during)
       FROM invoice_status issued

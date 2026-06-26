@@ -44,6 +44,7 @@ import lustre/event
 import rsvp
 import shared/command.{type Event}
 import shared/invoice/view.{type Invoice} as _
+import shared/money
 import shared/project/view.{
   type ProjectDetail, type ProjectList, type ProjectListRow,
   type ProjectRequirement, type TeamMember,
@@ -800,7 +801,9 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
         html.text("#" <> int.to_string(invoice.id)),
       ]),
       html.td([], [html.text(time.format_month(invoice.billing_from))]),
-      html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money(money.to_float(invoice.total))),
+      ]),
       html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
     ],
   )

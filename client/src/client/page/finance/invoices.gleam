@@ -34,6 +34,7 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/command.{type Event}
+import shared/money
 import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, type InvoicePage,
 } as invoice_view
@@ -447,11 +448,13 @@ pub fn list(invoices: List(Invoice), actions: Actions(msg)) -> Element(msg) {
   let outstanding =
     invoices
     |> list.filter(fn(invoice) { invoice.status != "paid" })
-    |> list.fold(0.0, fn(sum, invoice) { sum +. invoice.total })
+    |> list.map(fn(invoice) { invoice.total })
+    |> money.sum
   let collected =
     invoices
     |> list.filter(fn(invoice) { invoice.status == "paid" })
-    |> list.fold(0.0, fn(sum, invoice) { sum +. invoice.total })
+    |> list.map(fn(invoice) { invoice.total })
+    |> money.sum
   let count = list.length(invoices)
   let rows = case invoices {
     [] -> [
@@ -466,13 +469,13 @@ pub fn list(invoices: List(Invoice), actions: Actions(msg)) -> Element(msg) {
   html.div([], [
     html.div([attribute.class("stats stats--cols-3")], [
       ui.stat(
-        value: ui.money_k(outstanding),
+        value: ui.money_k(money.to_float(outstanding)),
         unit: "",
         label: "Outstanding",
         pct: ui.NoPct,
       ),
       ui.stat(
-        value: ui.money_k(collected),
+        value: ui.money_k(money.to_float(collected)),
         unit: "",
         label: "Collected (visible)",
         pct: ui.NoPct,
@@ -559,7 +562,9 @@ fn invoice_row(invoice: Invoice, actions: Actions(msg)) -> Element(msg) {
       ]),
       html.td([], [html.text(invoice.client)]),
       html.td([], [html.text(time.format_month(invoice.billing_from))]),
-      html.td([attribute.class("num")], [html.text(ui.money(invoice.total))]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money(money.to_float(invoice.total))),
+      ]),
       html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
       html.td([attribute.class("num")], [lifecycle]),
     ],
@@ -626,7 +631,11 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
               value: time.format_month(invoice.billing_from),
               mono: False,
             ),
-            ui.kv(key: "Total", value: ui.money(invoice.total), mono: True),
+            ui.kv(
+              key: "Total",
+              value: ui.money(money.to_float(invoice.total)),
+              mono: True,
+            ),
           ]),
         ]),
       ],
@@ -659,8 +668,12 @@ fn invoice_line_row(line: InvoiceLine) -> Element(msg) {
         html.text(ui.level_band(line.level)),
       ]),
     ]),
-    html.td([attribute.class("num")], [html.text(ui.money(line.day_rate))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(line.day_rate))),
+    ]),
     html.td([attribute.class("num")], [html.text(ui.days(line.days))]),
-    html.td([attribute.class("num")], [html.text(ui.money(line.amount))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(line.amount))),
+    ]),
   ])
 }

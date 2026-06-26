@@ -9,9 +9,9 @@
 SELECT
   coalesce(engineer.name, '') AS engineer,
   invoice_line.level,
-  invoice_line.day_rate::numeric AS day_rate,
+  invoice_line.day_rate::text AS day_rate,
   invoice_line.days::numeric AS days,
-  invoice_line.amount::numeric AS amount
+  invoice_line.amount::text AS amount
 FROM invoice_line
 JOIN engineer_current engineer ON engineer.id = invoice_line.engineer_id
 WHERE invoice_line.invoice_id = $1
