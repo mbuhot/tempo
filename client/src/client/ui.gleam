@@ -32,7 +32,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/access
+import shared/access/policy
 import shared/allocation/command as allocation_command
 import shared/client_details/command as client_details_command
 import shared/command.{type Command} as gateway
@@ -409,60 +409,49 @@ pub type OpKind {
 
 // --- Op authorization (client-side launcher gating) -------------------------
 
-/// What an op requires to run: a single permission (`Direct`), or — for the
-/// ownership-sensitive ops — the `any` permission OR the `own` permission when acting
-/// on one's OWN record (`Owned`). The client analogue of the server's `auth.Requirement`.
-pub type OpAccess {
-  Direct(permission: String)
-  Owned(own: String, any: String)
-}
-
-/// The access an op requires, TOTAL over `OpKind` — the client mirror of the server's
-/// exhaustive `auth.requirement`, so a new op must declare its permission here too. The
-/// client hides launchers the principal could not run; the server stays the boundary (a
-/// gated-around request still 403s).
-pub fn op_access(kind: OpKind) -> OpAccess {
+/// The shared command key a launcher's op resolves to — so the client gates each
+/// launcher through the SAME `shared/access/policy` table the server enforces with,
+/// never a parallel permission list. Total over `OpKind`: a new op must say which
+/// command it composes. (The permission each key needs lives once, in the shared policy.)
+fn op_command_key(kind: OpKind) -> policy.CommandKey {
   case kind {
-    OpOnboardEngineer -> Direct(access.engineer_onboard)
-    OpPromote -> Direct(access.engineer_promote)
-    OpTakeLeave -> Owned(access.leave_take_own, access.leave_take_any)
-    OpRollOff -> Direct(access.allocation_manage)
-    OpTerminateEmployment -> Direct(access.engineer_terminate)
-    OpUpdateContact ->
-      Owned(access.profile_update_own, access.profile_update_any)
-    OpUpdateBanking ->
-      Owned(access.profile_update_own, access.profile_update_any)
-    OpUpdateEmergency ->
-      Owned(access.profile_update_own, access.profile_update_any)
-    OpLogWeek -> Owned(access.timesheet_log_own, access.timesheet_log_any)
-    OpSignContract -> Direct(access.engagement_manage)
-    OpUpdateClientProfile -> Direct(access.client_manage)
-    OpStartProject -> Direct(access.engagement_manage)
-    OpAssignToProject -> Direct(access.allocation_manage)
-    OpChangeAllocationFraction -> Direct(access.allocation_manage)
-    OpUpdateProjectProfile -> Direct(access.project_manage)
-    OpUpdateProjectPlan -> Direct(access.project_manage)
-    OpDraftInvoice -> Direct(access.invoice_manage)
-    OpIssueInvoice -> Direct(access.invoice_manage)
-    OpPayInvoice -> Direct(access.invoice_manage)
-    OpRunPayroll -> Direct(access.payroll_run)
-    OpReviseRateCard -> Direct(access.ratecard_manage)
-    OpAdjustRateForPortion -> Direct(access.ratecard_manage)
-    OpSetSalary -> Direct(access.salary_set)
-    OpSetProjectRequirement -> Direct(access.project_manage)
+    OpOnboardEngineer -> policy.Onboard
+    OpPromote -> policy.Promote
+    OpTerminateEmployment -> policy.Terminate
+    OpUpdateContact -> policy.UpdateProfile
+    OpUpdateBanking -> policy.UpdateProfile
+    OpUpdateEmergency -> policy.UpdateProfile
+    OpTakeLeave -> policy.TakeLeave
+    OpLogWeek -> policy.LogTimesheet
+    OpRollOff -> policy.ManageAllocation
+    OpAssignToProject -> policy.ManageAllocation
+    OpChangeAllocationFraction -> policy.ManageAllocation
+    OpSignContract -> policy.ManageEngagement
+    OpStartProject -> policy.ManageEngagement
+    OpUpdateClientProfile -> policy.UpdateClient
+    OpUpdateProjectProfile -> policy.ManageProject
+    OpUpdateProjectPlan -> policy.ManageProject
+    OpSetProjectRequirement -> policy.ManageProject
+    OpDraftInvoice -> policy.ManageInvoice
+    OpIssueInvoice -> policy.ManageInvoice
+    OpPayInvoice -> policy.ManageInvoice
+    OpRunPayroll -> policy.RunPayroll
+    OpReviseRateCard -> policy.ManageRateCard
+    OpAdjustRateForPortion -> policy.ManageRateCard
+    OpSetSalary -> policy.SetSalary
   }
 }
 
-/// Whether `permissions` may run `kind`. `own` is whether the acting principal owns the
-/// record the op targets (i.e. it is their own) — it only changes the outcome for the
-/// ownership-sensitive ops.
+/// Whether `permissions` may run `kind`, via the shared write-authorization policy. `own`
+/// is whether the acting principal owns the record the op targets (i.e. it is their own)
+/// — it only changes the outcome for the ownership-sensitive ops. The client hides
+/// launchers this refuses; the server stays the boundary (a gated-around request 403s).
 pub fn can_op(permissions: Set(String), own: Bool, kind: OpKind) -> Bool {
-  case op_access(kind) {
-    Direct(permission:) -> set.contains(permissions, permission)
-    Owned(own: own_permission, any:) ->
-      set.contains(permissions, any)
-      || { own && set.contains(permissions, own_permission) }
-  }
+  policy.satisfies(
+    permissions,
+    own:,
+    requirement: policy.requirement(op_command_key(kind)),
+  )
 }
 
 /// `node` when `allowed`, otherwise nothing — the launcher-gating primitive: keep a list

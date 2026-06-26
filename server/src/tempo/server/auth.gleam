@@ -15,6 +15,7 @@
 import gleam/option.{type Option, Some}
 import gleam/set.{type Set}
 import shared/access
+import shared/access/policy
 import shared/command.{
   type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
   EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
@@ -22,10 +23,7 @@ import shared/command.{
   RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
 }
 import shared/engineer/command as engineer_command
-import shared/engineer_details/command as engineer_details_command
-import shared/leave/command as leave_command
 import shared/role/command as role_command
-import shared/timesheet/command as timesheet_command
 
 /// An authenticated identity: the `account_id` (carried in the signed cookie), the
 /// `actor` display name stamped on the journal, the `engineer_id` it is linked to (for
@@ -74,76 +72,25 @@ pub fn authorize(
   }
 }
 
-/// What a command needs: a single permission, or an ownership pair (the `any` form on
-/// some engineer, else the `own` form when the principal IS that engineer).
-type Requirement {
-  Direct(permission: String)
-  Owned(own: String, any: String, engineer_id: Int)
-}
-
+/// Whether the principal may run `command`, via the SHARED write-authorization policy
+/// (`shared/access/policy`) — the same table the client gates its launchers with. A
+/// `Direct` requirement is a permission check; an `Owned` one additionally allows the
+/// principal their OWN record (the command's `target` engineer matched to the principal's
+/// linked engineer).
 fn permitted(principal: Principal, command: Command) -> Bool {
-  case requirement(command) {
-    Direct(permission:) -> can(principal, permission)
-    Owned(own:, any:, engineer_id:) ->
-      can(principal, any)
-      || { can(principal, own) && owns(principal, engineer_id) }
-  }
+  policy.satisfies(
+    principal.permissions,
+    own: owns_target(principal, command),
+    requirement: policy.requirement(policy.key(command)),
+  )
 }
 
-/// Map each command to the permission it requires. Exhaustive over `Command`, so a new
-/// command with no arm is a compile error rather than a silently-unguarded write.
-fn requirement(command: Command) -> Requirement {
-  case command {
-    EngineerCommand(engineer_command.OnboardEngineer(..)) ->
-      Direct(access.engineer_onboard)
-    EngineerCommand(engineer_command.Promote(..)) ->
-      Direct(access.engineer_promote)
-    EngineerCommand(engineer_command.TerminateEmployment(..)) ->
-      Direct(access.engineer_terminate)
-    EngineerDetailsCommand(details) ->
-      Owned(
-        access.profile_update_own,
-        access.profile_update_any,
-        engineer_details_target(details),
-      )
-    AllocationCommand(_) -> Direct(access.allocation_manage)
-    EngagementCommand(_) -> Direct(access.engagement_manage)
-    LeaveCommand(leave_command.TakeLeave(engineer_id:, ..)) ->
-      Owned(access.leave_take_own, access.leave_take_any, engineer_id)
-    TimesheetCommand(entry) ->
-      Owned(
-        access.timesheet_log_own,
-        access.timesheet_log_any,
-        timesheet_target(entry),
-      )
-    ClientDetailsCommand(_) -> Direct(access.client_manage)
-    ProjectDetailsCommand(_) -> Direct(access.project_manage)
-    ProjectRequirementCommand(_) -> Direct(access.project_manage)
-    RateCardCommand(_) -> Direct(access.ratecard_manage)
-    SalaryCommand(_) -> Direct(access.salary_set)
-    InvoiceCommand(_) -> Direct(access.invoice_manage)
-    PayrollCommand(_) -> Direct(access.payroll_run)
-    RoleCommand(_) -> Direct(access.roles_manage)
-  }
-}
-
-fn engineer_details_target(
-  command: engineer_details_command.EngineerDetailsCommand,
-) -> Int {
-  case command {
-    engineer_details_command.UpdateContactDetails(engineer_id:, ..) ->
-      engineer_id
-    engineer_details_command.UpdateBankingDetails(engineer_id:, ..) ->
-      engineer_id
-    engineer_details_command.UpdateEmergencyContact(engineer_id:, ..) ->
-      engineer_id
-  }
-}
-
-fn timesheet_target(command: timesheet_command.TimesheetCommand) -> Int {
-  case command {
-    timesheet_command.LogTimesheet(engineer_id:, ..) -> engineer_id
-    timesheet_command.LogWeek(engineer_id:, ..) -> engineer_id
+/// Whether the principal owns the engineer the command targets (for the ownership-
+/// sensitive commands); `False` for commands that target no engineer.
+fn owns_target(principal: Principal, command: Command) -> Bool {
+  case policy.target(command) {
+    Some(engineer_id) -> owns(principal, engineer_id)
+    _ -> False
   }
 }
 
