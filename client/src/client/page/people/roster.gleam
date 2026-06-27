@@ -232,28 +232,26 @@ fn project_refs(model: Model) -> List(Ref) {
 /// the roster panel (the roster rendered via the generic data table through its
 /// host, which owns the loading / failed guards).
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
-  let head =
-    ui.page_head(
+  let op_modal = view_op_modal(model.op)
+  let list_page =
+    ui.list_page(
       title: "People",
       blurb: "Everyone employed as of "
         <> time.iso_date(model.as_of)
         <> ". Open a person for their full record and history.",
       actions: [
-        ui.launch(
+        ui.page_action(
           ui.permit(permissions, own: False, kind: ui.OpOnboardEngineer),
-          to_msg: OpOpened,
-          label: "+ Onboard",
-          kind: ui.Primary,
-          size: ui.Small,
+          OpOpened,
+          "+ Onboard",
         ),
       ],
+      body: element.map(
+        table_host.view(model.host, "Loading roster…"),
+        TableHostMsg,
+      ),
     )
-  let op_modal = view_op_modal(model.op)
-  let body =
-    ui.panel(title: "Roster", count: "", right: [], body: [
-      element.map(table_host.view(model.host, "Loading roster…"), TableHostMsg),
-    ])
-  html.div([], [head, op_modal, body])
+  html.div([], [op_modal, list_page])
 }
 
 /// The Onboard-engineer op as a centred modal, shown only while open. The list

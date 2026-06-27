@@ -340,12 +340,10 @@ fn head(permissions: Set(String)) -> Element(Msg) {
     title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
-      ui.launch(
+      ui.page_action(
         ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
-        to_msg: OpStarted,
-        label: "+ Assign",
-        kind: ui.Primary,
-        size: ui.Medium,
+        OpStarted,
+        "+ Assign",
       ),
     ],
   )

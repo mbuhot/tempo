@@ -353,15 +353,22 @@ pub fn view(
 /// (which owns the loading / failed guards). Each row drills into that client.
 fn view_list(model: Model, permissions: Set(String)) -> Element(Msg) {
   html.div([], [
-    ui.page_head(
+    op_panel(model.roster, model.op),
+    ui.list_page(
       title: "Clients",
       blurb: "Who we work for, and the contracts behind the projects.",
-      actions: [op_trigger(permissions, "+ Sign contract", ui.OpSignContract)],
+      actions: [
+        ui.page_action(
+          ui.permit(permissions, own: False, kind: ui.OpSignContract),
+          OpStarted,
+          "+ Sign contract",
+        ),
+      ],
+      body: element.map(
+        table_host.view(model.host, "Loading clients…"),
+        TableHostMsg,
+      ),
     ),
-    op_panel(model.roster, model.op),
-    ui.panel(title: "All clients", count: "", right: [], body: [
-      element.map(table_host.view(model.host, "Loading clients…"), TableHostMsg),
-    ]),
   ])
 }
 

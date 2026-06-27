@@ -70,6 +70,24 @@ pub fn page_head(
   ])
 }
 
+/// The standard list-page template: the page head (title, blurb, page-level
+/// actions) above the body wrapped in a `.panel` card with no redundant title —
+/// the page title is the only heading. Keeping `.panel` preserves the card chrome
+/// and the `.panel:has(.dt){overflow:visible}` popover fix the data table relies on.
+pub fn list_page(
+  title title: String,
+  blurb blurb: String,
+  actions actions: List(Element(msg)),
+  body body: Element(msg),
+) -> Element(msg) {
+  html.div([], [
+    page_head(title:, blurb:, actions:),
+    html.div([attribute.class("panel")], [
+      html.div([attribute.class("panel__body")], [body]),
+    ]),
+  ])
+}
+
 /// A bordered panel with a heading, an optional count badge, an optional cluster
 /// of right-aligned controls, and a body. Mirrors the prototype's `.panel`.
 pub fn panel(
@@ -495,6 +513,17 @@ pub fn launch(
   when_permitted(permit, fn(granted) {
     button(label:, kind:, size:, on_press: to_msg(granted))
   })
+}
+
+/// THE canonical page-level primary action: a `launch` fixed to `Primary, Medium`,
+/// the one style every list page uses for its primary action so the title bar reads
+/// identically everywhere. Medium balances the large page title.
+pub fn page_action(
+  permit: Result(Permit, Nil),
+  to_msg: fn(Permit) -> msg,
+  label: String,
+) -> Element(msg) {
+  launch(permit, to_msg:, label:, kind: Primary, size: Medium)
 }
 
 /// Names a slot of the shared `OpForm`, so one edit message targets every text

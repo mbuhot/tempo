@@ -469,7 +469,7 @@ fn draft_button(actions: Actions(msg)) -> Element(msg) {
     ui.button(
       label: "+ Draft",
       kind: ui.Primary,
-      size: ui.Small,
+      size: ui.Medium,
       on_press: actions.to_open(granted),
     )
   })

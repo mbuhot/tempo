@@ -500,27 +500,25 @@ fn view_list(
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
-  let head =
-    ui.page_head(
+  let page =
+    ui.list_page(
       title: "Projects",
       blurb: "Active engagements as of "
         <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        ui.launch(
+        ui.page_action(
           ui.permit(permissions, own: False, kind: ui.OpStartProject),
-          to_msg: OpStarted,
-          label: "+ Start project",
-          kind: ui.Primary,
-          size: ui.Medium,
+          OpStarted,
+          "+ Start project",
         ),
       ],
+      body: element.map(
+        table_host.view(host, "Loading projects…"),
+        TableHostMsg,
+      ),
     )
-  let body =
-    ui.panel(title: "All projects", count: "", right: [], body: [
-      element.map(table_host.view(host, "Loading projects…"), TableHostMsg),
-    ])
-  html.div([], [head, body, op_modal(op, roster, None)])
+  html.div([], [page, op_modal(op, roster, None)])
 }
 
 fn view_detail(
