@@ -28,5 +28,5 @@
   color: inherit;
   cursor: pointer;
 }
-.payroll__segment td { color: var(--color-text-muted); font-size: var(--font-size-sm); }
-.payroll__segment td:first-child { padding-left: var(--space-4); }
+.payroll__segment td { color: var(--color-muted); font-size: var(--text-sm); }
+.payroll__segment td:first-child { padding-left: var(--space-xl); }
