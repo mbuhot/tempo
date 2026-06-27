@@ -69,17 +69,24 @@ pub type Page {
   AccessPage(access.Model)
 }
 
-/// The shell model: who is signed in (the login gate — `None` shows the gate),
-/// the current route, the one global as-of date, the active page sub-model, the
-/// scrub generation token, and the login form's state. The as-of lives ONLY here;
-/// pages receive it as a parameter and never store it. `scrub_token` is bumped on
-/// every as-of/route change so a debounced scrub-settle only refetches when it is
-/// still the latest.
+/// Who is signed in, as one of three states: `Verifying` while the boot `GET /api/me`
+/// is in flight (a refresh shows a neutral splash, never a flash of the gate),
+/// `Anonymous` once that resolves with no session (show the login gate), and
+/// `Authenticated` with the actor, linked engineer, and effective permissions.
+pub type Session {
+  Verifying
+  Anonymous
+  Authenticated(actor: String, engineer_id: Option(Int), permissions: Set(String))
+}
+
+/// The shell model: the session, the current route, the one global as-of date, the
+/// active page sub-model, the scrub generation token, and the login form's state. The
+/// as-of lives ONLY here; pages receive it as a parameter and never store it.
+/// `scrub_token` is bumped on every as-of/route change so a debounced scrub-settle
+/// only refetches when it is still the latest.
 pub type Model {
   Model(
-    actor: Option(String),
-    engineer_id: Option(Int),
-    permissions: Set(String),
+    session: Session,
     route: Route,
     as_of: calendar.Date,
     page: Page,
@@ -190,9 +197,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   let #(page, _page_effect) = init_page(route, as_of, "")
   let model =
     Model(
-      actor: None,
-      engineer_id: None,
-      permissions: set.new(),
+      session: Verifying,
       route:,
       as_of:,
       page:,
@@ -280,9 +285,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     SignedOut -> #(
       Model(
         ..model,
-        actor: None,
-        engineer_id: None,
-        permissions: set.new(),
+        session: Anonymous,
         login: empty_login(),
       ),
       api.logout(LogoutReturned),
@@ -296,7 +299,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     MeReturned(result:) ->
       case result {
         Ok(identity) -> enter(model, identity)
-        Error(_) -> #(model, effect.none())
+        Error(_) -> #(Model(..model, session: Anonymous), effect.none())
       }
 
     AsOfChanged(date:) -> {
@@ -556,13 +559,18 @@ fn fold_outs(model: Model, outs: List(Out)) -> Effect(Msg) {
 /// permissions IN PLACE, leaving the current page untouched so an in-flight view is not
 /// reset.
 fn enter(model: Model, identity: api.Identity) -> #(Model, Effect(Msg)) {
-  let was_signed_in = model.actor != None
+  let was_signed_in = case model.session {
+    Authenticated(..) -> True
+    _ -> False
+  }
   let model =
     Model(
       ..model,
-      actor: Some(identity.actor),
-      engineer_id: identity.engineer_id,
-      permissions: set.from_list(identity.permissions),
+      session: Authenticated(
+        actor: identity.actor,
+        engineer_id: identity.engineer_id,
+        permissions: set.from_list(identity.permissions),
+      ),
       login: empty_login(),
     )
   let remember_actor = storage.set("tempo.actor", identity.actor)
@@ -670,9 +678,25 @@ fn refetch_page(
 /// The signed-in actor name, or the empty string when signed out (init/refetch
 /// run on the resting page before sign-in).
 fn actor_of(model: Model) -> String {
-  case model.actor {
-    Some(actor) -> actor
-    None -> ""
+  case model.session {
+    Authenticated(actor:, ..) -> actor
+    _ -> ""
+  }
+}
+
+/// The signed-in principal's effective permissions, empty before sign-in.
+fn permissions_of(model: Model) -> Set(String) {
+  case model.session {
+    Authenticated(permissions:, ..) -> permissions
+    _ -> set.new()
+  }
+}
+
+/// The signed-in actor's linked engineer, for own-resource UI; `None` before sign-in.
+fn engineer_id_of(model: Model) -> Option(Int) {
+  case model.session {
+    Authenticated(engineer_id:, ..) -> engineer_id
+    _ -> None
   }
 }
 
@@ -703,10 +727,19 @@ fn as_of_query(as_of: calendar.Date) -> String {
 /// global as-of rail (mapped from `time.Msg` into the shell's `AsOfChanged`), and
 /// the active page's view.
 pub fn view(model: Model) -> Element(Msg) {
-  case model.actor {
-    None -> view_login(model.login)
-    Some(actor) -> view_app(model, actor)
+  case model.session {
+    Verifying -> view_splash()
+    Anonymous -> view_login(model.login)
+    Authenticated(actor:, ..) -> view_app(model, actor)
   }
+}
+
+/// The neutral boot screen shown while `GET /api/me` resolves the session — the brand
+/// on the login backdrop, so a refresh settles into the app or the gate without a flash.
+fn view_splash() -> Element(Msg) {
+  html.div([attribute.id("login")], [
+    html.div([attribute.class("login__card")], [view_brand()]),
+  ])
 }
 
 /// The signed-out login gate: the brand and a real credentials form — email,
@@ -813,7 +846,7 @@ fn view_login_error(error: Option(String)) -> Element(Msg) {
 /// page's content. Mirrors the prototype's `#app` grid.
 fn view_app(model: Model, actor: String) -> Element(Msg) {
   html.div([attribute.class("app")], [
-    view_sidebar(model.route, model.as_of, actor, model.permissions),
+    view_sidebar(model.route, model.as_of, actor, permissions_of(model)),
     html.div([attribute.class("main")], [
       element.map(time.view(model.as_of), fn(rail_msg) {
         case rail_msg {
@@ -1039,13 +1072,13 @@ fn first_letter(word: String) -> String {
 /// launchers the principal could not run. The server stays the boundary; this is the UI
 /// mirror of the sidebar gating.
 fn view_page(model: Model) -> Element(Msg) {
-  let permissions = model.permissions
+  let permissions = permissions_of(model)
   case model.page {
     BoardPage(page) ->
       element.map(board.view(page, model.as_of, permissions), BoardMsg)
     PeoplePage(page) ->
       element.map(
-        people.view(page, model.as_of, permissions, model.engineer_id),
+        people.view(page, model.as_of, permissions, engineer_id_of(model)),
         PeopleMsg,
       )
     ClientsPage(page) ->
