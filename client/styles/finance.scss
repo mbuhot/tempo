@@ -29,6 +29,11 @@
     font-weight: var(--weight-semibold);
 }
 
+.finance__reconciled {
+    color: var(--color-ok);
+    font-weight: var(--weight-semibold);
+}
+
 /* Payroll mode switcher: a row of tabs above the engineer table, the selected
  * mode marked active with the accent. */
 .payroll__modes {

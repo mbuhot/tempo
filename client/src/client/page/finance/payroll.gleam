@@ -427,11 +427,18 @@ fn headline(
             )
           }),
         )
-      [
-        html.span([attribute.class("finance__owed")], [
-          html.text("⚠ " <> ui.money(money.to_float(owed)) <> " back-pay owed"),
-        ]),
-      ]
+      case money.to_float(owed) >. 0.0 {
+        True -> [
+          html.span([attribute.class("finance__owed")], [
+            html.text("⚠ " <> ui.money(money.to_float(owed)) <> " back-pay owed"),
+          ]),
+        ]
+        False -> [
+          html.span([attribute.class("finance__reconciled")], [
+            html.text("✓ Fully reconciled"),
+          ]),
+        ]
+      }
     }
   }
 }
