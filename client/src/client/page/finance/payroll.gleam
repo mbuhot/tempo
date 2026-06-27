@@ -257,7 +257,7 @@ pub fn panel(
     Some(_) ->
       case reconciled(payroll.lines) {
         True -> view_reconciled(payroll, expanded, on_toggle)
-        False -> view_variance(payroll)
+        False -> view_variance(payroll, expanded, on_toggle)
       }
   }
 }
@@ -364,10 +364,10 @@ fn view_reconciled(
   )
 }
 
-/// One engineer's row(s) for a Days/amount table: the total row, plus — when the
-/// breakdown has more than one salary level and the engineer is disclosed — an
-/// indented sub-row per level (the pro-rated days and amount at that salary). A
-/// single-level engineer is just the one total row, no toggle.
+/// One engineer's row(s) for a Days/amount table: the total row (its name cell a
+/// disclosure toggle), plus — when the engineer is disclosed — an indented sub-row
+/// per salary level (the pro-rated days and amount at that level). Every row is
+/// expandable; a single-level engineer simply discloses one sub-row.
 fn breakdown_rows(
   line: PayrollLine,
   segments: List(PayrollSegment),
@@ -378,44 +378,38 @@ fn breakdown_rows(
 ) -> List(Element(msg)) {
   let total_row =
     html.tr([], [
-      engineer_cell(line, segments, expanded, on_toggle),
+      engineer_cell(line, expanded, on_toggle),
       html.td([attribute.class("num")], [html.text(ui.days(days))]),
       html.td([attribute.class("num")], [
         html.text(ui.money(money.to_float(amount))),
       ]),
     ])
-  case has_breakdown(segments) && set.contains(expanded, line.engineer_id) {
+  case set.contains(expanded, line.engineer_id) {
     True -> [total_row, ..list.map(segments, segment_row)]
     False -> [total_row]
   }
 }
 
-/// The engineer name cell — a disclosure toggle (▸/▾ + name) when the line has a
-/// multi-level breakdown, otherwise the plain name.
+/// The engineer name cell as a disclosure toggle (▸/▾ + name); clicking it raises
+/// `on_toggle` for this engineer. Every line is expandable.
 fn engineer_cell(
   line: PayrollLine,
-  segments: List(PayrollSegment),
   expanded: Set(Int),
   on_toggle: fn(Int) -> msg,
 ) -> Element(msg) {
-  case has_breakdown(segments) {
-    False -> html.td([], [html.text(line.engineer)])
-    True -> {
-      let marker = case set.contains(expanded, line.engineer_id) {
-        True -> "▾ "
-        False -> "▸ "
-      }
-      html.td([], [
-        html.button(
-          [
-            attribute.class("payroll__disclosure"),
-            event.on_click(on_toggle(line.engineer_id)),
-          ],
-          [html.text(marker <> line.engineer)],
-        ),
-      ])
-    }
+  let marker = case set.contains(expanded, line.engineer_id) {
+    True -> "▾ "
+    False -> "▸ "
   }
+  html.td([], [
+    html.button(
+      [
+        attribute.class("payroll__disclosure"),
+        event.on_click(on_toggle(line.engineer_id)),
+      ],
+      [html.text(marker <> line.engineer)],
+    ),
+  ])
 }
 
 /// An indented per-level sub-row: the seniority band and monthly salary, the
@@ -438,17 +432,16 @@ fn segment_row(segment: PayrollSegment) -> Element(msg) {
   ])
 }
 
-/// Whether a line's breakdown has more than one salary level — the only case worth
-/// disclosing (a mid-month promotion or salary revision).
-fn has_breakdown(segments: List(PayrollSegment)) -> Bool {
-  list.length(segments) > 1
-}
-
 /// RUN + VARIANCE: a fact was back-dated into the month after the run, so the live
 /// recompute ("should be") no longer matches the frozen paid line for some
 /// engineer. The header warns of the total back-pay owed; the table shows paid vs
-/// should-be with the per-line Δ, the varying rows flagged.
-fn view_variance(payroll: Payroll) -> Element(msg) {
+/// should-be with the per-line Δ, the varying rows flagged. Each row discloses the
+/// should-be per-level breakdown (the live recompute's segments).
+fn view_variance(
+  payroll: Payroll,
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
+) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let owed = money.sum(list.map(payroll.lines, line_delta))
   ui.panel(
@@ -467,7 +460,9 @@ fn view_variance(payroll: Payroll) -> Element(msg) {
           #("Should be", True),
           #("Δ", True),
         ],
-        rows: list.map(payroll.lines, variance_row),
+        rows: list.flat_map(payroll.lines, fn(line) {
+          variance_rows(line, expanded, on_toggle)
+        }),
       ),
     ],
   )
@@ -482,7 +477,13 @@ fn line_delta(line: PayrollLine) -> money.Money {
   )
 }
 
-fn variance_row(line: PayrollLine) -> Element(msg) {
+/// A variance line: the paid-vs-should-be row (name cell a disclosure toggle), plus
+/// — when disclosed — the should-be per-level sub-rows (the live recompute split).
+fn variance_rows(
+  line: PayrollLine,
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
+) -> List(Element(msg)) {
   let delta = line_delta(line)
   let varies = money.compare(delta, money.zero()) != order.Eq
   let row_class = case varies {
@@ -497,16 +498,48 @@ fn variance_row(line: PayrollLine) -> Element(msg) {
     True -> "num finance__owed"
     False -> "num"
   }
-  html.tr([attribute.class(row_class)], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [
+  let total_row =
+    html.tr([attribute.class(row_class)], [
+      engineer_cell(line, expanded, on_toggle),
+      html.td([attribute.class("num")], [
+        html.text(
+          ui.money(
+            money.to_float(option.unwrap(line.paid_amount, money.zero())),
+          ),
+        ),
+      ]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money(money.to_float(line.preview_amount))),
+      ]),
+      html.td([attribute.class(delta_class)], [html.text(delta_text)]),
+    ])
+  case set.contains(expanded, line.engineer_id) {
+    True -> [total_row, ..list.map(line.preview_segments, variance_segment_row)]
+    False -> [total_row]
+  }
+}
+
+/// An indented should-be sub-row for the variance table: the band, monthly salary
+/// and pro-rated days in the name cell, the should-be amount under "Should be", the
+/// paid/Δ columns dashed (the breakdown is of the live recompute, not the frozen
+/// paid line).
+fn variance_segment_row(segment: PayrollSegment) -> Element(msg) {
+  html.tr([attribute.class("payroll__segment")], [
+    html.td([], [
       html.text(
-        ui.money(money.to_float(option.unwrap(line.paid_amount, money.zero()))),
+        "↳ "
+        <> ui.level_band(segment.level)
+        <> " · "
+        <> ui.money(money.to_float(segment.monthly_salary))
+        <> "/mo · "
+        <> ui.days(segment.days)
+        <> "d",
       ),
     ]),
+    html.td([attribute.class("num")], [html.text("—")]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(money.to_float(line.preview_amount))),
+      html.text(ui.money(money.to_float(segment.amount))),
     ]),
-    html.td([attribute.class(delta_class)], [html.text(delta_text)]),
+    html.td([attribute.class("num")], [html.text("—")]),
   ])
 }

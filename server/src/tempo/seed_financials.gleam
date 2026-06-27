@@ -50,8 +50,8 @@ import gleam/result
 import gleam/set
 import gleam/string
 import gleam/time/calendar.{
-  type Date, type TimeOfDay, April, Date, February, January, July, June, March,
-  May, TimeOfDay,
+  type Date, type TimeOfDay, April, Date, December, February, January, July,
+  June, March, May, TimeOfDay,
 }
 import gleam/time/timestamp
 import shared/access
@@ -93,6 +93,18 @@ const variance_engineer_id = 1
 const variance_level = 6
 
 const variance_effective = Date(2026, May, 1)
+
+/// The per-level-breakdown demo (#23): promote Marcus (engineer 2) from his seeded
+/// L5 to L6 effective MID-December (2026-12-16), so December's payroll splits L5
+/// (1–16 Dec) and L6 (16–31 Dec). December is past the seed "now" and is never run
+/// by the demo, so it reads as a live PREVIEW whose every row discloses its per-level
+/// breakdown — and Marcus's shows the two salary levels. Future-dated, so it changes
+/// no seed-now board/roster beat and no materialized run.
+const split_engineer_id = 2
+
+const split_level = 6
+
+const split_effective = Date(2026, December, 16)
 
 /// The projects billed each month, with the names `list_invoices` reports — used to
 /// resolve a freshly-drafted invoice's minted id (project name + billing month is
@@ -145,11 +157,13 @@ fn seed(ctx: Context) -> Nil {
   list.each(month_plans(), fn(plan) { bill_month(ctx, plan) })
   run_monthly_payrolls(ctx)
   apply_variance_promotion(ctx)
+  apply_split_promotion(ctx)
   io.println(
     "seed-financials: ensured Jan–Jun 2026 timesheets, 18 invoices "
     <> "(Jan–Mar paid, Apr–May issued, Jun draft), a payroll run for every month "
-    <> "Jan 2024 – Jun 2026, and the back-dated May variance promotion (Priya "
-    <> "L5->L6).",
+    <> "Jan 2024 – Jun 2026, the back-dated May variance promotion (Priya "
+    <> "L5->L6), and the mid-December split promotion (Marcus L5->L6 from "
+    <> "2026-12-16) for the payroll per-level breakdown.",
   )
 }
 
@@ -485,6 +499,38 @@ fn variance_promotion_present(ctx: Context) -> Bool {
   let effective_index = date_to_day_index(variance_effective)
   list.any(returned.rows, fn(role) {
     role.level == variance_level
+    && date_to_day_index(role.valid_from) <= effective_index
+    && effective_index < date_to_day_index(role.valid_to)
+  })
+}
+
+/// Promote Marcus mid-December so December's preview payroll splits across two salary
+/// levels (the #23 per-level-breakdown demo). Idempotent: skipped once he already
+/// holds the target level over the effective date.
+fn apply_split_promotion(ctx: Context) -> Nil {
+  case split_promotion_present(ctx) {
+    True -> Nil
+    False ->
+      apply(
+        ctx,
+        gateway.EngineerCommand(engineer_command.Promote(
+          engineer_id: split_engineer_id,
+          level: split_level,
+          effective: split_effective,
+        )),
+        Date(2026, June, 1),
+      )
+  }
+}
+
+/// True when Marcus already holds the split target level over its effective date —
+/// the signal the mid-December promotion has been applied before.
+fn split_promotion_present(ctx: Context) -> Bool {
+  let assert Ok(returned) =
+    engineer_sql.engineer_role_history(ctx.db, split_engineer_id)
+  let effective_index = date_to_day_index(split_effective)
+  list.any(returned.rows, fn(role) {
+    role.level == split_level
     && date_to_day_index(role.valid_from) <= effective_index
     && effective_index < date_to_day_index(role.valid_to)
   })
