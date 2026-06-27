@@ -29,6 +29,7 @@
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
+import client/table_host
 import client/time
 import client/ui
 import gleam/float
@@ -46,8 +47,7 @@ import rsvp
 import shared/invoice/view.{type Invoice} as _
 import shared/money
 import shared/project/view.{
-  type ProjectDetail, type ProjectList, type ProjectListRow,
-  type ProjectRequirement, type TeamMember,
+  type ProjectDetail, type ProjectRequirement, type TeamMember,
 } as project_view
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
@@ -63,7 +63,7 @@ pub type Model {
   ListView(
     actor: String,
     as_of: calendar.Date,
-    list: Load(ProjectList),
+    host: table_host.Host,
     roster: Load(Roster),
     op: Option(ui.OpState),
   )
@@ -91,10 +91,7 @@ pub type Load(a) {
 /// The page's messages, wrapped by the shell as `ProjectsMsg(projects.Msg)`. Each
 /// fetch result tags the `as_of` it answers for the staleness guard.
 pub type Msg {
-  ListFetched(
-    result: Result(ProjectList, rsvp.Error(String)),
-    as_of: calendar.Date,
-  )
+  TableHostMsg(sub: table_host.Msg)
   DetailFetched(
     project_id: Int,
     result: Result(ProjectDetail, rsvp.Error(String)),
@@ -104,7 +101,6 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
     as_of: calendar.Date,
   )
-  ProjectRowClicked(project_id: Int)
   BackToListClicked
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
@@ -139,10 +135,16 @@ pub fn init(
       ),
       effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
-    _ -> #(
-      ListView(actor:, as_of:, list: Loading, roster: Loading, op: None),
-      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
-    )
+    _ -> {
+      let #(host, host_effect) = table_host.init("/api/projects/table", as_of)
+      #(
+        ListView(actor:, as_of:, host:, roster: Loading, op: None),
+        effect.batch([
+          effect.map(host_effect, TableHostMsg),
+          fetch_roster(as_of),
+        ]),
+      )
+    }
   }
 }
 
@@ -156,10 +158,16 @@ pub fn refetch(
   actor: String,
 ) -> #(Model, Effect(Msg)) {
   case model {
-    ListView(op:, ..) -> #(
-      ListView(actor:, as_of:, list: Loading, roster: Loading, op:),
-      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
-    )
+    ListView(host:, op:, ..) -> {
+      let #(host, host_effect) = table_host.refetch(host, as_of)
+      #(
+        ListView(actor:, as_of:, host:, roster: Loading, op:),
+        effect.batch([
+          effect.map(host_effect, TableHostMsg),
+          fetch_roster(as_of),
+        ]),
+      )
+    }
     DetailView(project_id:, op:, ..) -> #(
       DetailView(
         actor:,
@@ -172,14 +180,6 @@ pub fn refetch(
       effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
     )
   }
-}
-
-fn fetch_list(as_of: calendar.Date) -> Effect(Msg) {
-  api.get(
-    "/api/projects?as_of=" <> iso_date(as_of),
-    project_view.project_list_decoder(),
-    fn(result) { ListFetched(result:, as_of:) },
-  )
 }
 
 fn fetch_detail(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
@@ -207,13 +207,23 @@ fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
 /// the shell to act on.
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
-    ListFetched(result:, as_of:) ->
+    TableHostMsg(sub:) ->
       case model {
-        ListView(as_of: current, ..) if current == as_of -> #(
-          set_list(model, load_result(result)),
-          effect.none(),
-          [],
-        )
+        ListView(as_of:, host:, ..) -> {
+          let #(host, host_effect, out) = table_host.update(host, sub, as_of)
+          let model = ListView(..model, host:)
+          let effect = effect.map(host_effect, TableHostMsg)
+          case out {
+            table_host.Stay -> #(model, effect, [])
+            table_host.Activated(id:) ->
+              case int.parse(id) {
+                Ok(project_id) -> #(model, effect, [
+                  Navigate(route.Projects(id: Some(project_id))),
+                ])
+                Error(Nil) -> #(model, effect, [])
+              }
+          }
+        }
         _ -> #(model, effect.none(), [])
       }
 
@@ -230,10 +240,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         True -> #(set_roster(model, load_result(result)), effect.none(), [])
         False -> #(model, effect.none(), [])
       }
-
-    ProjectRowClicked(project_id:) -> #(model, effect.none(), [
-      Navigate(route.Projects(id: Some(project_id))),
-    ])
 
     BackToListClicked -> #(model, effect.none(), [
       Navigate(route.Projects(id: None)),
@@ -333,10 +339,16 @@ fn load_result(result: Result(a, rsvp.Error(String))) -> Load(a) {
 /// answers, so a committed write is reflected immediately.
 fn reload(model: Model) -> #(Model, Effect(Msg)) {
   case model {
-    ListView(actor:, as_of:, op:, ..) -> #(
-      ListView(actor:, as_of:, list: Loading, roster: Loading, op:),
-      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
-    )
+    ListView(actor:, as_of:, host:, op:, ..) -> {
+      let #(host, host_effect) = table_host.refetch(host, as_of)
+      #(
+        ListView(actor:, as_of:, host:, roster: Loading, op:),
+        effect.batch([
+          effect.map(host_effect, TableHostMsg),
+          fetch_roster(as_of),
+        ]),
+      )
+    }
     DetailView(actor:, as_of:, project_id:, op:, ..) -> #(
       DetailView(
         actor:,
@@ -369,13 +381,6 @@ fn set_op(model: Model, op: Option(ui.OpState)) -> Model {
   case model {
     ListView(..) -> ListView(..model, op:)
     DetailView(..) -> DetailView(..model, op:)
-  }
-}
-
-fn set_list(model: Model, list: Load(ProjectList)) -> Model {
-  case model {
-    ListView(..) -> ListView(..model, list:)
-    _ -> model
   }
 }
 
@@ -477,15 +482,18 @@ pub fn view(
   permissions: Set(String),
 ) -> Element(Msg) {
   case model {
-    ListView(list:, roster:, op:, ..) ->
-      view_list(list, roster, op, as_of, permissions)
+    ListView(host:, roster:, op:, ..) ->
+      view_list(host, roster, op, as_of, permissions)
     DetailView(detail:, roster:, op:, ..) ->
       view_detail(detail, roster, op, as_of, permissions)
   }
 }
 
+/// Render the list mode: the page head with the Start-project action, the project
+/// list via the generic data table (embedded through its host, which owns the
+/// loading / failed guards), and the op modal.
 fn view_list(
-  list: Load(ProjectList),
+  host: table_host.Host,
   roster: Load(Roster),
   op: Option(ui.OpState),
   as_of: calendar.Date,
@@ -507,69 +515,11 @@ fn view_list(
         ),
       ],
     )
-  let body = case list {
-    Loading -> ui.empty_state(message: "Loading projects…")
-    Failed(message:) ->
-      ui.empty_state(message: "Could not load projects: " <> message)
-    Loaded(value:) -> view_project_table(value.projects)
-  }
+  let body =
+    ui.panel(title: "All projects", count: "", right: [], body: [
+      element.map(table_host.view(host, "Loading projects…"), TableHostMsg),
+    ])
   html.div([], [head, body, op_modal(op, roster, None)])
-}
-
-fn view_project_table(rows: List(ProjectListRow)) -> Element(Msg) {
-  let body = case rows {
-    [] -> ui.empty_state(message: "No projects.")
-    rows ->
-      ui.data_table(
-        headers: [
-          #("Project", False),
-          #("State", False),
-          #("Team", True),
-          #("Budget", True),
-          #("Target", False),
-        ],
-        rows: list.index_map(rows, project_row),
-      )
-  }
-  ui.panel(
-    title: "All projects",
-    count: int.to_string(list.length(rows)),
-    right: [],
-    body: [body],
-  )
-}
-
-fn project_row(row: ProjectListRow, index: Int) -> Element(Msg) {
-  let #(variant, label) = state_pill(row.active)
-  html.tr(
-    [
-      attribute.class("clickable"),
-      event.on_click(ProjectRowClicked(project_id: row.project_id)),
-    ],
-    [
-      html.td([], [
-        html.div([attribute.class("cell-name")], [
-          ui.swatch(category: index, inline: False),
-          html.div([], [
-            html.div([attribute.class("cell-name__name")], [
-              html.text(row.title),
-            ]),
-            html.div([attribute.class("cell-sub")], [html.text(row.client)]),
-          ]),
-        ]),
-      ]),
-      html.td([], [ui.pill(variant: variant, label: label)]),
-      html.td([attribute.class("num")], [
-        html.text(int.to_string(row.team_size)),
-      ]),
-      html.td([attribute.class("num")], [
-        html.text(ui.money_k(money.to_float(row.budget))),
-      ]),
-      html.td([attribute.class("mono muted")], [
-        html.text(time.format_date(row.target_completion)),
-      ]),
-    ],
-  )
 }
 
 fn view_detail(
@@ -1141,13 +1091,6 @@ fn op_verb(kind: ui.OpKind) -> String {
 }
 
 // --- Small view helpers -----------------------------------------------------
-
-fn state_pill(active: Bool) -> #(String, String) {
-  case active {
-    True -> #("active", "active")
-    False -> #("ended", "ended")
-  }
-}
 
 fn run_rate_of(team: List(TeamMember)) -> money.Money {
   money.sum(
