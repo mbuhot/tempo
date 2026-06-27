@@ -75,6 +75,7 @@ pub fn project_table(
 pub fn project_schema() -> Schema {
   Schema(
     table_id: "projects",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
     filters: [],
     columns: [

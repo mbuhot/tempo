@@ -6,7 +6,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/option.{type Option}
+import gleam/option.{type Option, None}
 import shared/table/filter.{type FilterKind}
 import shared/table/sort.{type Sort}
 
@@ -62,6 +62,7 @@ pub type Schema {
   Schema(
     table_id: String,
     columns: List(Column),
+    child_columns: Option(List(Column)),
     filters: List(StandaloneFilter),
     default_sort: Option(Sort),
   )
@@ -141,6 +142,12 @@ pub fn encode_schema(schema: Schema) -> Json {
   json.object([
     #("table_id", json.string(schema.table_id)),
     #("columns", json.array(schema.columns, encode_column)),
+    #(
+      "child_columns",
+      json.nullable(schema.child_columns, fn(cols) {
+        json.array(cols, encode_column)
+      }),
+    ),
     #("filters", json.array(schema.filters, encode_standalone_filter)),
     #("default_sort", json.nullable(schema.default_sort, sort.encode_sort)),
   ])
@@ -176,6 +183,11 @@ fn encode_column(column: Column) -> Json {
 pub fn schema_decoder() -> Decoder(Schema) {
   use table_id <- decode.field("table_id", decode.string)
   use columns <- decode.field("columns", decode.list(column_decoder()))
+  use child_columns <- decode.optional_field(
+    "child_columns",
+    None,
+    decode.optional(decode.list(column_decoder())),
+  )
   use filters <- decode.optional_field(
     "filters",
     [],
@@ -185,7 +197,13 @@ pub fn schema_decoder() -> Decoder(Schema) {
     "default_sort",
     decode.optional(sort.sort_decoder()),
   )
-  decode.success(Schema(table_id:, columns:, filters:, default_sort:))
+  decode.success(Schema(
+    table_id:,
+    columns:,
+    child_columns:,
+    filters:,
+    default_sort:,
+  ))
 }
 
 fn column_decoder() -> Decoder(Column) {

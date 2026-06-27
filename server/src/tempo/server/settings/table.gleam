@@ -75,6 +75,7 @@ pub fn leave_policy_table(
 pub fn rate_card_schema() -> Schema {
   Schema(
     table_id: "settings_rate_card",
+    child_columns: None,
     default_sort: None,
     filters: [],
     columns: [
@@ -122,6 +123,7 @@ pub fn rate_card_schema() -> Schema {
 pub fn leave_policy_schema() -> Schema {
   Schema(
     table_id: "settings_leave_policy",
+    child_columns: None,
     default_sort: None,
     filters: [],
     columns: [

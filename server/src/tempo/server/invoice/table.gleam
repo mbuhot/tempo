@@ -75,6 +75,7 @@ pub fn invoice_table(
 pub fn invoice_schema(options: FilterOptions) -> Schema {
   Schema(
     table_id: "invoices",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Desc)),
     filters: [],
     columns: [

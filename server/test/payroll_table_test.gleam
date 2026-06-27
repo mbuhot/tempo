@@ -12,6 +12,7 @@
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar.{type Date, Date, July, June}
@@ -204,6 +205,40 @@ pub fn engineer_row_carries_segment_children_test() {
     let assert NumberCell(_) = cell_of(first_segment, "days")
     let assert MoneyCell(_) = cell_of(first_segment, "amount")
     assert first_segment.children == []
+  })
+}
+
+/// Encoding the response to JSON and decoding it back must succeed even though the
+/// parent engineer cell is a `PersonCell` while each child engineer cell is a plain
+/// `TextCell` in the SAME column position. The schema's `child_columns` type the
+/// nested rows separately, so the decoder reads child cells against `TextType`.
+pub fn response_json_round_trips_with_nested_columns_test() {
+  rolling_back(fn(conn) {
+    let _ = fixture(conn)
+    let assert Ok(response) =
+      payroll_table.payroll_table(
+        ctx(conn),
+        from(),
+        to(),
+        payroll_table.Preview,
+        scoped([], None),
+      )
+    let assert Ok(decoded) =
+      response.encode_response(response)
+      |> json.to_string
+      |> json.parse(response.response_decoder())
+
+    let assert Ok(promoted) =
+      list.find(decoded.rows, fn(row) {
+        case cell_of(row, "engineer") {
+          PersonCell(name:, ..) -> name == "Ztest Promoted"
+          _ -> False
+        }
+      })
+    let assert PersonCell(..) = cell_of(promoted, "engineer")
+    let assert [first_segment, ..] = promoted.children
+    let assert TextCell(label) = cell_of(first_segment, "engineer")
+    assert label == "↳ Associate · $2000/mo"
   })
 }
 

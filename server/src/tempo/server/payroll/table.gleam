@@ -38,6 +38,7 @@ import shared/table/cell.{
 import shared/table/column.{
   type Column, type Schema, type Tone, Column, Critical, MoneyType, Neutral,
   NumberType, NumericEnd, PersonType, Positive, Schema, SignedMoneyType, Start,
+  TextType,
 }
 import shared/table/filter.{NumberRangeFilter, TextFilter}
 import shared/table/query.{
@@ -143,8 +144,40 @@ pub fn payroll_schema(mode: Mode) -> Schema {
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
     filters: [],
     columns:,
+    child_columns: Some(child_columns(mode)),
   )
 }
+
+/// The nested (child-row) columns for `mode`. The first column shares the
+/// `engineer` key with the outer column so child cells align beneath it, but its
+/// type is `TextType`: a child row holds the segment label as a `TextCell`, while
+/// the parent engineer row holds a `PersonCell`. The remaining columns carry the
+/// same keys and types as the outer columns.
+fn child_columns(mode: Mode) -> List(Column) {
+  case mode {
+    Preview | Reconciled -> [
+      child_engineer_column,
+      days_column,
+      amount_column("amount", "Amount"),
+    ]
+    Variance -> [
+      child_engineer_column,
+      amount_column("paid", "Paid"),
+      amount_column("should_be", "Should be"),
+      delta_column,
+    ]
+  }
+}
+
+const child_engineer_column = Column(
+  key: "engineer",
+  label: "Engineer",
+  column_type: TextType,
+  align: Start,
+  sortable: False,
+  hideable: False,
+  filter: None,
+)
 
 const days_column = Column(
   key: "days",

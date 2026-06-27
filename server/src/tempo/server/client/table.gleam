@@ -71,6 +71,7 @@ pub fn client_table(
 pub fn client_schema() -> Schema {
   Schema(
     table_id: "clients",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
     filters: [],
     columns: [

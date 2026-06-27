@@ -75,6 +75,7 @@ pub fn pnl_table(
 pub fn pnl_schema() -> Schema {
   Schema(
     table_id: "pnl",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Desc)),
     filters: [],
     columns: [

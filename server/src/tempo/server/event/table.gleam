@@ -70,6 +70,7 @@ pub fn events_table(
 pub fn events_schema(options: FilterOptions) -> Schema {
   Schema(
     table_id: "events",
+    child_columns: None,
     default_sort: None,
     filters: [
       StandaloneFilter(

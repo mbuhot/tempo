@@ -75,6 +75,7 @@ pub fn people_table(
 pub fn people_schema(options: FilterOptions) -> Schema {
   Schema(
     table_id: "people",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
     filters: [],
     columns: [

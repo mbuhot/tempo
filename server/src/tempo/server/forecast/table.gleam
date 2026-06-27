@@ -77,6 +77,7 @@ pub fn forecast_table(
 pub fn forecast_schema() -> Schema {
   Schema(
     table_id: "forecast",
+    child_columns: None,
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
     filters: [],
     columns: [

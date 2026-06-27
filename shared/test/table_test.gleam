@@ -36,6 +36,7 @@ pub fn schema_round_trips_test() {
   let schema =
     Schema(
       table_id: "invoices",
+      child_columns: None,
       columns: [
         Column(
           key: "client",
@@ -68,6 +69,7 @@ pub fn schema_level_filters_round_trip_test() {
   let schema =
     Schema(
       table_id: "events",
+      child_columns: None,
       columns: [
         Column(
           key: "summary",
@@ -166,6 +168,7 @@ pub fn response_round_trips_via_schema_test() {
   let schema =
     Schema(
       table_id: "t",
+      child_columns: None,
       columns: [
         Column(
           key: "name",

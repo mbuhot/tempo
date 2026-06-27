@@ -63,18 +63,25 @@ fn encode_page(page: Page) -> Json {
 
 pub fn response_decoder() -> Decoder(TableResponse) {
   use schema <- decode.field("schema", column.schema_decoder())
-  use rows <- decode.field("rows", decode.list(row_decoder(schema.columns)))
+  let child_columns = option.unwrap(schema.child_columns, schema.columns)
+  use rows <- decode.field(
+    "rows",
+    decode.list(row_decoder(schema.columns, child_columns)),
+  )
   use page <- decode.field("page", page_decoder())
   decode.success(TableResponse(schema:, rows:, page:))
 }
 
-fn row_decoder(columns: List(Column)) -> Decoder(Row) {
+fn row_decoder(
+  own_columns: List(Column),
+  child_columns: List(Column),
+) -> Decoder(Row) {
   use id <- decode.field("id", decode.string)
-  use cells <- decode.field("cells", cells_decoder(columns))
+  use cells <- decode.field("cells", cells_decoder(own_columns))
   use children <- decode.optional_field(
     "children",
     [],
-    decode.list(row_decoder(columns)),
+    decode.list(row_decoder(child_columns, child_columns)),
   )
   use detail <- decode.optional_field(
     "detail",
