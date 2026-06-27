@@ -13,12 +13,16 @@
  * whole cell edge-to-edge — a dense spreadsheet to fill in, not a spaced-out form. */
 .timesheet {
   width: 100%;
-  max-width: 50vw;
+  max-width: 40rem;
   border-collapse: collapse;
   border: var(--border-thin) solid var(--color-border);
 }
+/* Day cells carry NO padding (the global `tbody td` padding would otherwise make
+ * the rows tall) so the input fills the whole cell; the first-column project label
+ * and the headers keep a little padding. */
 .timesheet th, .timesheet td {
   text-align: center;
+  padding: 0;
   border: var(--border-thin) solid var(--color-border);
 }
 .timesheet th:first-child, .timesheet td:first-child {
@@ -32,9 +36,9 @@
   font-weight: var(--weight-semibold);
   color: var(--color-muted);
 }
+/* A day the engineer is not employed/allocated is not editable — shaded so it
+ * reads as locked. */
 .timesheet__cell--disabled { background: var(--color-surface-sunken); }
-/* The input fills the entire day cell (the cell itself has no padding), so the
- * whole cell is the click target; the input's own padding positions the number. */
 .timesheet__cell input {
   display: block;
   width: 100%;
@@ -44,10 +48,10 @@
   font-size: var(--text-sm);
   border: 0;
   background: transparent;
-  padding: var(--space-xs) var(--space-xs);
+  padding: var(--space-xs) 0;
   color: var(--color-text);
 }
 .timesheet__cell input:focus { outline: none; background: var(--color-accent-soft); }
-.timesheet__cell--disabled input { color: var(--color-faint); }
+.timesheet__cell--disabled input { color: var(--color-faint); cursor: default; }
 .timesheet__weekend { color: var(--color-faint); }
 .timesheet__daynum { font-family: var(--mono); font-weight: var(--weight-normal); }
