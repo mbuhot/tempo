@@ -10,25 +10,26 @@
 /* Compact data grid (#25): gridlined cells with minimal padding and inputs that
  * fill their cell (borderless) rather than floating boxed in roomy table padding —
  * a dense spreadsheet to fill in, not a spaced-out form. */
-.timesheet { width: 100%; border-collapse: collapse; }
+.timesheet { border-collapse: collapse; border: var(--border-thin) solid var(--color-border); }
 .timesheet th, .timesheet td {
   text-align: center;
-  padding: 0;
+  padding: var(--space-2xs) var(--space-xs);
   border: var(--border-thin) solid var(--color-border);
 }
 .timesheet th:first-child, .timesheet td:first-child {
   text-align: left;
   white-space: nowrap;
-  padding: var(--space-2xs) var(--space-sm);
+  padding: var(--space-2xs) var(--space-md);
 }
 .timesheet thead th {
-  padding: var(--space-2xs) var(--space-xs);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   color: var(--color-muted);
 }
+.timesheet__cell--disabled { background: var(--color-surface-sunken); }
 .timesheet__cell input {
-  width: 100%;
+  display: block;
+  width: var(--size-ts-input);
   box-sizing: border-box;
   text-align: center;
   font-family: var(--mono);
@@ -39,6 +40,6 @@
   color: var(--color-text);
 }
 .timesheet__cell input:focus { outline: none; background: var(--color-accent-soft); }
-.timesheet__cell--disabled input { background: var(--color-surface-sunken); color: var(--color-faint); }
+.timesheet__cell--disabled input { color: var(--color-faint); }
 .timesheet__weekend { color: var(--color-faint); }
 .timesheet__daynum { font-family: var(--mono); font-weight: var(--weight-normal); }
