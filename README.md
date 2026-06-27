@@ -243,6 +243,48 @@ A Lustre **Model-View-Update** single-page app.
 
 ---
 
+## Data tables
+
+Every list page — Invoices, People, Clients, Projects, P&L, Forecast, Payroll, Settings,
+Activity — renders through **one generic, server-driven table**. The server describes the
+table; the client renders it; no page writes its own table markup.
+
+```
+ server/<concept>/table.gleam          client/table_host.gleam        client/table.gleam
+  builds a Schema (columns +     ──▶    owns the page glue: fetch,  ──▶  renders each cell by
+  filters) + rows of typed              infinite scroll, debounce,       its column type; filter
+  Cells, via table/builder              layout persistence, outcomes     popovers, sort, drag/hide
+        │
+        │  GET /api/<concept>/table?as_of=&filter.<key>=&sort=&cursor=
+        ▼
+  shared/table/*  — the schema + cell + filter contract both sides compile against
+```
+
+- **`shared/table/`** — `Schema` (columns, schema-level filters, nested child columns),
+  `Column`/`ColumnType`, `Cell` (typed but **untagged on the wire** — decoded by the column's
+  type), the filter kinds, `Applied` (the filter/sort/page request), and `TableResponse`
+  (schema + rows + page cursor + optional footer). The unions are exhaustive: a new cell or
+  column type fails the build until every site handles it.
+- **`server/table/builder.gleam`** — composes the list SQL from only the filters actually
+  present (each bound as a parameter); sort keys pass a per-table allowlist, so a request
+  string never reaches the SQL text. Each `server/<concept>/table.gleam` supplies the schema
+  and the page subquery.
+- **`client/table.gleam`** — the component: renders by cell type, per-column filter popovers,
+  click-to-sort, drag-reorder / hide columns (saved per signed-in user in `localStorage`),
+  infinite scroll, and expandable rows. **`client/table_host.gleam`** embeds it in a page in
+  one call and maps its outcomes (re-query, append page, persist layout, activate a row,
+  invoke a row action).
+
+**Add a list page:** write `server/<concept>/table.gleam` (a `Schema` + a `builder` query),
+route `GET /api/<concept>/table`, and embed `table_host` in the page.
+
+**Built in:** multi-select / number-range / date-range filters, schema-level filters (not tied
+to a displayed column), an actions column, a footer/total row, nested expandable rows (Payroll),
+and full-width detail panels (Activity's JSON payload). The page-level title + primary action
+come from `ui.list_page`. See `docs/2026-06-27-data-table-system-design.md` for the full design.
+
+---
+
 ## End-to-end tests
 
 - **Playwright** (`bin/e2e`) — one spec per UI surface, driving the real app in a real browser.
