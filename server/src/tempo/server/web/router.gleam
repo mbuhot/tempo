@@ -180,6 +180,14 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_finances)
       settings.handle(request, context)
     }
+    ["api", "settings", "rate-card", "table"] -> {
+      use _principal <- guard.require(context, access.read_finances)
+      settings.handle_rate_card_table(request, context)
+    }
+    ["api", "settings", "leave-policy", "table"] -> {
+      use _principal <- guard.require(context, access.read_finances)
+      settings.handle_leave_policy_table(request, context)
+    }
     // An unmatched /api/* path is a genuine 404; every other path serves the SPA
     // shell so the client-side router (lustre/modem) can resolve it — the
     // history-API fallback that makes deep links like /people/5 work on a cold

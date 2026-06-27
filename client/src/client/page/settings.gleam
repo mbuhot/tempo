@@ -2,22 +2,24 @@
 //// of the global rail date. Writes: ReviseRateCard, AdjustRateForPortion,
 //// SetSalary.
 ////
-//// Reads `GET /api/settings?as_of=` into a per-level rate-card & salary-bands
-//// table (level rendered via `ui.level_band`) and a READ-ONLY leave-policy table.
-//// Leave policy carries no control (SetLeavePolicy is deferred per ADR-034) — it
-//// is presented as facts only, never a dead button.
+//// The rate-card & salary-bands table and the read-only leave-policy table both
+//// render via the generic data table, embedded through `table_host` (`GET
+//// /api/settings/rate-card/table?as_of=` and `GET /api/settings/leave-policy/
+//// table?as_of=`). The rate-card table carries a server-advertised actions column;
+//// its `Out.ActionInvoked(action, level)` opens the matching op form pre-filled
+//// with that level's current rate/salary. The op-form directory (level options and
+//// pre-fill amounts) still comes from `GET /api/settings?as_of=`.
 ////
 //// Revisions are temporal: they apply from an effective date forward, so each
-//// op-form defaults its date fields to the rail's current day. The per-row Revise
-//// and Set-salary buttons pre-fill the launched form with that row's level and its
-//// current rate/salary, so a revision starts from the value on screen rather than
-//// an empty form. The three writes reuse the shared `ui` op-form engine and open in
-//// the shared `ui.modal`; on a committed write the page raises `OperationCommitted`
-//// and refetches so the tables reflect the new version.
+//// op-form defaults its date fields to the rail's current day. The three writes
+//// reuse the shared `ui` op-form engine and open in the shared `ui.modal`; on a
+//// committed write the page raises `OperationCommitted` and refetches so the tables
+//// reflect the new version.
 
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/route
+import client/table_host
 import client/time
 import client/ui
 import gleam/float
@@ -32,38 +34,46 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command as gateway
 import shared/money
 import shared/settings/view.{type Settings} as settings_view
 
 // --- Model ------------------------------------------------------------------
 
-/// The page's state. Every variant carries the signed-in `actor` (threaded from
-/// `init`/`refetch`, since `update` is not given it) so a submitted write can be
-/// stamped with the right actor. `Loaded` additionally carries the settings it
-/// answers (tagged with the `as_of` so a stale fetch can be dropped) and the
-/// currently-open op form (if any). `Failed` carries the fetch error sentence.
+/// The page's state. The two table hosts (rate card & salary; leave policy) own
+/// their own load state and live across every variant. The op-form directory (the
+/// `Settings` read that feeds the level `<select>` and pre-fill amounts) is tracked
+/// separately as `Directory`. Every variant carries the signed-in `actor` so a
+/// submitted write is stamped with the right actor, and the rail `as_of`.
 pub type Model {
-  Loading(actor: String)
-  Loaded(
+  Model(
     actor: String,
     as_of: calendar.Date,
-    settings: Settings,
+    rate_card: table_host.Host,
+    leave_policy: table_host.Host,
+    directory: Directory,
     op: Option(ui.OpState),
   )
-  Failed(actor: String, message: String)
+}
+
+/// The op-form directory's load state: the `Settings` read whose rate card supplies
+/// the level options and the per-level pre-fill amounts.
+pub type Directory {
+  DirectoryLoading
+  DirectoryLoaded(settings: Settings)
+  DirectoryFailed(message: String)
 }
 
 // --- Messages ---------------------------------------------------------------
 
 /// The page's messages, wrapped by the shell as `SettingsMsg(settings.Msg)`.
 pub type Msg {
-  SettingsFetched(
+  RateCardMsg(sub: table_host.Msg)
+  LeavePolicyMsg(sub: table_host.Msg)
+  DirectoryFetched(
     as_of: calendar.Date,
     result: Result(Settings, rsvp.Error(String)),
   )
   OpStarted(permit: ui.Permit)
-  OpStartedForLevel(permit: ui.Permit, level: Int, amount: Float)
   OpDismissed
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
@@ -73,36 +83,71 @@ pub type Msg {
 // --- Init / refetch ---------------------------------------------------------
 
 /// Build the page's initial state for `as_of` on the signed-in `actor`'s behalf,
-/// kicking off the settings fetch. Settings has no detail sub-view, so the
-/// `route` payload is ignored.
+/// kicking off the two table fetches and the op-form directory. Settings has no
+/// detail sub-view, so the `route` payload is ignored.
 pub fn init(
   route: route.Route,
   as_of: calendar.Date,
   actor: String,
 ) -> #(Model, Effect(Msg)) {
   let _ = route
-  #(Loading(actor:), fetch(as_of))
+  let #(rate_card, rate_effect) =
+    table_host.init("/api/settings/rate-card/table", as_of)
+  let #(leave_policy, leave_effect) =
+    table_host.init("/api/settings/leave-policy/table", as_of)
+  let model =
+    Model(
+      actor:,
+      as_of:,
+      rate_card:,
+      leave_policy:,
+      directory: DirectoryLoading,
+      op: None,
+    )
+  #(
+    model,
+    effect.batch([
+      effect.map(rate_effect, RateCardMsg),
+      effect.map(leave_effect, LeavePolicyMsg),
+      fetch_directory(as_of),
+    ]),
+  )
 }
 
-/// Re-fetch settings for a new `as_of` without dropping a half-typed op form: the
-/// open `ui.OpState` is preserved across the refetch (stale-while-revalidate); the
-/// in-flight result is reconciled against the model's as_of in `update`. The
-/// signed-in `actor` is refreshed onto the model in case it changed.
+/// Re-fetch settings for a new `as_of` (stale-while-revalidate), keeping any open
+/// op form and the tables' active layout. The signed-in `actor` is refreshed.
 pub fn refetch(
   model: Model,
   as_of: calendar.Date,
   actor: String,
 ) -> #(Model, Effect(Msg)) {
-  #(with_actor(model, actor), fetch(as_of))
+  let #(rate_card, rate_effect) = table_host.refetch(model.rate_card, as_of)
+  let #(leave_policy, leave_effect) =
+    table_host.refetch(model.leave_policy, as_of)
+  #(
+    Model(
+      ..model,
+      actor:,
+      as_of:,
+      rate_card:,
+      leave_policy:,
+      directory: DirectoryLoading,
+    ),
+    effect.batch([
+      effect.map(rate_effect, RateCardMsg),
+      effect.map(leave_effect, LeavePolicyMsg),
+      fetch_directory(as_of),
+    ]),
+  )
 }
 
-/// The settings fetch for a date, tagging the result with the `as_of` it answers
-/// so a late reply for an earlier date can be dropped.
-fn fetch(as_of: calendar.Date) -> Effect(Msg) {
+/// The op-form directory fetch for a date, tagging the result with the `as_of` it
+/// answers so a late reply for an earlier date can be dropped.
+fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
   api.get(
     "/api/settings?as_of=" <> time.iso_date(as_of),
     settings_view.settings_decoder(),
-    fn(result) { SettingsFetched(as_of:, result:) },
+    fn(result) { DirectoryFetched(as_of:, result:) },
   )
 }
 
@@ -110,98 +155,72 @@ fn fetch(as_of: calendar.Date) -> Effect(Msg) {
 
 /// Fold a page message into the model, returning any cross-page `OutMsg`s.
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
-  let actor = actor_of(model)
   case msg {
-    SettingsFetched(as_of:, result:) ->
-      case result {
-        Ok(settings) ->
-          case settings.date == as_of {
-            True -> #(
-              Loaded(actor:, as_of:, settings:, op: keep_op(model)),
-              effect.none(),
-              [],
-            )
-            False -> #(model, effect.none(), [])
+    RateCardMsg(sub:) -> {
+      let #(host, host_effect, out) =
+        table_host.update(model.rate_card, sub, model.as_of)
+      let model = Model(..model, rate_card: host)
+      let effect = effect.map(host_effect, RateCardMsg)
+      case out {
+        table_host.Stay -> #(model, effect, [])
+        table_host.Activated(..) -> #(model, effect, [])
+        table_host.ActionInvoked(action:, row:) -> {
+          let #(next, op_effect) = open_action(model, action, row)
+          #(next, effect.batch([effect, op_effect]), [])
+        }
+      }
+    }
+
+    LeavePolicyMsg(sub:) -> {
+      let #(host, host_effect, _out) =
+        table_host.update(model.leave_policy, sub, model.as_of)
+      #(
+        Model(..model, leave_policy: host),
+        effect.map(host_effect, LeavePolicyMsg),
+        [],
+      )
+    }
+
+    DirectoryFetched(as_of:, result:) ->
+      case model.as_of == as_of {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let directory = case result {
+            Ok(settings) -> DirectoryLoaded(settings:)
+            Error(error) -> DirectoryFailed(message: api.describe_error(error))
           }
-        Error(error) -> #(
-          Failed(actor:, message: api.describe_error(error)),
-          effect.none(),
-          [],
-        )
-      }
-
-    OpStarted(permit:) ->
-      case model {
-        Loaded(as_of:, settings:, ..) -> {
-          let kind = ui.permit_kind(permit)
-          let form = ui.blank_op_form(kind:, default_date: as_of)
-          #(
-            Loaded(
-              actor:,
-              as_of:,
-              settings:,
-              op: Some(ui.OpState(kind:, form:, error: None)),
-            ),
-            effect.none(),
-            [],
-          )
+          #(Model(..model, directory:), effect.none(), [])
         }
-        _ -> #(model, effect.none(), [])
       }
 
-    OpStartedForLevel(permit:, level:, amount:) ->
-      case model {
-        Loaded(as_of:, settings:, ..) -> {
-          let kind = ui.permit_kind(permit)
-          let form =
-            ui.blank_op_form(kind:, default_date: as_of)
-            |> ui.update_op_form(ui.FLevel, int.to_string(level))
-            |> ui.update_op_form(amount_field(kind), number_value(amount))
-          #(
-            Loaded(
-              actor:,
-              as_of:,
-              settings:,
-              op: Some(ui.OpState(kind:, form:, error: None)),
-            ),
-            effect.none(),
-            [],
-          )
-        }
-        _ -> #(model, effect.none(), [])
-      }
+    OpStarted(permit:) -> {
+      let kind = ui.permit_kind(permit)
+      let form = ui.blank_op_form(kind:, default_date: model.as_of)
+      #(
+        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        effect.none(),
+        [],
+      )
+    }
 
-    OpDismissed ->
-      case model {
-        Loaded(as_of:, settings:, ..) -> #(
-          Loaded(actor:, as_of:, settings:, op: None),
-          effect.none(),
-          [],
-        )
-        _ -> #(model, effect.none(), [])
-      }
+    OpDismissed -> #(Model(..model, op: None), effect.none(), [])
 
     OpFieldEdited(field:, value:) ->
-      case model {
-        Loaded(as_of:, settings:, op: Some(state), ..) -> {
+      case model.op {
+        Some(state) -> {
           let form = ui.update_op_form(state.form, field, value)
           #(
-            Loaded(
-              actor:,
-              as_of:,
-              settings:,
-              op: Some(ui.OpState(..state, form:, error: None)),
-            ),
+            Model(..model, op: Some(ui.OpState(..state, form:, error: None))),
             effect.none(),
             [],
           )
         }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
 
     OpSubmitted ->
-      case model {
-        Loaded(as_of:, settings:, op: Some(state), ..) ->
+      case model.op {
+        Some(state) ->
           case ui.build_command(state.kind, state.form) {
             Ok(command) -> #(
               model,
@@ -209,33 +228,26 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             Error(prompt) -> #(
-              Loaded(
-                actor:,
-                as_of:,
-                settings:,
-                op: Some(ui.OpState(..state, error: Some(prompt))),
-              ),
+              Model(..model, op: Some(ui.OpState(..state, error: Some(prompt)))),
               effect.none(),
               [],
             )
           }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
 
     OpResponded(result:) ->
-      case model {
-        Loaded(as_of:, settings:, op: Some(state), ..) ->
+      case model.op {
+        Some(state) ->
           case result {
-            Ok(_) -> #(
-              Loaded(actor:, as_of:, settings:, op: None),
-              fetch(as_of),
-              [OperationCommitted],
-            )
+            Ok(_) -> {
+              let #(refreshed, refetch_effect) =
+                refetch(Model(..model, op: None), model.as_of, model.actor)
+              #(refreshed, refetch_effect, [OperationCommitted])
+            }
             Error(error) -> #(
-              Loaded(
-                actor:,
-                as_of:,
-                settings:,
+              Model(
+                ..model,
                 op: Some(
                   ui.OpState(..state, error: Some(api.describe_error(error))),
                 ),
@@ -244,8 +256,40 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
           }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
+  }
+}
+
+/// Open the op form a rate-card action invokes for a level: `revise_rate` opens the
+/// Revise-rate form pre-filled with the level's current day rate; `set_salary`
+/// opens the Set-salary form pre-filled with its monthly salary. An unknown action,
+/// an unparseable level, or a not-yet-loaded directory is a no-op.
+fn open_action(
+  model: Model,
+  action: String,
+  row: String,
+) -> #(Model, Effect(Msg)) {
+  case model.directory, int.parse(row) {
+    DirectoryLoaded(settings:), Ok(level) -> {
+      let #(kind, amount) = case action {
+        "revise_rate" -> #(
+          ui.OpReviseRateCard,
+          day_rate_amount(settings, level),
+        )
+        "set_salary" -> #(ui.OpSetSalary, salary_amount(settings, level))
+        _ -> #(ui.OpReviseRateCard, 0.0)
+      }
+      let form =
+        ui.blank_op_form(kind:, default_date: model.as_of)
+        |> ui.update_op_form(ui.FLevel, int.to_string(level))
+        |> ui.update_op_form(amount_field(kind), number_value(amount))
+      #(
+        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        effect.none(),
+      )
+    }
+    _, _ -> #(model, effect.none())
   }
 }
 
@@ -269,33 +313,6 @@ fn number_value(amount: Float) -> String {
   }
 }
 
-/// The op form to keep across a refetch or a fresh read: the open form survives so
-/// a half-typed revision is never clobbered; a closed form stays closed.
-fn keep_op(model: Model) -> Option(ui.OpState) {
-  case model {
-    Loaded(op:, ..) -> op
-    _ -> None
-  }
-}
-
-/// The signed-in actor carried by any model variant.
-fn actor_of(model: Model) -> String {
-  case model {
-    Loading(actor:) -> actor
-    Loaded(actor:, ..) -> actor
-    Failed(actor:, ..) -> actor
-  }
-}
-
-/// Replace the actor on whichever model variant is current (used by `refetch`).
-fn with_actor(model: Model, actor: String) -> Model {
-  case model {
-    Loading(..) -> Loading(actor:)
-    Loaded(as_of:, settings:, op:, ..) -> Loaded(actor:, as_of:, settings:, op:)
-    Failed(message:, ..) -> Failed(actor:, message:)
-  }
-}
-
 // --- View -------------------------------------------------------------------
 
 /// Render the page for `as_of`.
@@ -305,35 +322,6 @@ pub fn view(
   permissions: Set(String),
 ) -> Element(Msg) {
   let _ = as_of
-  case model {
-    Loading(..) -> view_shell([ui.empty_state(message: "Loading settings…")])
-    Failed(message:, ..) -> view_shell([ui.empty_state(message: message)])
-    Loaded(settings:, op:, ..) -> view_loaded(settings, op, permissions)
-  }
-}
-
-/// Wrap a body in the standard settings page head.
-fn view_shell(body: List(Element(Msg))) -> Element(Msg) {
-  html.div([], [head([]), ..body])
-}
-
-/// The page head, with an optional cluster of head actions on the right.
-fn head(actions: List(Element(Msg))) -> Element(Msg) {
-  ui.page_head(
-    title: "Settings",
-    blurb: "Rate card, salary bands, and leave policy. Changes here are temporal — they apply from an effective date forward.",
-    actions: actions,
-  )
-}
-
-/// The loaded view: the page head with the New rate / New salary actions, the
-/// `.settings-grid` two-column layout of the rate-card & salary table and the
-/// read-only leave-policy table, then the op-form modal overlaid when open.
-fn view_loaded(
-  settings: Settings,
-  op: Option(ui.OpState),
-  permissions: Set(String),
-) -> Element(Msg) {
   let actions = [
     ui.launch(
       ui.permit(permissions, own: False, kind: ui.OpAdjustRateForPortion),
@@ -360,128 +348,30 @@ fn view_loaded(
   html.div([], [
     head(actions),
     html.div([attribute.class("settings-grid")], [
-      view_rate_card(settings, permissions),
-      view_leave_policy(settings),
+      ui.panel(title: "Rate card & salary bands", count: "", right: [], body: [
+        element.map(
+          table_host.view(model.rate_card, "Loading rate card…"),
+          RateCardMsg,
+        ),
+      ]),
+      ui.panel(title: "Leave policy", count: "read-only", right: [], body: [
+        element.map(
+          table_host.view(model.leave_policy, "Loading leave policy…"),
+          LeavePolicyMsg,
+        ),
+      ]),
     ]),
-    view_op(settings, op),
+    view_op(model),
   ])
 }
 
-/// The rate-card & salary-bands panel: one row per level present in the rate card,
-/// showing the level band, day rate, monthly salary (from the salaries list, "—"
-/// when absent), a per-row Revise button (pre-filling this level's day rate), and a
-/// per-row Set-salary button (pre-filling this level's monthly salary).
-fn view_rate_card(
-  settings: Settings,
-  permissions: Set(String),
-) -> Element(Msg) {
-  let rows =
-    list.map(settings.rate_card, fn(rate) {
-      let salary = salary_for(settings.salaries, rate.level)
-      html.tr([], [
-        html.td([], [
-          html.span([attribute.class("level-pill")], [
-            html.text(ui.level_band(rate.level)),
-          ]),
-        ]),
-        html.td([attribute.class("num")], [
-          html.text(ui.money(money.to_float(rate.day_rate))),
-        ]),
-        html.td([attribute.class("num")], [html.text(salary)]),
-        html.td([attribute.class("num")], [
-          html.div([attribute.class("action-row")], [
-            ui.launch(
-              ui.permit(permissions, own: False, kind: ui.OpReviseRateCard),
-              to_msg: fn(granted) {
-                OpStartedForLevel(
-                  permit: granted,
-                  level: rate.level,
-                  amount: money.to_float(rate.day_rate),
-                )
-              },
-              label: "Revise",
-              kind: ui.Ghost,
-              size: ui.Small,
-            ),
-            ui.launch(
-              ui.permit(permissions, own: False, kind: ui.OpSetSalary),
-              to_msg: fn(granted) {
-                OpStartedForLevel(
-                  permit: granted,
-                  level: rate.level,
-                  amount: salary_amount(settings.salaries, rate.level),
-                )
-              },
-              label: "Set salary",
-              kind: ui.Ghost,
-              size: ui.Small,
-            ),
-          ]),
-        ]),
-      ])
-    })
-  ui.panel(title: "Rate card & salary bands", count: "", right: [], body: [
-    ui.data_table(
-      headers: [
-        #("Level", False),
-        #("Day rate", True),
-        #("Monthly salary", True),
-        #("", False),
-      ],
-      rows: rows,
-    ),
-  ])
-}
-
-/// The monthly salary for a level, formatted as money, or "—" when no salary band
-/// covers the level as-of the date.
-fn salary_for(salaries: List(settings_view.SalaryRow), level: Int) -> String {
-  case list.find(salaries, fn(salary) { salary.level == level }) {
-    Ok(salary) -> ui.money(money.to_float(salary.monthly_salary))
-    Error(Nil) -> "—"
-  }
-}
-
-/// The raw monthly salary for a level, or 0.0 when no band covers it. Used to
-/// pre-fill the Set-salary form's amount from the row on screen.
-fn salary_amount(salaries: List(settings_view.SalaryRow), level: Int) -> Float {
-  case list.find(salaries, fn(salary) { salary.level == level }) {
-    Ok(salary) -> money.to_float(salary.monthly_salary)
-    Error(Nil) -> 0.0
-  }
-}
-
-/// The READ-ONLY leave-policy panel: one row per policy row showing the leave kind,
-/// the level band it applies to, and the days-per-year entitlement. A (kind, level)
-/// absent from the list is unlimited; it simply does not appear. No control —
-/// SetLeavePolicy is deferred (ADR-034).
-fn view_leave_policy(settings: Settings) -> Element(Msg) {
-  let body = case settings.leave_policy {
-    [] -> [ui.empty_state(message: "No leave policy set on this date.")]
-    policies -> [
-      ui.data_table(
-        headers: [
-          #("Type", False),
-          #("Level", False),
-          #("Days / year", True),
-        ],
-        rows: list.map(policies, fn(policy) {
-          html.tr([], [
-            html.td([], [html.text(policy.kind)]),
-            html.td([], [
-              html.span([attribute.class("level-pill")], [
-                html.text(ui.level_band(policy.level)),
-              ]),
-            ]),
-            html.td([attribute.class("num")], [
-              html.text(ui.days(policy.days_per_year)),
-            ]),
-          ])
-        }),
-      ),
-    ]
-  }
-  ui.panel(title: "Leave policy", count: "read-only", right: [], body: body)
+/// The page head, with an optional cluster of head actions on the right.
+fn head(actions: List(Element(Msg))) -> Element(Msg) {
+  ui.page_head(
+    title: "Settings",
+    blurb: "Rate card, salary bands, and leave policy. Changes here are temporal — they apply from an effective date forward.",
+    actions: actions,
+  )
 }
 
 // --- Op form modal -----------------------------------------------------------
@@ -489,17 +379,15 @@ fn view_leave_policy(settings: Settings) -> Element(Msg) {
 /// The open contextual operation, shown as a centred modal over a dimmed backdrop
 /// when an op is open. Renders the fields the op needs (level as a `<select>` over
 /// the levels present in the rate card, the rate/salary, and the temporal dates),
-/// the last rejection sentence, and the Cancel / Confirm footer. Clicking the
-/// backdrop or Cancel closes (`OpDismissed`); Confirm submits (`OpSubmitted`) under
-/// an op-appropriate verb.
-fn view_op(settings: Settings, op: Option(ui.OpState)) -> Element(Msg) {
-  case op {
+/// the last rejection sentence, and the Cancel / Confirm footer.
+fn view_op(model: Model) -> Element(Msg) {
+  case model.op {
     None -> element.none()
     Some(state) ->
       ui.modal(
         title: op_title(state.kind),
         error: option.unwrap(state.error, ""),
-        body: op_fields(settings, state),
+        body: op_fields(model, state),
         on_cancel: OpDismissed,
         on_confirm: OpSubmitted,
         confirm_label: op_verb(state.kind),
@@ -530,7 +418,7 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// The input fields for the open op kind, each bound to its `OpForm` slot. The
 /// level is a `<select>` over the levels present in the rate card; the amount and
 /// dates are text/number/date inputs. Only the settings writes are reachable here.
-fn op_fields(settings: Settings, state: ui.OpState) -> List(Element(Msg)) {
+fn op_fields(model: Model, state: ui.OpState) -> List(Element(Msg)) {
   let field = fn(label, slot, input_type, value) {
     ui.op_field(
       label: label,
@@ -543,18 +431,18 @@ fn op_fields(settings: Settings, state: ui.OpState) -> List(Element(Msg)) {
   let form = state.form
   case state.kind {
     ui.OpReviseRateCard -> [
-      level_select(settings, form.level),
+      level_select(model, form.level),
       field("Day rate", ui.FDayRate, "number", form.day_rate),
       field("Effective", ui.FEffective, "date", form.effective),
     ]
     ui.OpAdjustRateForPortion -> [
-      level_select(settings, form.level),
+      level_select(model, form.level),
       field("Day rate", ui.FDayRate, "number", form.day_rate),
       field("Valid from", ui.FValidFrom, "date", form.valid_from),
       field("Valid to", ui.FValidTo, "date", form.valid_to),
     ]
     ui.OpSetSalary -> [
-      level_select(settings, form.level),
+      level_select(model, form.level),
       field("Monthly salary", ui.FMonthlySalary, "number", form.monthly_salary),
       field("Effective", ui.FEffective, "date", form.effective),
     ]
@@ -562,13 +450,15 @@ fn op_fields(settings: Settings, state: ui.OpState) -> List(Element(Msg)) {
   }
 }
 
-/// A labelled `<select>` over the levels present in the rate card, bound to the
-/// `FLevel` slot. The option value is the level number as text, the label its band
-/// name; the form's current level is pre-selected so a per-row launch shows the row
-/// it came from. Built locally so `ui.gleam` stays frozen.
-fn level_select(settings: Settings, selected: String) -> Element(Msg) {
+/// A labelled `<select>` over the levels present in the loaded directory's rate
+/// card, bound to the `FLevel` slot. Empty until the directory loads.
+fn level_select(model: Model, selected: String) -> Element(Msg) {
+  let rate_card = case model.directory {
+    DirectoryLoaded(settings:) -> settings.rate_card
+    _ -> []
+  }
   let options =
-    list.map(settings.rate_card, fn(rate) {
+    list.map(rate_card, fn(rate) {
       let level = int.to_string(rate.level)
       html.option(
         [attribute.value(level), attribute.selected(level == selected)],
@@ -585,4 +475,21 @@ fn level_select(settings: Settings, selected: String) -> Element(Msg) {
       options,
     ),
   ])
+}
+
+/// The raw day rate for a level from the loaded directory, or 0.0 when absent.
+fn day_rate_amount(settings: Settings, level: Int) -> Float {
+  case list.find(settings.rate_card, fn(rate) { rate.level == level }) {
+    Ok(rate) -> money.to_float(rate.day_rate)
+    Error(Nil) -> 0.0
+  }
+}
+
+/// The raw monthly salary for a level from the loaded directory, or 0.0 when no
+/// band covers it.
+fn salary_amount(settings: Settings, level: Int) -> Float {
+  case list.find(settings.salaries, fn(salary) { salary.level == level }) {
+    Ok(salary) -> money.to_float(salary.monthly_salary)
+    Error(Nil) -> 0.0
+  }
 }
