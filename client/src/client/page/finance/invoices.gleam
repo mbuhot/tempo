@@ -616,17 +616,12 @@ fn list_view(
   table_state: table.State,
   actions: Actions(Msg),
 ) -> Element(Msg) {
-  ui.panel(
-    title: "Invoices",
-    count: int.to_string(list.length(rows)),
-    right: [draft_button(actions)],
-    body: [
-      element.map(
-        table.view(schema, rows, table_state, option.is_some(next_cursor)),
-        TableMsg,
-      ),
-    ],
-  )
+  ui.panel(title: "Invoices", count: "", right: [draft_button(actions)], body: [
+    element.map(
+      table.view(schema, rows, table_state, option.is_some(next_cursor)),
+      TableMsg,
+    ),
+  ])
 }
 
 fn draft_button(actions: Actions(msg)) -> Element(msg) {

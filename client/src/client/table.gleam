@@ -447,7 +447,7 @@ pub fn view(
   html.div([attribute.class("dt")], [
     rail(schema, state),
     table(schema, rows, state, has_more),
-    footer(rows, state),
+    footer(state),
   ])
 }
 
@@ -941,17 +941,17 @@ pub fn tone_class(tone: Tone) -> String {
   }
 }
 
-fn footer(rows: List(Row), state: State) -> Element(Msg) {
-  let count = int.to_string(list.length(rows)) <> " shown"
-  let loading = case state.loading_more {
+/// A footer shown only while the next page is loading (infinite scroll). The total
+/// row count is not displayed — the server does not return it, so a loaded-so-far
+/// count would be misleading.
+fn footer(state: State) -> Element(Msg) {
+  case state.loading_more {
     True ->
-      html.span([attribute.class("dt-foot__loading")], [html.text("Loading…")])
+      html.div([attribute.class("dt-foot")], [
+        html.span([attribute.class("dt-foot__loading")], [html.text("Loading…")]),
+      ])
     False -> element.none()
   }
-  html.div([attribute.class("dt-foot")], [
-    html.span([attribute.class("dt-foot__count")], [html.text(count)]),
-    loading,
-  ])
 }
 
 // --- helpers ----------------------------------------------------------------
