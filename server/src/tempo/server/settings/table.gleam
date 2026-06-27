@@ -19,12 +19,13 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/access
+import shared/level
 import shared/money.{type Money}
 import shared/settings/view.{
   type LeavePolicyRow, type RateCardRow, type SalaryRow,
 }
 import shared/table/cell.{
-  type Cell, Action, ActionsCell, EntityCell, MoneyCell, NumberCell, TextCell,
+  type Cell, Action, ActionsCell, MoneyCell, NumberCell, TextCell,
 }
 import shared/table/column.{
   type Schema, ActionsType, Column, EntityType, MoneyType, NumberType,
@@ -217,7 +218,7 @@ fn level_filter(levels: List(Int)) -> filter.FilterKind {
     |> list.unique
     |> list.sort(int.compare)
     |> list.map(fn(level) {
-      FilterOption(value: int.to_string(level), label: level_band(level))
+      FilterOption(value: int.to_string(level), label: level.band(level))
     })
   SelectFilter(multi: True, options:)
 }
@@ -267,14 +268,7 @@ fn rate_card_row(
   Row(
     id: int.to_string(rate.level),
     cells: dict.from_list([
-      #(
-        "level",
-        EntityCell(
-          label: level_band(rate.level),
-          sub: None,
-          color: level_color(rate.level),
-        ),
-      ),
+      #("level", level.cell(rate.level)),
       #("day_rate", MoneyCell(rate.day_rate)),
       #("monthly_salary", salary_cell(salaries, rate.level)),
       #("actions", ActionsCell(actions)),
@@ -289,14 +283,7 @@ fn leave_policy_row(policy: LeavePolicyRow) -> Row {
     id: policy.kind <> ":" <> int.to_string(policy.level),
     cells: dict.from_list([
       #("kind", TextCell(policy.kind)),
-      #(
-        "level",
-        EntityCell(
-          label: level_band(policy.level),
-          sub: None,
-          color: level_color(policy.level),
-        ),
-      ),
+      #("level", level.cell(policy.level)),
       #("days_per_year", NumberCell(policy.days_per_year)),
     ]),
     children: [],
@@ -316,26 +303,4 @@ fn salary_cell(salaries: List(SalaryRow), level: Int) -> Cell {
 fn zero_money() -> Money {
   let assert Ok(amount) = money.from_string("0")
   amount
-}
-
-/// The level's swatch colour as a theme token on the sequential level ramp
-/// (`--lvl-1` lightest to `--lvl-7` deepest). The server references only the token,
-/// never a hex literal.
-fn level_color(level: Int) -> String {
-  "var(--lvl-" <> int.to_string(level) <> ")"
-}
-
-/// The level's band label (mirrors the client's `ui.level_band`).
-fn level_band(level: Int) -> String {
-  let band = case level {
-    1 -> "Associate"
-    2 -> "Engineer"
-    3 -> "Senior"
-    4 -> "Staff"
-    5 -> "Principal"
-    6 -> "Distinguished"
-    7 -> "Fellow"
-    _ -> "Engineer"
-  }
-  "L" <> int.to_string(level) <> " · " <> band
 }

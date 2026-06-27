@@ -41,6 +41,7 @@ import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
+import shared/level
 import shared/money
 import shared/payroll/command as payroll_command
 import shared/project_details/command as project_details_command
@@ -344,17 +345,7 @@ pub fn days(value: Float) -> String {
 /// the dropped `band` wire field. Levels 1..5 mirror the prototype's `LEVELS`;
 /// 6/7 extend the ladder. Returned as "L<n> · <band>".
 pub fn level_band(level: Int) -> String {
-  let band = case level {
-    1 -> "Associate"
-    2 -> "Engineer"
-    3 -> "Senior"
-    4 -> "Staff"
-    5 -> "Principal"
-    6 -> "Distinguished"
-    7 -> "Fellow"
-    _ -> "Engineer"
-  }
-  "L" <> int.to_string(level) <> " · " <> band
+  level.band(level)
 }
 
 /// Group a non-negative integer's digits into thousands ("84000" -> "84,000").

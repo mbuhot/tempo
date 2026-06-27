@@ -12,7 +12,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, June}
 import pog
-import shared/table/cell.{EnumCell, MoneyCell, PercentCell, PersonCell}
+import shared/table/cell.{
+  EntityCell, EnumCell, MoneyCell, PercentCell, PersonCell,
+}
 import shared/table/column
 import shared/table/query.{
   type Applied, type FilterValue, Applied, NumberRange, SelectValue,
@@ -206,8 +208,8 @@ pub fn unfiltered_returns_both_engineers_with_rich_cells_test() {
     let assert PersonCell(name:, sub:, ..) = cell_of(first, "name")
     assert name == "Ada Lovelace"
     assert sub == Some("ada@tempo.test")
-    assert cell_of(first, "level")
-      == EnumCell(label: "L1 · Associate", tone: column.Neutral)
+    let assert EntityCell(label:, ..) = cell_of(first, "level")
+    assert label == "L1 · Associate"
     assert cell_of(first, "status")
       == EnumCell(label: "On projects", tone: column.Positive)
     let assert MoneyCell(rate) = cell_of(first, "day_rate")

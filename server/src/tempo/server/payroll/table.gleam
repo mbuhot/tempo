@@ -29,6 +29,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/level
 import shared/money.{type Money}
 import shared/pagination
 import shared/payroll/view.{type PayrollLine, type PayrollSegment}
@@ -334,7 +335,7 @@ fn engineer_cell(line: PayrollLine) -> Cell {
 
 /// A segment's row label: the seniority band and the monthly salary in force.
 fn segment_label(segment: PayrollSegment) -> String {
-  level_band(segment.level)
+  level.band(segment.level)
   <> " · "
   <> money_text(segment.monthly_salary)
   <> "/mo"
@@ -532,17 +533,4 @@ fn initials(name: String) -> String {
 fn swatch_color(id: Int) -> String {
   let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
   "var(--cat-" <> int.to_string(bucket) <> ")"
-}
-
-fn level_band(level: Int) -> String {
-  case level {
-    1 -> "Associate"
-    2 -> "Engineer"
-    3 -> "Senior"
-    4 -> "Staff"
-    5 -> "Principal"
-    6 -> "Distinguished"
-    7 -> "Fellow"
-    _ -> "Engineer"
-  }
 }

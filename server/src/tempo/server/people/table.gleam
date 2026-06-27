@@ -24,14 +24,15 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/level
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
   type Cell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
 }
 import shared/table/column.{
-  type Schema, Column, EnumType, MoneyType, Neutral, NumberType, NumericEnd,
-  PercentType, PersonType, Positive, Schema, Start, Warning,
+  type Schema, Column, EntityType, EnumType, MoneyType, Neutral, NumberType,
+  NumericEnd, PercentType, PersonType, Positive, Schema, Start, Warning,
 }
 import shared/table/filter.{FilterOption, NumberRangeFilter, SelectFilter}
 import shared/table/query.{type Applied}
@@ -93,7 +94,7 @@ pub fn people_schema(options: FilterOptions) -> Schema {
       Column(
         key: "level",
         label: "Level",
-        column_type: EnumType,
+        column_type: EntityType,
         align: Start,
         sortable: True,
         hideable: True,
@@ -155,7 +156,7 @@ fn level_filter(levels: List(Int)) -> filter.FilterKind {
   SelectFilter(
     multi: True,
     options: list.map(levels, fn(level) {
-      FilterOption(value: int.to_string(level), label: level_band(level))
+      FilterOption(value: int.to_string(level), label: level.band(level))
     }),
   )
 }
@@ -370,7 +371,7 @@ fn row_to_table_row(row: ListRow) -> Row {
           color: swatch_color(row.engineer_id),
         ),
       ),
-      #("level", EnumCell(label: level_band(row.level), tone: Neutral)),
+      #("level", level.cell(row.level)),
       #("status", status_cell(row.status)),
       #("allocated", PercentCell(row.allocated *. 100.0)),
       #("annual_leave", NumberCell(row.annual_leave)),
@@ -395,20 +396,6 @@ fn status_cell(status: String) -> Cell {
     "on_leave" -> EnumCell(label: "On leave", tone: Warning)
     _ -> EnumCell(label: "Unassigned", tone: Neutral)
   }
-}
-
-fn level_band(level: Int) -> String {
-  let band = case level {
-    1 -> "Associate"
-    2 -> "Engineer"
-    3 -> "Senior"
-    4 -> "Staff"
-    5 -> "Principal"
-    6 -> "Distinguished"
-    7 -> "Fellow"
-    _ -> "Engineer"
-  }
-  "L" <> int.to_string(level) <> " · " <> band
 }
 
 fn initials(name: String) -> String {
