@@ -439,6 +439,7 @@ th.num {
     place-items: center;
     padding: var(--space-lg);
     background: var(--color-scrim);
+    animation: scrim-in var(--ease);
 }
 .modal {
     width: min(100%, var(--size-modal));
@@ -447,6 +448,31 @@ th.num {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
+    animation: modal-in var(--ease);
+}
+@keyframes scrim-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@keyframes modal-in {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .modal-backdrop,
+    .modal {
+        animation: none;
+    }
 }
 .modal__header {
     padding: var(--space-md) var(--space-lg);
