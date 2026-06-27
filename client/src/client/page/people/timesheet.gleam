@@ -30,14 +30,15 @@ import shared/timesheet/view.{
 pub fn view(
   week: TimesheetWeek,
   edits: Dict(#(Int, Int), String),
-  on_submit on_submit: msg,
+  on_submit on_submit: fn(ui.Permit) -> msg,
   on_cell_edit on_cell_edit: fn(Int, calendar.Date, String) -> msg,
-  permitted permitted: Bool,
+  permit permit: Result(ui.Permit, Nil),
 ) -> Element(msg) {
+  let permitted = result.is_ok(permit)
   ui.panel(
     title: "Timesheet",
     count: "week of " <> time.iso_date(week.week_start),
-    right: [submit_week_button(week, on_submit, permitted)],
+    right: [submit_week_button(week, on_submit, permit)],
     body: [
       html.div([attribute.class("pad-block")], [
         grid(week, edits, on_cell_edit, permitted),
@@ -48,19 +49,20 @@ pub fn view(
 
 fn submit_week_button(
   week: TimesheetWeek,
-  on_submit: msg,
-  permitted: Bool,
+  on_submit: fn(ui.Permit) -> msg,
+  permit: Result(ui.Permit, Nil),
 ) -> Element(msg) {
-  case permitted, week.rows {
-    _, [] -> element.none()
-    False, _ -> element.none()
-    True, _ ->
-      ui.button(
-        label: "Log week",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: on_submit,
-      )
+  case week.rows {
+    [] -> element.none()
+    _ ->
+      ui.when_permitted(permit, fn(granted) {
+        ui.button(
+          label: "Log week",
+          kind: ui.Primary,
+          size: ui.Small,
+          on_press: on_submit(granted),
+        )
+      })
   }
 }
 

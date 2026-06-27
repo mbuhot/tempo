@@ -102,7 +102,7 @@ pub type Msg {
   OpenClient(client_id: Int)
   CloseDetail
   OpenProject(project_id: Int)
-  OpStarted(kind: ui.OpKind)
+  OpStarted(permit: ui.Permit)
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
@@ -236,9 +236,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       Navigate(route.Projects(id: Some(project_id))),
     ])
 
-    OpStarted(kind:) ->
+    OpStarted(permit:) ->
       case model {
         Loaded(as_of:, detail:, ..) -> {
+          let kind = ui.permit_kind(permit)
           let form = ui.blank_op_form(kind, as_of)
           let form = prefill_op_form(kind, form, detail, model)
           #(
@@ -687,14 +688,12 @@ fn op_trigger(
   label: String,
   kind: ui.OpKind,
 ) -> Element(Msg) {
-  ui.gate(
-    ui.can_op(permissions, False, kind),
-    ui.button(
-      label: label,
-      kind: ui.Primary,
-      size: ui.Medium,
-      on_press: OpStarted(kind:),
-    ),
+  ui.launch(
+    ui.permit(permissions, own: False, kind:),
+    to_msg: OpStarted,
+    label: label,
+    kind: ui.Primary,
+    size: ui.Medium,
   )
 }
 

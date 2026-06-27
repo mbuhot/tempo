@@ -80,9 +80,9 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
   )
   CardClicked(engineer: String)
-  OpStarted(kind: ui.OpKind)
-  OpStartedFor(kind: ui.OpKind, engineer_id: Int, project_id: Int)
-  OpStartedForProject(project_id: Int)
+  OpStarted(permit: ui.Permit)
+  OpStartedFor(permit: ui.Permit, engineer_id: Int, project_id: Int)
+  OpStartedForProject(permit: ui.Permit, project_id: Int)
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -173,7 +173,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         None -> #(model, effect.none(), [])
       }
 
-    OpStarted(kind:) -> {
+    OpStarted(permit:) -> {
+      let kind = ui.permit_kind(permit)
       let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form = reconcile(model, form)
       #(
@@ -183,7 +184,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       )
     }
 
-    OpStartedFor(kind:, engineer_id:, project_id:) -> {
+    OpStartedFor(permit:, engineer_id:, project_id:) -> {
+      let kind = ui.permit_kind(permit)
       let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form =
         ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
@@ -197,8 +199,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       )
     }
 
-    OpStartedForProject(project_id:) -> {
-      let kind = ui.OpAssignToProject
+    OpStartedForProject(permit:, project_id:) -> {
+      let kind = ui.permit_kind(permit)
       let form = ui.blank_op_form(kind:, default_date: model.as_of)
       let form =
         ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
@@ -339,14 +341,12 @@ fn head(permissions: Set(String)) -> Element(Msg) {
     title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
-      ui.gate(
-        ui.can_op(permissions, False, ui.OpAssignToProject),
-        ui.button(
-          label: "+ Assign",
-          kind: ui.Primary,
-          size: ui.Medium,
-          on_press: OpStarted(ui.OpAssignToProject),
-        ),
+      ui.launch(
+        ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+        to_msg: OpStarted,
+        label: "+ Assign",
+        kind: ui.Primary,
+        size: ui.Medium,
       ),
     ],
   )
@@ -363,8 +363,8 @@ fn view_loaded(
   html.div([], [
     head(permissions),
     stats_hero(on_project, on_leave, snapshot),
-    on_projects_panel(model, on_project),
-    unstaffed_projects_panel(model, snapshot.unstaffed),
+    on_projects_panel(model, on_project, permissions),
+    unstaffed_projects_panel(model, snapshot.unstaffed, permissions),
     on_leave_panel(on_leave),
     unassigned_panel(unassigned),
     op_panel(model),
@@ -430,7 +430,11 @@ fn stats_hero(
 
 /// The "On projects" panel: each project a `.board-group` (swatch, title, client,
 /// run-rate + team-size meta) over a grid of engineer allocation cards.
-fn on_projects_panel(model: Model, on_project: List(BoardRow)) -> Element(Msg) {
+fn on_projects_panel(
+  model: Model,
+  on_project: List(BoardRow),
+  permissions: Set(String),
+) -> Element(Msg) {
   let groups = group_by_project(on_project)
   let allocation_count = list.length(on_project)
   let project_count = list.length(groups)
@@ -443,7 +447,7 @@ fn on_projects_panel(model: Model, on_project: List(BoardRow)) -> Element(Msg) {
     [] -> [ui.empty_state(message: "No one is allocated on this date.")]
     groups ->
       list.index_map(groups, fn(group, index) {
-        proj_block(model, group, index)
+        proj_block(model, group, index, permissions)
       })
   }
   ui.panel(title: "On projects", count: count, right: [], body: body)
@@ -455,6 +459,7 @@ fn proj_block(
   model: Model,
   group: #(String, String, List(BoardRow)),
   category: Int,
+  permissions: Set(String),
 ) -> Element(Msg) {
   let #(project, client, rows) = group
   let project_revenue =
@@ -468,7 +473,8 @@ fn proj_block(
     <> "/day · "
     <> int.to_string(list.length(rows))
     <> " on team"
-  let cards = list.map(rows, fn(row) { project_card(model, project, row) })
+  let cards =
+    list.map(rows, fn(row) { project_card(model, project, row, permissions) })
   html.div([attribute.class("board-group")], [
     html.div([attribute.class("board-group__head")], [
       ui.swatch(category: category, inline: False),
@@ -484,7 +490,12 @@ fn proj_block(
 /// fraction / short-level / day-rate chips, and a right-aligned "Roll off"
 /// action. Clicking the card drills into the engineer's detail; "Roll off" opens a
 /// modal pre-filled with the engineer and this project.
-fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
+fn project_card(
+  model: Model,
+  project: String,
+  row: BoardRow,
+  permissions: Set(String),
+) -> Element(Msg) {
   let sub = case row.engagement {
     OnProject(day_rate:, fraction:, ..) -> [
       ui.chip(label: ui.fraction(fraction), tone: ui.Accent),
@@ -496,7 +507,7 @@ fn project_card(model: Model, project: String, row: BoardRow) -> Element(Msg) {
     ]
     _ -> []
   }
-  alloc_card(row, "", sub, roll_off_action(model, project, row))
+  alloc_card(row, "", sub, roll_off_action(model, project, row, permissions))
 }
 
 /// The "Roll off" affordance on a project card. It opens a RollOff modal pre-filled
@@ -507,21 +518,27 @@ fn roll_off_action(
   model: Model,
   project: String,
   row: BoardRow,
+  permissions: Set(String),
 ) -> Element(Msg) {
   case engineer_id_for(model, row.engineer), project_id_for(model, project) {
     Some(engineer_id), Some(project_id) ->
-      html.button(
-        [
-          attribute.class("btn btn--ghost btn--sm"),
-          event.stop_propagation(
-            event.on_click(OpStartedFor(
-              kind: ui.OpRollOff,
-              engineer_id:,
-              project_id:,
-            )),
-          ),
-        ],
-        [html.text("Roll off")],
+      ui.when_permitted(
+        ui.permit(permissions, own: False, kind: ui.OpRollOff),
+        fn(granted) {
+          html.button(
+            [
+              attribute.class("btn btn--ghost btn--sm"),
+              event.stop_propagation(
+                event.on_click(OpStartedFor(
+                  permit: granted,
+                  engineer_id:,
+                  project_id:,
+                )),
+              ),
+            ],
+            [html.text("Roll off")],
+          )
+        },
       )
     _, _ -> element.none()
   }
@@ -537,12 +554,14 @@ fn roll_off_action(
 fn unstaffed_projects_panel(
   model: Model,
   unstaffed: List(UnstaffedProject),
+  permissions: Set(String),
 ) -> Element(Msg) {
   let _ = model
   case unstaffed {
     [] -> element.none()
     projects -> {
-      let cards = list.map(projects, unstaffed_card)
+      let cards =
+        list.map(projects, fn(project) { unstaffed_card(project, permissions) })
       ui.panel(
         title: "Unstaffed projects",
         count: unstaffed_count(list.length(projects)),
@@ -567,7 +586,10 @@ fn unstaffed_count(count: Int) -> String {
 
 /// One unstaffed-project card: the title, the client sub-line, and a right-aligned
 /// "Assign" button opening the AssignToProject modal pre-filled with this project.
-fn unstaffed_card(project: UnstaffedProject) -> Element(Msg) {
+fn unstaffed_card(
+  project: UnstaffedProject,
+  permissions: Set(String),
+) -> Element(Msg) {
   let UnstaffedProject(project_id:, title:, client:) = project
   html.div([attribute.class("board-card")], [
     html.div([attribute.class("board-card__info")], [
@@ -575,11 +597,14 @@ fn unstaffed_card(project: UnstaffedProject) -> Element(Msg) {
       html.div([attribute.class("board-card__sub")], [html.text(client)]),
     ]),
     html.div([attribute.class("board-card__action")], [
-      ui.button(
+      ui.launch(
+        ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+        to_msg: fn(granted) {
+          OpStartedForProject(permit: granted, project_id:)
+        },
         label: "Assign",
         kind: ui.Ghost,
         size: ui.Small,
-        on_press: OpStartedForProject(project_id:),
       ),
     ]),
   ])

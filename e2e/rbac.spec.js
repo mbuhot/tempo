@@ -60,20 +60,28 @@ test("the Access page visualizes the role-permission matrix and lists users", as
 // each runs in its own browser context (a fresh login) — so a broken gate fails either
 // the hide or the show, never the mere absence of a non-feature.
 
-test("an engineer viewing the board does not see the Assign launcher", async ({
+test("an engineer viewing the board sees no allocation launchers", async ({
   page,
 }) => {
   // Priya (engineer) has read.projects so she lands on the Board, but lacks
-  // allocation.manage — so the "+ Assign" launcher is hidden.
+  // allocation.manage — so neither the "+ Assign" header launcher nor the per-card
+  // "Roll off" launchers are shown.
   await signInAs(page, "Priya Sharma");
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Assign" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Roll off" })).toHaveCount(0);
 });
 
-test("the owner viewing the board sees the Assign launcher", async ({ page }) => {
+test("the owner viewing the board sees the allocation launchers", async ({
+  page,
+}) => {
   await signInAs(page, "Admin");
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Assign" })).toBeVisible();
+  // The board's per-allocation cards each carry a "Roll off" launcher (allocation.manage).
+  await expect(
+    page.getByRole("button", { name: "Roll off" }).first(),
+  ).toBeVisible();
 });
 
 test("finance viewing an engineer does not see the Promote launcher", async ({

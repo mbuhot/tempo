@@ -54,7 +54,7 @@ pub type Load {
 /// Run-payroll op lifecycle, and the operation reply.
 pub type Msg {
   GotPayroll(as_of: calendar.Date, result: Result(Payroll, rsvp.Error(String)))
-  OpOpened
+  OpOpened(permit: ui.Permit)
   OpFieldChanged(field: ui.OpField, value: String)
   OpSubmitted
   OpCancelled
@@ -96,7 +96,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         }
       }
 
-    OpOpened -> {
+    OpOpened(..) -> {
       let form =
         ui.blank_op_form(kind: ui.OpRunPayroll, default_date: model.as_of)
       #(
@@ -172,11 +172,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// Render the tab: its loading guard and the op panel, delegating the loaded
 /// render to `panel`. The run-payroll button raises `OpOpened`.
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
-  let permitted = ui.can_op(permissions, False, ui.OpRunPayroll)
+  let permit = ui.permit(permissions, own: False, kind: ui.OpRunPayroll)
   let body = case model.payroll {
     Loading -> ui.empty_state(message: "Loading payroll…")
     Failed(message:) -> ui.empty_state(message: message)
-    Loaded(payroll:) -> panel(payroll, on_run: OpOpened, permitted: permitted)
+    Loaded(payroll:) -> panel(payroll, on_run: OpOpened, permit: permit)
   }
   html.div([], [op_panel(model.op), body])
 }
@@ -221,11 +221,11 @@ fn op_fields(form: ui.OpForm) -> List(Element(Msg)) {
 /// preview's "Run payroll" button is pressed.
 pub fn panel(
   payroll: Payroll,
-  on_run on_run: msg,
-  permitted permitted: Bool,
+  on_run on_run: fn(ui.Permit) -> msg,
+  permit permit: Result(ui.Permit, Nil),
 ) -> Element(msg) {
   case payroll.run {
-    None -> view_preview(payroll, on_run, permitted)
+    None -> view_preview(payroll, on_run, permit)
     Some(_) ->
       case reconciled(payroll.lines) {
         True -> view_reconciled(payroll)
@@ -251,22 +251,20 @@ pub fn reconciled(lines: List(PayrollLine)) -> Bool {
 /// engineers, the total to pay, and the run button.
 fn view_preview(
   payroll: Payroll,
-  on_run: msg,
-  permitted: Bool,
+  on_run: fn(ui.Permit) -> msg,
+  permit: Result(ui.Permit, Nil),
 ) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
   let total =
     money.sum(list.map(payroll.lines, fn(line) { line.preview_amount }))
   let run_button =
-    ui.gate(
-      permitted,
-      ui.button(
-        label: "Run payroll",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: on_run,
-      ),
+    ui.launch(
+      permit,
+      to_msg: on_run,
+      label: "Run payroll",
+      kind: ui.Primary,
+      size: ui.Small,
     )
   ui.panel(
     title: "Payroll preview · " <> month,

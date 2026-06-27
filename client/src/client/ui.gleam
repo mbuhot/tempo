@@ -442,25 +442,68 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
   }
 }
 
-/// Whether `permissions` may run `kind`, via the shared write-authorization policy. `own`
-/// is whether the acting principal owns the record the op targets (i.e. it is their own)
-/// — it only changes the outcome for the ownership-sensitive ops. The client hides
-/// launchers this refuses; the server stays the boundary (a gated-around request 403s).
-pub fn can_op(permissions: Set(String), own: Bool, kind: OpKind) -> Bool {
-  policy.satisfies(
-    permissions,
-    own:,
-    requirement: policy.requirement(op_command_key(kind)),
-  )
+/// A CAPABILITY to launch a write op: proof that the acting principal's permissions (and
+/// ownership, where the op is ownership-sensitive) satisfy the op's requirement under the
+/// shared policy. Opaque, and minted ONLY by `permit` — so a launcher message that
+/// carries a `Permit` cannot be constructed without the check having passed. An ungated
+/// launcher therefore cannot be expressed: forgetting to gate, or gating with the wrong
+/// permission, is a COMPILE error, not a button that 403s. The server stays the boundary.
+pub opaque type Permit {
+  Permit(kind: OpKind)
 }
 
-/// `node` when `allowed`, otherwise nothing — the launcher-gating primitive: keep a list
-/// of action buttons literal and wrap each in `gate(can_op(...), button)`.
-pub fn gate(allowed: Bool, node: Element(msg)) -> Element(msg) {
-  case allowed {
-    True -> node
-    False -> element.none()
+/// Mint a permit to launch `kind` iff `permissions` (with `own` = the principal owns the
+/// record the op targets, which only matters for the ownership-sensitive ops) satisfy the
+/// shared write policy; `Error(Nil)` otherwise. The sole source of a `Permit`.
+pub fn permit(
+  permissions: Set(String),
+  own own: Bool,
+  kind kind: OpKind,
+) -> Result(Permit, Nil) {
+  case
+    policy.satisfies(
+      permissions,
+      own:,
+      requirement: policy.requirement(op_command_key(kind)),
+    )
+  {
+    True -> Ok(Permit(kind))
+    False -> Error(Nil)
   }
+}
+
+/// The op a permit authorizes — for an `update` handler to open the matching form from
+/// the permit its launcher message carried.
+pub fn permit_kind(permit: Permit) -> OpKind {
+  permit.kind
+}
+
+/// Render `build(permit)` only when the op is permitted, otherwise nothing. The element
+/// `build` returns can only carry the permit it is handed, so a launcher rendered through
+/// `when_permitted` is always authorized — even a raw `html.button` (e.g. one that needs
+/// `stop_propagation`, which the `button` atom does not expose).
+pub fn when_permitted(
+  permit: Result(Permit, Nil),
+  build: fn(Permit) -> Element(msg),
+) -> Element(msg) {
+  case permit {
+    Ok(granted) -> build(granted)
+    Error(_) -> element.none()
+  }
+}
+
+/// A permitted op-launching `button`: shown only when `permit` was granted, dispatching
+/// `to_msg(permit)` (the page's op-start message, which therefore carries the permit).
+pub fn launch(
+  permit: Result(Permit, Nil),
+  to_msg to_msg: fn(Permit) -> msg,
+  label label: String,
+  kind kind: ButtonKind,
+  size size: ButtonSize,
+) -> Element(msg) {
+  when_permitted(permit, fn(granted) {
+    button(label:, kind:, size:, on_press: to_msg(granted))
+  })
 }
 
 /// Names a slot of the shared `OpForm`, so one edit message targets every text

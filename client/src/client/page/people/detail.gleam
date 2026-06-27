@@ -111,12 +111,12 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
   )
   BackClicked
-  OpOpened(kind: ui.OpKind)
+  OpOpened(permit: ui.Permit)
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
   CellEdited(project_id: Int, day: calendar.Date, value: String)
-  TimesheetSubmitted
+  TimesheetSubmitted(permit: ui.Permit)
   OperationReturned(result: Result(List(gateway.Event), rsvp.Error(String)))
 }
 
@@ -234,14 +234,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     BackClicked -> #(model, effect.none(), [Navigate(route.People(id: None))])
 
-    OpOpened(kind:) -> #(
-      Model(
-        ..model,
-        op: Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
-      ),
-      effect.none(),
-      [],
-    )
+    OpOpened(permit:) -> {
+      let kind = ui.permit_kind(permit)
+      #(
+        Model(
+          ..model,
+          op: Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
+        ),
+        effect.none(),
+        [],
+      )
+    }
 
     OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
@@ -289,7 +292,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       [],
     )
 
-    TimesheetSubmitted ->
+    TimesheetSubmitted(..) ->
       case model.timesheet {
         TimesheetLoaded(week:, edits:) -> #(
           model,
@@ -498,16 +501,12 @@ pub fn view(
     DetailFailed(message:) ->
       column([back, ui.empty_state("Could not load this engineer: " <> message)])
     DetailLoaded(detail:) -> {
-      let permits =
-        permits(
-          permissions,
-          own: viewer_engineer_id == Some(detail.engineer_id),
-        )
+      let own = viewer_engineer_id == Some(detail.engineer_id)
       column([
         back,
-        detail_head(detail, permits),
+        detail_head(detail, permissions, own),
         view_op_modal(model, model.op),
-        detail_grid(detail, model.timesheet, permits),
+        detail_grid(detail, model.timesheet, permissions, own),
       ])
     }
   }
@@ -517,34 +516,11 @@ fn column(children: List(Element(Msg))) -> Element(Msg) {
   html.div([], children)
 }
 
-/// Which of the detail page's launchers the viewer may use, resolved once per render
-/// from the effective permissions and whether the viewer owns this record (themselves).
-/// `profile` covers the contact/banking/emergency edits (all `profile.update.*`);
-/// `timesheet` the week-log grid. Mirrors the server's gate; the server stays the
-/// boundary, this just hides what would 403.
-type Permits {
-  Permits(
-    profile: Bool,
-    leave: Bool,
-    rolloff: Bool,
-    terminate: Bool,
-    promote: Bool,
-    timesheet: Bool,
-  )
-}
-
-fn permits(permissions: Set(String), own own: Bool) -> Permits {
-  Permits(
-    profile: ui.can_op(permissions, own, ui.OpUpdateContact),
-    leave: ui.can_op(permissions, own, ui.OpTakeLeave),
-    rolloff: ui.can_op(permissions, own, ui.OpRollOff),
-    terminate: ui.can_op(permissions, own, ui.OpTerminateEmployment),
-    promote: ui.can_op(permissions, own, ui.OpPromote),
-    timesheet: ui.can_op(permissions, own, ui.OpLogWeek),
-  )
-}
-
-fn detail_head(detail: EngineerDetail, permits: Permits) -> Element(Msg) {
+fn detail_head(
+  detail: EngineerDetail,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
   let EngineerDetail(engineer_id:, name:, level:, allocations:, ..) = detail
   html.div([attribute.class("page-head")], [
     html.div([], [
@@ -558,13 +534,10 @@ fn detail_head(detail: EngineerDetail, permits: Permits) -> Element(Msg) {
       html.p([], [html.text(situation(allocations))]),
     ]),
     html.div([attribute.class("action-row")], [
-      ui.gate(permits.leave, op_button("Take leave", ui.OpTakeLeave, True)),
-      ui.gate(permits.rolloff, op_button("Roll off", ui.OpRollOff, True)),
-      ui.gate(
-        permits.terminate,
-        op_button("Terminate", ui.OpTerminateEmployment, True),
-      ),
-      ui.gate(permits.promote, op_button("Promote", ui.OpPromote, False)),
+      op_launch(permissions, own, ui.OpTakeLeave, "Take leave", True),
+      op_launch(permissions, own, ui.OpRollOff, "Roll off", True),
+      op_launch(permissions, own, ui.OpTerminateEmployment, "Terminate", True),
+      op_launch(permissions, own, ui.OpPromote, "Promote", False),
     ]),
   ])
 }
@@ -590,22 +563,24 @@ fn situation(allocations: List(allocation_view.AllocationRow)) -> String {
 fn detail_grid(
   detail: EngineerDetail,
   timesheet: TimesheetData,
-  permits: Permits,
+  permissions: Set(String),
+  own: Bool,
 ) -> Element(Msg) {
   html.div([attribute.class("detail-grid")], [
     html.div([], [
       allocations_panel(detail.allocations),
-      timesheet_panel(timesheet, permits),
+      timesheet_panel(timesheet, permissions, own),
     ]),
     html.div([], [
       balance_panel(detail.balance),
-      contact_panel(detail.contact, permits),
-      banking_panel(detail.banking, permits),
+      contact_panel(detail.contact, permissions, own),
+      banking_panel(detail.banking, permissions, own),
       employment_panel(
         detail.employment,
         detail.level,
         detail.emergency,
-        permits,
+        permissions,
+        own,
       ),
     ]),
   ])
@@ -663,7 +638,11 @@ fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
 /// The detail's timesheet panel: its Loading/Failed guards, delegating the loaded
 /// week's grid to the self-contained `page/people/timesheet` module. The grid's two
 /// actions (submit the week, edit a cell) are wired from this module's `Msg`.
-fn timesheet_panel(timesheet: TimesheetData, permits: Permits) -> Element(Msg) {
+fn timesheet_panel(
+  timesheet: TimesheetData,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
   case timesheet {
     TimesheetLoading ->
       ui.panel(title: "Timesheet", count: "", right: [], body: [
@@ -681,7 +660,7 @@ fn timesheet_panel(timesheet: TimesheetData, permits: Permits) -> Element(Msg) {
         on_cell_edit: fn(project_id, day, value) {
           CellEdited(project_id:, day:, value:)
         },
-        permitted: permits.timesheet,
+        permit: ui.permit(permissions, own:, kind: ui.OpLogWeek),
       )
   }
 }
@@ -715,14 +694,15 @@ fn balance_bar(label: String, value: Float, max: Float) -> Element(Msg) {
 
 fn contact_panel(
   contact: engineer_view.EngineerContact,
-  permits: Permits,
+  permissions: Set(String),
+  own: Bool,
 ) -> Element(Msg) {
   let EngineerContact(name:, email:, phone:, postal_address:, ..) = contact
   let _ = name
   ui.panel(
     title: "Contact",
     count: "",
-    right: [contact_edit_button(permits)],
+    right: [op_launch(permissions, own, ui.OpUpdateContact, "Edit", True)],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
@@ -737,15 +717,14 @@ fn contact_panel(
 
 fn banking_panel(
   banking: engineer_view.EngineerBanking,
-  permits: Permits,
+  permissions: Set(String),
+  own: Bool,
 ) -> Element(Msg) {
   let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) = banking
   ui.panel(
     title: "Banking",
     count: "",
-    right: [
-      ui.gate(permits.profile, op_button("Edit", ui.OpUpdateBanking, True)),
-    ],
+    right: [op_launch(permissions, own, ui.OpUpdateBanking, "Edit", True)],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
@@ -759,15 +738,12 @@ fn banking_panel(
   )
 }
 
-fn contact_edit_button(permits: Permits) -> Element(Msg) {
-  ui.gate(permits.profile, op_button("Edit", ui.OpUpdateContact, True))
-}
-
 fn employment_panel(
   employment: engineer_view.Employment,
   level: Int,
   emergency: engineer_view.EngineerEmergency,
-  permits: Permits,
+  permissions: Set(String),
+  own: Bool,
 ) -> Element(Msg) {
   let Employment(started:, monthly_salary:, ..) = employment
   let EngineerEmergency(relation:, name:, phone:, ..) = emergency
@@ -776,10 +752,7 @@ fn employment_panel(
     title: "Employment",
     count: "",
     right: [
-      ui.gate(
-        permits.profile,
-        op_button("Emergency", ui.OpUpdateEmergency, True),
-      ),
+      op_launch(permissions, own, ui.OpUpdateEmergency, "Emergency", True),
     ],
     body: [
       html.div([attribute.class("pad-detail")], [
@@ -800,14 +773,27 @@ fn employment_panel(
 
 // --- Op form ----------------------------------------------------------------
 
-/// A button that opens the contextual operation `kind`. `ghost` renders the
-/// secondary (outlined) variant.
-fn op_button(label: String, kind: ui.OpKind, ghost: Bool) -> Element(Msg) {
+/// A permitted button that opens the contextual operation `kind`: shown only when the
+/// principal may run `kind` (minting a `Permit` carried by `OpOpened`), so an ungated
+/// detail launcher cannot be expressed. `ghost` renders the secondary (outlined) variant.
+fn op_launch(
+  permissions: Set(String),
+  own: Bool,
+  kind: ui.OpKind,
+  label: String,
+  ghost: Bool,
+) -> Element(Msg) {
   let button_kind = case ghost {
     True -> ui.Ghost
     False -> ui.Primary
   }
-  ui.button(label:, kind: button_kind, size: ui.Small, on_press: OpOpened(kind))
+  ui.launch(
+    ui.permit(permissions, own:, kind:),
+    to_msg: OpOpened,
+    label:,
+    kind: button_kind,
+    size: ui.Small,
+  )
 }
 
 /// The contextual operation as a centred modal over a dimmed backdrop, shown only

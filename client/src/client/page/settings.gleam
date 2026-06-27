@@ -62,8 +62,8 @@ pub type Msg {
     as_of: calendar.Date,
     result: Result(Settings, rsvp.Error(String)),
   )
-  OpStarted(kind: ui.OpKind)
-  OpStartedForLevel(kind: ui.OpKind, level: Int, amount: Float)
+  OpStarted(permit: ui.Permit)
+  OpStartedForLevel(permit: ui.Permit, level: Int, amount: Float)
   OpDismissed
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
@@ -130,9 +130,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         )
       }
 
-    OpStarted(kind:) ->
+    OpStarted(permit:) ->
       case model {
         Loaded(as_of:, settings:, ..) -> {
+          let kind = ui.permit_kind(permit)
           let form = ui.blank_op_form(kind:, default_date: as_of)
           #(
             Loaded(
@@ -148,9 +149,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
-    OpStartedForLevel(kind:, level:, amount:) ->
+    OpStartedForLevel(permit:, level:, amount:) ->
       case model {
         Loaded(as_of:, settings:, ..) -> {
+          let kind = ui.permit_kind(permit)
           let form =
             ui.blank_op_form(kind:, default_date: as_of)
             |> ui.update_op_form(ui.FLevel, int.to_string(level))
@@ -333,32 +335,26 @@ fn view_loaded(
   permissions: Set(String),
 ) -> Element(Msg) {
   let actions = [
-    ui.gate(
-      ui.can_op(permissions, False, ui.OpAdjustRateForPortion),
-      ui.button(
-        label: "Adjust window",
-        kind: ui.Ghost,
-        size: ui.Small,
-        on_press: OpStarted(ui.OpAdjustRateForPortion),
-      ),
+    ui.launch(
+      ui.permit(permissions, own: False, kind: ui.OpAdjustRateForPortion),
+      to_msg: OpStarted,
+      label: "Adjust window",
+      kind: ui.Ghost,
+      size: ui.Small,
     ),
-    ui.gate(
-      ui.can_op(permissions, False, ui.OpSetSalary),
-      ui.button(
-        label: "Set salary",
-        kind: ui.Ghost,
-        size: ui.Small,
-        on_press: OpStarted(ui.OpSetSalary),
-      ),
+    ui.launch(
+      ui.permit(permissions, own: False, kind: ui.OpSetSalary),
+      to_msg: OpStarted,
+      label: "Set salary",
+      kind: ui.Ghost,
+      size: ui.Small,
     ),
-    ui.gate(
-      ui.can_op(permissions, False, ui.OpReviseRateCard),
-      ui.button(
-        label: "Revise rate",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: OpStarted(ui.OpReviseRateCard),
-      ),
+    ui.launch(
+      ui.permit(permissions, own: False, kind: ui.OpReviseRateCard),
+      to_msg: OpStarted,
+      label: "Revise rate",
+      kind: ui.Primary,
+      size: ui.Small,
     ),
   ]
   html.div([], [
@@ -394,31 +390,31 @@ fn view_rate_card(
         html.td([attribute.class("num")], [html.text(salary)]),
         html.td([attribute.class("num")], [
           html.div([attribute.class("action-row")], [
-            ui.gate(
-              ui.can_op(permissions, False, ui.OpReviseRateCard),
-              ui.button(
-                label: "Revise",
-                kind: ui.Ghost,
-                size: ui.Small,
-                on_press: OpStartedForLevel(
-                  kind: ui.OpReviseRateCard,
+            ui.launch(
+              ui.permit(permissions, own: False, kind: ui.OpReviseRateCard),
+              to_msg: fn(granted) {
+                OpStartedForLevel(
+                  permit: granted,
                   level: rate.level,
                   amount: money.to_float(rate.day_rate),
-                ),
-              ),
+                )
+              },
+              label: "Revise",
+              kind: ui.Ghost,
+              size: ui.Small,
             ),
-            ui.gate(
-              ui.can_op(permissions, False, ui.OpSetSalary),
-              ui.button(
-                label: "Set salary",
-                kind: ui.Ghost,
-                size: ui.Small,
-                on_press: OpStartedForLevel(
-                  kind: ui.OpSetSalary,
+            ui.launch(
+              ui.permit(permissions, own: False, kind: ui.OpSetSalary),
+              to_msg: fn(granted) {
+                OpStartedForLevel(
+                  permit: granted,
                   level: rate.level,
                   amount: salary_amount(settings.salaries, rate.level),
-                ),
-              ),
+                )
+              },
+              label: "Set salary",
+              kind: ui.Ghost,
+              size: ui.Small,
             ),
           ]),
         ]),

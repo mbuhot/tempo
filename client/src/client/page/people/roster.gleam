@@ -75,7 +75,7 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
   )
   RowClicked(engineer_id: Int)
-  OpOpened(kind: ui.OpKind)
+  OpOpened(permit: ui.Permit)
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
@@ -143,14 +143,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       Navigate(route.People(id: Some(engineer_id))),
     ])
 
-    OpOpened(kind:) -> #(
-      Model(
-        ..model,
-        op: Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
-      ),
-      effect.none(),
-      [],
-    )
+    OpOpened(permit:) -> {
+      let kind = ui.permit_kind(permit)
+      #(
+        Model(
+          ..model,
+          op: Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
+        ),
+        effect.none(),
+        [],
+      )
+    }
 
     OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
@@ -246,9 +249,12 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
         <> time.iso_date(model.as_of)
         <> ". Open a person for their full record and history.",
       actions: [
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpOnboardEngineer),
-          op_button("+ Onboard", ui.OpOnboardEngineer, False),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpOnboardEngineer),
+          to_msg: OpOpened,
+          label: "+ Onboard",
+          kind: ui.Primary,
+          size: ui.Small,
         ),
       ],
     )
@@ -268,16 +274,6 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
 
 fn column(children: List(Element(Msg))) -> Element(Msg) {
   html.div([], children)
-}
-
-/// A button that opens the contextual operation `kind`. `ghost` renders the
-/// secondary (outlined) variant.
-fn op_button(label: String, kind: ui.OpKind, ghost: Bool) -> Element(Msg) {
-  let button_kind = case ghost {
-    True -> ui.Ghost
-    False -> ui.Primary
-  }
-  ui.button(label:, kind: button_kind, size: ui.Small, on_press: OpOpened(kind))
 }
 
 /// The Onboard-engineer op as a centred modal, shown only while open. The list

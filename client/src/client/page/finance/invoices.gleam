@@ -80,8 +80,8 @@ pub type Msg {
   GotRoster(as_of: calendar.Date, result: Result(Roster, rsvp.Error(String)))
   InvoiceClicked(id: Int)
   DetailClosed
-  OpOpened(kind: ui.OpKind)
-  OpOpenedForInvoice(kind: ui.OpKind, invoice_id: Int)
+  OpOpened(permit: ui.Permit)
+  OpOpenedForInvoice(permit: ui.Permit, invoice_id: Int)
   OpFieldChanged(field: ui.OpField, value: String)
   OpSubmitted
   OpCancelled
@@ -201,10 +201,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       [Navigate(route.Finance(tab: route.Invoices, invoice: None))],
     )
 
-    OpOpened(kind:) -> on_op_opened(model, kind, None)
+    OpOpened(permit:) -> on_op_opened(model, ui.permit_kind(permit), None)
 
-    OpOpenedForInvoice(kind:, invoice_id:) ->
-      on_op_opened(model, kind, Some(invoice_id))
+    OpOpenedForInvoice(permit:, invoice_id:) ->
+      on_op_opened(model, ui.permit_kind(permit), Some(invoice_id))
 
     OpFieldChanged(field:, value:) ->
       case model.op {
@@ -331,12 +331,13 @@ fn op_panel(model: Model) -> Element(Msg) {
 /// open the matching op form, opening a row selects it, closing returns to the list.
 fn invoice_actions(permissions: Set(String)) -> Actions(Msg) {
   Actions(
-    on_draft: OpOpened(ui.OpDraftInvoice),
-    on_issue: fn(id) { OpOpenedForInvoice(ui.OpIssueInvoice, id) },
-    on_pay: fn(id) { OpOpenedForInvoice(ui.OpPayInvoice, id) },
+    draft: ui.permit(permissions, own: False, kind: ui.OpDraftInvoice),
+    issue: ui.permit(permissions, own: False, kind: ui.OpIssueInvoice),
+    pay: ui.permit(permissions, own: False, kind: ui.OpPayInvoice),
+    to_open: OpOpened,
+    to_open_for: OpOpenedForInvoice,
     on_open: fn(id) { InvoiceClicked(id) },
     on_close: DetailClosed,
-    permitted: ui.can_op(permissions, False, ui.OpDraftInvoice),
   )
 }
 
@@ -447,14 +448,16 @@ fn locked_invoice_field(invoice_id: String) -> Element(Msg) {
 /// close the open detail back to the list.
 pub type Actions(msg) {
   Actions(
-    on_draft: msg,
-    on_issue: fn(Int) -> msg,
-    on_pay: fn(Int) -> msg,
+    /// Permits to draft / issue / pay (each `invoice.manage`); a launcher renders only
+    /// when its permit was granted, so it cannot fire an op the viewer may not run.
+    draft: Result(ui.Permit, Nil),
+    issue: Result(ui.Permit, Nil),
+    pay: Result(ui.Permit, Nil),
+    /// Build the page's op-start message from a granted permit.
+    to_open: fn(ui.Permit) -> msg,
+    to_open_for: fn(ui.Permit, Int) -> msg,
     on_open: fn(Int) -> msg,
     on_close: msg,
-    /// Whether the viewer holds `invoice.manage`; the draft/issue/pay launchers are
-    /// hidden when not (the server still 403s either way).
-    permitted: Bool,
   )
 }
 
@@ -532,26 +535,30 @@ pub fn list(invoices: List(Invoice), actions: Actions(msg)) -> Element(msg) {
 /// paid row). The action stays a raw `html.button` so the row click can be
 /// stopped from propagating (the `ui.button` primitive carries no such handle).
 fn invoice_row(invoice: Invoice, actions: Actions(msg)) -> Element(msg) {
-  let action = case actions.permitted, invoice.status {
-    True, "draft" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(actions.on_issue(invoice.id))
-            |> event.stop_propagation,
-        ],
-        [html.text("Issue")],
-      )
-    True, "issued" ->
-      html.button(
-        [
-          attribute.class("btn btn--sm"),
-          event.on_click(actions.on_pay(invoice.id))
-            |> event.stop_propagation,
-        ],
-        [html.text("Mark paid")],
-      )
-    _, _ -> element.none()
+  let action = case invoice.status {
+    "draft" ->
+      ui.when_permitted(actions.issue, fn(granted) {
+        html.button(
+          [
+            attribute.class("btn btn--sm"),
+            event.on_click(actions.to_open_for(granted, invoice.id))
+              |> event.stop_propagation,
+          ],
+          [html.text("Issue")],
+        )
+      })
+    "issued" ->
+      ui.when_permitted(actions.pay, fn(granted) {
+        html.button(
+          [
+            attribute.class("btn btn--sm"),
+            event.on_click(actions.to_open_for(granted, invoice.id))
+              |> event.stop_propagation,
+          ],
+          [html.text("Mark paid")],
+        )
+      })
+    _ -> element.none()
   }
   let lifecycle = case invoice.status {
     "draft" -> action
@@ -599,37 +606,40 @@ fn transition_pill(verb: String, at: Option(calendar.Date)) -> Element(msg) {
 }
 
 fn draft_button(actions: Actions(msg)) -> Element(msg) {
-  ui.gate(
-    actions.permitted,
+  ui.when_permitted(actions.draft, fn(granted) {
     ui.button(
       label: "+ Draft",
       kind: ui.Primary,
       size: ui.Small,
-      on_press: actions.on_draft,
-    ),
-  )
+      on_press: actions.to_open(granted),
+    )
+  })
 }
 
 /// One drilled-in invoice: its metadata, the lifecycle action for its status, and
 /// its line items, with a back link to the list.
 pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
   let invoice = detail.invoice
-  let action = case actions.permitted, invoice.status {
-    True, "draft" ->
-      ui.button(
-        label: "Issue",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: actions.on_issue(invoice.id),
-      )
-    True, "issued" ->
-      ui.button(
-        label: "Mark paid",
-        kind: ui.Primary,
-        size: ui.Small,
-        on_press: actions.on_pay(invoice.id),
-      )
-    _, _ -> element.none()
+  let action = case invoice.status {
+    "draft" ->
+      ui.when_permitted(actions.issue, fn(granted) {
+        ui.button(
+          label: "Issue",
+          kind: ui.Primary,
+          size: ui.Small,
+          on_press: actions.to_open_for(granted, invoice.id),
+        )
+      })
+    "issued" ->
+      ui.when_permitted(actions.pay, fn(granted) {
+        ui.button(
+          label: "Mark paid",
+          kind: ui.Primary,
+          size: ui.Small,
+          on_press: actions.to_open_for(granted, invoice.id),
+        )
+      })
+    _ -> element.none()
   }
   let line_rows = list.map(detail.lines, invoice_line_row)
   html.div([], [

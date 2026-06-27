@@ -109,8 +109,8 @@ pub type Msg {
   BackToListClicked
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
-  OpStarted(kind: ui.OpKind)
-  OpStartedFor(kind: ui.OpKind, engineer_id: Int)
+  OpStarted(permit: ui.Permit)
+  OpStartedFor(permit: ui.Permit, engineer_id: Int)
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -248,14 +248,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       Navigate(route.Finance(tab: route.Invoices, invoice: Some(invoice_id))),
     ])
 
-    OpStarted(kind:) -> #(
-      set_op(model, Some(open_op(model, kind, None))),
+    OpStarted(permit:) -> #(
+      set_op(model, Some(open_op(model, ui.permit_kind(permit), None))),
       effect.none(),
       [],
     )
 
-    OpStartedFor(kind:, engineer_id:) -> #(
-      set_op(model, Some(open_op(model, kind, Some(engineer_id)))),
+    OpStartedFor(permit:, engineer_id:) -> #(
+      set_op(
+        model,
+        Some(open_op(model, ui.permit_kind(permit), Some(engineer_id))),
+      ),
       effect.none(),
       [],
     )
@@ -496,14 +499,12 @@ fn view_list(
         <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpStartProject),
-          ui.button(
-            label: "+ Start project",
-            kind: ui.Primary,
-            size: ui.Medium,
-            on_press: OpStarted(ui.OpStartProject),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpStartProject),
+          to_msg: OpStarted,
+          label: "+ Start project",
+          kind: ui.Primary,
+          size: ui.Medium,
         ),
       ],
     )
@@ -610,59 +611,51 @@ fn view_project_detail(
         html.p([], [html.text(detail.profile.summary)]),
       ]),
       html.div([attribute.class("action-row")], [
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpAssignToProject),
-          ui.button(
-            label: "Assign",
-            kind: ui.Ghost,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpAssignToProject),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+          to_msg: OpStarted,
+          label: "Assign",
+          kind: ui.Ghost,
+          size: ui.Small,
         ),
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpChangeAllocationFraction),
-          ui.button(
-            label: "Adjust allocation",
-            kind: ui.Ghost,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpChangeAllocationFraction),
+        ui.launch(
+          ui.permit(
+            permissions,
+            own: False,
+            kind: ui.OpChangeAllocationFraction,
           ),
+          to_msg: OpStarted,
+          label: "Adjust allocation",
+          kind: ui.Ghost,
+          size: ui.Small,
         ),
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpUpdateProjectProfile),
-          ui.button(
-            label: "Edit profile",
-            kind: ui.Ghost,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpUpdateProjectProfile),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpUpdateProjectProfile),
+          to_msg: OpStarted,
+          label: "Edit profile",
+          kind: ui.Ghost,
+          size: ui.Small,
         ),
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpUpdateProjectPlan),
-          ui.button(
-            label: "Edit plan",
-            kind: ui.Ghost,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpUpdateProjectPlan),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpUpdateProjectPlan),
+          to_msg: OpStarted,
+          label: "Edit plan",
+          kind: ui.Ghost,
+          size: ui.Small,
         ),
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpSetProjectRequirement),
-          ui.button(
-            label: "Set requirement",
-            kind: ui.Ghost,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpSetProjectRequirement),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpSetProjectRequirement),
+          to_msg: OpStarted,
+          label: "Set requirement",
+          kind: ui.Ghost,
+          size: ui.Small,
         ),
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpDraftInvoice),
-          ui.button(
-            label: "Draft invoice",
-            kind: ui.Primary,
-            size: ui.Small,
-            on_press: OpStarted(ui.OpDraftInvoice),
-          ),
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpDraftInvoice),
+          to_msg: OpStarted,
+          label: "Draft invoice",
+          kind: ui.Primary,
+          size: ui.Small,
         ),
       ]),
     ])
@@ -765,20 +758,26 @@ fn team_card(
         ]),
       ]),
       html.div([attribute.class("board-card__action")], [
-        ui.gate(
-          ui.can_op(permissions, False, ui.OpChangeAllocationFraction),
-          html.button(
-            [
-              attribute.class("btn btn--ghost btn--sm"),
-              event.stop_propagation(
-                event.on_click(OpStartedFor(
-                  kind: ui.OpChangeAllocationFraction,
-                  engineer_id: member.engineer_id,
-                )),
-              ),
-            ],
-            [html.text("Adjust")],
+        ui.when_permitted(
+          ui.permit(
+            permissions,
+            own: False,
+            kind: ui.OpChangeAllocationFraction,
           ),
+          fn(granted) {
+            html.button(
+              [
+                attribute.class("btn btn--ghost btn--sm"),
+                event.stop_propagation(
+                  event.on_click(OpStartedFor(
+                    permit: granted,
+                    engineer_id: member.engineer_id,
+                  )),
+                ),
+              ],
+              [html.text("Adjust")],
+            )
+          },
         ),
       ]),
     ],

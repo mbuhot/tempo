@@ -27,8 +27,11 @@ function engineerSays(name, fragment) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // Sign in as a person; the app lands on the Board at the seed "now".
-  await signInAs(page, "Priya Sharma");
+  // Sign in as the owner; the app lands on the Board at the seed "now". The board
+  // content these tests assert is the same for any role with read.projects — the
+  // owner is used so the one test that exercises a privileged launcher (a card's
+  // "Assign") sees it. Role-based launcher gating itself is covered in rbac.spec.
+  await signInAs(page, "Admin");
   await expect(
     page.getByRole("heading", { name: "Board" }),
   ).toBeVisible();
