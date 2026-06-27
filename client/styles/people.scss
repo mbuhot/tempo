@@ -7,13 +7,18 @@
 .balance__head { display: flex; justify-content: space-between; margin-bottom: var(--space-xs); }
 .balance__value { font-family: var(--mono); font-weight: var(--weight-semibold); }
 
-/* Compact data grid (#25): gridlined cells with minimal padding and inputs that
- * fill their cell (borderless) rather than floating boxed in roomy table padding —
- * a dense spreadsheet to fill in, not a spaced-out form. */
-.timesheet { border-collapse: collapse; border: var(--border-thin) solid var(--color-border); }
+/* Compact data grid (#25): a narrow gridlined table (capped well under full
+ * width — the global `table { width: 100% }` would otherwise stretch the seven day
+ * columns enormously) whose day cells carry NO padding so each hour input fills its
+ * whole cell edge-to-edge — a dense spreadsheet to fill in, not a spaced-out form. */
+.timesheet {
+  width: 100%;
+  max-width: 50vw;
+  border-collapse: collapse;
+  border: var(--border-thin) solid var(--color-border);
+}
 .timesheet th, .timesheet td {
   text-align: center;
-  padding: var(--space-2xs) var(--space-xs);
   border: var(--border-thin) solid var(--color-border);
 }
 .timesheet th:first-child, .timesheet td:first-child {
@@ -22,21 +27,24 @@
   padding: var(--space-2xs) var(--space-md);
 }
 .timesheet thead th {
+  padding: var(--space-2xs) var(--space-xs);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   color: var(--color-muted);
 }
 .timesheet__cell--disabled { background: var(--color-surface-sunken); }
+/* The input fills the entire day cell (the cell itself has no padding), so the
+ * whole cell is the click target; the input's own padding positions the number. */
 .timesheet__cell input {
   display: block;
-  width: var(--size-ts-input);
+  width: 100%;
   box-sizing: border-box;
   text-align: center;
   font-family: var(--mono);
   font-size: var(--text-sm);
   border: 0;
   background: transparent;
-  padding: var(--space-2xs) 0;
+  padding: var(--space-xs) var(--space-xs);
   color: var(--color-text);
 }
 .timesheet__cell input:focus { outline: none; background: var(--color-accent-soft); }
