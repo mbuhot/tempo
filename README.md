@@ -20,8 +20,8 @@ type-checked path from SQL to the browser.
 
 ```
                 ┌───────────────────────────────────────────────┐
-                │  shared/   data contracts + JSON codecs +      │   one package,
-                │            permission policy                   │   compiled to BOTH targets
+                │  shared/   data contracts + JSON codecs +     │   one package,
+                │            permission policy                  │   compiled to BOTH targets
                 └───────▲───────────────────────────▲───────────┘
                         │ path dep                   │ path dep
         ┌───────────────┴────────┐        ┌──────────┴───────────────┐
