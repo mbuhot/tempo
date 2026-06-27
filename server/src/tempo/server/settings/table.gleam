@@ -30,7 +30,7 @@ import shared/table/column.{
   type Schema, ActionsType, Column, EntityType, MoneyType, NumberType,
   NumericEnd, Schema, Start, TextType,
 }
-import shared/table/filter.{type FilterOption, FilterOption, SelectFilter}
+import shared/table/filter.{FilterOption, SelectFilter}
 import shared/table/query.{type Applied}
 import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
