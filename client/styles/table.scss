@@ -13,8 +13,7 @@
     border-bottom: var(--border-thin) solid var(--color-border);
     background: var(--color-surface-sunken);
     min-height: 3rem;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
 }
 
 .dt-rail__label {
@@ -26,14 +25,20 @@
     flex: none;
 }
 
-.dt-rail__buttons {
+.dt-rail__chips {
     display: flex;
     gap: var(--space-sm);
-    flex: none;
+    flex-wrap: wrap;
 }
 
 .dt-rail__spacer {
     flex: 1 1 auto;
+}
+
+// A rail chip anchors its own popover beneath it.
+.dt-fchip {
+    position: relative;
+    flex: none;
 }
 
 .dt-fbtn {
@@ -71,6 +76,21 @@
     padding: 0 var(--space-xs);
 }
 
+.dt-fbtn__chev {
+    font-size: 0.6rem;
+    opacity: 0.5;
+}
+
+.dt-fbtn__clear {
+    margin-left: var(--space-xs);
+    color: var(--color-accent);
+    opacity: 0.7;
+
+    &:hover {
+        opacity: 1;
+    }
+}
+
 .dt-reset {
     flex: none;
     border: none;
@@ -86,10 +106,23 @@
     }
 }
 
+// A floating popover anchored beneath its rail chip, overlaying the table.
 .dt-pop {
-    border-bottom: var(--border-thin) solid var(--color-border);
+    position: absolute;
+    top: calc(100% + var(--space-xs));
+    left: 0;
+    z-index: var(--z-modal);
+    min-width: var(--size-field);
     background: var(--color-surface);
-    padding: var(--space-md) var(--space-lg);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-md);
+}
+
+.dt-fchip--right .dt-pop {
+    left: auto;
+    right: 0;
 }
 
 .dt-pop__head {
@@ -107,8 +140,8 @@
     font-weight: var(--weight-semibold);
 }
 
-.dt-pop__clear,
-.dt-pop__done {
+.dt-pop__clear {
+    margin-left: auto;
     border: none;
     background: none;
     font-size: var(--text-xs);
@@ -118,10 +151,6 @@
     &:hover {
         text-decoration: underline;
     }
-}
-
-.dt-pop__done {
-    margin-left: auto;
 }
 
 .dt-options {
@@ -186,6 +215,12 @@
     }
 }
 
+.dt-cols__hint {
+    @include mono-xs;
+    color: var(--color-faint);
+    margin-bottom: var(--space-sm);
+}
+
 .dt-cols__list {
     display: flex;
     flex-direction: column;
@@ -198,6 +233,7 @@
     gap: var(--space-sm);
     padding: var(--space-xs);
     border-radius: var(--radius-sm);
+    cursor: grab;
 
     input {
         accent-color: var(--color-accent);
@@ -208,18 +244,14 @@
     }
 }
 
-.dt-cols__move {
-    @include hairline;
-    background: var(--color-surface);
-    color: var(--color-muted);
-    width: var(--size-control);
-    height: var(--size-control);
-    line-height: 1;
+.dt-cols__row--dragging {
+    opacity: 0.4;
+}
 
-    &:hover {
-        border-color: var(--color-accent);
-        color: var(--color-accent);
-    }
+.dt-cols__grip {
+    color: var(--color-faint);
+    cursor: grab;
+    user-select: none;
 }
 
 .dt-cols__label {
@@ -232,8 +264,17 @@
     color: var(--color-faint);
 }
 
+// The rows scroll inside a bounded viewport; reaching the end loads the next page.
 .dt-scroll {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: var(--size-table-scroll);
+
+    thead th {
+        position: sticky;
+        top: 0;
+        background: var(--color-surface);
+        z-index: 1;
+    }
 }
 
 .dt-th--sortable {
@@ -257,34 +298,27 @@
     font-size: var(--text-xs);
 }
 
-.dt-foot__right {
+.dt-foot__loading {
+    @include mono-xs;
     margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-}
-
-.dt-pagesize {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-size: var(--text-xs);
-    color: var(--color-faint);
-
-    select {
-        @include hairline;
-        @include mono-xs;
-        height: var(--size-control);
-        padding: 0 var(--space-xs);
-        background: var(--color-surface);
-        color: var(--color-text);
-    }
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
 }
 
 .chips {
     display: flex;
     gap: var(--space-xs);
     flex-wrap: nowrap;
+    align-items: center;
+}
+
+.chip--more {
+    @include mono-xs;
+    font-weight: var(--weight-semibold);
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
 }
 
 .avatar--chip {

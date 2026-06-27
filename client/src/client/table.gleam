@@ -1,10 +1,10 @@
 //// The generic, schema-driven data table. One reusable MVU unit every list page
 //// embeds: it renders rows by the column's data-type, offers the server-advertised
-//// filter per column, sorts on header click, pages with a "Load more", and lets the
-//// user reorder/hide columns (saved locally). It owns no data fetching — `update`
-//// returns an `Outcome` telling the host page what to do (re-query, append a page,
-//// persist the layout, or schedule a debounce tick), so the page keeps the one
-//// `api.get`/effect seam.
+//// filter per column (anchored popover), sorts on header click, loads more rows as
+//// the viewport scrolls (infinite scroll), and lets the user drag-reorder/hide
+//// columns (saved locally). It owns no data fetching — `update` returns an `Outcome`
+//// telling the host page what to do (re-query, append a page, persist the layout, or
+//// schedule a debounce tick), so the page keeps the one `api.get`/effect seam.
 ////
 //// The cell renderer (`render_cell`), the tone→pill mapping (`tone_class`), and the
 //// filter-widget picker (`filter_widget`) each switch exhaustively with no `_` arm,
@@ -13,7 +13,7 @@
 import client/time
 import client/ui
 import gleam/dict
-import gleam/dynamic/decode
+import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/int
 import gleam/json
@@ -62,10 +62,12 @@ pub type State {
     applied: Applied,
     open: Panel,
     filter_token: Int,
+    loading_more: Bool,
+    dragging: Option(String),
   )
 }
 
-/// Which detail panel is open below the fixed-height rail.
+/// Which anchored popover is open: a column's filter, or the columns manager.
 pub type Panel {
   Closed
   FilterPanel(key: String)
@@ -85,7 +87,7 @@ pub type DateBound {
 pub type Msg {
   HeaderClicked(key: String)
   FilterButtonClicked(key: String)
-  PanelDismissed
+  ColumnsButtonClicked
   SelectToggled(key: String, value: String)
   TextTyped(key: String, value: String)
   NumberBoundTyped(key: String, bound: Bound, value: String)
@@ -93,12 +95,13 @@ pub type Msg {
   BoolPicked(key: String, value: String)
   FilterCleared(key: String)
   ResetAll
-  PageSizeChanged(value: String)
-  LoadMoreClicked
   SettleFired(token: Int)
+  ScrolledNearBottom
   ColumnToggled(key: String)
-  ColumnMovedUp(key: String)
-  ColumnMovedDown(key: String)
+  DragStarted(key: String)
+  DragOver(key: String)
+  Dropped(key: String)
+  DragEnded
   LayoutReset
   RowClicked(id: String)
 }
@@ -116,7 +119,13 @@ pub type Outcome {
   Activated(id: String)
 }
 
-const default_page_size = 8
+/// The page size the frontend requests — large enough to overflow the table's scroll
+/// viewport so infinite scroll has room to trigger, small enough to keep each fetch
+/// cheap. The user never picks this.
+const default_page_size = 15
+
+/// How close to the bottom of the scroll viewport (px) before the next page loads.
+const scroll_threshold = 160.0
 
 /// Start the table from a schema: columns in schema order, nothing hidden, the
 /// schema's default sort applied.
@@ -135,18 +144,27 @@ pub fn init(schema: Schema) -> State {
     ),
     open: Closed,
     filter_token: 0,
+    loading_more: False,
+    dragging: None,
   )
 }
 
 /// Reconcile the layout with a (possibly changed) schema: keep the saved order for
 /// columns that still exist, append any new columns visibly, and forget hidden keys
-/// the schema no longer sends.
+/// the schema no longer sends. Also clears the in-flight `loading_more` guard, since
+/// every fresh response (or appended page) settles the table.
 pub fn reconcile(state: State, schema: Schema) -> State {
   let keys = list.map(schema.columns, fn(column) { column.key })
   let kept = list.filter(state.order, fn(key) { list.contains(keys, key) })
   let added = list.filter(keys, fn(key) { !list.contains(kept, key) })
   let hidden = set.filter(state.hidden, fn(key) { list.contains(keys, key) })
-  State(..state, default_order: keys, order: list.append(kept, added), hidden:)
+  State(
+    ..state,
+    default_order: keys,
+    order: list.append(kept, added),
+    hidden:,
+    loading_more: False,
+  )
 }
 
 /// Apply a saved layout JSON (from storage) over the current state, then reconcile
@@ -191,7 +209,13 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       }
       #(State(..state, open:), Idle)
     }
-    PanelDismissed -> #(State(..state, open: Closed), Idle)
+    ColumnsButtonClicked -> {
+      let open = case state.open {
+        ColumnsPanel -> Closed
+        _ -> ColumnsPanel
+      }
+      #(State(..state, open:), Idle)
+    }
     SelectToggled(key:, value:) -> {
       let next =
         State(..state, applied: toggle_select(state.applied, key, value))
@@ -225,16 +249,18 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       let next = State(..state, applied:, open: Closed)
       #(next, Requery(query.to_params(applied)))
     }
-    PageSizeChanged(value:) -> {
-      let size = result_or(int.parse(value), default_page_size)
-      let applied = Applied(..state.applied, page_size: size)
-      #(State(..state, applied:), Requery(query.to_params(applied)))
-    }
-    LoadMoreClicked -> #(state, AppendPage(query.to_params(state.applied)))
     SettleFired(token:) ->
       case token == state.filter_token {
         True -> #(state, Requery(query.to_params(state.applied)))
         False -> #(state, Idle)
+      }
+    ScrolledNearBottom ->
+      case state.loading_more {
+        True -> #(state, Idle)
+        False -> #(
+          State(..state, loading_more: True),
+          AppendPage(query.to_params(state.applied)),
+        )
       }
     ColumnToggled(key:) -> {
       let hidden = case set.contains(state.hidden, key) {
@@ -244,14 +270,22 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       let next = State(..state, hidden:)
       #(next, Persist(encode_layout(next)))
     }
-    ColumnMovedUp(key:) -> {
-      let next = State(..state, order: move(state.order, key, -1))
-      #(next, Persist(encode_layout(next)))
-    }
-    ColumnMovedDown(key:) -> {
-      let next = State(..state, order: move(state.order, key, 1))
-      #(next, Persist(encode_layout(next)))
-    }
+    DragStarted(key:) -> #(State(..state, dragging: Some(key)), Idle)
+    DragOver(_key) -> #(state, Idle)
+    Dropped(key:) ->
+      case state.dragging {
+        Some(from) -> {
+          let next =
+            State(
+              ..state,
+              order: reorder(state.order, from, key),
+              dragging: None,
+            )
+          #(next, Persist(encode_layout(next)))
+        }
+        None -> #(state, Idle)
+      }
+    DragEnded -> #(State(..state, dragging: None), Idle)
     LayoutReset -> {
       let next = State(..state, order: state.default_order, hidden: set.new())
       #(next, Persist(encode_layout(next)))
@@ -349,44 +383,19 @@ fn clear_filter(applied: Applied, key: String) -> Applied {
   Applied(..applied, filters: dict.delete(applied.filters, key))
 }
 
-fn move(order: List(String), key: String, delta: Int) -> List(String) {
-  let index = index_of(order, key, 0)
-  case index {
-    Some(at) -> {
-      let target = at + delta
-      case target >= 0 && target < list.length(order) {
-        True -> swap(order, at, target)
-        False -> order
-      }
-    }
-    None -> order
-  }
-}
-
-fn index_of(items: List(String), key: String, at: Int) -> Option(Int) {
-  case items {
-    [] -> None
-    [head, ..] if head == key -> Some(at)
-    [_, ..rest] -> index_of(rest, key, at + 1)
-  }
-}
-
-fn swap(items: List(String), i: Int, j: Int) -> List(String) {
-  let low = int.min(i, j)
-  let high = int.max(i, j)
-  list.index_map(items, fn(item, at) {
-    case at {
-      _ if at == low -> at_index(items, high, item)
-      _ if at == high -> at_index(items, low, item)
-      _ -> item
-    }
-  })
-}
-
-fn at_index(items: List(String), at: Int, fallback: String) -> String {
-  case list.drop(items, at) {
-    [head, ..] -> head
-    [] -> fallback
+/// Move `from` to sit immediately before `to` in the order (drag-and-drop drop-on-
+/// target semantics). A drop on itself is a no-op.
+fn reorder(order: List(String), from: String, to: String) -> List(String) {
+  case from == to {
+    True -> order
+    False ->
+      list.filter(order, fn(key) { key != from })
+      |> list.flat_map(fn(key) {
+        case key == to {
+          True -> [from, key]
+          False -> [key]
+        }
+      })
   }
 }
 
@@ -426,8 +435,9 @@ fn decode_layout(text: String) -> Option(#(List(String), Set(String))) {
 
 // --- view -------------------------------------------------------------------
 
-/// Render the whole table: the filter rail, any open detail panel, the rows, and the
-/// pagination footer. `has_more` reflects the host page's `next_cursor`.
+/// Render the whole table: the filter rail (each filterable column a chip with an
+/// anchored popover), the scrolling rows (infinite scroll when `has_more`), and the
+/// footer. `has_more` reflects the host page's `next_cursor`.
 pub fn view(
   schema: Schema,
   rows: List(Row),
@@ -436,17 +446,16 @@ pub fn view(
 ) -> Element(Msg) {
   html.div([attribute.class("dt")], [
     rail(schema, state),
-    panel(schema, state),
-    table(schema, rows, state),
-    footer(rows, has_more, state),
+    table(schema, rows, state, has_more),
+    footer(rows, state),
   ])
 }
 
 fn rail(schema: Schema, state: State) -> Element(Msg) {
-  let buttons =
+  let chips =
     schema.columns
     |> list.filter(fn(column) { option.is_some(column.filter) })
-    |> list.map(fn(column) { filter_button(column, state) })
+    |> list.map(fn(column) { filter_chip(column, state) })
   let reset = case dict.size(state.applied.filters) {
     0 -> element.none()
     _ ->
@@ -456,39 +465,67 @@ fn rail(schema: Schema, state: State) -> Element(Msg) {
   }
   html.div([attribute.class("dt-rail")], [
     html.span([attribute.class("dt-rail__label")], [html.text("Filter")]),
-    html.div([attribute.class("dt-rail__buttons")], buttons),
+    html.div([attribute.class("dt-rail__chips")], chips),
     html.div([attribute.class("dt-rail__spacer")], []),
     reset,
-    html.button(
-      [
-        attribute.class("dt-fbtn"),
-        event.on_click(FilterButtonClicked("__columns")),
-      ],
-      [html.text("Columns")],
-    ),
+    columns_chip(schema, state),
   ])
 }
 
-fn filter_button(column: Column, state: State) -> Element(Msg) {
+/// A filterable column's rail chip: a toggle button (label, active count badge, an
+/// inline clear when active) and — when open — its filter popover anchored beneath.
+fn filter_chip(column: Column, state: State) -> Element(Msg) {
   let count = active_count(state.applied, column.key)
   let active_class = case count {
     0 -> "dt-fbtn"
     _ -> "dt-fbtn dt-fbtn--active"
   }
   let badge = case count {
-    0 -> element.none()
+    0 -> html.span([attribute.class("dt-fbtn__chev")], [html.text("▾")])
     _ ->
-      html.span([attribute.class("dt-fbtn__badge")], [
-        html.text(int.to_string(count)),
+      html.span([], [
+        html.span([attribute.class("dt-fbtn__badge")], [
+          html.text(int.to_string(count)),
+        ]),
+        html.span(
+          [
+            attribute.class("dt-fbtn__clear"),
+            event.on_click(FilterCleared(column.key)) |> event.stop_propagation,
+          ],
+          [html.text("✕")],
+        ),
       ])
   }
-  html.button(
-    [
-      attribute.class(active_class),
-      event.on_click(FilterButtonClicked(column.key)),
-    ],
-    [html.text(column.label), badge],
-  )
+  let pop = case state.open {
+    FilterPanel(open_key) if open_key == column.key -> filter_pop(column, state)
+    _ -> element.none()
+  }
+  html.div([attribute.class("dt-fchip")], [
+    html.button(
+      [
+        attribute.class(active_class),
+        event.on_click(FilterButtonClicked(column.key)),
+      ],
+      [html.text(column.label), badge],
+    ),
+    pop,
+  ])
+}
+
+/// The Columns manager chip: a button and, when open, the columns popover anchored
+/// beneath (right-aligned, since it sits at the rail's end).
+fn columns_chip(schema: Schema, state: State) -> Element(Msg) {
+  let pop = case state.open {
+    ColumnsPanel -> columns_panel(schema, state)
+    _ -> element.none()
+  }
+  html.div([attribute.class("dt-fchip dt-fchip--right")], [
+    html.button(
+      [attribute.class("dt-fbtn"), event.on_click(ColumnsButtonClicked)],
+      [html.text("Columns")],
+    ),
+    pop,
+  ])
 }
 
 fn active_count(applied: Applied, key: String) -> Int {
@@ -499,19 +536,6 @@ fn active_count(applied: Applied, key: String) -> Int {
     Ok(TextValue(_)) -> 1
     Ok(BoolValue(_)) -> 1
     Error(Nil) -> 0
-  }
-}
-
-fn panel(schema: Schema, state: State) -> Element(Msg) {
-  case state.open {
-    Closed -> element.none()
-    ColumnsPanel -> columns_panel(schema, state)
-    FilterPanel("__columns") -> columns_panel(schema, state)
-    FilterPanel(key) ->
-      case find_column(schema, key) {
-        Some(column) -> filter_pop(column, state)
-        None -> element.none()
-      }
   }
 }
 
@@ -529,10 +553,6 @@ fn filter_pop(column: Column, state: State) -> Element(Msg) {
           event.on_click(FilterCleared(column.key)),
         ],
         [html.text("Clear")],
-      ),
-      html.button(
-        [attribute.class("dt-pop__done"), event.on_click(PanelDismissed)],
-        [html.text("Done")],
       ),
     ]),
     body,
@@ -686,10 +706,9 @@ fn columns_panel(schema: Schema, state: State) -> Element(Msg) {
         [attribute.class("dt-pop__clear"), event.on_click(LayoutReset)],
         [html.text("Reset layout")],
       ),
-      html.button(
-        [attribute.class("dt-pop__done"), event.on_click(PanelDismissed)],
-        [html.text("Done")],
-      ),
+    ]),
+    html.div([attribute.class("dt-cols__hint")], [
+      html.text("Drag to reorder · toggle to show/hide"),
     ]),
     html.div([attribute.class("dt-cols__list")], rows),
   ])
@@ -708,29 +727,41 @@ fn columns_row(column: Column, state: State) -> Element(Msg) {
     False ->
       html.span([attribute.class("dt-cols__pinned")], [html.text("pinned")])
   }
-  html.div([attribute.class("dt-cols__row")], [
-    html.button(
-      [
-        attribute.class("dt-cols__move"),
-        event.on_click(ColumnMovedUp(column.key)),
-      ],
-      [html.text("↑")],
-    ),
-    html.button(
-      [
-        attribute.class("dt-cols__move"),
-        event.on_click(ColumnMovedDown(column.key)),
-      ],
-      [html.text("↓")],
-    ),
-    toggle,
-    html.span([attribute.class("dt-cols__label")], [html.text(column.label)]),
-  ])
+  let dragging_class = case state.dragging {
+    Some(key) if key == column.key -> " dt-cols__row--dragging"
+    _ -> ""
+  }
+  html.div(
+    [
+      attribute.class("dt-cols__row" <> dragging_class),
+      attribute.attribute("draggable", "true"),
+      event.on("dragstart", decode.success(DragStarted(column.key))),
+      event.on("dragover", decode.success(DragOver(column.key)))
+        |> event.prevent_default,
+      event.on("drop", decode.success(Dropped(column.key)))
+        |> event.prevent_default,
+      event.on("dragend", decode.success(DragEnded)),
+    ],
+    [
+      html.span([attribute.class("dt-cols__grip")], [html.text("⠿")]),
+      toggle,
+      html.span([attribute.class("dt-cols__label")], [html.text(column.label)]),
+    ],
+  )
 }
 
-fn table(schema: Schema, rows: List(Row), state: State) -> Element(Msg) {
+fn table(
+  schema: Schema,
+  rows: List(Row),
+  state: State,
+  has_more: Bool,
+) -> Element(Msg) {
   let columns = visible_columns(schema, state)
-  html.div([attribute.class("dt-scroll")], [
+  let scroll_listener = case has_more {
+    True -> [event.on("scroll", scroll_decoder()) |> event.throttle(150)]
+    False -> []
+  }
+  html.div([attribute.class("dt-scroll"), ..scroll_listener], [
     html.table([], [
       html.thead([], [
         html.tr([], list.map(columns, fn(column) { header(column, state) })),
@@ -738,6 +769,24 @@ fn table(schema: Schema, rows: List(Row), state: State) -> Element(Msg) {
       html.tbody([], body_rows(columns, rows)),
     ]),
   ])
+}
+
+/// Fire `ScrolledNearBottom` once the scroll viewport is within `scroll_threshold`
+/// px of the end; otherwise the decoder fails and no message is dispatched.
+fn scroll_decoder() -> Decoder(Msg) {
+  use top <- decode.then(decode.at(["target", "scrollTop"], decode.float))
+  use view_height <- decode.then(decode.at(
+    ["target", "clientHeight"],
+    decode.float,
+  ))
+  use full_height <- decode.then(decode.at(
+    ["target", "scrollHeight"],
+    decode.float,
+  ))
+  case top +. view_height +. scroll_threshold >=. full_height {
+    True -> decode.success(ScrolledNearBottom)
+    False -> decode.failure(ScrolledNearBottom, "not near bottom")
+  }
 }
 
 fn body_rows(columns: List(Column), rows: List(Row)) -> List(Element(Msg)) {
@@ -837,8 +886,20 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
           person_sub(sub),
         ]),
       ])
-    ChipsCell(chips) ->
-      html.div([attribute.class("chips")], list.index_map(chips, render_chip))
+    ChipsCell(chips) -> {
+      let shown = list.take(chips, 3)
+      let extra = list.length(chips) - list.length(shown)
+      let avatars = list.index_map(shown, render_chip)
+      let more = case extra > 0 {
+        True -> [
+          html.span([attribute.class("chip chip--more")], [
+            html.text("+" <> int.to_string(extra)),
+          ]),
+        ]
+        False -> []
+      }
+      html.div([attribute.class("chips")], list.append(avatars, more))
+    }
   }
 }
 
@@ -880,41 +941,16 @@ pub fn tone_class(tone: Tone) -> String {
   }
 }
 
-fn footer(rows: List(Row), has_more: Bool, state: State) -> Element(Msg) {
-  let more = case has_more {
+fn footer(rows: List(Row), state: State) -> Element(Msg) {
+  let count = int.to_string(list.length(rows)) <> " shown"
+  let loading = case state.loading_more {
     True ->
-      ui.button(
-        label: "Load more",
-        kind: ui.Ghost,
-        size: ui.Small,
-        on_press: LoadMoreClicked,
-      )
+      html.span([attribute.class("dt-foot__loading")], [html.text("Loading…")])
     False -> element.none()
   }
   html.div([attribute.class("dt-foot")], [
-    html.span([attribute.class("dt-foot__count")], [
-      html.text("Showing " <> int.to_string(list.length(rows))),
-    ]),
-    html.div([attribute.class("dt-foot__right")], [
-      page_size_select(state),
-      more,
-    ]),
-  ])
-}
-
-fn page_size_select(state: State) -> Element(Msg) {
-  let current = int.to_string(state.applied.page_size)
-  html.label([attribute.class("dt-pagesize")], [
-    html.span([], [html.text("Page size")]),
-    html.select(
-      [event.on_change(PageSizeChanged)],
-      list.map(["8", "15", "25"], fn(size) {
-        html.option(
-          [attribute.value(size), attribute.selected(size == current)],
-          size,
-        )
-      }),
-    ),
+    html.span([attribute.class("dt-foot__count")], [html.text(count)]),
+    loading,
   ])
 }
 

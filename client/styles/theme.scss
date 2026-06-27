@@ -124,6 +124,9 @@
      row (avatar + fraction + level pill + day rate + roll-off action) lays out
      on one line across font/render differences between browsers */
     --size-card-min: 22rem;
+    /* Max height of a data table's scroll viewport; rows past it scroll and the
+       next page loads on approach (infinite scroll). */
+    --size-table-scroll: 34rem;
 
     /* measure — max line length for prose */
     --measure: 60ch;

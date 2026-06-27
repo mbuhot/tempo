@@ -42,28 +42,30 @@ test("filtering by status narrows the invoices to that status", async ({
   ).toHaveCount(0);
 });
 
-test("sorting by the # column brings the lowest invoice id to the top", async ({
+test("sorting by the # column brings the oldest invoice to the top", async ({
   page,
 }) => {
-  // The default sort is newest-billing-first, so invoice #1 (the seed's first, a
-  // January invoice) is NOT at the top. Clicking the # header sorts ascending by id,
-  // bringing #1 — Ledger Migration — to the first row.
+  // The default sort is newest-billing-first, so the top row is a recent (June)
+  // invoice. The seed mints invoice ids chronologically, so sorting ascending by #
+  // brings the lowest-id — earliest-billed (January) — invoice to the top. We assert
+  // the top row's billing month flips June -> January, without depending on the
+  // absolute id value (which varies by database history).
+  await expect(page.getByRole("row").nth(1)).toContainText("Jun 2026");
+
   await page.getByRole("columnheader", { name: "#" }).click();
 
-  const firstRow = page.getByRole("row").nth(1);
-  await expect(firstRow).toContainText("#1");
-  await expect(firstRow).toContainText("Ledger Migration");
+  await expect(page.getByRole("row").nth(1)).toContainText("Jan 2026");
 });
 
-test("Load more reveals additional invoice rows", async ({ page }) => {
-  // The first page holds 8 invoices; the seed has more, so "Load more" appears.
-  // Wait for it (the table has settled into a bounded first page) before counting.
-  await expect(page.getByRole("button", { name: "Load more" })).toBeVisible();
+test("scrolling to the bottom loads more invoice rows (infinite scroll)", async ({
+  page,
+}) => {
+  // The first page is a bounded slice; the seed has more invoices than fit, so
+  // scrolling the last loaded row into view loads the next page and grows the table.
+  // Retry the scroll: a scroll can land while the page is still appending.
   const before = await page.getByRole("row").count();
-  // Retry the click until the row count grows: a click can land while the table is
-  // still re-rendering its settled first page (the button detaches mid-click).
   await expect(async () => {
-    await page.getByRole("button", { name: "Load more" }).click();
+    await page.getByRole("row").last().scrollIntoViewIfNeeded();
     expect(await page.getByRole("row").count()).toBeGreaterThan(before);
   }).toPass();
 });
