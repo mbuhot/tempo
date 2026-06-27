@@ -117,7 +117,7 @@ pub fn init(
       roster: None,
       op: None,
     )
-  #(model, fetch_all(as_of, selected, []))
+  #(model, fetch_all(as_of, selected, table.initial_params()))
 }
 
 /// Re-fetch the tab for a new `as_of` (stale-while-revalidate), keeping the open op

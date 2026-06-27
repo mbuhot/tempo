@@ -22,12 +22,11 @@ import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
   type Chip, Chip, ChipsCell, DateCell, EntityCell, EnumCell, MoneyCell,
-  NumberCell, TextCell,
+  TextCell,
 }
 import shared/table/column.{
   type Schema, type Tone, ChipsType, Column, DateType, EntityType, EnumType,
-  MoneyType, Neutral, NumberType, NumericEnd, Positive, Schema, Start, TextType,
-  Warning,
+  MoneyType, Neutral, NumericEnd, Positive, Schema, Start, TextType, Warning,
 }
 import shared/table/filter.{
   DateRangeFilter, FilterOption, NumberRangeFilter, SelectFilter,
@@ -82,7 +81,7 @@ pub fn invoice_schema(options: FilterOptions) -> Schema {
       Column(
         key: "id",
         label: "#",
-        column_type: NumberType,
+        column_type: TextType,
         align: NumericEnd,
         sortable: True,
         hideable: False,
@@ -350,7 +349,7 @@ ORDER BY
   CASE WHEN $10 = 'id'      AND $11 = 'desc' THEN page.id END DESC,
   CASE WHEN $11 = 'asc'  THEN page.billing_from END ASC,
   CASE WHEN $11 = 'desc' THEN page.billing_from END DESC,
-  page.id
+  page.id DESC
 LIMIT $12::int OFFSET $13::int
 "
 
@@ -424,7 +423,7 @@ fn row_to_table_row(row: ListRow) -> Row {
   Row(
     id: int.to_string(row.id),
     cells: dict.from_list([
-      #("id", NumberCell(int.to_float(row.id))),
+      #("id", TextCell("#" <> int.to_string(row.id))),
       #("project", EntityCell(label: row.project, color: swatch_color(row.id))),
       #("client", TextCell(row.client)),
       #("engineers", ChipsCell(list.map(row.engineers, to_chip))),

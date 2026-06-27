@@ -4,7 +4,6 @@ const {
   navigateTo,
   scrubTo,
   visibleInvoiceIds,
-  invoiceRowById,
   clickContent,
   confirmOp,
   rosterRow,
@@ -32,13 +31,6 @@ const PROJECT = { id: 300, name: "Data Platform", client: "Globex Corporation" }
 const TOTAL = "$84,000";
 const MONTH = "Jun 2026";
 
-// The rail sits at 2026-06-15 in every beat (beforeEach), and the Issue / Mark-paid
-// forms default their date to the rail's as-of. So issuing here stamps issued_at =
-// 2026-06-15 and paying stamps paid_at = 2026-06-15, both rendered as "<d> <Mon>
-// <year>" -> "15 Jun 2026". The row's lifecycle cell then carries the Neutral chip
-// "Issued 15 Jun 2026" / "Paid 15 Jun 2026" in place of any action button.
-const ISSUE_DATE = "15 Jun 2026";
-
 // Draft an invoice for Data Platform's June 2026 month and return the id of the
 // invoice that draft created (the one absent before it).
 async function draftJuneInvoice(page) {
@@ -59,11 +51,17 @@ async function draftJuneInvoice(page) {
   await page.getByLabel("Billing from").fill("2026-06-01");
   await page.getByLabel("Billing to").fill("2026-07-01");
   await confirmOp(page, "Draft");
+  // Capture the new id only once the table has SETTLED on it: a larger id that holds
+  // across two consecutive reads. The default sort is newest-first, so our draft (the
+  // largest id) lands on the first page — but a mid-refetch read can momentarily show
+  // an older recent draft, so we require stability before locking on.
   let created = 0;
+  let previous = -1;
   await expect
     .poll(async () => {
       const max = await maxInvoiceId(page);
-      if (max > maxBefore) created = max;
+      if (max > maxBefore && max === previous) created = max;
+      previous = max;
       return created;
     })
     .toBeGreaterThan(maxBefore);
@@ -93,6 +91,26 @@ async function settledMaxInvoiceId(page) {
   return settled;
 }
 
+// The top invoices row. The table sorts newest-first (latest billing month, then
+// newest id), so a just-drafted June invoice lands here — the user sees their new
+// draft at the top — letting a test act on it without predicting its id.
+function topInvoiceRow(page) {
+  return page.getByRole("row").nth(1);
+}
+
+// Open the top invoice's detail by clicking its row, retrying until the detail
+// heading shows. A row click just after a draft can land while the table is still
+// re-rendering its refetched rows (the clicked node detaches mid-click), so we retry
+// rather than assume the first click took.
+async function openTopInvoiceDetail(page) {
+  await expect(async () => {
+    await topInvoiceRow(page).click();
+    await expect(
+      page.getByRole("heading", { name: /^Invoice #\d+/ }),
+    ).toBeVisible({ timeout: 2000 });
+  }).toPass();
+}
+
 test.beforeEach(async ({ page }) => {
   await signInAs(page, "Admin");
   await navigateTo(page, "Finance");
@@ -103,71 +121,69 @@ test.beforeEach(async ({ page }) => {
 test("drafting then issuing then paying walks an invoice through its lifecycle", async ({
   page,
 }) => {
-  // Draft the June invoice; the new row reads its agreed-rate total in `draft` and
-  // offers the Issue action.
-  const id = await draftJuneInvoice(page);
-  const row = () => invoiceRowById(page, id);
-  await expect(row()).toContainText(PROJECT.name);
-  await expect(row()).toContainText(PROJECT.client);
-  await expect(row()).toContainText(MONTH);
-  await expect(row()).toContainText(TOTAL);
-  await expect(row()).toContainText("draft");
-  await expect(row().getByRole("button", { name: "Issue" })).toBeVisible();
+  // Draft the June invoice; it lands at the top of the newest-first table reading its
+  // agreed-rate total and a `Draft` status pill. The lifecycle actions live on the
+  // invoice detail, opened by clicking the row.
+  await draftJuneInvoice(page);
+  await expect(topInvoiceRow(page)).toContainText(PROJECT.name);
+  await expect(topInvoiceRow(page)).toContainText(PROJECT.client);
+  await expect(topInvoiceRow(page)).toContainText(MONTH);
+  await expect(topInvoiceRow(page)).toContainText(TOTAL);
+  await expect(topInvoiceRow(page)).toContainText("Draft");
 
-  // Issue it: the row's Issue opens the Issue form (invoice id prefilled, date
-  // defaulted to the rail's 2026-06-15); Apply commits the draft -> issued
-  // transition. The row now reads `issued` and offers "Mark paid".
-  await clickContent(row().getByRole("button", { name: "Issue" }));
+  await openTopInvoiceDetail(page);
+
+  // Issue it from the detail: the Issue action opens the Issue form (date defaulted
+  // to the rail's 2026-06-15); confirming commits the draft -> issued transition and
+  // the detail re-reads `issued`, now offering only Mark paid.
+  await clickContent(page.getByRole("button", { name: "Issue", exact: true }));
   await expect(page.getByText("Issue invoice")).toBeVisible();
   await confirmOp(page, "Issue");
-  await expect(row()).toContainText("issued");
-  // The lifecycle cell now carries the "Issued <date>" chip and the row stops
-  // offering Issue — the Mark-paid action takes its place (issued -> paid is the
-  // only valid next step). issued_at was stamped at the rail's 2026-06-15.
-  await expect(row()).toContainText(`Issued ${ISSUE_DATE}`);
-  await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
-  await expect(row().getByRole("button", { name: "Mark paid" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Mark paid", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Issue", exact: true }),
+  ).toHaveCount(0);
 
-  // Pay it: Mark paid opens the pay form; the modal's Mark-paid confirm commits
-  // issued -> paid. The row now reads `paid`, carries the "Paid <date>" chip, and
-  // offers no further action — neither Issue nor Mark paid.
-  await clickContent(row().getByRole("button", { name: "Mark paid" }));
+  // Pay it: Mark paid commits issued -> paid; the detail then offers no further
+  // action — neither Issue nor Mark paid.
+  await clickContent(
+    page.getByRole("button", { name: "Mark paid", exact: true }),
+  )
   await expect(page.getByText("Mark invoice paid")).toBeVisible();
   await confirmOp(page, "Mark paid");
-  await expect(row()).toContainText("paid");
-  await expect(row()).toContainText(`Paid ${ISSUE_DATE}`);
-  await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
-  await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Mark paid", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Issue", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("an invoice's status is temporal: scrubbing before its issue date shows it as draft", async ({
   page,
 }) => {
-  // FR-F4: status is a temporal fact. Draft on 2026-06-15 and issue it there, then
-  // scrub the rail back to 2026-06-01 — before the issue date — and the SAME
-  // invoice reads `draft` again, offering Issue rather than Mark paid. The same
-  // invoice carries a different lifecycle state at a different instant.
-  const id = await draftJuneInvoice(page);
-  const row = () => invoiceRowById(page, id);
-  await expect(row()).toContainText("draft");
+  // FR-F4: status is a temporal fact. Draft on 2026-06-15 and issue it (from the
+  // detail) there, return to the list where the row reads `Issued`, then scrub the
+  // rail back to 2026-06-01 — before the issue date — and the SAME row reverts to
+  // `Draft`. The status pill is a pure function of the row's as-of status.
+  await draftJuneInvoice(page);
+  await expect(topInvoiceRow(page)).toContainText("Draft");
 
-  await clickContent(row().getByRole("button", { name: "Issue" }));
+  await openTopInvoiceDetail(page);
+  await clickContent(page.getByRole("button", { name: "Issue", exact: true }));
   await expect(page.getByText("Issue invoice")).toBeVisible();
   await confirmOp(page, "Issue");
-  await expect(row()).toContainText("issued");
-  // At/after the issue date the row carries the "Issued <date>" chip and no Issue
-  // action.
-  await expect(row()).toContainText(`Issued ${ISSUE_DATE}`);
-  await expect(row().getByRole("button", { name: "Issue" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Mark paid", exact: true }),
+  ).toBeVisible();
 
-  // Scrub the rail back before the 2026-06-15 issue date: the SAME invoice reverts
-  // to `draft`, the "Issued <date>" chip is GONE, and the Issue action returns (no
-  // Mark paid). The lifecycle cell is a pure function of the row's as-of status.
+  await clickContent(page.getByText("‹ All invoices"));
+  await expect(topInvoiceRow(page)).toContainText("Issued");
+
   await scrubTo(page, "2026-06-01");
-  await expect(row()).toContainText("draft");
-  await expect(row().getByRole("button", { name: "Issue" })).toBeVisible();
-  await expect(row().getByText(`Issued ${ISSUE_DATE}`)).toHaveCount(0);
-  await expect(row().getByRole("button", { name: "Mark paid" })).toHaveCount(0);
+  await expect(topInvoiceRow(page)).toContainText("Draft");
 });
 
 // Open the Payroll tab from the Finance page. The tab is a button labelled

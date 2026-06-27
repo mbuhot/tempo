@@ -169,6 +169,13 @@ pub fn params(state: State) -> List(#(String, String)) {
   query.to_params(state.applied)
 }
 
+/// The params for a page's very first fetch, before any schema/state exists: just
+/// the default page size, so the first response is a bounded page (the server
+/// applies its own default sort).
+pub fn initial_params() -> List(#(String, String)) {
+  [#("page_size", int.to_string(default_page_size))]
+}
+
 // --- update -----------------------------------------------------------------
 
 pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
@@ -694,6 +701,7 @@ fn columns_row(column: Column, state: State) -> Element(Msg) {
     True ->
       html.input([
         attribute.type_("checkbox"),
+        attribute.attribute("aria-label", column.label),
         attribute.checked(shown),
         event.on_check(fn(_checked) { ColumnToggled(column.key) }),
       ])
