@@ -84,15 +84,17 @@ Every attribute lives in a **fact table** keyed to its anchor.
 what it asserts (`employed_during`, `held_during`, `allocated_during`, `on_leave_during`,
 `effective_during`):
 
-```
-salary, level 5            employment, engineer 2
-[2024-01-01, 2026-07-01)  $10,000/mo      [2024-06-01, ∞)  employed
-[2026-07-01, ∞)           $14,000/mo
+One engineer's `salary` — a row superseded once, as `bin/psql` prints it:
 
-as-of 2025-03-10 → $10,000        as-of 2026-09-01 → $14,000
+```
+ engineer_id |      effective_during      | monthly_salary
+-------------+----------------------------+----------------
+           2 | [2024-01-01,2026-07-01)    |       10000.00
+           2 | [2026-07-01,)              |       14000.00
 ```
 
-The slider reads the version in force on the chosen date.
+Read *as of* `2025-03-10` the rate is `10000.00`; *as of* `2026-09-01` it's `14000.00` — the
+slider returns whichever version's `effective_during` contains the chosen date.
 
 **3. Latest-read facts** — descriptive detail (contact, banking, emergency, profiles) where
 the most-recently-effective row is current truth and a `*_current` view exposes it. These use
