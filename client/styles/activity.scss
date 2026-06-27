@@ -3,16 +3,64 @@
  * columns size intrinsically (max-content) so no bespoke width is needed; the
  * summary takes the remaining space. Token-only per ADR-038. */
 
-@use 'mixins' as *;
+@use "mixins" as *;
 
-.filters { display: flex; gap: var(--space-sm); flex-wrap: wrap; }
-.filters select { @include mono-xs; @include hairline; padding: var(--space-sm) var(--space-md); background: var(--color-surface); color: var(--color-text); }
-.activity__row { display: grid; grid-template-columns: max-content max-content 1fr auto; gap: var(--space-md); align-items: center; padding: var(--space-md) var(--space-md); border-bottom: var(--border-thin) solid var(--color-border); cursor: pointer; }
-.activity__row:last-child { border-bottom: none; }
-.activity__row:hover { background: var(--color-surface-sunken); }
-.activity__time { @include mono-xs; color: var(--color-faint); }
-.activity__op { @include mono-xs; font-weight: var(--weight-semibold); color: var(--color-accent); }
-.activity__summary { font-size: var(--text-sm); }
-.activity__actor { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-xs); color: var(--color-muted); }
-.activity__payload { @include mono-xs; background: var(--color-payload-bg); color: var(--color-payload-text); padding: var(--space-md) var(--space-md); border-radius: var(--radius-sm); white-space: pre-wrap; display: none; margin: 0 var(--space-md) var(--space-sm); }
-.activity__payload--open { display: block; }
+.filters {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+.filters select {
+    @include mono-xs;
+    @include hairline;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+.activity__row {
+    display: grid;
+    grid-template-columns: max-content max-content 1fr auto;
+    gap: var(--space-md);
+    align-items: center;
+    padding: var(--space-md) var(--space-md);
+    border-bottom: var(--border-thin) solid var(--color-border);
+    cursor: pointer;
+}
+.activity__row:last-child {
+    border-bottom: none;
+}
+.activity__row:hover {
+    background: var(--color-surface-sunken);
+}
+.activity__time {
+    @include mono-xs;
+    color: var(--color-faint);
+}
+.activity__op {
+    @include mono-xs;
+    font-weight: var(--weight-semibold);
+    color: var(--color-accent);
+}
+.activity__summary {
+    font-size: var(--text-sm);
+}
+.activity__actor {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+}
+.activity__payload {
+    @include mono-xs;
+    background: var(--color-payload-bg);
+    color: var(--color-payload-text);
+    padding: var(--space-md) var(--space-md);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    display: none;
+    margin: 0 var(--space-md) var(--space-sm);
+}
+.activity__payload--open {
+    display: block;
+}

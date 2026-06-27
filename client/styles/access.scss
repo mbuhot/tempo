@@ -3,102 +3,105 @@
  * Token-only per ADR-038. */
 
 .access h1 {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tight);
-  margin: 0 0 var(--space-lg);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+    margin: 0 0 var(--space-lg);
 }
 .access__section {
-  margin-bottom: var(--space-xl);
+    margin-bottom: var(--space-xl);
 }
 .access__section .eyebrow {
-  margin-bottom: var(--space-sm);
+    margin-bottom: var(--space-sm);
 }
 .access__status {
-  color: var(--color-muted);
+    color: var(--color-muted);
 }
 .access__status--error {
-  color: var(--color-leave);
+    color: var(--color-leave);
 }
 
 .access__matrix-scroll {
-  overflow-x: auto;
+    overflow-x: auto;
 }
 .access__matrix {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: var(--text-sm);
+    border-collapse: collapse;
+    width: 100%;
+    font-size: var(--text-sm);
 }
 .access__matrix th,
 .access__matrix td {
-  border: var(--border-thin) solid var(--color-border);
-  padding: var(--space-xs) var(--space-sm);
-  text-align: center;
+    border: var(--border-thin) solid var(--color-border);
+    padding: var(--space-xs) var(--space-sm);
+    text-align: center;
 }
 .access__matrix thead th {
-  background: var(--color-surface-sunken);
-  text-transform: capitalize;
-  font-weight: var(--weight-semibold);
+    background: var(--color-surface-sunken);
+    text-transform: capitalize;
+    font-weight: var(--weight-semibold);
 }
 .access__matrix .access__perm {
-  text-align: left;
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  color: var(--color-muted);
-  white-space: nowrap;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+    white-space: nowrap;
 }
 .access__cell {
-  color: var(--color-faint);
+    color: var(--color-faint);
 }
 .access__cell--on {
-  color: var(--color-accent);
-  font-weight: var(--weight-bold);
-  background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: var(--weight-bold);
+    background: var(--color-accent-soft);
 }
 
 .access__users {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
 }
 .access__user {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
 }
 .access__user-name {
-  font-weight: var(--weight-bold);
+    font-weight: var(--weight-bold);
 }
 .access__user-email {
-  color: var(--color-faint);
-  font-size: var(--text-xs);
+    color: var(--color-faint);
+    font-size: var(--text-xs);
 }
 .access__user-roles {
-  display: flex;
-  gap: var(--space-xs);
-  flex-wrap: wrap;
+    display: flex;
+    gap: var(--space-xs);
+    flex-wrap: wrap;
 }
 .access__role {
-  padding: var(--space-xs) var(--space-sm);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-  text-transform: capitalize;
-  transition: border-color var(--ease), background var(--ease), color var(--ease);
+    padding: var(--space-xs) var(--space-sm);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+    text-transform: capitalize;
+    transition:
+        border-color var(--ease),
+        background var(--ease),
+        color var(--ease);
 }
 .access__role:hover {
-  border-color: var(--color-accent);
+    border-color: var(--color-accent);
 }
 .access__role--on {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: var(--weight-semibold);
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-on-accent);
+    font-weight: var(--weight-semibold);
 }

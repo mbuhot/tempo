@@ -3,6 +3,15 @@
  * once (to the shell) rather than to both the mount and the shell. Token-only
  * per ADR-038. */
 
-.app { display: grid; grid-template-columns: var(--size-sidebar) 1fr; height: 100vh; }
+.app {
+    display: grid;
+    grid-template-columns: var(--size-sidebar) 1fr;
+    height: 100vh;
+}
 
-.main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}

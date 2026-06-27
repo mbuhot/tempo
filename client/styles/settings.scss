@@ -2,4 +2,9 @@
  * leave-policy tables, which themselves reuse the shared tables and pills from
  * components.css. Token-only per ADR-038. */
 
-.settings-grid { display: grid; gap: var(--space-lg); grid-template-columns: 1fr 1fr; align-items: start; }
+.settings-grid {
+    display: grid;
+    gap: var(--space-lg);
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+}

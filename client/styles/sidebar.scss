@@ -1,57 +1,137 @@
 /* Sidebar — brand mark, primary nav, and the signed-in identity footer.
  * Token-only per ADR-038. */
 
-@use 'mixins' as *;
+@use "mixins" as *;
 
 .sidebar {
-  background: var(--color-surface);
-  border-right: var(--border-thin) solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-lg) var(--space-md);
+    background: var(--color-surface);
+    border-right: var(--border-thin) solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-lg) var(--space-md);
 }
-.brand { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-sm) var(--space-md); }
+.brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-sm) var(--space-md);
+}
 .brand__mark {
-  width: var(--size-mark); height: var(--size-mark); border-radius: var(--radius-sm);
-  background: var(--gradient-brand);
-  flex: none; display: grid; place-items: center;
-  box-shadow: var(--shadow-accent);
+    width: var(--size-mark);
+    height: var(--size-mark);
+    border-radius: var(--radius-sm);
+    background: var(--gradient-brand);
+    flex: none;
+    display: grid;
+    place-items: center;
+    box-shadow: var(--shadow-accent);
 }
-.brand__mark svg { width: 64%; height: 64%; display: block; }
-.brand__name { font-weight: var(--weight-bold); font-size: var(--text-lg); letter-spacing: var(--tracking-tight); }
-.brand__name span { color: var(--color-faint); font-weight: var(--weight-medium); }
+.brand__mark svg {
+    width: 64%;
+    height: 64%;
+    display: block;
+}
+.brand__name {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-lg);
+    letter-spacing: var(--tracking-tight);
+}
+.brand__name span {
+    color: var(--color-faint);
+    font-weight: var(--weight-medium);
+}
 
-.sidebar__nav { display: flex; flex-direction: column; gap: var(--space-xs); }
-.sidebar__nav-group { padding: var(--space-md) var(--space-sm) var(--space-xs); }
+.sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.sidebar__nav-group {
+    padding: var(--space-md) var(--space-sm) var(--space-xs);
+}
 .sidebar__nav-link {
-  display: flex; align-items: center; gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-sm); border-radius: var(--radius-sm);
-  color: var(--color-muted); font-weight: var(--weight-medium);
-  transition: background var(--ease), color var(--ease);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-sm);
+    border-radius: var(--radius-sm);
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    transition:
+        background var(--ease),
+        color var(--ease);
 }
-.sidebar__nav-link:hover { background: var(--color-surface-sunken); color: var(--color-text); }
-.sidebar__nav-link--active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
-.sidebar__nav-icon { width: var(--size-icon); height: var(--size-icon); flex: none; opacity: .9; }
+.sidebar__nav-link:hover {
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+}
+.sidebar__nav-link--active {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
+}
+.sidebar__nav-icon {
+    width: var(--size-icon);
+    height: var(--size-icon);
+    flex: none;
+    opacity: 0.9;
+}
 .sidebar__nav-badge {
-  margin-left: auto; @include mono-xs;
-  background: var(--color-surface-sunken); color: var(--color-faint);
-  padding: 0 var(--space-xs); border-radius: var(--radius-pill);
+    margin-left: auto;
+    @include mono-xs;
+    background: var(--color-surface-sunken);
+    color: var(--color-faint);
+    padding: 0 var(--space-xs);
+    border-radius: var(--radius-pill);
 }
-.sidebar__nav-link--active .sidebar__nav-badge { background: var(--color-surface); color: var(--color-accent); }
+.sidebar__nav-link--active .sidebar__nav-badge {
+    background: var(--color-surface);
+    color: var(--color-accent);
+}
 
 .sidebar__user {
-  margin-top: auto; border-top: var(--border-thin) solid var(--color-border); padding-top: var(--space-md);
-  display: flex; align-items: center; gap: var(--space-sm);
+    margin-top: auto;
+    border-top: var(--border-thin) solid var(--color-border);
+    padding-top: var(--space-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
 }
 .sidebar__user-avatar {
-  width: var(--size-control); height: var(--size-control); border-radius: var(--radius-circle); flex: none;
-  display: grid; place-items: center; color: var(--color-on-accent); font-weight: var(--weight-bold); font-size: var(--text-xs);
+    width: var(--size-control);
+    height: var(--size-control);
+    border-radius: var(--radius-circle);
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--color-on-accent);
+    font-weight: var(--weight-bold);
+    font-size: var(--text-xs);
 }
-.sidebar__user-meta { min-width: 0; }
-.sidebar__user-name { font-weight: var(--weight-semibold); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar__user-role { color: var(--color-faint); font-size: var(--text-xs); }
+.sidebar__user-meta {
+    min-width: 0;
+}
+.sidebar__user-name {
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sidebar__user-role {
+    color: var(--color-faint);
+    font-size: var(--text-xs);
+}
 .sidebar__switch {
-  margin-left: auto; border: var(--border-thin) solid var(--color-border); background: var(--color-surface);
-  color: var(--color-faint); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-xs); font-size: var(--text-xs);
+    margin-left: auto;
+    border: var(--border-thin) solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-faint);
+    border-radius: var(--radius-sm);
+    padding: var(--space-xs) var(--space-xs);
+    font-size: var(--text-xs);
 }
-.sidebar__switch:hover { color: var(--color-accent); border-color: var(--color-accent); }
+.sidebar__switch:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}

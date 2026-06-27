@@ -3,63 +3,90 @@
  * shared table / kv / panel atoms in components.css. The timesheet is a compact
  * gridlined data grid (#25). Token-only per ADR-038. */
 
-.balance { margin-bottom: var(--space-md); }
-.balance__head { display: flex; justify-content: space-between; margin-bottom: var(--space-xs); }
-.balance__value { font-family: var(--mono); font-weight: var(--weight-semibold); }
+.balance {
+    margin-bottom: var(--space-md);
+}
+.balance__head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--space-xs);
+}
+.balance__value {
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
+}
 
 /* Compact data grid (#25): a narrow gridlined table (capped well under full
  * width — the global `table { width: 100% }` would otherwise stretch the seven day
  * columns enormously) whose day cells carry NO padding so each hour input fills its
  * whole cell edge-to-edge — a dense spreadsheet to fill in, not a spaced-out form. */
 .timesheet {
-  width: 100%;
-  max-width: 40rem;
-  border-collapse: collapse;
-  border: var(--border-thin) solid var(--color-border);
+    width: 100%;
+    max-width: 40rem;
+    border-collapse: collapse;
+    border: var(--border-thin) solid var(--color-border);
 }
 /* Day cells carry NO padding (the global `tbody td` padding would otherwise make
  * the rows tall) so the input fills the whole cell; the first-column project label
  * and the headers keep a little padding. */
-.timesheet th, .timesheet td {
-  text-align: center;
-  padding: 0;
-  border: var(--border-thin) solid var(--color-border);
+.timesheet th,
+.timesheet td {
+    text-align: center;
+    padding: 0;
+    border: var(--border-thin) solid var(--color-border);
 }
-.timesheet th:first-child, .timesheet td:first-child {
-  text-align: left;
-  white-space: nowrap;
-  padding: var(--space-2xs) var(--space-md);
+.timesheet th:first-child,
+.timesheet td:first-child {
+    text-align: left;
+    white-space: nowrap;
+    padding: var(--space-2xs) var(--space-md);
 }
 .timesheet thead th {
-  padding: var(--space-2xs) var(--space-xs);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  color: var(--color-muted);
+    padding: var(--space-2xs) var(--space-xs);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--color-muted);
 }
 /* A day the engineer is not employed/allocated is not editable — shaded so it
  * reads as locked. */
-.timesheet__cell--disabled { background: var(--color-surface-sunken); }
-.timesheet__cell input {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  border: 0;
-  background: transparent;
-  padding: var(--space-xs) 0;
-  color: var(--color-text);
+.timesheet__cell--disabled {
+    background: var(--color-surface-sunken);
 }
-.timesheet__cell input:focus { outline: none; background: var(--color-accent-soft); }
-.timesheet__cell--disabled input { color: var(--color-faint); cursor: default; }
-.timesheet__weekend { color: var(--color-faint); }
-.timesheet__daynum { font-family: var(--mono); font-weight: var(--weight-normal); }
+.timesheet__cell input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: var(--text-sm);
+    border: 0;
+    background: transparent;
+    padding: var(--space-xs) 0;
+    color: var(--color-text);
+}
+.timesheet__cell input:focus {
+    outline: none;
+    background: var(--color-accent-soft);
+}
+.timesheet__cell--disabled input {
+    color: var(--color-faint);
+    cursor: default;
+}
+.timesheet__weekend {
+    color: var(--color-faint);
+}
+.timesheet__daynum {
+    font-family: var(--mono);
+    font-weight: var(--weight-normal);
+}
 /* Row total (last column) and the day-/overall-total footer: monospace, semibold,
  * with their own padding since the day cells carry none. */
-.timesheet td.timesheet__total, .timesheet tfoot td {
-  padding: var(--space-2xs) var(--space-xs);
-  font-family: var(--mono);
-  font-weight: var(--weight-semibold);
+.timesheet td.timesheet__total,
+.timesheet tfoot td {
+    padding: var(--space-2xs) var(--space-xs);
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
 }
-.timesheet tfoot { border-top: var(--border-thin) solid var(--color-border); }
+.timesheet tfoot {
+    border-top: var(--border-thin) solid var(--color-border);
+}

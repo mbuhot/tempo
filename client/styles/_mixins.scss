@@ -9,12 +9,12 @@
 // The dense monospace caption/label look: the consultancy's numbers, eyebrows,
 // timestamps, and pill text. Callers add their own colour/weight/tracking.
 @mixin mono-xs {
-  font-family: var(--mono);
-  font-size: var(--text-xs);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
 }
 
 // A hairline-bordered, slightly-rounded surface (cards, selects, payload blocks).
 @mixin hairline {
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
 }

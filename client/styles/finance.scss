@@ -4,29 +4,49 @@
  * and the P&L total note are finance-specific and live here. Token-only per
  * ADR-038. */
 
-.pnl__profit--positive { color: var(--color-ok); }
-.pnl__profit--negative { color: var(--color-leave); }
-.finance__total-note { font-family: var(--mono); font-weight: var(--weight-semibold); }
+.pnl__profit--positive {
+    color: var(--color-ok);
+}
+.pnl__profit--negative {
+    color: var(--color-leave);
+}
+.finance__total-note {
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
+}
 
 /* Forecast: the summary row capping the month series — a hairline top rule and
  * semibold weight set it apart from the per-month rows above. */
-.finance__total-row td { border-top: var(--border-thin) solid var(--color-border); font-weight: var(--weight-semibold); }
+.finance__total-row td {
+    border-top: var(--border-thin) solid var(--color-border);
+    font-weight: var(--weight-semibold);
+}
 
 /* Payroll variance: the back-pay-owed emphasis (header pill + the per-line Δ) and
  * the flagged varying rows borrow the warning status token. */
-.finance__owed { color: var(--color-warn); font-weight: var(--weight-semibold); }
-.finance__variance-row { background: var(--color-warn-soft); }
+.finance__owed {
+    color: var(--color-warn);
+    font-weight: var(--weight-semibold);
+}
+.finance__variance-row {
+    background: var(--color-warn-soft);
+}
 
 /* Payroll per-level breakdown: the engineer-name cell becomes a disclosure toggle
  * (a plain in-text button), and each disclosed segment is an indented, muted,
  * smaller sub-row under the engineer's total. */
 .payroll__disclosure {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
 }
-.payroll__segment td { color: var(--color-muted); font-size: var(--text-sm); }
-.payroll__segment td:first-child { padding-left: var(--space-xl); }
+.payroll__segment td {
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+}
+.payroll__segment td:first-child {
+    padding-left: var(--space-xl);
+}

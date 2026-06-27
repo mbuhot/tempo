@@ -11,17 +11,17 @@
 // Shared declaration clusters live in `_mixins.scss`; partials that need them
 // `@use 'mixins' as *` and `@include` them (#26).
 
-@use 'theme';
-@use 'base';
-@use 'components';
-@use 'app-shell';
-@use 'sidebar';
-@use 'time-rail';
-@use 'board';
-@use 'people';
-@use 'finance';
-@use 'activity';
-@use 'settings';
-@use 'access';
-@use 'login';
-@use 'responsive';
+@use "theme";
+@use "base";
+@use "components";
+@use "app-shell";
+@use "sidebar";
+@use "time-rail";
+@use "board";
+@use "people";
+@use "finance";
+@use "activity";
+@use "settings";
+@use "access";
+@use "login";
+@use "responsive";
