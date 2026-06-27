@@ -130,6 +130,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_finances)
       forecast.handle(request, context)
     }
+    ["api", "forecast", "table"] -> {
+      use _principal <- guard.require(context, access.read_finances)
+      forecast.handle_table(request, context)
+    }
     // The bench/roster lane is part of the operational Board view, so it shares
     // read.projects (not the HR-level read.engineers the People page needs).
     ["api", "roster"] -> {
