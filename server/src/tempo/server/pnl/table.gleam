@@ -27,9 +27,9 @@ import gleam/time/calendar.{type Date, Date, January}
 import pog
 import shared/money.{type Money}
 import shared/pagination
-import shared/table/cell.{MoneyCell, NumberCell, PersonCell, SignedMoneyCell}
+import shared/table/cell.{MoneyCell, PercentCell, PersonCell, SignedMoneyCell}
 import shared/table/column.{
-  type Schema, type Tone, Column, Critical, MoneyType, NumberType, NumericEnd,
+  type Schema, type Tone, Column, Critical, MoneyType, NumericEnd, PercentType,
   PersonType, Positive, Schema, SignedMoneyType, Start,
 }
 import shared/table/filter.{NumberRangeFilter}
@@ -116,7 +116,7 @@ pub fn pnl_schema() -> Schema {
       Column(
         key: "margin",
         label: "Margin",
-        column_type: NumberType,
+        column_type: PercentType,
         align: NumericEnd,
         sortable: True,
         hideable: True,
@@ -125,7 +125,7 @@ pub fn pnl_schema() -> Schema {
       Column(
         key: "utilization",
         label: "Utilization",
-        column_type: NumberType,
+        column_type: PercentType,
         align: NumericEnd,
         sortable: True,
         hideable: True,
@@ -397,8 +397,8 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("revenue", MoneyCell(parse_money(row.revenue))),
       #("cost", MoneyCell(parse_money(row.cost))),
       #("profit", SignedMoneyCell(amount: profit, tone: profit_tone(profit))),
-      #("margin", NumberCell(row.margin)),
-      #("utilization", NumberCell(row.utilization)),
+      #("margin", PercentCell(row.margin)),
+      #("utilization", PercentCell(row.utilization)),
     ]),
   )
 }

@@ -29,10 +29,10 @@ import gleam/time/calendar.{type Date, Date}
 import pog
 import shared/money.{type Money}
 import shared/pagination
-import shared/table/cell.{DateCell, MoneyCell, NumberCell, SignedMoneyCell}
+import shared/table/cell.{DateCell, MoneyCell, PercentCell, SignedMoneyCell}
 import shared/table/column.{
-  type Schema, type Tone, Column, Critical, DateType, MoneyType, NumberType,
-  NumericEnd, Positive, Schema, SignedMoneyType, Start,
+  type Schema, type Tone, Column, Critical, DateType, MoneyType, NumericEnd,
+  PercentType, Positive, Schema, SignedMoneyType, Start,
 }
 import shared/table/filter.{NumberRangeFilter}
 import shared/table/query.{type Applied}
@@ -118,7 +118,7 @@ pub fn forecast_schema() -> Schema {
       Column(
         key: "margin",
         label: "Margin",
-        column_type: NumberType,
+        column_type: PercentType,
         align: NumericEnd,
         sortable: True,
         hideable: True,
@@ -348,7 +348,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("revenue", MoneyCell(parse_money(row.revenue))),
       #("cost", MoneyCell(parse_money(row.cost))),
       #("profit", SignedMoneyCell(amount: profit, tone: profit_tone(profit))),
-      #("margin", NumberCell(row.margin)),
+      #("margin", PercentCell(row.margin)),
     ]),
   )
 }

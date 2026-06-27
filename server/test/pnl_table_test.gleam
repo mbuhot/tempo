@@ -21,7 +21,7 @@ import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July}
 import pog
 import shared/money
-import shared/table/cell.{NumberCell, PersonCell, SignedMoneyCell}
+import shared/table/cell.{PercentCell, PersonCell, SignedMoneyCell}
 import shared/table/column
 import shared/table/query.{type Applied, type FilterValue, Applied, NumberRange}
 import shared/table/response.{type Row}
@@ -235,7 +235,7 @@ pub fn allocated_engineer_row_has_rich_cells_and_positive_profit_test() {
     assert cell_of(ada, "cost") == cell.MoneyCell(money_of("2000.00"))
     assert cell_of(ada, "profit")
       == SignedMoneyCell(amount: money_of("10400.00"), tone: column.Positive)
-    let assert NumberCell(utilization) = cell_of(ada, "utilization")
+    let assert PercentCell(utilization) = cell_of(ada, "utilization")
     assert utilization == 100.0
   })
 }
@@ -249,7 +249,7 @@ pub fn benched_engineer_runs_at_a_loss_with_critical_tone_test() {
     assert cell_of(babbage, "revenue") == cell.MoneyCell(money_of("0.00"))
     assert cell_of(babbage, "profit")
       == SignedMoneyCell(amount: money_of("-2000.00"), tone: column.Critical)
-    let assert NumberCell(utilization) = cell_of(babbage, "utilization")
+    let assert PercentCell(utilization) = cell_of(babbage, "utilization")
     assert utilization == 0.0
   })
 }
