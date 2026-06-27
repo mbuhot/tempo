@@ -334,11 +334,7 @@ fn engineer_cell(line: PayrollLine) -> Cell {
 
 /// A segment's row label: the seniority band and the monthly salary in force.
 fn segment_label(segment: PayrollSegment) -> String {
-  "↳ "
-  <> level_band(segment.level)
-  <> " · "
-  <> money_text(segment.monthly_salary)
-  <> "/mo"
+  level_band(segment.level) <> " · " <> money_text(segment.monthly_salary) <> "/mo"
 }
 
 /// Δ reads good when the run paid at least the should-be (no back-pay owed),

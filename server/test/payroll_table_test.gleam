@@ -201,7 +201,7 @@ pub fn engineer_row_carries_segment_children_test() {
     assert list.length(promoted.children) == 2
     let assert [first_segment, ..] = promoted.children
     let assert TextCell(label) = cell_of(first_segment, "engineer")
-    assert label == "↳ Associate · $2000/mo"
+    assert label == "Associate · $2000/mo"
     let assert NumberCell(_) = cell_of(first_segment, "days")
     let assert MoneyCell(_) = cell_of(first_segment, "amount")
     assert first_segment.children == []
@@ -238,7 +238,7 @@ pub fn response_json_round_trips_with_nested_columns_test() {
     let assert PersonCell(..) = cell_of(promoted, "engineer")
     let assert [first_segment, ..] = promoted.children
     let assert TextCell(label) = cell_of(first_segment, "engineer")
-    assert label == "↳ Associate · $2000/mo"
+    assert label == "Associate · $2000/mo"
   })
 }
 
