@@ -55,8 +55,8 @@ fn mode_param(mode: Mode) -> String {
 fn mode_label(mode: Mode) -> String {
   case mode {
     Preview -> "Preview"
-    Reconciled -> "Reconciled"
-    Variance -> "Variance"
+    Reconciled -> "Paid"
+    Variance -> "Reconciliation"
   }
 }
 
