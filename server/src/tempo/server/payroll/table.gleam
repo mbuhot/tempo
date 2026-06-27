@@ -54,16 +54,16 @@ import tempo/server/payroll/view as payroll_read
 /// The payroll table mode: which columns and breakdown the panel shows.
 pub type Mode {
   Preview
-  Reconciled
-  Variance
+  Paid
+  Reconciliation
 }
 
 /// Parse the `mode` query param; defaults to `Preview` for an absent or unknown
 /// value (the live recompute is the safe default before any run exists).
 pub fn mode_from_string(text: Option(String)) -> Mode {
   case text {
-    Some("reconciled") -> Reconciled
-    Some("variance") -> Variance
+    Some("paid") -> Paid
+    Some("reconciliation") -> Reconciliation
     _ -> Preview
   }
 }
@@ -127,12 +127,12 @@ pub fn payroll_schema(mode: Mode) -> Schema {
       days_column,
       amount_column("amount", "Preview"),
     ]
-    Reconciled -> [
+    Paid -> [
       engineer,
       days_column,
       amount_column("amount", "Paid"),
     ]
-    Variance -> [
+    Reconciliation -> [
       engineer,
       amount_column("paid", "Paid"),
       amount_column("should_be", "Should be"),
@@ -155,12 +155,12 @@ pub fn payroll_schema(mode: Mode) -> Schema {
 /// same keys and types as the outer columns.
 fn child_columns(mode: Mode) -> List(Column) {
   case mode {
-    Preview | Reconciled -> [
+    Preview | Paid -> [
       child_engineer_column,
       days_column,
       amount_column("amount", "Amount"),
     ]
-    Variance -> [
+    Reconciliation -> [
       child_engineer_column,
       amount_column("paid", "Paid"),
       amount_column("should_be", "Should be"),
@@ -236,7 +236,7 @@ fn line_to_row(line: PayrollLine, mode: Mode) -> BuiltRow {
         days: line.preview_days,
         segments: line.preview_segments,
       )
-    Reconciled ->
+    Paid ->
       total_row(
         line,
         amount_key: "amount",
@@ -244,7 +244,7 @@ fn line_to_row(line: PayrollLine, mode: Mode) -> BuiltRow {
         days: option.unwrap(line.paid_days, 0.0),
         segments: line.paid_segments,
       )
-    Variance -> variance_row(line)
+    Reconciliation -> variance_row(line)
   }
 }
 
@@ -491,8 +491,8 @@ fn decode_offset(cursor: Option(String)) -> Int {
 fn mode_to_string(mode: Mode) -> String {
   case mode {
     Preview -> "preview"
-    Reconciled -> "reconciled"
-    Variance -> "variance"
+    Paid -> "paid"
+    Reconciliation -> "reconciliation"
   }
 }
 

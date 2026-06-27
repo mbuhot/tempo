@@ -40,23 +40,23 @@ import shared/payroll/view.{type Payroll, type PayrollLine} as payroll_view
 /// The payroll table modes the user switches between.
 pub type Mode {
   Preview
-  Reconciled
-  Variance
+  Paid
+  Reconciliation
 }
 
 fn mode_param(mode: Mode) -> String {
   case mode {
     Preview -> "preview"
-    Reconciled -> "reconciled"
-    Variance -> "variance"
+    Paid -> "paid"
+    Reconciliation -> "reconciliation"
   }
 }
 
 fn mode_label(mode: Mode) -> String {
   case mode {
     Preview -> "Preview"
-    Reconciled -> "Paid"
-    Variance -> "Reconciliation"
+    Paid -> "Paid"
+    Reconciliation -> "Reconciliation"
   }
 }
 
@@ -291,8 +291,8 @@ fn default_mode(payroll: Payroll) -> Mode {
     None -> Preview
     Some(_) ->
       case reconciled(payroll.lines) {
-        True -> Reconciled
-        False -> Variance
+        True -> Paid
+        False -> Reconciliation
       }
   }
 }
@@ -404,7 +404,7 @@ fn headline(
         ),
       ]
     }
-    Reconciled -> {
+    Paid -> {
       let total =
         money.sum(
           list.map(payroll.lines, fn(line) {
@@ -417,7 +417,7 @@ fn headline(
         ]),
       ]
     }
-    Variance -> {
+    Reconciliation -> {
       let owed =
         money.sum(
           list.map(payroll.lines, fn(line) {
@@ -447,7 +447,7 @@ fn headline(
 fn mode_tabs(selected: Mode) -> Element(Msg) {
   html.div(
     [attribute.class("payroll__modes")],
-    list.map([Preview, Reconciled, Variance], fn(mode) {
+    list.map([Preview, Paid, Reconciliation], fn(mode) {
       let active = case mode == selected {
         True -> " payroll__mode--active"
         False -> ""

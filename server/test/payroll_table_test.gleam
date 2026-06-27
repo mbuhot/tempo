@@ -168,10 +168,10 @@ pub fn schema_advertises_variance_columns_test() {
         ctx(conn),
         from(),
         to(),
-        payroll_table.Variance,
+        payroll_table.Reconciliation,
         applied([], None),
       )
-    assert response.schema.table_id == "payroll-variance"
+    assert response.schema.table_id == "payroll-reconciliation"
     let keys = list.map(response.schema.columns, fn(column) { column.key })
     assert keys == ["engineer", "paid", "should_be", "delta"]
     let assert Ok(delta_column) =
