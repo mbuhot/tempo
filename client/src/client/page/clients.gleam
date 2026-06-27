@@ -1,33 +1,31 @@
 //// The Clients page (FR-CP1..): the client list as of the global rail date and a
-//// single client's detail. The list reads `GET /api/clients?as_of=`
-//// (`ClientList`: name / since / project_count / active); the detail reads
-//// `GET /api/clients/:id?as_of=` (`ClientDetail`: profile + since + contracts +
-//// projects). The detail FETCHES with the as-of — the profile name is durable,
-//// but `ContractRow.active` / `ClientProjectRow.active` follow the rail.
+//// single client's detail. The list renders via the generic data table, embedded
+//// through `table_host` (which owns the load state, infinite scroll, debounce, and
+//// column-layout persistence): it reads `GET /api/clients/table?as_of=&filter.*=&
+//// sort=&page_size=&cursor=` for the schema-driven, filtered/sorted/paged rows. The
+//// detail reads `GET /api/clients/:id?as_of=` (`ClientDetail`: profile + since +
+//// contracts + projects); its embedded Projects/Contracts tables stay small inline
+//// reference tables.
 ////
-//// `init` takes the route: `Clients(Some(id))` opens that client's detail (so a
-//// cold deep link to `/clients/:id` lands on it), any other route opens the list.
-//// Drilling into a client raises `Navigate(Clients(Some(id)))` only — the shell
-//// pushes the URL and re-inits the page, so cold and click-through paths are one.
-//// A project row in the detail raises `Navigate(Projects(Some(project_id)))`.
+//// `init` takes the route: `Clients(Some(id))` opens that client's detail (so a cold
+//// deep link to `/clients/:id` lands on it), any other route opens the list. The
+//// host's `Activated` outcome raises `Navigate(Clients(Some(id)))` so the shell owns
+//// the URL. A project row in the detail raises `Navigate(Projects(Some(id)))`.
 ////
 //// Contextual writes: `SignContract` (a client signs a contract over a window) and
 //// `UpdateClientProfile` (rename a client effective a date). Both drive the shared
 //// `ui` op-form engine through a centred modal; on success the page raises
 //// `OperationCommitted` and refetches the active view. The op forms pick the client
-//// from the as-of roster (`GET /api/roster?as_of=`, fetched alongside the list) via
-//// a `ref_select`; `SignContract` stores the chosen client's NAME (its command field)
-//// while the select reports an id, and `UpdateClientProfile` pre-fills the locked id
-//// and name from the loaded detail.
+//// from the as-of roster (`GET /api/roster?as_of=`, fetched alongside the list).
 ////
 //// Staleness: every fetch-result message carries the `as_of` it answers, and the
-//// list/detail results are dropped when that date no longer matches the model's
-//// current as-of (stale-while-revalidate; a fresh view or a half-typed op form is
-//// never clobbered).
+//// detail/roster results are dropped when that date no longer matches the model's
+//// current as-of (stale-while-revalidate).
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
+import client/table_host
 import client/time
 import client/ui
 import gleam/int
@@ -35,7 +33,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set.{type Set}
-import gleam/string
 import gleam/time/calendar.{type Date}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -44,27 +41,21 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/client/view.{
-  type ClientDetail, type ClientList, type ClientListRow, type ClientProjectRow,
-  type ContractRow,
+  type ClientDetail, type ClientProjectRow, type ContractRow,
 } as client_view
-import shared/command as gateway
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
 
-/// The page's state. `Loading` until the first list arrives (carrying any
-/// deep-linked client id so the list transition can drill straight in), `Failed`
-/// on a rejected list fetch, otherwise `Loaded` carrying the list, the as-of it
-/// answers, the as-of roster (the client directory the op selects pick from), the
-/// optional drilled-in client detail, and any open op form.
+/// The page's state: the as-of its data answers, the actor (current viewer), the
+/// client-list table host, the as-of roster (the directory the op selects pick
+/// from), the drilled-in client detail, and any open op form.
 pub type Model {
-  Loading(actor: String, pending: Option(Int))
-  Failed(actor: String, message: String)
-  Loaded(
+  Model(
     actor: String,
     as_of: calendar.Date,
-    list: ClientList,
+    host: table_host.Host,
     roster: Option(Result(Roster, String)),
     detail: Detail,
     op: Option(ui.OpState),
@@ -83,13 +74,11 @@ pub type Detail {
 
 // --- Messages ---------------------------------------------------------------
 
-/// The page's messages. List/detail fetch results carry the `as_of` they answer
-/// for the staleness guard; the op messages drive the shared form engine.
+/// The page's messages: the table host's sub-messages, the detail/roster fetch
+/// results (each carrying the `as_of` it answers for the staleness guard), the
+/// navigation actions, and the op lifecycle.
 pub type Msg {
-  ListFetched(
-    as_of: calendar.Date,
-    result: Result(ClientList, rsvp.Error(String)),
-  )
+  TableHostMsg(sub: table_host.Msg)
   DetailFetched(
     as_of: calendar.Date,
     client_id: Int,
@@ -99,7 +88,6 @@ pub type Msg {
     as_of: calendar.Date,
     result: Result(Roster, rsvp.Error(String)),
   )
-  OpenClient(client_id: Int)
   CloseDetail
   OpenProject(project_id: Int)
   OpStarted(permit: ui.Permit)
@@ -111,124 +99,105 @@ pub type Msg {
 
 // --- Lifecycle --------------------------------------------------------------
 
-/// Build the page for `route` at `as_of`, kicking off the client-list fetch (and,
-/// for `Clients(Some(id))`, that client's detail too — so a cold deep link to
-/// `/clients/:id` lands on the detail). The pending id rides on `Loading` so the
-/// list transition drills straight in once the list arrives.
+/// Build the page for `route` at `as_of`, starting the client-list table (and, for
+/// `Clients(Some(id))`, that client's detail too — so a cold deep link to
+/// `/clients/:id` lands on the detail). The roster is fetched for the op selects.
 pub fn init(
   route: route.Route,
   as_of: calendar.Date,
   actor: String,
 ) -> #(Model, Effect(Msg)) {
-  case route {
-    route.Clients(id: Some(client_id)) -> #(
-      Loading(actor:, pending: Some(client_id)),
-      effect.batch([
-        fetch_list(as_of),
-        fetch_detail(as_of, client_id),
-        fetch_roster(as_of),
-      ]),
-    )
-    _ -> #(
-      Loading(actor:, pending: None),
-      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
-    )
+  let #(host, host_effect) = table_host.init("/api/clients/table", as_of)
+  let detail = case route {
+    route.Clients(id: Some(client_id)) -> DetailLoading(client_id:)
+    _ -> NoDetail
   }
+  let model = Model(actor:, as_of:, host:, roster: None, detail:, op: None)
+  #(
+    model,
+    effect.batch([
+      effect.map(host_effect, TableHostMsg),
+      detail_effect(detail, as_of),
+      fetch_roster(as_of),
+    ]),
+  )
 }
 
-/// Re-fetch the active view for a new `as_of` without dropping the open op form:
-/// always re-fetch the list and the roster, and re-fetch the detail too when one is
-/// open (its active flags follow the rail). The op form and the currently-shown
-/// roster are preserved across the refetch (stale-while-revalidate).
+/// Re-fetch the active view for a new `as_of` (stale-while-revalidate), keeping the
+/// open op form and the active filters/sort/layout: re-fetch the table host and the
+/// roster, and re-fetch the detail too when one is open (its active flags follow the
+/// rail).
 pub fn refetch(
   model: Model,
   as_of: calendar.Date,
   actor: String,
 ) -> #(Model, Effect(Msg)) {
-  case model {
-    Loading(pending: Some(client_id), ..) -> #(
-      Loading(actor:, pending: Some(client_id)),
-      effect.batch([
-        fetch_list(as_of),
-        fetch_detail(as_of, client_id),
-        fetch_roster(as_of),
-      ]),
-    )
-    Loading(..) | Failed(..) -> #(
-      Loading(actor:, pending: None),
-      effect.batch([fetch_list(as_of), fetch_roster(as_of)]),
-    )
-    Loaded(detail:, ..) -> {
-      let detail_effect = case detail_client_id(detail) {
-        Some(client_id) -> fetch_detail(as_of, client_id)
-        None -> effect.none()
-      }
-      let detail = mark_detail_loading(detail)
-      #(
-        Loaded(..model, actor:, as_of:, detail:),
-        effect.batch([fetch_list(as_of), detail_effect, fetch_roster(as_of)]),
-      )
-    }
+  let #(host, host_effect) = table_host.refetch(model.host, as_of)
+  let detail = mark_detail_loading(model.detail)
+  #(
+    Model(..model, actor:, as_of:, host:, roster: None, detail:),
+    effect.batch([
+      effect.map(host_effect, TableHostMsg),
+      detail_effect(detail, as_of),
+      fetch_roster(as_of),
+    ]),
+  )
+}
+
+fn detail_effect(detail: Detail, as_of: calendar.Date) -> Effect(Msg) {
+  case detail_client_id(detail) {
+    Some(client_id) -> fetch_detail(as_of, client_id)
+    None -> effect.none()
   }
 }
+
+// --- Update -----------------------------------------------------------------
 
 /// Fold a message into the model, returning any cross-page out-messages.
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
-    ListFetched(as_of:, result:) ->
-      case stale(model, as_of) {
-        True -> #(model, effect.none(), [])
-        False ->
-          case result {
-            Ok(client_list) -> {
-              let pending = pending_detail(model)
-              let detail_effect = case pending {
-                Some(client_id) -> fetch_detail(as_of, client_id)
-                None -> effect.none()
-              }
-              #(loaded_with_list(model, as_of, client_list), detail_effect, [])
-            }
-            Error(error) -> #(fail(model, error), effect.none(), [])
+    TableHostMsg(sub:) -> {
+      let #(host, host_effect, out) =
+        table_host.update(model.host, sub, model.as_of)
+      let model = Model(..model, host:)
+      let effect = effect.map(host_effect, TableHostMsg)
+      case out {
+        table_host.Stay -> #(model, effect, [])
+        table_host.Activated(id:) ->
+          case int.parse(id) {
+            Ok(client_id) -> #(model, effect, [
+              Navigate(route.Clients(id: Some(client_id))),
+            ])
+            Error(Nil) -> #(model, effect, [])
           }
       }
+    }
 
     DetailFetched(as_of:, client_id:, result:) ->
-      case model {
-        Loaded(detail:, ..) ->
-          case stale(model, as_of) || !awaiting_detail(detail, client_id) {
-            True -> #(model, effect.none(), [])
-            False -> {
-              let detail = case result {
-                Ok(detail) -> DetailLoaded(detail:)
-                Error(error) ->
-                  DetailFailed(client_id:, message: api.describe_error(error))
-              }
-              #(Loaded(..model, detail:), effect.none(), [])
-            }
+      case model.as_of == as_of && awaiting_detail(model.detail, client_id) {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let detail = case result {
+            Ok(detail) -> DetailLoaded(detail:)
+            Error(error) ->
+              DetailFailed(client_id:, message: api.describe_error(error))
           }
-        _ -> #(model, effect.none(), [])
+          #(Model(..model, detail:), effect.none(), [])
+        }
       }
 
     RosterFetched(as_of:, result:) ->
-      case model {
-        Loaded(op:, ..) ->
-          case stale(model, as_of) {
-            True -> #(model, effect.none(), [])
-            False -> {
-              let roster = case result {
-                Ok(roster) -> Ok(roster)
-                Error(error) -> Error(api.describe_error(error))
-              }
-              let op = reconcile_op_client(op, Some(roster))
-              #(Loaded(..model, roster: Some(roster), op:), effect.none(), [])
-            }
+      case model.as_of == as_of {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let roster = case result {
+            Ok(roster) -> Ok(roster)
+            Error(error) -> Error(api.describe_error(error))
           }
-        _ -> #(model, effect.none(), [])
+          let op = reconcile_op_client(model.op, Some(roster))
+          #(Model(..model, roster: Some(roster), op:), effect.none(), [])
+        }
       }
-
-    OpenClient(client_id:) -> #(model, effect.none(), [
-      Navigate(route.Clients(id: Some(client_id))),
-    ])
 
     CloseDetail -> #(model, effect.none(), [Navigate(route.Clients(id: None))])
 
@@ -236,43 +205,35 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       Navigate(route.Projects(id: Some(project_id))),
     ])
 
-    OpStarted(permit:) ->
-      case model {
-        Loaded(as_of:, detail:, ..) -> {
-          let kind = ui.permit_kind(permit)
-          let form = ui.blank_op_form(kind, as_of)
-          let form = prefill_op_form(kind, form, detail, model)
-          #(
-            Loaded(..model, op: Some(ui.OpState(kind:, form:, error: None))),
-            effect.none(),
-            [],
-          )
-        }
-        _ -> #(model, effect.none(), [])
-      }
+    OpStarted(permit:) -> {
+      let kind = ui.permit_kind(permit)
+      let form = ui.blank_op_form(kind, model.as_of)
+      let form = prefill_op_form(kind, form, model.detail, model)
+      #(
+        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        effect.none(),
+        [],
+      )
+    }
 
-    OpCancelled ->
-      case model {
-        Loaded(..) -> #(Loaded(..model, op: None), effect.none(), [])
-        _ -> #(model, effect.none(), [])
-      }
+    OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
     OpFieldEdited(field:, value:) ->
-      case model {
-        Loaded(op: Some(op), ..) -> {
+      case model.op {
+        Some(op) -> {
           let form = apply_field_edit(model, op, field, value)
           #(
-            Loaded(..model, op: Some(ui.OpState(..op, form:))),
+            Model(..model, op: Some(ui.OpState(..op, form:))),
             effect.none(),
             [],
           )
         }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
 
     OpSubmitted ->
-      case model {
-        Loaded(op: Some(op), ..) ->
+      case model.op {
+        Some(op) ->
           case ui.build_command(op.kind, op.form) {
             Ok(command) -> #(
               model,
@@ -280,25 +241,25 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             Error(prompt) -> #(
-              Loaded(..model, op: Some(ui.OpState(..op, error: Some(prompt)))),
+              Model(..model, op: Some(ui.OpState(..op, error: Some(prompt)))),
               effect.none(),
               [],
             )
           }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
 
     OpResponded(result:) ->
-      case model {
-        Loaded(actor:, as_of:, op: Some(op), ..) ->
+      case model.op {
+        Some(op) ->
           case result {
             Ok(_) -> {
               let #(refetched, refetch_effect) =
-                refetch(Loaded(..model, op: None), as_of, actor)
+                refetch(Model(..model, op: None), model.as_of, model.actor)
               #(refetched, refetch_effect, [OperationCommitted])
             }
             Error(error) -> #(
-              Loaded(
+              Model(
                 ..model,
                 op: Some(
                   ui.OpState(..op, error: Some(api.describe_error(error))),
@@ -308,24 +269,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
           }
-        _ -> #(model, effect.none(), [])
+        None -> #(model, effect.none(), [])
       }
   }
 }
 
 // --- Fetch helpers ----------------------------------------------------------
 
-/// Fetch the client list for `as_of`, tagging the result with the date it answers.
-fn fetch_list(as_of: calendar.Date) -> Effect(Msg) {
-  api.get(
-    "/api/clients?as_of=" <> time.iso_date(as_of),
-    client_view.client_list_decoder(),
-    fn(result) { ListFetched(as_of:, result:) },
-  )
-}
-
-/// Fetch one client's detail for `as_of`, tagging the result with both the date
-/// and the client id it answers (so a stale or superseded detail is dropped).
+/// Fetch one client's detail for `as_of`, tagging the result with both the date and
+/// the client id it answers (so a stale or superseded detail is dropped).
 fn fetch_detail(as_of: calendar.Date, client_id: Int) -> Effect(Msg) {
   api.get(
     "/api/clients/"
@@ -347,63 +299,7 @@ fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
   )
 }
 
-// --- Model transitions ------------------------------------------------------
-
-/// Whether a dated result is stale: it answers a different as-of than the model's
-/// current one. A `Loading`/`Failed` model has no committed as-of, so nothing is
-/// stale against it.
-fn stale(model: Model, as_of: calendar.Date) -> Bool {
-  case model {
-    Loaded(as_of: current, ..) -> current != as_of
-    _ -> False
-  }
-}
-
-/// Fold a fresh list into the model, preserving any open detail and op form when
-/// the page was already loaded, or starting clean from `Loading`/`Failed`.
-fn loaded_with_list(
-  model: Model,
-  as_of: calendar.Date,
-  client_list: ClientList,
-) -> Model {
-  case model {
-    Loaded(actor:, roster:, detail:, op:, ..) ->
-      Loaded(actor:, as_of:, list: client_list, roster:, detail:, op:)
-    _ -> {
-      let detail = case pending_detail(model) {
-        Some(client_id) -> DetailLoading(client_id:)
-        None -> NoDetail
-      }
-      Loaded(
-        actor: model.actor,
-        as_of:,
-        list: client_list,
-        roster: None,
-        detail:,
-        op: None,
-      )
-    }
-  }
-}
-
-/// Record a list-fetch failure, keeping a loaded view on screen (stale data beats
-/// a blank page) and only blanking to `Failed` when nothing has loaded yet.
-fn fail(model: Model, error: rsvp.Error(String)) -> Model {
-  case model {
-    Loaded(..) -> model
-    _ -> Failed(actor: model.actor, message: api.describe_error(error))
-  }
-}
-
-/// The deep-linked client id a still-loading page is waiting to drill into, or
-/// `None`. Only `Loading` carries a pending id; a `Loaded`/`Failed` model has
-/// already resolved its detail (or has none).
-fn pending_detail(model: Model) -> Option(Int) {
-  case model {
-    Loading(pending:, ..) -> pending
-    _ -> None
-  }
-}
+// --- Detail helpers ---------------------------------------------------------
 
 /// Whether a detail-fetch result is still wanted: it matches the client id the
 /// detail sub-state is currently awaiting or showing.
@@ -411,8 +307,8 @@ fn awaiting_detail(detail: Detail, client_id: Int) -> Bool {
   detail_client_id(detail) == Some(client_id)
 }
 
-/// The client id an open detail is for (loading, loaded, or failed), or `None`
-/// when no client is drilled in.
+/// The client id an open detail is for (loading, loaded, or failed), or `None` when
+/// no client is drilled in.
 fn detail_client_id(detail: Detail) -> Option(Int) {
   case detail {
     NoDetail -> None
@@ -436,98 +332,36 @@ fn mark_detail_loading(detail: Detail) -> Detail {
 
 // --- View -------------------------------------------------------------------
 
-/// Render the page for `as_of`: the client detail when one is drilled in,
-/// otherwise the client roster. The optional op form is layered above either view.
+/// Render the page for `as_of`: the client detail when one is drilled in, otherwise
+/// the client list (the generic data table). The optional op form layers above
+/// either view.
 pub fn view(
   model: Model,
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
   let _ = as_of
-  case model {
-    Loading(..) -> ui.empty_state(message: "Loading clients…")
-    Failed(message:, ..) ->
-      ui.empty_state(message: "Could not load clients: " <> message)
-    Loaded(list:, roster:, detail:, op:, ..) ->
-      case detail {
-        NoDetail -> view_list(list, roster, op, permissions)
-        _ -> view_detail(detail, roster, op, permissions)
-      }
+  case model.detail {
+    NoDetail -> view_list(model, permissions)
+    _ -> view_detail(model.detail, model.roster, model.op, permissions)
   }
 }
 
-/// The client roster: a header with the Sign-contract action, the optional op
-/// form, and a table of clients (name, since, project count, active status). Each
-/// row drills into that client.
-fn view_list(
-  client_list: ClientList,
-  roster: Option(Result(Roster, String)),
-  op: Option(ui.OpState),
-  permissions: Set(String),
-) -> Element(Msg) {
-  let clients = client_list.clients
+/// The client list: a header with the Sign-contract action, the optional op form,
+/// and the clients data table (name, since, projects, status) through its host
+/// (which owns the loading / failed guards). Each row drills into that client.
+fn view_list(model: Model, permissions: Set(String)) -> Element(Msg) {
   html.div([], [
     ui.page_head(
       title: "Clients",
       blurb: "Who we work for, and the contracts behind the projects.",
-      actions: [
-        op_trigger(permissions, "+ Sign contract", ui.OpSignContract),
-      ],
+      actions: [op_trigger(permissions, "+ Sign contract", ui.OpSignContract)],
     ),
-    op_panel(roster, op),
-    ui.panel(
-      title: "All clients",
-      count: int.to_string(list.length(clients)),
-      right: [],
-      body: [
-        case clients {
-          [] -> ui.empty_state(message: "No clients on this date.")
-          rows ->
-            ui.data_table(
-              headers: [
-                #("Client", False),
-                #("Since", False),
-                #("Projects", True),
-                #("Status", False),
-              ],
-              rows: list.map(rows, view_list_row),
-            )
-        },
-      ],
-    ),
+    op_panel(model.roster, model.op),
+    ui.panel(title: "All clients", count: "", right: [], body: [
+      element.map(table_host.view(model.host, "Loading clients…"), TableHostMsg),
+    ]),
   ])
-}
-
-/// One roster row: a square client avatar + name, the since date, project count,
-/// and an active/ended pill. Clicking it opens the client detail.
-fn view_list_row(client: ClientListRow) -> Element(Msg) {
-  let client_view.ClientListRow(
-    client_id:,
-    name:,
-    since:,
-    project_count:,
-    active:,
-  ) = client
-  html.tr(
-    [attribute.class("clickable"), event.on_click(OpenClient(client_id:))],
-    [
-      html.td([attribute.class("cell-name")], [
-        html.div(
-          [
-            attribute.class("avatar avatar--square"),
-            attribute.style("background", cat_var(client_id + 3)),
-          ],
-          [html.text(initials(name))],
-        ),
-        html.span([attribute.class("cell-name__name")], [html.text(name)]),
-      ]),
-      html.td([attribute.class("mono muted")], [html.text(option_date(since))]),
-      html.td([attribute.class("num")], [
-        html.text(int.to_string(project_count)),
-      ]),
-      html.td([], [status_pill(active)]),
-    ],
-  )
 }
 
 /// The client-detail page: a back link, a header carrying the durable client name
@@ -579,9 +413,9 @@ fn view_detail_loaded(
   ])
 }
 
-/// The client's projects panel: each project row shows its swatch + title, budget,
-/// target date, and an active/ended pill computed as-of. Clicking a row opens that
-/// project's detail (a cross-page navigation).
+/// The client's projects panel (a small embedded reference table): each project row
+/// shows its swatch + title, budget, target date, and an active/ended pill computed
+/// as-of. Clicking a row opens that project's detail (a cross-page navigation).
 fn view_projects_panel(projects: List(ClientProjectRow)) -> Element(Msg) {
   ui.panel(
     title: "Projects",
@@ -633,7 +467,8 @@ fn view_project_row(project: ClientProjectRow) -> Element(Msg) {
 }
 
 /// The profile panel: the client's durable name and since date, and a list of
-/// contract terms with their windows and active/ended state as-of.
+/// contract terms with their windows and active/ended state as-of (an embedded
+/// reference table).
 fn view_profile_panel(
   name: String,
   since: Option(Date),
@@ -698,10 +533,7 @@ fn op_trigger(
 }
 
 /// The open op form (or nothing) as a centred modal over a dimmed backdrop: the
-/// kind's fields, any rejection line, and a Cancel / op-verb footer. Fields bind
-/// through the shared `ui` engine so `build_command` assembles the typed `Command`
-/// on submit; the backdrop or Cancel closes (`OpCancelled`), the footer verb
-/// submits (`OpSubmitted`).
+/// kind's fields, any rejection line, and a Cancel / op-verb footer.
 fn op_panel(
   roster: Option(Result(Roster, String)),
   op: Option(ui.OpState),
@@ -721,11 +553,11 @@ fn op_panel(
 }
 
 /// The fields each Clients write needs, bound to the shared `OpForm` slots. The
-/// client is picked from the as-of roster via a `ref_select`; for `SignContract`
-/// the selected slot is the client NAME the command field reads, so the select's
-/// `selected` is the id resolved back from that name (see `apply_field_edit`). For
-/// `UpdateClientProfile` the client id and name are pre-filled from the loaded
-/// detail and the id is shown read-only.
+/// client is picked from the as-of roster via a `ref_select`; for `SignContract` the
+/// selected slot is the client NAME the command field reads, so the select's
+/// `selected` is the id resolved back from that name. For `UpdateClientProfile` the
+/// client id and name are pre-filled from the loaded detail and the id is shown
+/// read-only.
 fn op_fields(
   roster: Option(Result(Roster, String)),
   kind: ui.OpKind,
@@ -801,8 +633,8 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// Seed a freshly-opened op form from context. `UpdateClientProfile` is launched
 /// from a loaded client detail, which knows the client id and name — so both slots
 /// are pre-filled (the id is then shown read-only). `SignContract` snaps its client
-/// slot to the first roster client when the roster has loaded, so the modal opens
-/// on a valid selection. Other kinds open blank.
+/// slot to the first roster client when the roster has loaded, so the modal opens on
+/// a valid selection. Other kinds open blank.
 fn prefill_op_form(
   kind: ui.OpKind,
   form: ui.OpForm,
@@ -823,7 +655,7 @@ fn prefill_op_form(
         _ -> form
       }
     ui.OpSignContract ->
-      case client_refs(roster_of(model)) {
+      case client_refs(model.roster) {
         [first, ..] -> ui.update_op_form(form, ui.FClient, first.name)
         [] -> form
       }
@@ -832,9 +664,9 @@ fn prefill_op_form(
 }
 
 /// Snap an open `SignContract` op's client slot to the first roster client once the
-/// roster lands, when it is still empty — so a modal opened before the roster
-/// arrived ends up on a valid selection rather than a blank one. Leaves any other
-/// open op (or none) untouched.
+/// roster lands, when it is still empty — so a modal opened before the roster arrived
+/// ends up on a valid selection rather than a blank one. Leaves any other open op (or
+/// none) untouched.
 fn reconcile_op_client(
   op: Option(ui.OpState),
   roster: Option(Result(Roster, String)),
@@ -874,17 +706,8 @@ fn apply_field_edit(
 
 // --- Roster directory (client Refs for op selects) --------------------------
 
-/// The loaded roster on the model, or `None` while it is still in flight or failed
-/// (so the op selects render their loading placeholder).
-fn roster_of(model: Model) -> Option(Result(Roster, String)) {
-  case model {
-    Loaded(roster:, ..) -> roster
-    _ -> None
-  }
-}
-
-/// The client directory for the op `<select>`s, from the as-of roster (every
-/// client, id + name). Empty until the roster loads.
+/// The client directory for the op `<select>`s, from the as-of roster (every client,
+/// id + name). Empty until the roster loads.
 fn client_refs(roster: Option(Result(Roster, String))) -> List(Ref) {
   case roster {
     Some(Ok(roster)) -> roster.clients
@@ -896,16 +719,16 @@ fn client_refs(roster: Option(Result(Roster, String))) -> List(Ref) {
 /// `SignContract` client `<select>` can store the name its command field reads. The
 /// unchanged id string when the roster has not loaded or the id is absent.
 fn client_name_for_id(model: Model, id: String) -> String {
-  client_refs(roster_of(model))
+  client_refs(model.roster)
   |> list.find(fn(reference) { int.to_string(reference.id) == id })
   |> result.map(fn(reference) { reference.name })
   |> result.unwrap(id)
 }
 
 /// The id string a client `<select>` should show as selected for a stored client
-/// NAME, resolved through the as-of roster (the inverse of `client_name_for_id`).
-/// The empty string when the name has not yet resolved, so the select shows no
-/// selection rather than a wrong one.
+/// NAME, resolved through the as-of roster (the inverse of `client_name_for_id`). The
+/// empty string when the name has not yet resolved, so the select shows no selection
+/// rather than a wrong one.
 fn client_id_for_name(
   roster: Option(Result(Roster, String)),
   name: String,
@@ -918,8 +741,8 @@ fn client_id_for_name(
 
 // --- Small view helpers -----------------------------------------------------
 
-/// The "‹ All clients" back link returning to the roster: clearing the detail and
-/// navigating to the list route (the navigation is raised when `CloseDetail` folds).
+/// The "‹ All clients" back link returning to the list: navigating to the list route
+/// (the navigation is raised when `CloseDetail` folds).
 fn back_link() -> Element(Msg) {
   html.a([attribute.class("back-link"), event.on_click(CloseDetail)], [
     html.text("‹ All clients"),
@@ -940,21 +763,4 @@ fn option_date(date: Option(Date)) -> String {
     Some(date) -> time.iso_date(date)
     None -> "—"
   }
-}
-
-/// The `var(--cat-N)` token for a categorical index (wrapped 1..7), mirroring the
-/// prototype's `catVar` for the client avatar tint.
-fn cat_var(category: Int) -> String {
-  let index = { int.modulo(category, 7) |> result.unwrap(0) } + 1
-  "var(--cat-" <> int.to_string(index) <> ")"
-}
-
-/// Up to two upper-case initials of a name, mirroring the prototype's `initials`.
-fn initials(name: String) -> String {
-  string.split(name, " ")
-  |> list.filter_map(fn(word) {
-    string.first(word) |> result.map(string.uppercase)
-  })
-  |> list.take(2)
-  |> string.concat
 }

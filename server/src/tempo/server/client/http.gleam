@@ -14,6 +14,9 @@ import gleam/option
 import gleam/result
 import gleam/time/calendar.{type Date}
 import shared/client/view as client_view
+import shared/table/query.{Applied}
+import shared/table/response as table_response
+import tempo/server/client/table as client_table
 import tempo/server/client/view as client_detail
 import tempo/server/context.{type Context}
 import tempo/server/web/cursor
@@ -45,6 +48,33 @@ pub fn handle_list(req: wisp.Request, ctx: Context) -> wisp.Response {
         Ok(list) -> response.json_response(client_view.encode_client_list(list))
         Error(error) -> response.db_error_response(error)
       }
+  }
+}
+
+/// Handle GET /api/clients/table?as_of=&filter.*=&sort=&page_size=&cursor= — the
+/// generic data-table read: the schema the client renders from plus one filtered,
+/// sorted, paged slice of rows. Filters/sort/page are parsed from the query params
+/// against the table's filter schema; `page_size` is clamped to the server bound. A
+/// missing/malformed `as_of` is a 400; a database failure is a 500.
+pub fn handle_table(req: wisp.Request, ctx: Context) -> wisp.Response {
+  use <- wisp.require_method(req, http.Get)
+  case request.date_from_query(req, "as_of") {
+    Error(detail) -> wisp.bad_request(detail)
+    Ok(as_of) -> {
+      let applied =
+        query.from_params(
+          wisp.get_query(req),
+          client_table.filter_schema(),
+          context.default_page_limit,
+        )
+      let clamped =
+        Applied(..applied, page_size: context.clamp_limit(applied.page_size))
+      case client_table.client_table(ctx, as_of, clamped) {
+        Ok(table) ->
+          response.json_response(table_response.encode_response(table))
+        Error(error) -> response.db_error_response(error)
+      }
+    }
   }
 }
 
