@@ -439,7 +439,7 @@ th.num {
     place-items: center;
     padding: var(--space-lg);
     background: var(--color-scrim);
-    animation: scrim-in var(--ease);
+    animation: scrim-in 0.2s ease;
 }
 .modal {
     width: min(100%, var(--size-modal));
@@ -448,7 +448,7 @@ th.num {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
-    animation: modal-in var(--ease);
+    animation: modal-in 0.2s ease;
 }
 @keyframes scrim-in {
     from {
