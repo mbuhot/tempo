@@ -96,19 +96,21 @@ One engineer's `salary` — a row superseded once, as `bin/psql` prints it:
 Read *as of* `2025-03-10` the rate is `10000.00`; *as of* `2026-09-01` it's `14000.00` — the
 slider returns whichever version's `effective_during` contains the chosen date.
 
-**3. Latest-read facts** — descriptive detail (contact, banking, emergency, profiles) where
-the most-recently-effective row is current truth and a `*_current` view exposes it. These use
-a plain foreign key to the anchor, so an ex-employee keeps their details on file.
+**3. Event log** — an append-only record of **intent**: every command that ran, with its
+parameters. `(id, occurred_at, actor, operation, summary, payload)`. Every fact row carries an
+`audit_id` back to the `event_log` row that wrote it, so *"everything command X touched"* is
+one join.
 
-**4. Audit log + ledgers** — the wall-clock records:
+**4. Ledgers** — stored **calculations** for values that leave the system: `invoice_line`
+(what was billed) and `payroll_line` / `payroll_line_segment` (what was paid, per salary
+level). They're frozen at the moment of the event, so when a fact is corrected after the fact
+— a back-dated raise — a fresh as-of recompute can be reconciled against the ledger to surface
+the variance: "paid $10,000, should now be $14,000."
 
-- **`event_log`** is append-only: `(id, occurred_at, actor, operation, summary, payload)`.
-  Every fact row carries an `audit_id` pointing back to the `event_log` row that wrote it, so
-  *"everything command X touched"* is one join.
-- **Ledgers** are the frozen financial records captured at the moment of an event:
-  `invoice_line` (what was billed) and `payroll_line` / `payroll_line_segment` (what was paid,
-  per salary level). Once written they stay put, so a later as-of recompute can surface a
-  variance — "paid $10,000, should now be $14,000 after a back-dated promotion."
+> **Reading facts at *latest* instead of *as-of*.** Descriptive detail (contact, banking,
+> emergency, profiles) is a temporal fact where the most-recently-effective row is current
+> truth, exposed by a `*_current` view. It joins the anchor by a plain foreign key, so an
+> ex-employee keeps their details on file.
 
 ### Migrations
 
