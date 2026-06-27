@@ -107,7 +107,7 @@ pub fn rate_card_schema() -> Schema {
       ),
       Column(
         key: "actions",
-        label: "",
+        label: "Actions",
         column_type: ActionsType,
         align: NumericEnd,
         sortable: False,

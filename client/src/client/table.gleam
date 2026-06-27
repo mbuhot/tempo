@@ -787,7 +787,13 @@ fn columns_row(column: Column, state: State) -> Element(Msg) {
         event.on_check(fn(_checked) { ColumnToggled(column.key) }),
       ])
     False ->
-      html.span([attribute.class("dt-cols__pinned")], [html.text("pinned")])
+      html.span(
+        [
+          attribute.class("dt-cols__pinned"),
+          attribute.attribute("title", "Pinned — this column can't be hidden"),
+        ],
+        [html.text("🔒")],
+      )
   }
   let dragging_class = case state.dragging {
     Some(key) if key == column.key -> " dt-cols__row--dragging"
@@ -941,8 +947,12 @@ fn body_row(
     [], None -> False
     _, _ -> True
   }
+  let on_row_click = case expandable {
+    True -> RowExpandToggled(row.id)
+    False -> RowClicked(row.id)
+  }
   html.tr(
-    [attribute.class("clickable"), event.on_click(RowClicked(row.id))],
+    [attribute.class("clickable"), event.on_click(on_row_click)],
     list.index_map(columns, fn(column, index) {
       let numeric = case column.align {
         NumericEnd -> [attribute.class("num")]
