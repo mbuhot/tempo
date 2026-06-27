@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Playwright e2e suite (needs the server running; see README/RUNBOOK).
+# Run the Playwright e2e suite (needs the server running; see README).
 # Extra args are forwarded to playwright, e.g. `bin/e2e timesheet.spec.js`.
 set -euo pipefail
 cd "$(dirname "$0")/.."

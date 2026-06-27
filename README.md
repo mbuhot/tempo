@@ -7,8 +7,8 @@ you view the whole company *as of* any chosen date, past or future, and the sche
 overwrites state — it records dated **facts** and supersedes them.
 
 This README is a tour of the architecture and the reasoning behind it. `docs/` holds the
-deeper references: the requirements, the technical design, the decision log, the run-book,
-and a schema map regenerated from the live database.
+deeper references: the requirements, the technical design, the decision log, and a schema
+map regenerated from the live database.
 
 ---
 
@@ -51,7 +51,7 @@ server/   the Wisp server (Erlang target); path-depends on ../shared
 client/   the Lustre SPA (JavaScript target); path-depends on ../shared
 e2e/      Playwright (Node) — drives the real app, asserts only what the user sees
 bin/      thin task wrappers run from the repo root (each cd's into the right package)
-docs/     requirements, architecture, the decision log, the schema map, the run-book
+docs/     requirements, architecture, the decision log, the schema map
 ```
 
 The split is a compiler requirement. Gleam compiles a *whole package* per target with no
@@ -275,5 +275,4 @@ piece: `bin/db` (PG19 container), `bin/migrate`, `bin/build` (client bundle →
 `server/priv/static`), `bin/serve`, `bin/test`, `bin/e2e`, `bin/lint-css`, `bin/squirrel`
 (regenerate `sql.gleam`), `bin/erd` (regenerate the schema map). Connection settings come
 from the environment with dev defaults matching `docker-compose.yml` (`TEMPO_DB_HOST`
-127.0.0.1, `TEMPO_DB_PORT` 5434, name/user/password `tempo`, `TEMPO_DB_POOL_SIZE` 20). The
-detailed run-book is in `docs/RUNBOOK.md`.
+127.0.0.1, `TEMPO_DB_PORT` 5434, name/user/password `tempo`, `TEMPO_DB_POOL_SIZE` 20).
