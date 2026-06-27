@@ -106,6 +106,14 @@
     }
 }
 
+// A transparent full-viewport catch behind an open popover: a click anywhere off
+// the popover lands here and closes it. Sits just below the popover.
+.dt-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-modal) - 1);
+}
+
 // A floating popover anchored beneath its rail chip, overlaying the table.
 .dt-pop {
     position: absolute;

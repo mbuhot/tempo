@@ -89,6 +89,7 @@ pub type Msg {
   HeaderClicked(key: String)
   FilterButtonClicked(key: String)
   ColumnsButtonClicked
+  PanelDismissed
   SelectToggled(key: String, value: String)
   TextTyped(key: String, value: String)
   NumberBoundTyped(key: String, bound: Bound, value: String)
@@ -218,6 +219,7 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       }
       #(State(..state, open:), Idle)
     }
+    PanelDismissed -> #(State(..state, open: Closed), Idle)
     SelectToggled(key:, value:) -> {
       let next =
         State(..state, applied: toggle_select(state.applied, key, value))
@@ -451,7 +453,16 @@ pub fn view(
   state: State,
   has_more: Bool,
 ) -> Element(Msg) {
+  let backdrop = case state.open {
+    Closed -> element.none()
+    _ ->
+      html.div(
+        [attribute.class("dt-backdrop"), event.on_click(PanelDismissed)],
+        [],
+      )
+  }
   html.div([attribute.class("dt")], [
+    backdrop,
     rail(schema, state),
     table(schema, rows, state, has_more),
     footer(state),
