@@ -121,6 +121,11 @@ pub fn settings() -> Element(msg) {
   ])
 }
 
+/// `clock` — the Tempo brand mark.
+pub fn clock() -> Element(msg) {
+  icon([circle("12", "12", "10"), path("M12 6v6l4 2")])
+}
+
 /// `shield`
 pub fn access() -> Element(msg) {
   icon([

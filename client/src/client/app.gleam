@@ -1100,7 +1100,7 @@ fn view_page(model: Model) -> Element(Msg) {
 /// the prototype's `.brand` markup.
 fn view_brand() -> Element(Msg) {
   html.div([attribute.class("brand")], [
-    html.div([attribute.class("brand__mark")], [html.text("◷")]),
+    html.div([attribute.class("brand__mark")], [icons.clock()]),
     html.div([attribute.class("brand__name")], [
       html.text("Tempo"),
       html.span([], [html.text(".")]),
