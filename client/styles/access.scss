@@ -2,12 +2,6 @@
  * roles-by-permissions grid) and the users list with a grant/revoke toggle per role.
  * Token-only per ADR-038. */
 
-.access h1 {
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
-    letter-spacing: var(--tracking-tight);
-    margin: 0 0 var(--space-lg);
-}
 .access__section {
     margin-bottom: var(--space-xl);
 }

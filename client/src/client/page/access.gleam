@@ -9,6 +9,7 @@
 
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
+import client/ui
 import gleam/list
 import gleam/set
 import gleam/time/calendar.{type Date}
@@ -91,7 +92,11 @@ fn submit(command: role_command.RoleCommand) -> Effect(Msg) {
 
 pub fn view(model: Model, as_of: Date) -> Element(Msg) {
   html.div([attribute.class("access")], [
-    html.h1([], [html.text("Access")]),
+    ui.page_head(
+      title: "Access",
+      blurb: "Roles, the permissions they grant, and who holds each role — resolved as of the selected date.",
+      actions: [],
+    ),
     case model.state {
       Loading ->
         html.p([attribute.class("access__status")], [html.text("Loading…")])
