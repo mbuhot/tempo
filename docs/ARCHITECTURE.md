@@ -50,9 +50,9 @@ bin/                          # thin task wrappers run from the repo root; each 
 docker-compose.yml            # PG19 (tempo-db) on host port 5434
 plan/                         # phased build plan
 README.md                     # repo intro (the only doc kept at the root)
-docs/                         # design + run docs: PRD.md, PRD-financials.md,
+docs/                         # design docs: PRD.md, PRD-financials.md,
                               #   PRD-frontend*.md, ARCHITECTURE.md, DECISIONS.md,
-                              #   RUNBOOK.md, SCHEMA.md; archive/ holds superseded docs
+                              #   SCHEMA.md; archive/ holds superseded docs
 
 server/                       # package `tempo` — the Wisp server (Erlang target)
   gleam.toml                  #   depends on shared = { path = "../shared" }
