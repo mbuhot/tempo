@@ -57,7 +57,7 @@ fn scoped(
 ) -> Applied {
   applied(
     [
-      #("budget", NumberRange(min: Some(900_000.0), max: Some(900_100.0))),
+      #("budget", NumberRange(min: Some("900000"), max: Some("900100"))),
       ..filters
     ],
     sort,

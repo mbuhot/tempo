@@ -56,7 +56,7 @@ fn scoped(
   sort: option.Option(Sort),
 ) -> Applied {
   applied(
-    [#("projects", NumberRange(min: None, max: Some(0.0))), ..filters],
+    [#("projects", NumberRange(min: None, max: Some("0"))), ..filters],
     sort,
   )
 }

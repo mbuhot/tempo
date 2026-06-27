@@ -6,7 +6,6 @@
 //// `filter.<key>.from`/`.to`, `sort=<key>:<dir>`, `page_size`, `cursor`.
 
 import gleam/dict.{type Dict}
-import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -17,7 +16,7 @@ import shared/table/sort.{type Sort, Sort}
 
 pub type FilterValue {
   SelectValue(List(String))
-  NumberRange(min: Option(Float), max: Option(Float))
+  NumberRange(min: Option(String), max: Option(String))
   DateRange(from: Option(String), to: Option(String))
   TextValue(String)
   BoolValue(Bool)
@@ -66,8 +65,8 @@ fn filter_to_params(
     BoolValue(yes) -> [#("filter." <> key, bool_to_string(yes))]
     NumberRange(min:, max:) ->
       list.flatten([
-        maybe_param("filter." <> key <> ".min", option.map(min, float_param)),
-        maybe_param("filter." <> key <> ".max", option.map(max, float_param)),
+        maybe_param("filter." <> key <> ".min", min),
+        maybe_param("filter." <> key <> ".max", max),
       ])
     DateRange(from:, to:) ->
       list.flatten([
@@ -88,17 +87,6 @@ fn bool_to_string(yes: Bool) -> String {
   case yes {
     True -> "true"
     False -> "false"
-  }
-}
-
-/// Render a filter bound without scientific notation: a whole amount as a plain
-/// integer (`50000`), a fractional amount via the float formatter (`48250.5`), so
-/// the value re-parses and reads as a PostgreSQL numeric.
-fn float_param(value: Float) -> String {
-  let whole = float.truncate(value)
-  case int.to_float(whole) == value {
-    True -> int.to_string(whole)
-    False -> float.to_string(value)
   }
 }
 
@@ -155,10 +143,8 @@ fn parse_one(
         None -> None
       }
     filter.NumberRangeFilter -> {
-      let min =
-        get(params, "filter." <> key <> ".min") |> option.then(parse_float)
-      let max =
-        get(params, "filter." <> key <> ".max") |> option.then(parse_float)
+      let min = get(params, "filter." <> key <> ".min")
+      let max = get(params, "filter." <> key <> ".max")
       case min, max {
         None, None -> None
         _, _ -> Some(NumberRange(min:, max:))
@@ -210,10 +196,6 @@ fn get(params: List(#(String, String)), name: String) -> Option(String) {
     Ok(value) -> Some(value)
     Error(Nil) -> None
   }
-}
-
-fn parse_float(text: String) -> Option(Float) {
-  option.from_result(float.parse(text))
 }
 
 fn parse_int(text: String) -> Option(Int) {

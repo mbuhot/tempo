@@ -353,10 +353,13 @@ fn update_number(
     Ok(NumberRange(min:, max:)) -> #(min, max)
     _ -> #(None, None)
   }
-  let parsed = option.from_result(float.parse(value))
+  let typed = case value {
+    "" -> None
+    _ -> Some(value)
+  }
   let #(min, max) = case bound {
-    Min -> #(parsed, max)
-    Max -> #(min, parsed)
+    Min -> #(typed, max)
+    Max -> #(min, typed)
   }
   case min, max {
     None, None -> clear_filter(applied, key)
@@ -537,7 +540,14 @@ fn funnel_icon() -> Element(Msg) {
       attribute.attribute("stroke-linejoin", "round"),
       attribute.attribute("aria-hidden", "true"),
     ],
-    [svg.path([attribute.attribute("d", "M22 3 L2 3 L10 12.46 L10 19 L14 21 L14 12.46 Z")])],
+    [
+      svg.path([
+        attribute.attribute(
+          "d",
+          "M22 3 L2 3 L10 12.46 L10 19 L14 21 L14 12.46 Z",
+        ),
+      ]),
+    ],
   )
 }
 
@@ -692,9 +702,9 @@ fn number_widget(key: String, applied: Applied) -> Element(Msg) {
     _ -> #(None, None)
   }
   html.div([attribute.class("dt-range")], [
-    bound_input("Min", float_text(min), NumberBoundTyped(key, Min, _)),
+    bound_input("Min", option.unwrap(min, ""), NumberBoundTyped(key, Min, _)),
     html.span([attribute.class("dt-range__sep")], [html.text("–")]),
-    bound_input("Max", float_text(max), NumberBoundTyped(key, Max, _)),
+    bound_input("Max", option.unwrap(max, ""), NumberBoundTyped(key, Max, _)),
   ])
 }
 
@@ -799,7 +809,8 @@ fn bound_input(
     html.span([], [html.text(label)]),
     html.input([
       attribute.class("dt-input"),
-      attribute.type_("number"),
+      attribute.type_("text"),
+      attribute.attribute("inputmode", "decimal"),
       attribute.value(value),
       event.on_input(to_msg),
     ]),
@@ -1240,12 +1251,5 @@ fn number_text(value: Float) -> String {
   case value == int.to_float(float.truncate(value)) {
     True -> int.to_string(float.truncate(value))
     False -> float.to_string(value)
-  }
-}
-
-fn float_text(value: Option(Float)) -> String {
-  case value {
-    Some(number) -> number_text(number)
-    None -> ""
   }
 }

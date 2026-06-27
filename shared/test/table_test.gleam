@@ -212,7 +212,7 @@ pub fn applied_to_params_test() {
     Applied(
       filters: dict.from_list([
         #("status", SelectValue(["draft", "issued"])),
-        #("total", NumberRange(min: Some(50_000.0), max: None)),
+        #("total", NumberRange(min: Some("50000"), max: None)),
       ]),
       sort: Some(Sort(key: "total", dir: Desc)),
       page_size: 15,
@@ -223,4 +223,37 @@ pub fn applied_to_params_test() {
   assert list.contains(params, #("filter.total.min", "50000"))
   assert list.contains(params, #("sort", "total:desc"))
   assert list.contains(params, #("page_size", "15"))
+}
+
+pub fn number_range_bounds_round_trip_as_raw_strings_test() {
+  let schema =
+    Schema(
+      table_id: "invoices",
+      child_columns: None,
+      columns: [
+        Column(
+          key: "total",
+          label: "Total",
+          column_type: MoneyType,
+          align: NumericEnd,
+          sortable: True,
+          hideable: False,
+          filter: Some(NumberRangeFilter),
+        ),
+      ],
+      filters: [],
+      default_sort: None,
+    )
+  let applied =
+    Applied(
+      filters: dict.from_list([
+        #("total", NumberRange(min: Some("5"), max: Some("99.5"))),
+      ]),
+      sort: None,
+      page_size: 15,
+      cursor: None,
+    )
+  let decoded = query.from_params(query.to_params(applied), schema, 15)
+  assert dict.get(decoded.filters, "total")
+    == Ok(NumberRange(min: Some("5"), max: Some("99.5")))
 }

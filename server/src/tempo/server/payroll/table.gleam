@@ -334,7 +334,10 @@ fn engineer_cell(line: PayrollLine) -> Cell {
 
 /// A segment's row label: the seniority band and the monthly salary in force.
 fn segment_label(segment: PayrollSegment) -> String {
-  level_band(segment.level) <> " · " <> money_text(segment.monthly_salary) <> "/mo"
+  level_band(segment.level)
+  <> " · "
+  <> money_text(segment.monthly_salary)
+  <> "/mo"
 }
 
 /// Δ reads good when the run paid at least the should-be (no back-pay owed),
@@ -414,7 +417,8 @@ fn number_range_of(
 ) -> #(Option(Float), Option(Float)) {
   let from = fn(key) {
     case dict.get(filters, key) {
-      Ok(NumberRange(min:, max:)) -> Some(#(min, max))
+      Ok(NumberRange(min:, max:)) ->
+        Some(#(parse_number(min), parse_number(max)))
       _ -> None
     }
   }
@@ -423,6 +427,18 @@ fn number_range_of(
     _, Some(bounds), _ -> bounds
     _, _, Some(bounds) -> bounds
     _, _, _ -> #(None, None)
+  }
+}
+
+fn parse_number(text: Option(String)) -> Option(Float) {
+  case text {
+    Some(value) ->
+      case float.parse(value) {
+        Ok(number) -> Some(number)
+        Error(Nil) ->
+          option.map(option.from_result(int.parse(value)), int.to_float)
+      }
+    None -> None
   }
 }
 

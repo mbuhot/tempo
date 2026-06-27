@@ -285,7 +285,7 @@ pub fn profit_range_filter_keeps_only_the_profitable_engineer_test() {
       pnl_table.pnl_table(
         ctx(conn),
         as_of(),
-        applied([#("profit", NumberRange(min: Some(0.0), max: None))], None),
+        applied([#("profit", NumberRange(min: Some("0"), max: None))], None),
       )
     let names = fixture_names_in_order(response.rows)
     assert names == ["Ada Lovelace"]

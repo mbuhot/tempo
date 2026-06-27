@@ -12,6 +12,7 @@
 //// table read and the headline read can never drift.
 
 import gleam/dict
+import gleam/float
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar.{type Date, Date, December, June}
@@ -177,7 +178,12 @@ pub fn profit_range_filter_excludes_below_threshold_months_test() {
         ctx(conn),
         as_of(),
         applied(
-          [#("profit", NumberRange(min: Some(max_profit), max: None))],
+          [
+            #(
+              "profit",
+              NumberRange(min: Some(float.to_string(max_profit)), max: None),
+            ),
+          ],
           None,
         ),
       )

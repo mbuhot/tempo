@@ -299,7 +299,7 @@ pub fn total_range_filter_keeps_only_in_band_test() {
       invoice_table.invoice_table(
         ctx(conn),
         as_of(),
-        scoped([#("total", NumberRange(min: Some(24_500.0), max: None))], None),
+        scoped([#("total", NumberRange(min: Some("24500"), max: None))], None),
       )
     assert list.length(response.rows) == 1
     let assert [row] = response.rows

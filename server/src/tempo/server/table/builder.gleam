@@ -18,6 +18,7 @@
 ////   list.fold(builder.params(built), pog.query(sql), pog.parameter)
 
 import gleam/dict.{type Dict}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -212,8 +213,23 @@ pub fn number_range_of(
   key: String,
 ) -> #(Option(Float), Option(Float)) {
   case dict.get(filters, key) {
-    Ok(NumberRange(min:, max:)) -> #(min, max)
+    Ok(NumberRange(min:, max:)) -> #(parse_number(min), parse_number(max))
     _ -> #(None, None)
+  }
+}
+
+fn parse_number(text: Option(String)) -> Option(Float) {
+  case text {
+    Some(value) ->
+      case float.parse(value) {
+        Ok(number) -> Some(number)
+        Error(Nil) ->
+          case int.parse(value) {
+            Ok(whole) -> Some(int.to_float(whole))
+            Error(Nil) -> None
+          }
+      }
+    None -> None
   }
 }
 

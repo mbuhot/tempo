@@ -11,6 +11,7 @@
 
 import gleam/dict
 import gleam/dynamic/decode
+import gleam/float
 import gleam/int
 import gleam/json
 import gleam/list
@@ -340,7 +341,12 @@ pub fn amount_range_filter_excludes_below_threshold_test() {
         to(),
         payroll_table.Preview,
         scoped(
-          [#("amount", NumberRange(min: Some(max_amount), max: None))],
+          [
+            #(
+              "amount",
+              NumberRange(min: Some(float.to_string(max_amount)), max: None),
+            ),
+          ],
           None,
         ),
       )

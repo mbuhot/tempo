@@ -274,7 +274,7 @@ pub fn allocated_range_filter_keeps_only_in_band_test() {
       people_table.people_table(
         ctx(conn),
         as_of(),
-        scoped([#("allocated", NumberRange(min: Some(0.5), max: None))], None),
+        scoped([#("allocated", NumberRange(min: Some("0.5"), max: None))], None),
       )
     assert list.length(response.rows) == 1
     let assert [row] = response.rows
