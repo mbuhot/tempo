@@ -6,8 +6,11 @@ import gleam/http
 import gleam/option
 import gleam/result
 import shared/command.{EventPage}
+import shared/table/query.{Applied}
+import shared/table/response as table_response
 import tempo/server/context.{type Context}
 import tempo/server/event
+import tempo/server/event/table as event_table
 import tempo/server/web/cursor.{type IdBound}
 import tempo/server/web/request
 import tempo/server/web/response
@@ -49,6 +52,29 @@ pub fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
           )
         Error(error) -> response.db_error_response(error)
       }
+  }
+}
+
+/// Handle GET /api/events/table?filter.*=&page_size=&cursor= — the Activity journal
+/// as the generic data-table read: the schema the client renders from (three columns
+/// plus the three schema-level filters) and one filtered, paged slice of rows
+/// newest-first, each carrying its pretty-printed JSON payload as a detail panel.
+/// Filters/page are parsed from the query params against the table's filter schema;
+/// `page_size` is clamped to the server bound. The journal is system-time, so this
+/// read takes no `as_of`. A database failure is a 500.
+pub fn handle_table(req: wisp.Request, ctx: Context) -> wisp.Response {
+  use <- wisp.require_method(req, http.Get)
+  let applied =
+    query.from_params(
+      wisp.get_query(req),
+      event_table.filter_schema(),
+      context.default_page_limit,
+    )
+  let clamped =
+    Applied(..applied, page_size: context.clamp_limit(applied.page_size))
+  case event_table.events_table(ctx, clamped) {
+    Ok(table) -> response.json_response(table_response.encode_response(table))
+    Error(error) -> response.db_error_response(error)
   }
 }
 
