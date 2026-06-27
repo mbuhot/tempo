@@ -223,6 +223,11 @@ th.num {
     align-items: center;
     gap: var(--space-sm);
 }
+.cell-name__text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+}
 .cell-name__name {
     font-weight: var(--weight-semibold);
 }

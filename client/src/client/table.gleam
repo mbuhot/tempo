@@ -920,7 +920,7 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
           ],
           [],
         ),
-        html.span([], [
+        html.span([attribute.class("cell-name__text")], [
           html.span([attribute.class("cell-name__name")], [html.text(label)]),
           person_sub(sub),
         ]),
@@ -931,7 +931,7 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
           [attribute.class("avatar"), attribute.style("background", color)],
           [html.text(initials)],
         ),
-        html.span([], [
+        html.span([attribute.class("cell-name__text")], [
           html.span([attribute.class("cell-name__name")], [html.text(name)]),
           person_sub(sub),
         ]),
