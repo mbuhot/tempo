@@ -292,6 +292,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("budget", MoneyCell(parse_money(row.budget))),
       #("target_completion", DateCell(row.target_completion)),
     ]),
+    children: [],
   )
 }
 

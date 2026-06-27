@@ -400,6 +400,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("margin", PercentCell(row.margin)),
       #("utilization", PercentCell(row.utilization)),
     ]),
+    children: [],
   )
 }
 

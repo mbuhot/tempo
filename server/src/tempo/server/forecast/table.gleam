@@ -350,6 +350,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("profit", SignedMoneyCell(amount: profit, tone: profit_tone(profit))),
       #("margin", PercentCell(row.margin)),
     ]),
+    children: [],
   )
 }
 

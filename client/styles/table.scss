@@ -428,3 +428,29 @@
         color: var(--color-accent);
     }
 }
+
+/* Expandable rows: a disclosure toggle in the first cell reveals the nested child
+ * rows, which sit on a subtly recessed background with the first cell indented. */
+.dt-disclosure {
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: var(--color-muted);
+    padding: 0;
+    margin-right: var(--space-xs);
+    font-size: var(--text-sm);
+    line-height: 1;
+
+    &:hover {
+        color: var(--color-accent);
+    }
+}
+
+.dt-row--child {
+    background: var(--color-surface-sunken, rgba(0, 0, 0, 0.025));
+    color: var(--color-muted);
+}
+
+.dt-cell--indent {
+    padding-left: var(--space-lg);
+}

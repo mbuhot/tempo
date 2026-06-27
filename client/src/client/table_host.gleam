@@ -23,10 +23,11 @@ import rsvp
 import shared/table/column
 import shared/table/response.{type Row, type TableResponse}
 
-/// A table embedded in a page: the API endpoint that answers `{schema, rows, page}`
-/// and the current load state.
+/// A table embedded in a page: the API endpoint that answers `{schema, rows, page}`,
+/// the fixed `base` query params prepended to every request (e.g. `as_of`, or a
+/// `from`/`to` window), and the current load state.
 pub type Host {
-  Host(endpoint: String, load: Load)
+  Host(endpoint: String, base: List(#(String, String)), load: Load)
 }
 
 /// The table's load state. `Loaded` holds the server schema, the rows accumulated
@@ -61,18 +62,39 @@ pub type Out {
 }
 
 /// Start a table against `endpoint`, fetching the first (bounded) page as-of `as_of`.
+/// A thin wrapper over `init_with` that fixes the `as_of` base param.
 pub fn init(endpoint: String, as_of: calendar.Date) -> #(Host, Effect(Msg)) {
-  #(
-    Host(endpoint:, load: Loading),
-    fetch(endpoint, as_of, table.initial_params()),
-  )
+  init_with(endpoint, [#("as_of", time.iso_date(as_of))], as_of)
+}
+
+/// Start a table against `endpoint` with explicit fixed `base` query params (e.g. a
+/// `from`/`to` window) prepended to every request. `as_of` is still carried through
+/// the fetch so a stale reply is dropped.
+pub fn init_with(
+  endpoint: String,
+  base: List(#(String, String)),
+  as_of: calendar.Date,
+) -> #(Host, Effect(Msg)) {
+  let host = Host(endpoint:, base:, load: Loading)
+  #(host, fetch(host, as_of, table.initial_params()))
 }
 
 /// Re-fetch for a new `as_of` (stale-while-revalidate), keeping the active filters /
 /// sort / layout. The current rows stay on screen until the fresh page replaces
-/// them.
+/// them. Updates the `as_of` base param so the existing as-of callers keep working.
 pub fn refetch(host: Host, as_of: calendar.Date) -> #(Host, Effect(Msg)) {
-  #(host, fetch(host.endpoint, as_of, current_params(host)))
+  refetch_with(host, [#("as_of", time.iso_date(as_of))], as_of)
+}
+
+/// Re-fetch with new fixed `base` params (e.g. a moved `from`/`to` window), keeping
+/// the active filters / sort / layout.
+pub fn refetch_with(
+  host: Host,
+  base: List(#(String, String)),
+  as_of: calendar.Date,
+) -> #(Host, Effect(Msg)) {
+  let host = Host(..host, base:)
+  #(host, fetch(host, as_of, current_params(host)))
 }
 
 /// Whether the first page has loaded (a page-level readiness check).
@@ -169,16 +191,12 @@ pub fn update(
             )
           case outcome {
             table.Idle -> #(host, effect.none(), Stay)
-            table.Requery(params:) -> #(
-              host,
-              fetch(host.endpoint, as_of, params),
-              Stay,
-            )
+            table.Requery(params:) -> #(host, fetch(host, as_of, params), Stay)
             table.AppendPage(params:) ->
               case next_cursor {
                 Some(cursor) -> #(
                   host,
-                  fetch_more(host.endpoint, as_of, params, cursor),
+                  fetch_more(host, as_of, params, cursor),
                   Stay,
                 )
                 None -> #(host, effect.none(), Stay)
@@ -232,38 +250,32 @@ fn initial_state(schema: column.Schema) -> table.State {
 }
 
 fn fetch(
-  endpoint: String,
+  host: Host,
   as_of: calendar.Date,
   params: List(#(String, String)),
 ) -> Effect(Msg) {
-  api.get(url(endpoint, as_of, params), response.response_decoder(), Got(
-    as_of,
-    _,
-  ))
+  api.get(url(host, params), response.response_decoder(), Got(as_of, _))
 }
 
 fn fetch_more(
-  endpoint: String,
+  host: Host,
   as_of: calendar.Date,
   params: List(#(String, String)),
   cursor: String,
 ) -> Effect(Msg) {
   api.get(
-    url(endpoint, as_of, list.append(params, [#("cursor", cursor)])),
+    url(host, list.append(params, [#("cursor", cursor)])),
     response.response_decoder(),
     GotMore(as_of, _),
   )
 }
 
-fn url(
-  endpoint: String,
-  as_of: calendar.Date,
-  params: List(#(String, String)),
-) -> String {
-  let base = endpoint <> "?as_of=" <> time.iso_date(as_of)
-  case params {
-    [] -> base
-    _ -> base <> "&" <> query_string(params)
+/// The request URL: the endpoint with the host's fixed base params first, then the
+/// table's filter/sort/page params.
+fn url(host: Host, params: List(#(String, String))) -> String {
+  case list.append(host.base, params) {
+    [] -> host.endpoint
+    all -> host.endpoint <> "?" <> query_string(all)
   }
 }
 

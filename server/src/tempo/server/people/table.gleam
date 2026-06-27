@@ -372,6 +372,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("annual_leave", NumberCell(row.annual_leave)),
       #("day_rate", MoneyCell(parse_money(row.day_rate))),
     ]),
+    children: [],
   )
 }
 

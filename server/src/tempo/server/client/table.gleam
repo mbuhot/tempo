@@ -262,6 +262,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("projects", NumberCell(int.to_float(row.projects))),
       #("status", status_cell(row.status)),
     ]),
+    children: [],
   )
 }
 

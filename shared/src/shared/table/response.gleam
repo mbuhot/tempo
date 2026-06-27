@@ -15,8 +15,11 @@ pub type Page {
   Page(next_cursor: Option(String))
 }
 
+/// One table row: its stable `id`, its `cells` keyed by column, and any nested
+/// `children` rows. A row with non-empty `children` is expandable (one level deep
+/// in practice — children carry no children of their own).
 pub type Row {
-  Row(id: String, cells: Dict(String, Cell))
+  Row(id: String, cells: Dict(String, Cell), children: List(Row))
 }
 
 pub type TableResponse {
@@ -41,6 +44,7 @@ fn encode_row(row: Row) -> Json {
         |> list.map(fn(pair) { #(pair.0, cell.encode_cell(pair.1)) }),
       ),
     ),
+    #("children", json.array(row.children, encode_row)),
   ])
 }
 
@@ -60,7 +64,12 @@ pub fn response_decoder() -> Decoder(TableResponse) {
 fn row_decoder(columns: List(Column)) -> Decoder(Row) {
   use id <- decode.field("id", decode.string)
   use cells <- decode.field("cells", cells_decoder(columns))
-  decode.success(Row(id:, cells:))
+  use children <- decode.optional_field(
+    "children",
+    [],
+    decode.list(row_decoder(columns)),
+  )
+  decode.success(Row(id:, cells:, children:))
 }
 
 fn cells_decoder(columns: List(Column)) -> Decoder(Dict(String, Cell)) {

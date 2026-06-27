@@ -427,6 +427,7 @@ fn row_to_table_row(row: ListRow) -> Row {
         EnumCell(label: capitalize(row.status), tone: status_tone(row.status)),
       ),
     ]),
+    children: [],
   )
 }
 

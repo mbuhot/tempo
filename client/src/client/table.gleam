@@ -66,6 +66,7 @@ pub type State {
     loading_more: Bool,
     dragging: Option(String),
     drag_over: Option(String),
+    expanded: Set(String),
   )
 }
 
@@ -107,6 +108,7 @@ pub type Msg {
   DragEnded
   LayoutReset
   RowClicked(id: String)
+  RowExpandToggled(id: String)
   ActionInvoked(action: String, row: String)
 }
 
@@ -152,6 +154,7 @@ pub fn init(schema: Schema) -> State {
     loading_more: False,
     dragging: None,
     drag_over: None,
+    expanded: set.new(),
   )
 }
 
@@ -170,6 +173,7 @@ pub fn reconcile(state: State, schema: Schema) -> State {
     order: list.append(kept, added),
     hidden:,
     loading_more: False,
+    expanded: set.new(),
   )
 }
 
@@ -303,6 +307,13 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       #(next, Persist(encode_layout(next)))
     }
     RowClicked(id:) -> #(state, Activated(id))
+    RowExpandToggled(id:) -> {
+      let expanded = case set.contains(state.expanded, id) {
+        True -> set.delete(state.expanded, id)
+        False -> set.insert(state.expanded, id)
+      }
+      #(State(..state, expanded:), Idle)
+    }
     ActionInvoked(action:, row:) -> #(state, ActionRaised(action:, row:))
   }
 }
@@ -808,7 +819,7 @@ fn table(
       html.thead([], [
         html.tr([], list.map(columns, fn(column) { header(column, state) })),
       ]),
-      html.tbody([], body_rows(columns, rows)),
+      html.tbody([], body_rows(columns, rows, state.expanded)),
     ]),
   ])
 }
@@ -831,7 +842,11 @@ fn scroll_decoder() -> Decoder(Msg) {
   }
 }
 
-fn body_rows(columns: List(Column), rows: List(Row)) -> List(Element(Msg)) {
+fn body_rows(
+  columns: List(Column),
+  rows: List(Row),
+  expanded: Set(String),
+) -> List(Element(Msg)) {
   case rows {
     [] -> [
       html.tr([], [
@@ -843,7 +858,27 @@ fn body_rows(columns: List(Column), rows: List(Row)) -> List(Element(Msg)) {
         ),
       ]),
     ]
-    _ -> list.map(rows, fn(row) { body_row(columns, row) })
+    _ ->
+      list.flat_map(rows, fn(row) {
+        parent_with_children(columns, row, expanded)
+      })
+  }
+}
+
+/// A parent row, followed (when expanded) by its child rows. The first column gets
+/// a disclosure toggle on an expandable row; children render with the child class
+/// and are neither expandable nor row-click navigable.
+fn parent_with_children(
+  columns: List(Column),
+  row: Row,
+  expanded: Set(String),
+) -> List(Element(Msg)) {
+  let is_expanded = set.contains(expanded, row.id)
+  let parent = body_row(columns, row, is_expanded)
+  case row.children, is_expanded {
+    [], _ -> [parent]
+    _, False -> [parent]
+    children, True -> [parent, ..list.map(children, child_row(columns, _))]
   }
 }
 
@@ -867,21 +902,75 @@ fn header(column: Column, state: State) -> Element(Msg) {
   html.th(attrs, [html.text(column.label <> indicator)])
 }
 
-fn body_row(columns: List(Column), row: Row) -> Element(Msg) {
+fn body_row(
+  columns: List(Column),
+  row: Row,
+  is_expanded: Bool,
+) -> Element(Msg) {
+  let expandable = case row.children {
+    [] -> False
+    _ -> True
+  }
   html.tr(
     [attribute.class("clickable"), event.on_click(RowClicked(row.id))],
-    list.map(columns, fn(column) {
+    list.index_map(columns, fn(column, index) {
       let numeric = case column.align {
         NumericEnd -> [attribute.class("num")]
         _ -> []
+      }
+      let cell = case dict.get(row.cells, column.key) {
+        Ok(ActionsCell(actions)) -> actions_cell(actions, row.id)
+        Ok(value) -> render_cell(value)
+        Error(Nil) -> element.none()
+      }
+      let content = case index == 0 && expandable {
+        True -> [disclosure(row.id, is_expanded), cell]
+        False -> [cell]
+      }
+      html.td(numeric, content)
+    }),
+  )
+}
+
+/// A child (nested) row: its cells via the normal renderer, marked with the child
+/// class and the first cell indented. Children are not expandable and not row-click
+/// navigable.
+fn child_row(columns: List(Column), row: Row) -> Element(Msg) {
+  html.tr(
+    [attribute.class("dt-row--child")],
+    list.index_map(columns, fn(column, index) {
+      let numeric = case column.align {
+        NumericEnd -> [attribute.class("num")]
+        _ -> []
+      }
+      let indent = case index == 0 {
+        True -> [attribute.class("dt-cell--indent")]
+        False -> []
       }
       let content = case dict.get(row.cells, column.key) {
         Ok(ActionsCell(actions)) -> actions_cell(actions, row.id)
         Ok(value) -> render_cell(value)
         Error(Nil) -> element.none()
       }
-      html.td(numeric, [content])
+      html.td(list.append(numeric, indent), [content])
     }),
+  )
+}
+
+/// The expand/collapse disclosure control rendered in an expandable row's first
+/// cell. Clicking toggles the row's `expanded` membership; the click stops
+/// propagation so it does not also fire `RowClicked`.
+fn disclosure(id: String, is_expanded: Bool) -> Element(Msg) {
+  let glyph = case is_expanded {
+    True -> "▾"
+    False -> "▸"
+  }
+  html.button(
+    [
+      attribute.class("dt-disclosure"),
+      event.on_click(RowExpandToggled(id)) |> event.stop_propagation,
+    ],
+    [html.text(glyph)],
   )
 }
 

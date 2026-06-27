@@ -186,6 +186,7 @@ fn rate_card_row(
       #("monthly_salary", salary_cell(salaries, rate.level)),
       #("actions", ActionsCell(actions)),
     ]),
+    children: [],
   )
 }
 
@@ -197,6 +198,7 @@ fn leave_policy_row(policy: LeavePolicyRow) -> Row {
       #("level", EnumCell(label: level_band(policy.level), tone: Neutral)),
       #("days_per_year", NumberCell(policy.days_per_year)),
     ]),
+    children: [],
   )
 }
 
