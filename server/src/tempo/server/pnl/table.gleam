@@ -76,6 +76,7 @@ pub fn pnl_schema() -> Schema {
   Schema(
     table_id: "pnl",
     default_sort: Some(Sort(key: default_sort_key, dir: Desc)),
+    filters: [],
     columns: [
       Column(
         key: "engineer",

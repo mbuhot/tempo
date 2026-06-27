@@ -123,14 +123,21 @@ pub fn parse_filters(
   params: List(#(String, String)),
   schema: Schema,
 ) -> Dict(String, FilterValue) {
-  list.fold(schema.columns, dict.new(), fn(acc, column) {
-    case column.filter {
+  let from_columns =
+    list.fold(schema.columns, dict.new(), fn(acc, column) {
+      case column.filter {
+        None -> acc
+        Some(kind) ->
+          case parse_one(params, column.key, kind) {
+            Some(value) -> dict.insert(acc, column.key, value)
+            None -> acc
+          }
+      }
+    })
+  list.fold(schema.filters, from_columns, fn(acc, standalone) {
+    case parse_one(params, standalone.key, standalone.kind) {
+      Some(value) -> dict.insert(acc, standalone.key, value)
       None -> acc
-      Some(kind) ->
-        case parse_one(params, column.key, kind) {
-          Some(value) -> dict.insert(acc, column.key, value)
-          None -> acc
-        }
     }
   })
 }

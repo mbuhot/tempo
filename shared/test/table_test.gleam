@@ -11,10 +11,12 @@ import gleam/option.{None, Some}
 import shared/money
 import shared/table/cell.{Chip, ChipsCell, EnumCell, MoneyCell, TextCell}
 import shared/table/column.{
-  ChipsType, Column, EnumType, MoneyType, NumericEnd, Positive, Schema, Start,
-  TextType,
+  ChipsType, Column, EnumType, MoneyType, NumericEnd, Positive, Schema,
+  StandaloneFilter, Start, TextType,
 }
-import shared/table/filter.{FilterOption, NumberRangeFilter, SelectFilter}
+import shared/table/filter.{
+  DateRangeFilter, FilterOption, NumberRangeFilter, SelectFilter,
+}
 import shared/table/query.{Applied, NumberRange, SelectValue}
 import shared/table/response.{Page, Row, TableResponse}
 import shared/table/sort.{Asc, Desc, Sort}
@@ -54,11 +56,58 @@ pub fn schema_round_trips_test() {
           filter: Some(NumberRangeFilter),
         ),
       ],
+      filters: [],
       default_sort: Some(Sort(key: "total", dir: Desc)),
     )
   let assert Ok(decoded) =
     parse_with(render(column.encode_schema(schema)), column.schema_decoder())
   assert decoded == schema
+}
+
+pub fn schema_level_filters_round_trip_test() {
+  let schema =
+    Schema(
+      table_id: "events",
+      columns: [
+        Column(
+          key: "summary",
+          label: "Event",
+          column_type: TextType,
+          align: Start,
+          sortable: False,
+          hideable: False,
+          filter: None,
+        ),
+      ],
+      filters: [
+        StandaloneFilter(
+          key: "operation",
+          label: "Operation",
+          kind: SelectFilter(
+            options: [
+              FilterOption(value: "issue_invoice", label: "issue_invoice"),
+            ],
+            multi: False,
+          ),
+        ),
+        StandaloneFilter(
+          key: "occurred",
+          label: "Recorded",
+          kind: DateRangeFilter(options: []),
+        ),
+      ],
+      default_sort: None,
+    )
+  let assert Ok(decoded) =
+    parse_with(render(column.encode_schema(schema)), column.schema_decoder())
+  assert decoded == schema
+  assert decoded.filters == schema.filters
+}
+
+pub fn schema_without_filters_field_still_decodes_test() {
+  let legacy = "{\"table_id\":\"t\",\"columns\":[],\"default_sort\":null}"
+  let assert Ok(decoded) = parse_with(legacy, column.schema_decoder())
+  assert decoded.filters == []
 }
 
 pub fn select_filter_round_trips_test() {
@@ -128,6 +177,7 @@ pub fn response_round_trips_via_schema_test() {
           filter: None,
         ),
       ],
+      filters: [],
       default_sort: None,
     )
   let child =

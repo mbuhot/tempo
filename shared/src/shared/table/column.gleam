@@ -50,8 +50,21 @@ pub type Column {
   )
 }
 
+/// A filter the server offers that is NOT tied to a displayed column (e.g. an
+/// Activity from/to window, or an operation/actor select whose values never appear
+/// as their own column). Keyed by its own `key` (the same `filter.<key>` param
+/// scheme columns use), it flows through the identical widget/applied/query path.
+pub type StandaloneFilter {
+  StandaloneFilter(key: String, label: String, kind: FilterKind)
+}
+
 pub type Schema {
-  Schema(table_id: String, columns: List(Column), default_sort: Option(Sort))
+  Schema(
+    table_id: String,
+    columns: List(Column),
+    filters: List(StandaloneFilter),
+    default_sort: Option(Sort),
+  )
 }
 
 pub fn column_type_to_string(column_type: ColumnType) -> String {
@@ -128,8 +141,24 @@ pub fn encode_schema(schema: Schema) -> Json {
   json.object([
     #("table_id", json.string(schema.table_id)),
     #("columns", json.array(schema.columns, encode_column)),
+    #("filters", json.array(schema.filters, encode_standalone_filter)),
     #("default_sort", json.nullable(schema.default_sort, sort.encode_sort)),
   ])
+}
+
+fn encode_standalone_filter(standalone: StandaloneFilter) -> Json {
+  json.object([
+    #("key", json.string(standalone.key)),
+    #("label", json.string(standalone.label)),
+    #("kind", filter.encode_filter_kind(standalone.kind)),
+  ])
+}
+
+fn standalone_filter_decoder() -> Decoder(StandaloneFilter) {
+  use key <- decode.field("key", decode.string)
+  use label <- decode.field("label", decode.string)
+  use kind <- decode.field("kind", filter.filter_kind_decoder())
+  decode.success(StandaloneFilter(key:, label:, kind:))
 }
 
 fn encode_column(column: Column) -> Json {
@@ -147,11 +176,16 @@ fn encode_column(column: Column) -> Json {
 pub fn schema_decoder() -> Decoder(Schema) {
   use table_id <- decode.field("table_id", decode.string)
   use columns <- decode.field("columns", decode.list(column_decoder()))
+  use filters <- decode.optional_field(
+    "filters",
+    [],
+    decode.list(standalone_filter_decoder()),
+  )
   use default_sort <- decode.field(
     "default_sort",
     decode.optional(sort.sort_decoder()),
   )
-  decode.success(Schema(table_id:, columns:, default_sort:))
+  decode.success(Schema(table_id:, columns:, filters:, default_sort:))
 }
 
 fn column_decoder() -> Decoder(Column) {

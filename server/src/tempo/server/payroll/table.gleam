@@ -141,6 +141,7 @@ pub fn payroll_schema(mode: Mode) -> Schema {
   Schema(
     table_id: "payroll-" <> mode_to_string(mode),
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
+    filters: [],
     columns:,
   )
 }

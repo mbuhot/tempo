@@ -73,77 +73,87 @@ pub fn leave_policy_table(
 /// The rate-card & salary table schema: level, day rate, monthly salary, and a
 /// non-sortable, non-filterable actions column.
 pub fn rate_card_schema() -> Schema {
-  Schema(table_id: "settings_rate_card", default_sort: None, columns: [
-    Column(
-      key: "level",
-      label: "Level",
-      column_type: EnumType,
-      align: Start,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-    Column(
-      key: "day_rate",
-      label: "Day rate",
-      column_type: MoneyType,
-      align: NumericEnd,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-    Column(
-      key: "monthly_salary",
-      label: "Monthly salary",
-      column_type: MoneyType,
-      align: NumericEnd,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-    Column(
-      key: "actions",
-      label: "",
-      column_type: ActionsType,
-      align: NumericEnd,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-  ])
+  Schema(
+    table_id: "settings_rate_card",
+    default_sort: None,
+    filters: [],
+    columns: [
+      Column(
+        key: "level",
+        label: "Level",
+        column_type: EnumType,
+        align: Start,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+      Column(
+        key: "day_rate",
+        label: "Day rate",
+        column_type: MoneyType,
+        align: NumericEnd,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+      Column(
+        key: "monthly_salary",
+        label: "Monthly salary",
+        column_type: MoneyType,
+        align: NumericEnd,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+      Column(
+        key: "actions",
+        label: "",
+        column_type: ActionsType,
+        align: NumericEnd,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+    ],
+  )
 }
 
 /// The read-only leave-policy table schema: leave kind, level band, days-per-year.
 pub fn leave_policy_schema() -> Schema {
-  Schema(table_id: "settings_leave_policy", default_sort: None, columns: [
-    Column(
-      key: "kind",
-      label: "Type",
-      column_type: TextType,
-      align: Start,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-    Column(
-      key: "level",
-      label: "Level",
-      column_type: EnumType,
-      align: Start,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-    Column(
-      key: "days_per_year",
-      label: "Days / year",
-      column_type: NumberType,
-      align: NumericEnd,
-      sortable: False,
-      hideable: False,
-      filter: None,
-    ),
-  ])
+  Schema(
+    table_id: "settings_leave_policy",
+    default_sort: None,
+    filters: [],
+    columns: [
+      Column(
+        key: "kind",
+        label: "Type",
+        column_type: TextType,
+        align: Start,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+      Column(
+        key: "level",
+        label: "Level",
+        column_type: EnumType,
+        align: Start,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+      Column(
+        key: "days_per_year",
+        label: "Days / year",
+        column_type: NumberType,
+        align: NumericEnd,
+        sortable: False,
+        hideable: False,
+        filter: None,
+      ),
+    ],
+  )
 }
 
 // --- actions ----------------------------------------------------------------

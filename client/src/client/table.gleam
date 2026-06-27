@@ -485,10 +485,20 @@ pub fn view(
 }
 
 fn rail(schema: Schema, state: State) -> Element(Msg) {
-  let chips =
+  let column_chips =
     schema.columns
-    |> list.filter(fn(column) { option.is_some(column.filter) })
-    |> list.map(fn(column) { filter_chip(column, state) })
+    |> list.filter_map(fn(column) {
+      case column.filter {
+        Some(kind) -> Ok(filter_chip(column.key, column.label, kind, state))
+        None -> Error(Nil)
+      }
+    })
+  let standalone_chips =
+    schema.filters
+    |> list.map(fn(standalone) {
+      filter_chip(standalone.key, standalone.label, standalone.kind, state)
+    })
+  let chips = list.append(column_chips, standalone_chips)
   let reset = case dict.size(state.applied.filters) {
     0 -> element.none()
     _ ->
@@ -505,10 +515,18 @@ fn rail(schema: Schema, state: State) -> Element(Msg) {
   ])
 }
 
-/// A filterable column's rail chip: a toggle button (label, active count badge, an
-/// inline clear when active) and — when open — its filter popover anchored beneath.
-fn filter_chip(column: Column, state: State) -> Element(Msg) {
-  let count = active_count(state.applied, column.key)
+/// A filter's rail chip (column filter or schema-level standalone filter): a toggle
+/// button (label, active count badge, an inline clear when active) and — when open —
+/// its filter popover anchored beneath. Keyed by the filter's `key` + `kind`, so a
+/// standalone filter flows through the identical widget/applied/query path as a
+/// column filter.
+fn filter_chip(
+  key: String,
+  label: String,
+  kind: FilterKind,
+  state: State,
+) -> Element(Msg) {
+  let count = active_count(state.applied, key)
   let active_class = case count {
     0 -> "dt-fbtn"
     _ -> "dt-fbtn dt-fbtn--active"
@@ -523,23 +541,21 @@ fn filter_chip(column: Column, state: State) -> Element(Msg) {
         html.span(
           [
             attribute.class("dt-fbtn__clear"),
-            event.on_click(FilterCleared(column.key)) |> event.stop_propagation,
+            event.on_click(FilterCleared(key)) |> event.stop_propagation,
           ],
           [html.text("✕")],
         ),
       ])
   }
   let pop = case state.open {
-    FilterPanel(open_key) if open_key == column.key -> filter_pop(column, state)
+    FilterPanel(open_key) if open_key == key ->
+      filter_pop(key, label, kind, state)
     _ -> element.none()
   }
   html.div([attribute.class("dt-fchip")], [
     html.button(
-      [
-        attribute.class(active_class),
-        event.on_click(FilterButtonClicked(column.key)),
-      ],
-      [html.text(column.label), badge],
+      [attribute.class(active_class), event.on_click(FilterButtonClicked(key))],
+      [html.text(label), badge],
     ),
     pop,
   ])
@@ -572,23 +588,21 @@ fn active_count(applied: Applied, key: String) -> Int {
   }
 }
 
-fn filter_pop(column: Column, state: State) -> Element(Msg) {
-  let body = case column.filter {
-    Some(kind) -> filter_widget(kind, column.key, state.applied)
-    None -> element.none()
-  }
+fn filter_pop(
+  key: String,
+  label: String,
+  kind: FilterKind,
+  state: State,
+) -> Element(Msg) {
   html.div([attribute.class("dt-pop")], [
     html.div([attribute.class("dt-pop__head")], [
-      html.span([attribute.class("dt-pop__title")], [html.text(column.label)]),
+      html.span([attribute.class("dt-pop__title")], [html.text(label)]),
       html.button(
-        [
-          attribute.class("dt-pop__clear"),
-          event.on_click(FilterCleared(column.key)),
-        ],
+        [attribute.class("dt-pop__clear"), event.on_click(FilterCleared(key))],
         [html.text("Clear")],
       ),
     ]),
-    body,
+    filter_widget(kind, key, state.applied),
   ])
 }
 

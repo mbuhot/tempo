@@ -72,6 +72,7 @@ pub fn client_schema() -> Schema {
   Schema(
     table_id: "clients",
     default_sort: Some(Sort(key: default_sort_key, dir: Asc)),
+    filters: [],
     columns: [
       Column(
         key: "name",
