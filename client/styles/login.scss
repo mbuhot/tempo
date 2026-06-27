@@ -4,6 +4,8 @@
  * documented exception: the #login radial-gradient stops carry literal rgba/px
  * values (a layered backdrop has no meaningful token form). */
 
+@use 'mixins' as *;
+
 #login {
   position: fixed; inset: 0; z-index: 100;
   background:
@@ -24,13 +26,13 @@
 .login__form { display: flex; flex-direction: column; gap: var(--space-md); }
 .login__field { display: flex; flex-direction: column; gap: var(--space-xs); }
 .login__field label {
-  font-family: var(--mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+  @include mono-xs; letter-spacing: var(--tracking-wide);
   text-transform: uppercase; color: var(--color-faint); font-weight: var(--weight-semibold);
 }
 .login__field input {
   -webkit-appearance: none; -moz-appearance: none; appearance: none;
   width: 100%; height: var(--size-control-h); padding: 0 var(--space-md);
-  border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm);
+  @include hairline;
   background: var(--color-surface); color: var(--color-text); font: inherit;
 }
 .login__field input:focus-visible, .login__field input:focus {

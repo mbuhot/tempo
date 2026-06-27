@@ -1,6 +1,8 @@
 /* Sidebar — brand mark, primary nav, and the signed-in identity footer.
  * Token-only per ADR-038. */
 
+@use 'mixins' as *;
+
 .sidebar {
   background: var(--color-surface);
   border-right: var(--border-thin) solid var(--color-border);
@@ -31,7 +33,7 @@
 .sidebar__nav-link--active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
 .sidebar__nav-icon { width: var(--size-icon); height: var(--size-icon); flex: none; opacity: .9; }
 .sidebar__nav-badge {
-  margin-left: auto; font-family: var(--mono); font-size: var(--text-xs);
+  margin-left: auto; @include mono-xs;
   background: var(--color-surface-sunken); color: var(--color-faint);
   padding: 0 var(--space-xs); border-radius: var(--radius-pill);
 }

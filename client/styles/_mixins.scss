@@ -1,0 +1,20 @@
+// Shared declaration clusters (#26). A partial that needs one does
+// `@use 'mixins' as *;` (first line, after its comment) and `@include` it. These
+// emit no CSS on their own — only where included — so there is no duplication.
+//
+// Keep these to genuine, repeated multi-declaration clusters. Single tokens stay
+// inline as var(--token); a mixin earns its place only when the same GROUP of
+// declarations recurs across rules (ADR-038's token discipline, one level up).
+
+// The dense monospace caption/label look: the consultancy's numbers, eyebrows,
+// timestamps, and pill text. Callers add their own colour/weight/tracking.
+@mixin mono-xs {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+// A hairline-bordered, slightly-rounded surface (cards, selects, payload blocks).
+@mixin hairline {
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Build the Lustre client bundle into ../server/priv/static (served under /static).
+# Build the Lustre client bundle into ../server/priv/static (served under /static),
+# and compile the Sass stylesheet to the single served ../server/priv/static/styles/
+# main.css (#26).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cd client && gleam run -m lustre/dev build client/app
 
-# Copy the CSS source (client/styles/) to the served location; the browser
-# resolves main.css's relative @imports from there. Rebuilt every time.
-rm -rf ../server/priv/static/styles && cp -R styles ../server/priv/static/styles
+# Compile the stylesheet with Sass: styles/main.scss @use-inlines every partial
+# into ONE main.css, so the browser loads a single file. Install the toolchain on
+# first run (idempotent). Output is gitignored (built, not tracked).
+[ -x node_modules/.bin/sass ] || npm install
+rm -rf ../server/priv/static/styles
+node_modules/.bin/sass styles/main.scss ../server/priv/static/styles/main.css \
+  --no-source-map --style=compressed

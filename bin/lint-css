@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Fail if any `var(--token)` references a CSS custom property that is not defined
+# anywhere in the stylesheet sources (#26). Plain CSS treats an undefined var() as
+# invalid and silently drops the declaration — so a typo'd design token (e.g.
+# var(--space-4) for --space-xl) just doesn't apply, with no build or runtime error.
+# This gate turns that silent no-op into a hard failure.
+#
+# Definitions are `--name:` declarations (theme.scss owns the palette); references
+# are the `--name` immediately inside `var(`. Comments are stripped first so prose
+# like "every value is a var(--token)" is not mistaken for a real reference.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Concatenate the sources with /* */ block and // line comments removed.
+src=$(cat client/styles/*.scss | perl -0pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g')
+
+defined=$(printf '%s' "$src" | grep -oE -- '--[A-Za-z0-9_-]+[[:space:]]*:' \
+  | grep -oE -- '--[A-Za-z0-9_-]+' | sort -u)
+referenced=$(printf '%s' "$src" | grep -oE -- 'var\([[:space:]]*--[A-Za-z0-9_-]+' \
+  | grep -oE -- '--[A-Za-z0-9_-]+' | sort -u)
+
+unknown=$(comm -13 <(printf '%s\n' "$defined") <(printf '%s\n' "$referenced"))
+
+if [ -n "$unknown" ]; then
+  echo "lint-css: undefined design token(s) referenced via var(--…):" >&2
+  printf '  %s\n' $unknown >&2
+  echo "Define them in client/styles/theme.scss or fix the typo." >&2
+  exit 1
+fi
+
+count=$(printf '%s\n' "$referenced" | grep -c .)
+echo "lint-css: OK — all $count referenced design tokens are defined."

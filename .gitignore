@@ -15,8 +15,12 @@ erl_crash.dump
 # Generated client bundle (built from the client package into the server's priv/static)
 /server/priv/static/app.js
 
-# Copied CSS bundle (the tracked source is client/styles/; bin/build copies it here)
+# Compiled CSS bundle (the tracked source is client/styles/*.scss; bin/build
+# compiles it here with Sass)
 /server/priv/static/styles/
+
+# Sass toolchain (client stylesheet build)
+/client/node_modules
 
 # Playwright (e2e harness)
 /e2e/node_modules

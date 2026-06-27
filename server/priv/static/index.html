@@ -6,10 +6,10 @@
     <title>Tempo</title>
     <!-- Wisp mounts priv/static under /static (router.gleam), so both the
          stylesheet and the bundle load from /static/* rather than the
-         lustre/dev default of /. styles/main.css is a manifest that @imports
-         the component stylesheets (a legibility-only pass: large high-contrast
-         type, a column board, a prominent slider, and distinct on-leave /
-         unassigned rows). The CSS source lives in client/styles/. -->
+         lustre/dev default of /. styles/main.css is COMPILED by Sass from
+         client/styles/main.scss (bin/build), which @use-inlines the component
+         partials into this one served file. The CSS source lives in
+         client/styles/*.scss (ADR-047). -->
     <link rel="stylesheet" href="/static/styles/main.css" />
     <script type="module" src="/static/app.js"></script>
   </head>

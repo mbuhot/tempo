@@ -1,0 +1,27 @@
+// Tempo stylesheet entry. Sass compiles this to the single served
+// server/priv/static/styles/main.css (see bin/build); `@use` inlines each partial
+// in cascade order, so the browser loads one file rather than resolving runtime
+// @imports.
+//
+// Order follows the cascade: design tokens first (so everything can resolve
+// var(--token)), then the base reset + text utilities, the shared cross-page
+// components, the shell (app grid, sidebar, time rail), one module per UI area
+// (ADR-038), and responsive overrides last so they win over component base rules.
+//
+// Shared declaration clusters live in `_mixins.scss`; partials that need them
+// `@use 'mixins' as *` and `@include` them (#26).
+
+@use 'theme';
+@use 'base';
+@use 'components';
+@use 'app-shell';
+@use 'sidebar';
+@use 'time-rail';
+@use 'board';
+@use 'people';
+@use 'finance';
+@use 'activity';
+@use 'settings';
+@use 'access';
+@use 'login';
+@use 'responsive';

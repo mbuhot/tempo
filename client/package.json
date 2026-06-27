@@ -1,0 +1,12 @@
+{
+  "name": "tempo-styles",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sass build for the Tempo Lustre client stylesheet, compiled into server/priv/static/styles by bin/build.",
+  "scripts": {
+    "build-css": "sass styles/main.scss ../server/priv/static/styles/main.css --no-source-map --style=compressed"
+  },
+  "devDependencies": {
+    "sass": "^1.101.0"
+  }
+}

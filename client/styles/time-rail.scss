@@ -2,6 +2,8 @@
  * range thumb and ticks, and the step/date/today controls. Token-only per
  * ADR-038. */
 
+@use 'mixins' as *;
+
 .time-rail {
   background: var(--color-surface);
   border-bottom: var(--border-thin) solid var(--color-border);
@@ -22,7 +24,7 @@
 .time-rail__ticks { position: relative; height: var(--space-md); margin-bottom: var(--space-xs); }
 .time-rail__tick {
   position: absolute; transform: translateX(-50%);
-  font-family: var(--mono); font-size: var(--text-xs); color: var(--color-faint);
+  @include mono-xs; color: var(--color-faint);
   top: 0; user-select: none;
 }
 .time-rail__tick::before {
@@ -64,8 +66,8 @@
 }
 .time-rail__step:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .time-rail__controls input[type=date] {
-  font-family: var(--mono); font-size: var(--text-xs); border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-sm); color: var(--color-text); background: var(--color-surface);
+  @include mono-xs; @include hairline;
+  padding: var(--space-xs) var(--space-sm); color: var(--color-text); background: var(--color-surface);
 }
 .time-rail__today {
   border: var(--border-thin) solid var(--color-border); background: var(--color-surface); color: var(--color-muted);

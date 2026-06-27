@@ -1205,6 +1205,39 @@ client asymmetry (deferred — out of scope; clients remain seed-only, `ClientId
 
 ---
 
+## ADR-047 — Sass for the client stylesheet (DRY mixins) + a design-token lint (amends ADR-038)
+**Status:** Accepted (amends ADR-038)
+
+**Context.** ADR-038's token-only, plain-CSS, one-file-per-area stylesheet kept *values* DRY (every value a
+`var(--token)`) but could not name and reuse a recurring GROUP of declarations. The same clusters recurred across
+files — `font-family: var(--mono); font-size: var(--text-xs);` (the mono caption/label look, ~16×) and
+`border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm);` (the hairline surface) — so
+changing "the caption look" meant editing every site (#26). Separately, a real bug shipped: CSS authored against the
+token system referenced non-existent properties (`var(--space-4)`, `var(--font-size-sm)`, `var(--color-text-muted)`);
+plain CSS drops an undefined `var()` silently, so the style just did not apply, caught only by eye.
+
+**Decision.** Adopt **Sass** for the client stylesheet. `client/styles/*.scss` compiles via `bin/build` (dart-sass,
+pinned in `client/package.json`) from `main.scss`, which `@use`-inlines the partials into the single served
+`server/priv/static/styles/main.css` (gitignored — built, not tracked) — the browser still loads one file,
+replacing the old runtime `@import` manifest + raw-file copy. Recurring clusters become `@mixin`s in `_mixins.scss`
+(`mono-xs`, `hairline`); a partial that needs them does `@use 'mixins' as *` and `@include`s them. Compiled output is
+declaration-equivalent (mixins expand to the same properties), so it is a pure refactor.
+
+Sass does NOT validate CSS custom properties, so a separate, dependency-free gate — `bin/lint-css`, wired into
+`bin/test` — extracts the defined `--token:` set and every `var(--token)` reference across the sources (comments
+stripped) and fails on any reference with no definition, turning the silent-drop bug class into a hard CI failure.
+
+**Scope.** Client styling + build/test tooling only; no Gleam, server, or wire change. The `node` toolchain (already
+present for the Playwright e2e) gains `sass` under `client/`. The gleam suite, 52 e2e, and `bin/lint-css` are green.
+
+**Alternatives.** Processor-free shared classes composed in the Lustre markup (rejected — leaks presentation into the
+markup, and still needs a separate token lint). PostCSS + a mixins/apply plugin (viable; Sass chosen as the more
+mature, batteries-included option). Native CSS (rejected — no mixin; the `@apply` proposal was abandoned, so it
+cannot bundle multi-declaration clusters). stylelint for the token check (rejected for now — the grep-based
+`bin/lint-css` needs no extra dependency).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 
