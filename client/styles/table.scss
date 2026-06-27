@@ -9,8 +9,10 @@
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-lg);
-    border-bottom: var(--border-thin) solid var(--color-border);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius);
     background: var(--color-surface-sunken);
     min-height: 3rem;
     flex-wrap: wrap;
@@ -19,11 +21,9 @@
 }
 
 .dt-rail__label {
-    @include mono-xs;
-    color: var(--color-faint);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-muted);
     flex: none;
 }
 

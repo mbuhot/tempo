@@ -24,6 +24,7 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/svg
 import lustre/event
 import shared/money
 import shared/table/cell.{
@@ -507,12 +508,37 @@ fn rail(schema: Schema, state: State) -> Element(Msg) {
       ])
   }
   html.div([attribute.class("dt-rail")], [
-    html.span([attribute.class("dt-rail__label")], [html.text("Filter")]),
+    html.span(
+      [
+        attribute.class("dt-rail__label"),
+        attribute.attribute("aria-label", "Filter"),
+        attribute.attribute("title", "Filter"),
+      ],
+      [funnel_icon()],
+    ),
     html.div([attribute.class("dt-rail__chips")], chips),
     html.div([attribute.class("dt-rail__spacer")], []),
     reset,
     columns_chip(schema, state),
   ])
+}
+
+/// The funnel glyph that labels the filter rail — the familiar filter affordance.
+fn funnel_icon() -> Element(Msg) {
+  svg.svg(
+    [
+      attribute.attribute("viewBox", "0 0 24 24"),
+      attribute.attribute("width", "15"),
+      attribute.attribute("height", "15"),
+      attribute.attribute("fill", "none"),
+      attribute.attribute("stroke", "currentColor"),
+      attribute.attribute("stroke-width", "2"),
+      attribute.attribute("stroke-linecap", "round"),
+      attribute.attribute("stroke-linejoin", "round"),
+      attribute.attribute("aria-hidden", "true"),
+    ],
+    [svg.path([attribute.attribute("d", "M22 3 L2 3 L10 12.46 L10 19 L14 21 L14 12.46 Z")])],
+  )
 }
 
 /// A filter's rail chip (column filter or schema-level standalone filter): a toggle
