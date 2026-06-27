@@ -379,3 +379,25 @@
         background: var(--color-leave);
     }
 }
+
+/* Signed-money cells (P&L / forecast profit) carry a server-driven tone: the sign
+ * is conveyed by colour as well as the leading minus, so a positive figure reads
+ * good and a negative one reads bad. */
+.dt-money {
+    font-weight: var(--weight-semibold);
+}
+.dt-money--neutral {
+    color: inherit;
+}
+.dt-money--accent {
+    color: var(--color-accent);
+}
+.dt-money--positive {
+    color: var(--color-ok);
+}
+.dt-money--warning {
+    color: var(--color-warn);
+}
+.dt-money--critical {
+    color: var(--color-leave);
+}

@@ -11,7 +11,8 @@ import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
 import shared/table/column.{
   type ColumnType, type Tone, BoolType, ChipsType, DateType, EntityType,
-  EnumType, MoneyType, Neutral, NumberType, PersonType, TextType,
+  EnumType, MoneyType, Neutral, NumberType, PersonType, SignedMoneyType,
+  TextType,
 }
 import shared/wire
 
@@ -19,6 +20,7 @@ pub type Cell {
   TextCell(String)
   NumberCell(Float)
   MoneyCell(Money)
+  SignedMoneyCell(amount: Money, tone: Tone)
   DateCell(Date)
   EnumCell(label: String, tone: Tone)
   EntityCell(label: String, color: String)
@@ -36,6 +38,11 @@ pub fn encode_cell(cell: Cell) -> Json {
     TextCell(value) -> json.string(value)
     NumberCell(value) -> json.float(value)
     MoneyCell(value) -> money.encode(value)
+    SignedMoneyCell(amount:, tone:) ->
+      json.object([
+        #("amount", money.encode(amount)),
+        #("tone", json.string(column.tone_to_string(tone))),
+      ])
     DateCell(value) -> wire.encode_date(value)
     EnumCell(label:, tone:) ->
       json.object([
@@ -72,6 +79,7 @@ pub fn cell_decoder(of column_type: ColumnType) -> Decoder(Cell) {
     TextType -> decode.map(decode.string, TextCell)
     NumberType -> decode.map(decode.float, NumberCell)
     MoneyType -> decode.map(money.decoder(), MoneyCell)
+    SignedMoneyType -> signed_money_decoder()
     DateType -> decode.map(wire.date_decoder(), DateCell)
     BoolType -> decode.map(decode.bool, BoolCell)
     EnumType -> enum_decoder()
@@ -89,6 +97,16 @@ fn enum_decoder() -> Decoder(Cell) {
     Error(Nil) -> Neutral
   }
   decode.success(EnumCell(label:, tone:))
+}
+
+fn signed_money_decoder() -> Decoder(Cell) {
+  use amount <- decode.field("amount", money.decoder())
+  use tone_text <- decode.field("tone", decode.string)
+  let tone = case column.tone_from_string(tone_text) {
+    Ok(value) -> value
+    Error(Nil) -> Neutral
+  }
+  decode.success(SignedMoneyCell(amount:, tone:))
 }
 
 fn entity_decoder() -> Decoder(Cell) {

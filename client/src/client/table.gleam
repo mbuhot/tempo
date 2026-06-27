@@ -28,7 +28,7 @@ import lustre/event
 import shared/money
 import shared/table/cell.{
   type Cell, type Chip, BoolCell, ChipsCell, DateCell, EntityCell, EnumCell,
-  MoneyCell, NumberCell, PersonCell, TextCell,
+  MoneyCell, NumberCell, PersonCell, SignedMoneyCell, TextCell,
 }
 import shared/table/column.{
   type Column, type Schema, type Tone, Accent, Critical, Neutral, NumericEnd,
@@ -891,6 +891,13 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
       html.span([attribute.class("mono")], [
         html.text(ui.money(money.to_float(value))),
       ])
+    SignedMoneyCell(amount:, tone:) ->
+      html.span(
+        [attribute.class("mono dt-money dt-money--" <> tone_class(tone))],
+        [
+          html.text(ui.money(money.to_float(amount))),
+        ],
+      )
     DateCell(value) ->
       html.span([attribute.class("mono")], [html.text(time.format_month(value))])
     BoolCell(value) ->

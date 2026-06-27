@@ -14,6 +14,7 @@ pub type ColumnType {
   TextType
   NumberType
   MoneyType
+  SignedMoneyType
   DateType
   EnumType
   EntityType
@@ -56,6 +57,7 @@ pub fn column_type_to_string(column_type: ColumnType) -> String {
     TextType -> "text"
     NumberType -> "number"
     MoneyType -> "money"
+    SignedMoneyType -> "signed_money"
     DateType -> "date"
     EnumType -> "enum"
     EntityType -> "entity"
@@ -70,6 +72,7 @@ pub fn column_type_from_string(text: String) -> Result(ColumnType, Nil) {
     "text" -> Ok(TextType)
     "number" -> Ok(NumberType)
     "money" -> Ok(MoneyType)
+    "signed_money" -> Ok(SignedMoneyType)
     "date" -> Ok(DateType)
     "enum" -> Ok(EnumType)
     "entity" -> Ok(EntityType)
