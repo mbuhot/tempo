@@ -588,7 +588,7 @@ fn filter_widget(
     TextFilter -> text_widget(key, applied)
     SelectFilter(options:, ..) -> select_widget(key, options, applied)
     NumberRangeFilter -> number_widget(key, applied)
-    DateRangeFilter -> date_widget(key, applied)
+    DateRangeFilter(options:) -> date_widget(key, options, applied)
     BoolFilter -> bool_widget(key, applied)
   }
 }
@@ -643,15 +643,49 @@ fn number_widget(key: String, applied: Applied) -> Element(Msg) {
   ])
 }
 
-fn date_widget(key: String, applied: Applied) -> Element(Msg) {
+fn date_widget(
+  key: String,
+  options: List(filter.FilterOption),
+  applied: Applied,
+) -> Element(Msg) {
   let #(from, to) = case dict.get(applied.filters, key) {
     Ok(DateRange(from:, to:)) -> #(from, to)
     _ -> #(None, None)
   }
   html.div([attribute.class("dt-range")], [
-    month_input("From", from, DateBoundPicked(key, From, _)),
+    month_select("From", from, options, DateBoundPicked(key, From, _)),
     html.span([attribute.class("dt-range__sep")], [html.text("–")]),
-    month_input("To", to, DateBoundPicked(key, To, _)),
+    month_select("To", to, options, DateBoundPicked(key, To, _)),
+  ])
+}
+
+fn month_select(
+  label: String,
+  current: Option(String),
+  options: List(filter.FilterOption),
+  to_msg: fn(String) -> Msg,
+) -> Element(Msg) {
+  let any =
+    html.option(
+      [attribute.value(""), attribute.selected(current == None)],
+      "Any",
+    )
+  let choices =
+    list.map(options, fn(option) {
+      html.option(
+        [
+          attribute.value(option.value),
+          attribute.selected(current == Some(option.value)),
+        ],
+        option.label,
+      )
+    })
+  html.label([attribute.class("dt-field")], [
+    html.span([], [html.text(label)]),
+    html.select([attribute.class("dt-input"), event.on_change(to_msg)], [
+      any,
+      ..choices
+    ]),
   ])
 }
 
@@ -689,22 +723,6 @@ fn bound_input(
       attribute.type_("number"),
       attribute.value(value),
       event.on_input(to_msg),
-    ]),
-  ])
-}
-
-fn month_input(
-  label: String,
-  value: Option(String),
-  to_msg: fn(String) -> Msg,
-) -> Element(Msg) {
-  html.label([attribute.class("dt-field")], [
-    html.span([], [html.text(label)]),
-    html.input([
-      attribute.class("dt-input"),
-      attribute.type_("month"),
-      attribute.value(month_value(value)),
-      event.on_change(to_msg),
     ]),
   ])
 }
@@ -1006,13 +1024,6 @@ fn number_text(value: Float) -> String {
 fn float_text(value: Option(Float)) -> String {
   case value {
     Some(number) -> number_text(number)
-    None -> ""
-  }
-}
-
-fn month_value(value: Option(String)) -> String {
-  case value {
-    Some(date) -> string.slice(date, 0, 7)
     None -> ""
   }
 }

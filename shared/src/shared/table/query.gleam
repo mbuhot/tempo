@@ -157,7 +157,7 @@ fn parse_one(
         _, _ -> Some(NumberRange(min:, max:))
       }
     }
-    filter.DateRangeFilter -> {
+    filter.DateRangeFilter(..) -> {
       let from = get(params, "filter." <> key <> ".from")
       let to = get(params, "filter." <> key <> ".to")
       case from, to {

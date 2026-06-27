@@ -10,7 +10,7 @@ pub type FilterKind {
   TextFilter
   SelectFilter(options: List(FilterOption), multi: Bool)
   NumberRangeFilter
-  DateRangeFilter
+  DateRangeFilter(options: List(FilterOption))
   BoolFilter
 }
 
@@ -28,7 +28,11 @@ pub fn encode_filter_kind(kind: FilterKind) -> Json {
         #("options", json.array(options, encode_option)),
       ])
     NumberRangeFilter -> json.object([#("kind", json.string("number_range"))])
-    DateRangeFilter -> json.object([#("kind", json.string("date_range"))])
+    DateRangeFilter(options:) ->
+      json.object([
+        #("kind", json.string("date_range")),
+        #("options", json.array(options, encode_option)),
+      ])
     BoolFilter -> json.object([#("kind", json.string("bool"))])
   }
 }
@@ -45,8 +49,11 @@ pub fn filter_kind_decoder() -> Decoder(FilterKind) {
   case kind {
     "text" -> decode.success(TextFilter)
     "number_range" -> decode.success(NumberRangeFilter)
-    "date_range" -> decode.success(DateRangeFilter)
     "bool" -> decode.success(BoolFilter)
+    "date_range" -> {
+      use options <- decode.field("options", decode.list(option_decoder()))
+      decode.success(DateRangeFilter(options:))
+    }
     "select" -> {
       use multi <- decode.field("multi", decode.bool)
       use options <- decode.field("options", decode.list(option_decoder()))

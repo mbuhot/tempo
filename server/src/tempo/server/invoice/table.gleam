@@ -9,7 +9,7 @@
 //// columns; pagination is `LIMIT/OFFSET`, with the opaque cursor encoding the next
 //// offset (so true keyset can replace the internals later with no wire change).
 
-import gleam/dict.{type Dict}
+import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/list
@@ -29,17 +29,16 @@ import shared/table/column.{
   MoneyType, Neutral, NumericEnd, Positive, Schema, Start, TextType, Warning,
 }
 import shared/table/filter.{
-  DateRangeFilter, FilterOption, NumberRangeFilter, SelectFilter,
+  type FilterOption, DateRangeFilter, FilterOption, NumberRangeFilter,
+  SelectFilter,
 }
-import shared/table/query.{
-  type Applied, type FilterValue, DateRange, NumberRange, SelectValue,
-}
+import shared/table/query.{type Applied}
 import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
 }
-import shared/table/sort.{type Sort, Desc, Sort}
-import shared/wire
+import shared/table/sort.{Desc, Sort}
 import tempo/server/context.{type Context}
+import tempo/server/table/builder
 
 const default_sort_key = "billing_month"
 
@@ -121,7 +120,7 @@ pub fn invoice_schema(options: FilterOptions) -> Schema {
         align: Start,
         sortable: True,
         hideable: True,
-        filter: Some(DateRangeFilter),
+        filter: Some(DateRangeFilter(options: month_options(options.months))),
       ),
       Column(
         key: "total",
@@ -155,7 +154,9 @@ pub fn invoice_schema(options: FilterOptions) -> Schema {
 /// boundary needs to parse the applied filters out of the query params (the live
 /// options matter only in the response the full read builds).
 pub fn filter_schema() -> Schema {
-  invoice_schema(FilterOptions(clients: [], projects: [], engineers: []))
+  invoice_schema(
+    FilterOptions(clients: [], projects: [], engineers: [], months: []),
+  )
 }
 
 fn select(values: List(String)) -> filter.FilterKind {
@@ -163,6 +164,37 @@ fn select(values: List(String)) -> filter.FilterKind {
     multi: True,
     options: list.map(values, fn(value) { FilterOption(value:, label: value) }),
   )
+}
+
+/// Turn the distinct billing-month start dates ("2026-06-01") into From/To dropdown
+/// options: the ISO date is the value the range filter compares, the label is the
+/// human month ("Jun 2026").
+fn month_options(months: List(String)) -> List(FilterOption) {
+  list.map(months, fn(month) {
+    FilterOption(value: month, label: month_label(month))
+  })
+}
+
+fn month_label(iso: String) -> String {
+  month_name(string.slice(iso, 5, 2)) <> " " <> string.slice(iso, 0, 4)
+}
+
+fn month_name(number: String) -> String {
+  case number {
+    "01" -> "Jan"
+    "02" -> "Feb"
+    "03" -> "Mar"
+    "04" -> "Apr"
+    "05" -> "May"
+    "06" -> "Jun"
+    "07" -> "Jul"
+    "08" -> "Aug"
+    "09" -> "Sep"
+    "10" -> "Oct"
+    "11" -> "Nov"
+    "12" -> "Dec"
+    _ -> number
+  }
 }
 
 // --- filter options ---------------------------------------------------------
@@ -174,6 +206,7 @@ pub type FilterOptions {
     clients: List(String),
     projects: List(String),
     engineers: List(String),
+    months: List(String),
   )
 }
 
@@ -185,7 +218,8 @@ fn filter_options(
     use clients <- decode.field(0, decode.list(decode.string))
     use projects <- decode.field(1, decode.list(decode.string))
     use engineers <- decode.field(2, decode.list(decode.string))
-    decode.success(FilterOptions(clients:, projects:, engineers:))
+    use months <- decode.field(3, decode.list(decode.string))
+    decode.success(FilterOptions(clients:, projects:, engineers:, months:))
   }
   use returned <- result.map(
     pog.query(filter_options_sql)
@@ -194,7 +228,7 @@ fn filter_options(
   )
   case returned.rows {
     [row, ..] -> row
-    [] -> FilterOptions(clients: [], projects: [], engineers: [])
+    [] -> FilterOptions(clients: [], projects: [], engineers: [], months: [])
   }
 }
 
@@ -216,7 +250,11 @@ SELECT
     SELECT engineer.name
       FROM invoice_line
       JOIN engineer_current engineer ON engineer.id = invoice_line.engineer_id
-  ) engineers), '{}'::text[]) AS engineers
+  ) engineers), '{}'::text[]) AS engineers,
+  coalesce((SELECT array_agg(m ORDER BY m DESC) FROM (
+    SELECT DISTINCT to_char(lower(billing_period), 'YYYY-MM-DD') AS m
+      FROM invoice_subject
+  ) months), '{}'::text[]) AS months
 "
 
 // --- list query -------------------------------------------------------------
@@ -236,6 +274,10 @@ type ListRow {
   )
 }
 
+/// Composes the list query with the generic `builder`: `as_of` is bound first
+/// (`$1`, referenced throughout the fixed `page` subquery), each present filter folds
+/// in one `WHERE` condition binding its own param, and `LIMIT/OFFSET` bind last. The
+/// ORDER BY column comes from `sort_column`'s allowlist, so no sort value reaches SQL.
 fn run_list(
   context: Context,
   as_of: Date,
@@ -243,34 +285,38 @@ fn run_list(
   limit: Int,
   offset: Int,
 ) -> Result(pog.Returned(ListRow), pog.QueryError) {
-  let status = select_param(applied.filters, "status")
-  let client = select_param(applied.filters, "client")
-  let project = select_param(applied.filters, "project")
-  let engineers = select_param(applied.filters, "engineers")
-  let #(total_lo, total_hi) = number_bounds(applied.filters, "total")
-  let #(billing_lo, billing_hi) = date_bounds(applied.filters, "billing_month")
-  let #(sort_key, sort_dir) = sort_params(applied.sort)
+  let filters = applied.filters
+  let #(billing_lo, billing_hi) =
+    builder.date_range_of(filters, "billing_month")
+  let #(total_lo, total_hi) = builder.number_range_of(filters, "total")
 
-  pog.query(list_sql)
-  |> pog.parameter(pog.calendar_date(as_of))
-  |> pog.parameter(pog.nullable(text_array, status))
-  |> pog.parameter(pog.nullable(text_array, client))
-  |> pog.parameter(pog.nullable(text_array, project))
-  |> pog.parameter(pog.nullable(text_array, engineers))
-  |> pog.parameter(pog.nullable(pog.calendar_date, billing_lo))
-  |> pog.parameter(pog.nullable(pog.calendar_date, billing_hi))
-  |> pog.parameter(pog.nullable(pog.float, total_lo))
-  |> pog.parameter(pog.nullable(pog.float, total_hi))
-  |> pog.parameter(pog.text(sort_key))
-  |> pog.parameter(pog.text(sort_dir))
-  |> pog.parameter(pog.int(limit + 1))
-  |> pog.parameter(pog.int(offset))
+  let filtered =
+    builder.new([pog.calendar_date(as_of)])
+    |> builder.select("page.status", builder.select_values(filters, "status"))
+    |> builder.select("page.client", builder.select_values(filters, "client"))
+    |> builder.select("page.project", builder.select_values(filters, "project"))
+    |> builder.overlaps(
+      "page.engineers",
+      builder.select_values(filters, "engineers"),
+    )
+    |> builder.date_range("page.billing_from", billing_lo, billing_hi)
+    |> builder.number_range("page.total::numeric", total_lo, total_hi)
+
+  let #(built, paging) = builder.limit_offset(filtered, limit + 1, offset)
+  let sql =
+    page_subquery
+    <> builder.where_clause(built)
+    <> builder.order_by(
+      applied.sort,
+      default_sort_key,
+      sort_column,
+      "page.id DESC",
+    )
+    <> paging
+
+  list.fold(builder.params(built), pog.query(sql), pog.parameter)
   |> pog.returning(list_row_decoder())
   |> pog.execute(on: context.db)
-}
-
-fn text_array(values: List(String)) -> pog.Value {
-  pog.array(pog.text, values)
 }
 
 fn list_row_decoder() -> Decoder(ListRow) {
@@ -298,7 +344,7 @@ fn list_row_decoder() -> Decoder(ListRow) {
   ))
 }
 
-const list_sql = "
+const page_subquery = "
 SELECT * FROM (
   SELECT
     invoice.id,
@@ -327,76 +373,20 @@ SELECT * FROM (
   JOIN invoice_subject ON invoice_subject.invoice_id = invoice.id
   JOIN invoice_status ON invoice_status.invoice_id = invoice.id
                      AND invoice_status.status_during @> $1::date
-) page
-WHERE ($2::text[] IS NULL OR page.status = ANY($2::text[]))
-  AND ($3::text[] IS NULL OR page.client = ANY($3::text[]))
-  AND ($4::text[] IS NULL OR page.project = ANY($4::text[]))
-  AND ($5::text[] IS NULL OR page.engineers && $5::text[])
-  AND ($6::date IS NULL OR page.billing_from >= $6::date)
-  AND ($7::date IS NULL OR page.billing_from <= $7::date)
-  AND ($8::numeric IS NULL OR page.total::numeric >= $8::numeric)
-  AND ($9::numeric IS NULL OR page.total::numeric <= $9::numeric)
-ORDER BY
-  CASE WHEN $10 = 'total'   AND $11 = 'asc'  THEN page.total::numeric END ASC,
-  CASE WHEN $10 = 'total'   AND $11 = 'desc' THEN page.total::numeric END DESC,
-  CASE WHEN $10 = 'client'  AND $11 = 'asc'  THEN page.client END ASC,
-  CASE WHEN $10 = 'client'  AND $11 = 'desc' THEN page.client END DESC,
-  CASE WHEN $10 = 'project' AND $11 = 'asc'  THEN page.project END ASC,
-  CASE WHEN $10 = 'project' AND $11 = 'desc' THEN page.project END DESC,
-  CASE WHEN $10 = 'status'  AND $11 = 'asc'  THEN page.status END ASC,
-  CASE WHEN $10 = 'status'  AND $11 = 'desc' THEN page.status END DESC,
-  CASE WHEN $10 = 'id'      AND $11 = 'asc'  THEN page.id END ASC,
-  CASE WHEN $10 = 'id'      AND $11 = 'desc' THEN page.id END DESC,
-  CASE WHEN $11 = 'asc'  THEN page.billing_from END ASC,
-  CASE WHEN $11 = 'desc' THEN page.billing_from END DESC,
-  page.id DESC
-LIMIT $12::int OFFSET $13::int
-"
+) page"
 
-// --- filter params ----------------------------------------------------------
+// --- sort -------------------------------------------------------------------
 
-fn select_param(
-  filters: Dict(String, FilterValue),
-  key: String,
-) -> Option(List(String)) {
-  case dict.get(filters, key) {
-    Ok(SelectValue([])) -> None
-    Ok(SelectValue(values)) -> Some(values)
-    _ -> None
-  }
-}
-
-fn number_bounds(
-  filters: Dict(String, FilterValue),
-  key: String,
-) -> #(Option(Float), Option(Float)) {
-  case dict.get(filters, key) {
-    Ok(NumberRange(min:, max:)) -> #(min, max)
-    _ -> #(None, None)
-  }
-}
-
-fn date_bounds(
-  filters: Dict(String, FilterValue),
-  key: String,
-) -> #(Option(Date), Option(Date)) {
-  case dict.get(filters, key) {
-    Ok(DateRange(from:, to:)) -> #(parse_date(from), parse_date(to))
-    _ -> #(None, None)
-  }
-}
-
-fn parse_date(text: Option(String)) -> Option(Date) {
-  case text {
-    Some(value) -> option.from_result(wire.parse_iso_date(value))
-    None -> None
-  }
-}
-
-fn sort_params(sort: Option(Sort)) -> #(String, String) {
-  case sort {
-    Some(Sort(key:, dir:)) -> #(key, sort.dir_to_string(dir))
-    None -> #(default_sort_key, "desc")
+/// Maps a request sort key to its trusted SQL column, falling back to billing month
+/// for an absent or unknown key. The allowlist is the injection boundary for sorting.
+fn sort_column(key: String) -> String {
+  case key {
+    "total" -> "page.total::numeric"
+    "client" -> "page.client"
+    "project" -> "page.project"
+    "status" -> "page.status"
+    "id" -> "page.id"
+    _ -> "page.billing_from"
   }
 }
 

@@ -21,18 +21,14 @@
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
-import client/scheduler
-import client/storage
-import client/table
+import client/table_host
 import client/time
 import client/ui
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
-import gleam/string
 import gleam/time/calendar
-import gleam/uri
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -42,8 +38,6 @@ import rsvp
 import shared/invoice/view.{type InvoiceDetail, type InvoiceLine} as invoice_view
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
-import shared/table/column
-import shared/table/response.{type Row, type TableResponse}
 
 /// The Invoices tab's state: the as-of its data answers, the load state of the
 /// invoice list, the selected invoice id and its loaded detail, the as-of roster
@@ -51,7 +45,7 @@ import shared/table/response.{type Row, type TableResponse}
 pub type Model {
   Model(
     as_of: calendar.Date,
-    table: Load,
+    host: table_host.Host,
     selected: Option(Int),
     detail: Option(InvoiceDetail),
     roster: Option(Roster),
@@ -59,40 +53,17 @@ pub type Model {
   )
 }
 
-/// The invoices table's load state. `Loaded` holds the server schema, the rows
-/// accumulated across "Load more" pages, the opaque `next_cursor` for the following
-/// page, and the local table view state (sort/filters/column layout).
-pub type Load {
-  Loading
-  Loaded(
-    schema: column.Schema,
-    rows: List(Row),
-    next_cursor: Option(String),
-    table_state: table.State,
-  )
-  LoadFailed(message: String)
-}
-
 /// The tab's messages: the list / detail / roster fetch results (each carrying the
 /// `as_of` it answers), the row/detail navigation actions, the op lifecycle, and
 /// the operation reply.
 pub type Msg {
-  GotTable(
-    as_of: calendar.Date,
-    result: Result(TableResponse, rsvp.Error(String)),
-  )
-  GotMore(
-    as_of: calendar.Date,
-    result: Result(TableResponse, rsvp.Error(String)),
-  )
-  TableMsg(sub: table.Msg)
+  TableHostMsg(sub: table_host.Msg)
   GotDetail(
     as_of: calendar.Date,
     id: Int,
     result: Result(InvoiceDetail, rsvp.Error(String)),
   )
   GotRoster(as_of: calendar.Date, result: Result(Roster, rsvp.Error(String)))
-  InvoiceClicked(id: Int)
   DetailClosed
   OpOpened(permit: ui.Permit)
   OpOpenedForInvoice(permit: ui.Permit, invoice_id: Int)
@@ -102,84 +73,57 @@ pub type Msg {
   OpReplied(result: Result(Nil, rsvp.Error(String)))
 }
 
+/// Whether the invoice table's first page has loaded — the parent Finance page uses
+/// this for its combined loading state.
+pub fn loaded(model: Model) -> Bool {
+  table_host.is_loaded(model.host)
+}
+
+/// The invoice table's load failure, if any, for the Finance page's error banner.
+pub fn failure(model: Model) -> Option(String) {
+  table_host.failure(model.host)
+}
+
 /// Start the tab at `as_of` with the route-supplied `selected` invoice id: fetch
 /// the list and the roster, and (when an invoice is selected) its detail.
 pub fn init(
   as_of: calendar.Date,
   selected: Option(Int),
 ) -> #(Model, Effect(Msg)) {
+  let #(host, host_effect) = table_host.init("/api/invoices/table", as_of)
   let model =
-    Model(
-      as_of:,
-      table: Loading,
-      selected:,
-      detail: None,
-      roster: None,
-      op: None,
-    )
-  #(model, fetch_all(as_of, selected, table.initial_params()))
+    Model(as_of:, host:, selected:, detail: None, roster: None, op: None)
+  #(
+    model,
+    effect.batch([
+      effect.map(host_effect, TableHostMsg),
+      fetch_side(as_of, selected),
+    ]),
+  )
 }
 
 /// Re-fetch the tab for a new `as_of` (stale-while-revalidate), keeping the open op
 /// form, the selected invoice, and the active filters/sort/layout.
 pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
-  let next = Model(..model, as_of:, detail: None, roster: None)
-  #(next, fetch_all(as_of, model.selected, current_params(model)))
+  let #(host, host_effect) = table_host.refetch(model.host, as_of)
+  let next = Model(..model, as_of:, host:, detail: None, roster: None)
+  #(
+    next,
+    effect.batch([
+      effect.map(host_effect, TableHostMsg),
+      fetch_side(as_of, model.selected),
+    ]),
+  )
 }
 
-fn fetch_all(
-  as_of: calendar.Date,
-  selected: Option(Int),
-  params: List(#(String, String)),
-) -> Effect(Msg) {
+/// The non-table fetches the tab also needs: the as-of roster (for the Draft project
+/// picker) and, when an invoice is selected, its detail.
+fn fetch_side(as_of: calendar.Date, selected: Option(Int)) -> Effect(Msg) {
   let detail_effect = case selected {
     Some(id) -> fetch_detail(as_of, id)
     None -> effect.none()
   }
-  effect.batch([fetch_table(as_of, params), fetch_roster(as_of), detail_effect])
-}
-
-fn current_params(model: Model) -> List(#(String, String)) {
-  case model.table {
-    Loaded(table_state:, ..) -> table.params(table_state)
-    _ -> []
-  }
-}
-
-fn fetch_table(
-  as_of: calendar.Date,
-  params: List(#(String, String)),
-) -> Effect(Msg) {
-  api.get(table_url(as_of, params), response.response_decoder(), GotTable(
-    as_of,
-    _,
-  ))
-}
-
-fn fetch_more(
-  as_of: calendar.Date,
-  params: List(#(String, String)),
-  cursor: String,
-) -> Effect(Msg) {
-  api.get(
-    table_url(as_of, list.append(params, [#("cursor", cursor)])),
-    response.response_decoder(),
-    GotMore(as_of, _),
-  )
-}
-
-fn table_url(as_of: calendar.Date, params: List(#(String, String))) -> String {
-  let base = "/api/invoices/table?as_of=" <> time.iso_date(as_of)
-  case params {
-    [] -> base
-    _ -> base <> "&" <> query_string(params)
-  }
-}
-
-fn query_string(params: List(#(String, String))) -> String {
-  params
-  |> list.map(fn(pair) { pair.0 <> "=" <> uri.percent_encode(pair.1) })
-  |> string.join("&")
+  effect.batch([fetch_roster(as_of), detail_effect])
 }
 
 fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
@@ -202,53 +146,25 @@ fn fetch_detail(as_of: calendar.Date, id: Int) -> Effect(Msg) {
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
-    GotTable(as_of:, result:) ->
-      case model.as_of == as_of {
-        False -> #(model, effect.none(), [])
-        True ->
-          case result {
-            Error(error) -> #(
-              Model(
-                ..model,
-                table: LoadFailed(message: api.describe_error(error)),
-              ),
-              effect.none(),
-              [],
-            )
-            Ok(table_response) -> {
-              let table_state = case model.table {
-                Loaded(table_state:, ..) ->
-                  table.reconcile(table_state, table_response.schema)
-                _ -> initial_state(table_response.schema)
-              }
-              let load =
-                Loaded(
-                  schema: table_response.schema,
-                  rows: table_response.rows,
-                  next_cursor: table_response.page.next_cursor,
-                  table_state:,
-                )
-              #(Model(..model, table: load), effect.none(), [])
-            }
+    TableHostMsg(sub:) -> {
+      let #(host, host_effect, out) =
+        table_host.update(model.host, sub, model.as_of)
+      let model = Model(..model, host:)
+      let effect = effect.map(host_effect, TableHostMsg)
+      case out {
+        table_host.Stay -> #(model, effect, [])
+        table_host.Activated(id:) ->
+          case int.parse(id) {
+            Ok(invoice_id) -> #(model, effect, [
+              Navigate(route.Finance(
+                tab: route.Invoices,
+                invoice: Some(invoice_id),
+              )),
+            ])
+            Error(Nil) -> #(model, effect, [])
           }
       }
-
-    GotMore(as_of:, result:) ->
-      case model.as_of == as_of, model.table, result {
-        True, Loaded(schema:, rows:, table_state:, ..), Ok(table_response) -> {
-          let load =
-            Loaded(
-              schema:,
-              rows: list.append(rows, table_response.rows),
-              next_cursor: table_response.page.next_cursor,
-              table_state: table.reconcile(table_state, table_response.schema),
-            )
-          #(Model(..model, table: load), effect.none(), [])
-        }
-        _, _, _ -> #(model, effect.none(), [])
-      }
-
-    TableMsg(sub:) -> on_table_msg(model, sub)
+    }
 
     GotDetail(as_of:, id:, result:) ->
       case model.as_of == as_of && model.selected == Some(id) {
@@ -277,10 +193,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(_) -> #(model, effect.none(), [])
           }
       }
-
-    InvoiceClicked(id:) -> #(model, effect.none(), [
-      Navigate(route.Finance(tab: route.Invoices, invoice: Some(id))),
-    ])
 
     DetailClosed -> #(
       Model(..model, selected: None, detail: None),
@@ -329,10 +241,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpReplied(result:) ->
       case result {
         Ok(_) -> {
-          let next = Model(..model, detail: None, roster: None, op: None)
+          let #(host, host_effect) = table_host.refetch(model.host, model.as_of)
+          let next = Model(..model, host:, detail: None, roster: None, op: None)
           #(
             next,
-            fetch_all(model.as_of, model.selected, current_params(model)),
+            effect.batch([
+              effect.map(host_effect, TableHostMsg),
+              fetch_side(model.as_of, model.selected),
+            ]),
             [OperationCommitted],
           )
         }
@@ -351,67 +267,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             None -> #(model, effect.none(), [])
           }
       }
-  }
-}
-
-/// Build the table state for a freshly loaded schema, applying any saved column
-/// layout from local storage.
-fn initial_state(schema: column.Schema) -> table.State {
-  let base = table.init(schema)
-  case storage.get(table.layout_key(base)) {
-    Some(layout) -> table.with_layout(base, layout, schema)
-    None -> base
-  }
-}
-
-/// Fold a table sub-message: thread it through `table.update` and act on the
-/// `Outcome` — re-query (fresh), append the next page, persist the layout, schedule
-/// the debounce settle, or open the clicked invoice.
-fn on_table_msg(
-  model: Model,
-  sub: table.Msg,
-) -> #(Model, Effect(Msg), List(OutMsg)) {
-  case model.table {
-    Loaded(schema:, rows:, next_cursor:, table_state:) -> {
-      let #(next_state, outcome) = table.update(table_state, sub)
-      let updated =
-        Loaded(schema:, rows:, next_cursor:, table_state: next_state)
-      let model = Model(..model, table: updated)
-      case outcome {
-        table.Idle -> #(model, effect.none(), [])
-        table.Requery(params:) -> #(model, fetch_table(model.as_of, params), [])
-        table.AppendPage(params:) ->
-          case next_cursor {
-            Some(cursor) -> #(
-              model,
-              fetch_more(model.as_of, params, cursor),
-              [],
-            )
-            None -> #(model, effect.none(), [])
-          }
-        table.Persist(layout:) -> #(
-          model,
-          storage.set(table.layout_key(next_state), layout),
-          [],
-        )
-        table.Schedule(token:) -> #(
-          model,
-          scheduler.after(table.debounce_ms, TableMsg(table.SettleFired(token))),
-          [],
-        )
-        table.Activated(id:) ->
-          case int.parse(id) {
-            Ok(invoice_id) -> #(model, effect.none(), [
-              Navigate(route.Finance(
-                tab: route.Invoices,
-                invoice: Some(invoice_id),
-              )),
-            ])
-            Error(Nil) -> #(model, effect.none(), [])
-          }
-      }
-    }
-    _ -> #(model, effect.none(), [])
   }
 }
 
@@ -451,15 +306,10 @@ fn project_refs(model: Model) -> List(Ref) {
 /// render to `list` / `detail`.
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let actions = invoice_actions(permissions)
-  let body = case model.table {
-    Loading -> ui.empty_state(message: "Loading invoices…")
-    LoadFailed(message:) -> ui.empty_state(message: message)
-    Loaded(schema:, rows:, next_cursor:, table_state:) ->
-      case model.detail, model.selected {
-        Some(detail_data), Some(_) -> detail(detail_data, actions)
-        _, Some(_) -> ui.empty_state(message: "Loading invoice…")
-        _, None -> list_view(schema, rows, next_cursor, table_state, actions)
-      }
+  let body = case model.detail, model.selected {
+    Some(detail_data), Some(_) -> detail(detail_data, actions)
+    _, Some(_) -> ui.empty_state(message: "Loading invoice…")
+    _, None -> list_view(model.host, actions)
   }
   html.div([], [op_panel(model), body])
 }
@@ -481,7 +331,6 @@ fn invoice_actions(permissions: Set(String)) -> Actions(Msg) {
     pay: ui.permit(permissions, own: False, kind: ui.OpPayInvoice),
     to_open: OpOpened,
     to_open_for: OpOpenedForInvoice,
-    on_open: fn(id) { InvoiceClicked(id) },
     on_close: DetailClosed,
   )
 }
@@ -601,7 +450,6 @@ pub type Actions(msg) {
     /// Build the page's op-start message from a granted permit.
     to_open: fn(ui.Permit) -> msg,
     to_open_for: fn(ui.Permit, Int) -> msg,
-    on_open: fn(Int) -> msg,
     on_close: msg,
   )
 }
@@ -609,18 +457,9 @@ pub type Actions(msg) {
 /// The invoice list: the generic data table (schema-driven rows, filters, sort,
 /// pagination, column layout) wrapped in the Invoices panel with a "+ Draft" action.
 /// The table's own messages are mapped onto the tab's `TableMsg`.
-fn list_view(
-  schema: column.Schema,
-  rows: List(Row),
-  next_cursor: Option(String),
-  table_state: table.State,
-  actions: Actions(Msg),
-) -> Element(Msg) {
+fn list_view(host: table_host.Host, actions: Actions(Msg)) -> Element(Msg) {
   ui.panel(title: "Invoices", count: "", right: [draft_button(actions)], body: [
-    element.map(
-      table.view(schema, rows, table_state, option.is_some(next_cursor)),
-      TableMsg,
-    ),
+    element.map(table_host.view(host, "Loading invoices…"), TableHostMsg),
   ])
 }
 
