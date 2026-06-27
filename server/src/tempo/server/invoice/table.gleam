@@ -414,7 +414,10 @@ fn row_to_table_row(row: ListRow) -> Row {
     id: int.to_string(row.id),
     cells: dict.from_list([
       #("id", TextCell("#" <> int.to_string(row.id))),
-      #("project", EntityCell(label: row.project, color: swatch_color(row.id))),
+      #(
+        "project",
+        EntityCell(label: row.project, sub: None, color: swatch_color(row.id)),
+      ),
       #("client", TextCell(row.client)),
       #("engineers", ChipsCell(list.map(row.engineers, to_chip))),
       #("billing_month", DateCell(row.billing_from)),

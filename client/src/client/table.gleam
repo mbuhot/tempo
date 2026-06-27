@@ -911,7 +911,7 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
       html.span([attribute.class("pill pill--" <> tone_class(tone))], [
         html.text(label),
       ])
-    EntityCell(label:, color:) ->
+    EntityCell(label:, sub:, color:) ->
       html.span([attribute.class("cell-name")], [
         html.span(
           [
@@ -920,7 +920,10 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
           ],
           [],
         ),
-        html.span([attribute.class("cell-name__name")], [html.text(label)]),
+        html.span([], [
+          html.span([attribute.class("cell-name__name")], [html.text(label)]),
+          person_sub(sub),
+        ]),
       ])
     PersonCell(name:, sub:, initials:, color:) ->
       html.span([attribute.class("cell-name")], [

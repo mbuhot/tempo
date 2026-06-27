@@ -250,7 +250,14 @@ fn row_to_table_row(row: ListRow) -> Row {
   Row(
     id: int.to_string(row.client_id),
     cells: dict.from_list([
-      #("name", EntityCell(label: row.name, color: swatch_color(row.client_id))),
+      #(
+        "name",
+        EntityCell(
+          label: row.name,
+          sub: None,
+          color: swatch_color(row.client_id),
+        ),
+      ),
       #("since", since_cell(row.since)),
       #("projects", NumberCell(int.to_float(row.projects))),
       #("status", status_cell(row.status)),

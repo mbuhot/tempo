@@ -24,7 +24,7 @@ pub type Cell {
   SignedMoneyCell(amount: Money, tone: Tone)
   DateCell(Date)
   EnumCell(label: String, tone: Tone)
-  EntityCell(label: String, color: String)
+  EntityCell(label: String, sub: Option(String), color: String)
   PersonCell(name: String, sub: Option(String), initials: String, color: String)
   ChipsCell(List(Chip))
   BoolCell(Bool)
@@ -51,9 +51,10 @@ pub fn encode_cell(cell: Cell) -> Json {
         #("label", json.string(label)),
         #("tone", json.string(column.tone_to_string(tone))),
       ])
-    EntityCell(label:, color:) ->
+    EntityCell(label:, sub:, color:) ->
       json.object([
         #("label", json.string(label)),
+        #("sub", json.nullable(sub, json.string)),
         #("color", json.string(color)),
       ])
     PersonCell(name:, sub:, initials:, color:) ->
@@ -114,8 +115,9 @@ fn signed_money_decoder() -> Decoder(Cell) {
 
 fn entity_decoder() -> Decoder(Cell) {
   use label <- decode.field("label", decode.string)
+  use sub <- decode.field("sub", decode.optional(decode.string))
   use color <- decode.field("color", decode.string)
-  decode.success(EntityCell(label:, color:))
+  decode.success(EntityCell(label:, sub:, color:))
 }
 
 fn person_decoder() -> Decoder(Cell) {

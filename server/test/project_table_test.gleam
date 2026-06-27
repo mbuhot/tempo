@@ -203,8 +203,9 @@ pub fn unfiltered_returns_both_projects_with_rich_cells_test() {
       project_table.project_table(ctx(conn), as_of(), scoped([], None))
     assert list.length(response.rows) == 2
     let assert [first, ..] = response.rows
-    let assert EntityCell(label:, ..) = cell_of(first, "title")
+    let assert EntityCell(label:, sub:, ..) = cell_of(first, "title")
     assert label == "Aurora Platform"
+    assert sub == Some("Acme Anvil Co")
     assert cell_of(first, "state")
       == EnumCell(label: "Active", tone: column.Positive)
     assert cell_of(first, "team_size") == NumberCell(0.0)

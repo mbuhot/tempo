@@ -281,7 +281,11 @@ fn row_to_table_row(row: ListRow) -> Row {
     cells: dict.from_list([
       #(
         "title",
-        EntityCell(label: row.title, color: swatch_color(row.project_id)),
+        EntityCell(
+          label: row.title,
+          sub: Some(row.client),
+          color: swatch_color(row.project_id),
+        ),
       ),
       #("state", state_cell(row.state)),
       #("team_size", NumberCell(int.to_float(row.team_size))),
