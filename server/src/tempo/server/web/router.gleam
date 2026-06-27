@@ -118,6 +118,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_finances)
       payroll.handle(request, context)
     }
+    ["api", "payroll", "table"] -> {
+      use _principal <- guard.require(context, access.read_finances)
+      payroll.handle_table(request, context)
+    }
     ["api", "pnl"] -> {
       use _principal <- guard.require(context, access.read_finances)
       pnl.handle(request, context)

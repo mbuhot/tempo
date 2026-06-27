@@ -28,25 +28,29 @@
     color: var(--color-warn);
     font-weight: var(--weight-semibold);
 }
-.finance__variance-row {
-    background: var(--color-warn-soft);
-}
 
-/* Payroll per-level breakdown: the engineer-name cell becomes a disclosure toggle
- * (a plain in-text button), and each disclosed segment is an indented, muted,
- * smaller sub-row under the engineer's total. */
-.payroll__disclosure {
+/* Payroll mode switcher: a row of tabs above the engineer table, the selected
+ * mode marked active with the accent. */
+.payroll__modes {
+    display: flex;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-md);
+}
+.payroll__mode {
     background: none;
     border: 0;
-    padding: 0;
-    font: inherit;
-    color: inherit;
     cursor: pointer;
-}
-.payroll__segment td {
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--radius-pill);
     color: var(--color-muted);
+    font-weight: var(--weight-semibold);
     font-size: var(--text-sm);
+
+    &:hover {
+        color: var(--color-accent);
+    }
 }
-.payroll__segment td:first-child {
-    padding-left: var(--space-xl);
+.payroll__mode--active {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
 }
