@@ -233,7 +233,7 @@ fn any_loaded(model: Model) -> Bool {
 }
 
 fn invoices_loaded(model: invoices_tab.Model) -> Bool {
-  case model.invoices {
+  case model.table {
     invoices_tab.Loaded(..) -> True
     _ -> False
   }
@@ -275,7 +275,7 @@ fn first_failure(model: Model) -> Option(String) {
 }
 
 fn invoices_failure(model: invoices_tab.Model) -> Option(String) {
-  case model.invoices {
+  case model.table {
     invoices_tab.LoadFailed(message:) -> Some(message)
     _ -> None
   }
