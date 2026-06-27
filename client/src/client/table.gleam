@@ -187,9 +187,10 @@ pub fn with_layout(state: State, layout: String, schema: Schema) -> State {
   }
 }
 
-/// The storage key for this table's layout preference.
-pub fn layout_key(state: State) -> String {
-  "tempo.table." <> state.table_id <> ".layout"
+/// The storage key for this table's layout preference, scoped to the signed-in user
+/// so two people sharing a browser don't clobber each other's column layouts.
+pub fn layout_key(state: State, scope: String) -> String {
+  "tempo." <> scope <> ".table." <> state.table_id <> ".layout"
 }
 
 /// The current filter/sort/page state as request query params — the host page uses

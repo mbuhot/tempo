@@ -207,7 +207,7 @@ pub fn update(
               }
             table.Persist(layout:) -> #(
               host,
-              storage.set(table.layout_key(next_state), layout),
+              storage.set(table.layout_key(next_state, user_scope()), layout),
               Stay,
             )
             table.Schedule(token:) -> #(
@@ -253,10 +253,16 @@ pub fn view(host: Host, loading_message: String) -> Element(Msg) {
 
 fn initial_state(schema: column.Schema) -> table.State {
   let base = table.init(schema)
-  case storage.get(table.layout_key(base)) {
+  case storage.get(table.layout_key(base, user_scope())) {
     Some(layout) -> table.with_layout(base, layout, schema)
     None -> base
   }
+}
+
+/// The signed-in user's layout scope, written to storage at sign-in. Falls back to
+/// "shared" before an identity is known, so an anonymous/boot read never throws.
+fn user_scope() -> String {
+  storage.get("tempo.actor") |> option.unwrap("shared")
 }
 
 fn fetch(

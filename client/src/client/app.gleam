@@ -39,6 +39,7 @@ import client/page/projects
 import client/page/settings
 import client/route.{type Route}
 import client/scheduler
+import client/storage
 import client/time
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -564,12 +565,13 @@ fn enter(model: Model, identity: api.Identity) -> #(Model, Effect(Msg)) {
       permissions: set.from_list(identity.permissions),
       login: empty_login(),
     )
+  let remember_actor = storage.set("tempo.actor", identity.actor)
   case was_signed_in {
-    True -> #(model, effect.none())
+    True -> #(model, remember_actor)
     False -> {
       let #(page, page_effect) =
         init_page(model.route, model.as_of, identity.actor)
-      #(Model(..model, page:), page_effect)
+      #(Model(..model, page:), effect.batch([remember_actor, page_effect]))
     }
   }
 }
