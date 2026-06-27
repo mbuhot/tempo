@@ -11,14 +11,15 @@ import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
 import shared/table/column.{
   type ColumnType, type Tone, BoolType, ChipsType, DateType, EntityType,
-  EnumType, MoneyType, Neutral, NumberType, PersonType, SignedMoneyType,
-  TextType,
+  EnumType, MoneyType, Neutral, NumberType, PercentType, PersonType,
+  SignedMoneyType, TextType,
 }
 import shared/wire
 
 pub type Cell {
   TextCell(String)
   NumberCell(Float)
+  PercentCell(Float)
   MoneyCell(Money)
   SignedMoneyCell(amount: Money, tone: Tone)
   DateCell(Date)
@@ -37,6 +38,7 @@ pub fn encode_cell(cell: Cell) -> Json {
   case cell {
     TextCell(value) -> json.string(value)
     NumberCell(value) -> json.float(value)
+    PercentCell(value) -> json.float(value)
     MoneyCell(value) -> money.encode(value)
     SignedMoneyCell(amount:, tone:) ->
       json.object([
@@ -78,6 +80,7 @@ pub fn cell_decoder(of column_type: ColumnType) -> Decoder(Cell) {
   case column_type {
     TextType -> decode.map(decode.string, TextCell)
     NumberType -> decode.map(decode.float, NumberCell)
+    PercentType -> decode.map(decode.float, PercentCell)
     MoneyType -> decode.map(money.decoder(), MoneyCell)
     SignedMoneyType -> signed_money_decoder()
     DateType -> decode.map(wire.date_decoder(), DateCell)

@@ -13,6 +13,7 @@ import shared/table/sort.{type Sort}
 pub type ColumnType {
   TextType
   NumberType
+  PercentType
   MoneyType
   SignedMoneyType
   DateType
@@ -56,6 +57,7 @@ pub fn column_type_to_string(column_type: ColumnType) -> String {
   case column_type {
     TextType -> "text"
     NumberType -> "number"
+    PercentType -> "percent"
     MoneyType -> "money"
     SignedMoneyType -> "signed_money"
     DateType -> "date"
@@ -71,6 +73,7 @@ pub fn column_type_from_string(text: String) -> Result(ColumnType, Nil) {
   case text {
     "text" -> Ok(TextType)
     "number" -> Ok(NumberType)
+    "percent" -> Ok(PercentType)
     "money" -> Ok(MoneyType)
     "signed_money" -> Ok(SignedMoneyType)
     "date" -> Ok(DateType)
