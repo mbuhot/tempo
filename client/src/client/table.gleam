@@ -64,6 +64,7 @@ pub type State {
     filter_token: Int,
     loading_more: Bool,
     dragging: Option(String),
+    drag_over: Option(String),
   )
 }
 
@@ -146,6 +147,7 @@ pub fn init(schema: Schema) -> State {
     filter_token: 0,
     loading_more: False,
     dragging: None,
+    drag_over: None,
   )
 }
 
@@ -271,7 +273,11 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       #(next, Persist(encode_layout(next)))
     }
     DragStarted(key:) -> #(State(..state, dragging: Some(key)), Idle)
-    DragOver(_key) -> #(state, Idle)
+    DragOver(key:) ->
+      case state.drag_over == Some(key) {
+        True -> #(state, Idle)
+        False -> #(State(..state, drag_over: Some(key)), Idle)
+      }
     Dropped(key:) ->
       case state.dragging {
         Some(from) -> {
@@ -280,12 +286,13 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
               ..state,
               order: reorder(state.order, from, key),
               dragging: None,
+              drag_over: None,
             )
           #(next, Persist(encode_layout(next)))
         }
-        None -> #(state, Idle)
+        None -> #(State(..state, drag_over: None), Idle)
       }
-    DragEnded -> #(State(..state, dragging: None), Idle)
+    DragEnded -> #(State(..state, dragging: None, drag_over: None), Idle)
     LayoutReset -> {
       let next = State(..state, order: state.default_order, hidden: set.new())
       #(next, Persist(encode_layout(next)))
@@ -707,9 +714,6 @@ fn columns_panel(schema: Schema, state: State) -> Element(Msg) {
         [html.text("Reset layout")],
       ),
     ]),
-    html.div([attribute.class("dt-cols__hint")], [
-      html.text("Drag to reorder · toggle to show/hide"),
-    ]),
     html.div([attribute.class("dt-cols__list")], rows),
   ])
 }
@@ -731,9 +735,14 @@ fn columns_row(column: Column, state: State) -> Element(Msg) {
     Some(key) if key == column.key -> " dt-cols__row--dragging"
     _ -> ""
   }
+  let over_class = case state.drag_over, state.dragging {
+    Some(over), Some(drag) if over == column.key && drag != column.key ->
+      " dt-cols__row--over"
+    _, _ -> ""
+  }
   html.div(
     [
-      attribute.class("dt-cols__row" <> dragging_class),
+      attribute.class("dt-cols__row" <> dragging_class <> over_class),
       attribute.attribute("draggable", "true"),
       event.on("dragstart", decode.success(DragStarted(column.key))),
       event.on("dragover", decode.success(DragOver(column.key)))
