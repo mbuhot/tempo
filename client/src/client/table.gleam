@@ -988,7 +988,12 @@ fn body_row(
         Error(Nil) -> element.none()
       }
       let content = case index == 0 && expandable {
-        True -> [disclosure(row.id, is_expanded), cell]
+        True -> [
+          html.div([attribute.class("dt-cell-lead")], [
+            disclosure(row.id, is_expanded),
+            cell,
+          ]),
+        ]
         False -> [cell]
       }
       html.td(numeric, content)

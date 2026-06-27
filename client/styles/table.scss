@@ -435,6 +435,13 @@
 
 /* Expandable rows: a disclosure toggle in the first cell reveals the nested child
  * rows, which sit on a subtly recessed background with the first cell indented. */
+.dt-cell-lead {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-wrap: nowrap;
+}
+
 .dt-disclosure {
     background: none;
     border: 0;
