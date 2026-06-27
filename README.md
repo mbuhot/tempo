@@ -58,9 +58,9 @@ PostgreSQL schema ──Squirrel introspects──▶ typed query rows  (server 
 A schema change that breaks a query is caught when Squirrel regenerates; a change to a
 `shared` type breaks both builds until they agree.
 
-> **Why three packages?** Gleam compiles a whole package per target, so client and server
-> code can't share one package — the JS build would try to type-check the Erlang-only `pog`/
-> Squirrel modules. `shared` carries the wire contract to both sides as one source of truth.
+> **Why three packages?** Gleam compiles a whole package per target. `server` keeps the
+> Erlang-only `pog`/Squirrel modules; `client` keeps the JS app; `shared` is the one package
+> both targets compile, carrying the wire contract as a single source of truth.
 
 ---
 
@@ -107,7 +107,7 @@ level). They're frozen at the moment of the event, so when a fact is corrected a
 — a back-dated raise — a fresh as-of recompute can be reconciled against the ledger to surface
 the variance: "paid $10,000, should now be $14,000."
 
-> **Reading facts at *latest* instead of *as-of*.** Descriptive detail (contact, banking,
+> **Reading a fact at its *latest* version.** Descriptive detail (contact, banking,
 > emergency, profiles) is a temporal fact where the most-recently-effective row is current
 > truth, exposed by a `*_current` view. It joins the anchor by a plain foreign key, so an
 > ex-employee keeps their details on file.
@@ -125,17 +125,17 @@ the variance: "paid $10,000, should now be $14,000."
 - SQL lives as plain `.sql` files under `<concept>/sql/` (one statement per file).
 - `bin/squirrel` **introspects the live database** and generates `sql.gleam`: each `.sql`
   becomes a Gleam function returning a **typed row**.
-- The SQL is the source of truth; the Gleam types are derived. A query whose columns don't
-  match the live schema fails at codegen.
+- The SQL is the source of truth; Squirrel derives the Gleam types from the live schema at
+  codegen, so they track it exactly.
 
 ### Useful temporal techniques
 
 | Technique | What it buys |
 |---|---|
-| `daterange … WITHOUT OVERLAPS` primary key | two versions of a fact can't overlap — the engine enforces it |
+| `daterange … WITHOUT OVERLAPS` primary key | the engine keeps any two versions of a fact disjoint |
 | `PERIOD` foreign keys | containment chains: a timesheet must sit inside an allocation, inside a project run, inside a contract |
 | `FOR PORTION OF` UPDATE | "change from this date onward" caps the live version and the engine writes the leftover span |
-| `EXCLUDE USING gist` | no-overlap where there's no PK to carry it (e.g. one payroll run per period) |
+| `EXCLUDE USING gist` | disjoint ranges keyed by the range itself (e.g. one payroll run per period) |
 | `*_current` views | the latest-recorded row per anchor, for latest-read facts |
 | writable-CTE upsert | the founding write and a later edit are the same statement |
 
@@ -149,9 +149,9 @@ Wisp + mist over `pog`. Each domain concept is a directory
 
 ### Authentication
 
-- Passwords hashed with **PBKDF2-HMAC-SHA512** via the OTP `crypto` FFI (no native dependency).
+- Passwords hashed with **PBKDF2-HMAC-SHA512** via the OTP `crypto` FFI (built into the runtime).
 - A successful login sets a **signed cookie carrying only the account id**. "Remember me" is a
-  separate opt-in (persistent vs. session cookie). A signed cookie can't be forged.
+  separate opt-in (persistent vs. session cookie); the signature authenticates it on every request.
 - On boot the client restores its session via `GET /api/me`.
 
 ### Roles and authorization
@@ -165,9 +165,17 @@ Wisp + mist over `pog`. Each domain concept is a directory
 
 ### Routing
 
-- One middleware resolves the principal once at the top of the router into a request-scoped
-  `Context.principal`; route guards are then pure reads of it (401 / 403).
-- Reads are `GET /api/<thing>`; **every write is a single `POST /api/operations`** (see below).
+Every path is matched in one file — `server/src/tempo/server/web/router.gleam`. Start there to
+find the route behind a page, or to add a new one.
+
+- **Reads** are `GET /api/<concept>` (plus `/<concept>/:id` and `/<concept>/table`) → the
+  concept's `http.gleam` handler, which calls its `view.gleam`.
+- **Writes** all funnel through one endpoint — `POST /api/operations` carrying a `Command`
+  (see below).
+- **To add a route:** add a path arm in `router.gleam` that dispatches to the concept's `http`
+  handler, behind the permission the action requires.
+- A middleware resolves the principal once per request into `Context.principal`; each guard
+  reads it to allow the request or return 401 / 403.
 
 ### Reads
 
@@ -185,7 +193,7 @@ same value, and it travels through one endpoint:
 
 ```
 client encodes Command ──POST /api/operations──▶ command.dispatch
-     1. authorize the principal            (a denied command never opens a transaction)
+     1. authorize the principal            (before any transaction opens)
      2. open ONE pog.transaction
      3. route → <concept>/command.gleam → Recorded(entry, facts)
      4. repository.record_facts:
@@ -196,10 +204,10 @@ client encodes Command ──POST /api/operations──▶ command.dispatch
                    200  { committed event ack }
 ```
 
-- `route` is exhaustive over `Command`, so a new command with no handler **fails to compile**.
+- `route` matches `Command` exhaustively, so every new command needs a handler to compile.
 - `fact.Fact` is the typed information schema — its variants are *states that hold over a
-  period*. Anchor ids are strongly typed (`EngineerId`, `ProjectId`), so an engineer id can't
-  land in a project-id slot.
+  period*. Anchor ids are strongly typed (`EngineerId`, `ProjectId`), so each id fits only its
+  own slot.
 - The database judges temporal integrity; a rejection is classified by constraint name into a
   typed `OperationError` mapped to an HTTP status (409 / 422 / 500).
 
@@ -221,8 +229,8 @@ The contract both sides compile against — change it and both builds must agree
   (`Direct(permission)` or, for ownership-sensitive commands, `Owned(own, any)`) and holds the
   `satisfies` predicate. The server's enforcement gate and the client's UI gating consult this
   one module, so they stay in step.
-- **Codecs** — each type has a JSON `encode_*` / `*_decoder` pair, exercised by round-trip
-  tests so the wire format can't silently drift.
+- **Codecs** — each type has a JSON `encode_*` / `*_decoder` pair, pinned by round-trip tests
+  that keep the wire format stable.
 
 ---
 
@@ -239,8 +247,8 @@ A Lustre **Model-View-Update** single-page app.
     (`?date=YYYY-MM-DD`), and every page resolves its views against it.
   - Writes are **contextual operations** — Assign / Roll off on a board card, Promote on a
     person, Issue / Mark paid on an invoice — each a small form that composes the same
-    `Command`. A launcher the role can't use carries an opaque `ui.Permit` that only the shared
-    permission check can mint, so an ungated launcher **fails to compile**.
+    `Command`. Each launcher carries an opaque `ui.Permit` that only the shared permission check
+    can mint, so a launcher compiles only once it's properly gated.
 - **CSS with Sass + theme tokens** — `client/styles/*.scss` compiles to one stylesheet via
   `bin/build`. Every value is a `var(--token)` from one `theme.css`; shared declaration
   clusters are `@mixin`s; `bin/lint-css` fails the build on a reference to an undefined token.
@@ -251,7 +259,7 @@ A Lustre **Model-View-Update** single-page app.
 
 Every list page — Invoices, People, Clients, Projects, P&L, Forecast, Payroll, Settings,
 Activity — renders through **one generic, server-driven table**. The server describes the
-table; the client renders it; no page writes its own table markup.
+table; the client renders it; the table markup lives in that one component.
 
 ```
  server/<concept>/table.gleam          client/table_host.gleam        client/table.gleam
@@ -270,9 +278,9 @@ table; the client renders it; no page writes its own table markup.
   (schema + rows + page cursor + optional footer). The unions are exhaustive: a new cell or
   column type fails the build until every site handles it.
 - **`server/table/builder.gleam`** — composes the list SQL from only the filters actually
-  present (each bound as a parameter); sort keys pass a per-table allowlist, so a request
-  string never reaches the SQL text. Each `server/<concept>/table.gleam` supplies the schema
-  and the page subquery.
+  present (each bound as a parameter); sort keys pass a per-table allowlist, so only an
+  allowlisted column name reaches the SQL text. Each `server/<concept>/table.gleam` supplies
+  the schema and the page subquery.
 - **`client/table.gleam`** — the component: renders by cell type, per-column filter popovers,
   click-to-sort, drag-reorder / hide columns (saved per signed-in user in `localStorage`),
   infinite scroll, and expandable rows. **`client/table_host.gleam`** embeds it in a page in
@@ -282,8 +290,8 @@ table; the client renders it; no page writes its own table markup.
 **Add a list page:** write `server/<concept>/table.gleam` (a `Schema` + a `builder` query),
 route `GET /api/<concept>/table`, and embed `table_host` in the page.
 
-**Built in:** multi-select / number-range / date-range filters, schema-level filters (not tied
-to a displayed column), an actions column, a footer/total row, nested expandable rows (Payroll),
+**Built in:** multi-select / number-range / date-range filters, schema-level filters (keyed
+independently of the columns), an actions column, a footer/total row, nested expandable rows (Payroll),
 and full-width detail panels (Activity's JSON payload). The page-level title + primary action
 come from `ui.list_page`. See `docs/2026-06-27-data-table-system-design.md` for the full design.
 
@@ -334,7 +342,7 @@ password `tempo-dev-password`).
 | `bin/test` | Gleam tests + `gleam format --check` + `bin/lint-css` |
 | `bin/e2e` | run the Playwright suite (args forwarded, e.g. `bin/e2e timesheet.spec.js`) |
 | `bin/squirrel` | regenerate `sql.gleam` from the `.sql` sources |
-| `bin/lint-css` | fail on any `var(--token)` not defined in `theme.css` |
+| `bin/lint-css` | require every `var(--token)` to resolve in `theme.css` |
 | `bin/erd` | regenerate the schema map in `docs/SCHEMA.md` |
 
 Connection settings come from the environment, defaulting to `docker-compose.yml`
