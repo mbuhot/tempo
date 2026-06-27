@@ -63,6 +63,15 @@
     --cat-6: #7a5bd6;
     --cat-7: #1aa0a0;
 
+    /* sequential level ramp — L1 lightest to L7 deepest (least to most senior) */
+    --lvl-1: #c7d2fe;
+    --lvl-2: #a5b4fc;
+    --lvl-3: #818cf8;
+    --lvl-4: #6366f1;
+    --lvl-5: #4f46e5;
+    --lvl-6: #4338ca;
+    --lvl-7: #3730a3;
+
     /* ---------- Domain & status colours ---------- */
     /* Leave (board on-leave cards) and the invoice / P&L lifecycle states. These
      carry domain meaning — they are not part of the generic neutral palette. */

@@ -12,8 +12,9 @@ import gleam/set
 import gleam/time/calendar.{type Date, Date, June}
 import pog
 import shared/access
-import shared/table/cell.{Action, ActionsCell, EnumCell, MoneyCell}
+import shared/table/cell.{Action, ActionsCell, EntityCell, MoneyCell, TextCell}
 import shared/table/column.{ActionsType}
+import shared/table/query.{type Applied, type FilterValue, Applied, SelectValue}
 import shared/table/response.{type Row}
 import tempo/server/auth.{Principal}
 import tempo/server/context.{type Context, Context}
@@ -56,12 +57,25 @@ fn as_of() -> Date {
   Date(2026, June, 15)
 }
 
+fn applied(filters: List(#(String, FilterValue))) -> Applied {
+  Applied(
+    filters: dict.from_list(filters),
+    sort: None,
+    page_size: 50,
+    cursor: None,
+  )
+}
+
+fn no_filters() -> Applied {
+  applied([])
+}
+
 // --- rate-card table --------------------------------------------------------
 
 pub fn rate_card_schema_advertises_columns_including_actions_test() {
   rolling_back(fn(conn) {
     let assert Ok(response) =
-      settings_table.rate_card_table(admin_ctx(conn), as_of())
+      settings_table.rate_card_table(admin_ctx(conn), as_of(), no_filters())
     assert response.schema.table_id == "settings_rate_card"
     let keys = list.map(response.schema.columns, fn(column) { column.key })
     assert keys == ["level", "day_rate", "monthly_salary", "actions"]
@@ -76,9 +90,9 @@ pub fn rate_card_schema_advertises_columns_including_actions_test() {
 pub fn rate_card_rows_carry_rich_cells_and_actions_test() {
   rolling_back(fn(conn) {
     let assert Ok(response) =
-      settings_table.rate_card_table(admin_ctx(conn), as_of())
+      settings_table.rate_card_table(admin_ctx(conn), as_of(), no_filters())
     let assert [first, ..] = response.rows
-    let assert EnumCell(label:, ..) = cell_of(first, "level")
+    let assert EntityCell(label:, ..) = cell_of(first, "level")
     assert label == "L1 · Associate"
     let assert MoneyCell(_) = cell_of(first, "day_rate")
     let assert MoneyCell(_) = cell_of(first, "monthly_salary")
@@ -93,7 +107,7 @@ pub fn rate_card_rows_carry_rich_cells_and_actions_test() {
 pub fn rate_card_actions_empty_for_unauthenticated_reader_test() {
   rolling_back(fn(conn) {
     let assert Ok(response) =
-      settings_table.rate_card_table(anon_ctx(conn), as_of())
+      settings_table.rate_card_table(anon_ctx(conn), as_of(), no_filters())
     let assert [first, ..] = response.rows
     assert cell_of(first, "actions") == ActionsCell([])
   })
@@ -102,7 +116,7 @@ pub fn rate_card_actions_empty_for_unauthenticated_reader_test() {
 pub fn rate_card_row_id_is_the_level_test() {
   rolling_back(fn(conn) {
     let assert Ok(response) =
-      settings_table.rate_card_table(admin_ctx(conn), as_of())
+      settings_table.rate_card_table(admin_ctx(conn), as_of(), no_filters())
     let assert [first, ..] = response.rows
     assert first.id == "1"
   })
@@ -113,9 +127,49 @@ pub fn rate_card_row_id_is_the_level_test() {
 pub fn leave_policy_schema_advertises_columns_test() {
   rolling_back(fn(conn) {
     let assert Ok(response) =
-      settings_table.leave_policy_table(admin_ctx(conn), as_of())
+      settings_table.leave_policy_table(admin_ctx(conn), as_of(), no_filters())
     assert response.schema.table_id == "settings_leave_policy"
     let keys = list.map(response.schema.columns, fn(column) { column.key })
     assert keys == ["kind", "level", "days_per_year"]
+  })
+}
+
+// --- filtering --------------------------------------------------------------
+
+pub fn rate_card_filtered_by_level_returns_only_that_level_test() {
+  rolling_back(fn(conn) {
+    let assert Ok(response) =
+      settings_table.rate_card_table(
+        admin_ctx(conn),
+        as_of(),
+        applied([#("level", SelectValue(["1"]))]),
+      )
+    let assert [only] = response.rows
+    assert only.id == "1"
+    let assert EntityCell(label:, ..) = cell_of(only, "level")
+    assert label == "L1 · Associate"
+  })
+}
+
+pub fn leave_policy_filtered_by_kind_returns_only_that_type_test() {
+  rolling_back(fn(conn) {
+    let assert Ok(unfiltered) =
+      settings_table.leave_policy_table(admin_ctx(conn), as_of(), no_filters())
+    let assert [first, ..] = unfiltered.rows
+    let assert TextCell(kind) = cell_of(first, "kind")
+
+    let assert Ok(response) =
+      settings_table.leave_policy_table(
+        admin_ctx(conn),
+        as_of(),
+        applied([#("kind", SelectValue([kind]))]),
+      )
+    let kinds =
+      list.map(response.rows, fn(row) {
+        let assert TextCell(value) = cell_of(row, "kind")
+        value
+      })
+    assert list.all(kinds, fn(value) { value == kind })
+    assert kinds != []
   })
 }
