@@ -246,6 +246,7 @@ th.num {
     padding: var(--space-xs) var(--space-md);
     border-radius: var(--radius-pill);
     font-family: var(--mono);
+    white-space: nowrap;
 }
 .pill::before {
     content: "";
