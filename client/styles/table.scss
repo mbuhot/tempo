@@ -14,6 +14,8 @@
     background: var(--color-surface-sunken);
     min-height: 3rem;
     flex-wrap: wrap;
+    position: relative;
+    z-index: var(--z-modal);
 }
 
 .dt-rail__label {
@@ -131,6 +133,10 @@
 .dt-fchip--right .dt-pop {
     left: auto;
     right: 0;
+}
+
+.panel:has(.dt) {
+    overflow: visible;
 }
 
 .dt-pop__head {
