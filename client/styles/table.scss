@@ -454,3 +454,23 @@
 .dt-cell--indent {
     padding-left: var(--space-lg);
 }
+
+.dt-row--detail {
+    background: var(--color-surface-sunken, rgba(0, 0, 0, 0.025));
+
+    td {
+        padding: var(--space-sm) var(--space-md);
+    }
+}
+
+.dt-detail {
+    margin: 0;
+    max-height: 22rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    color: var(--color-text);
+}

@@ -429,6 +429,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       ),
     ]),
     children: [],
+    detail: None,
   )
 }
 

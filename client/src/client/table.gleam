@@ -879,9 +879,11 @@ fn body_rows(
   }
 }
 
-/// A parent row, followed (when expanded) by its child rows. The first column gets
-/// a disclosure toggle on an expandable row; children render with the child class
-/// and are neither expandable nor row-click navigable.
+/// A parent row, followed (when expanded) by either its child rows or — when the
+/// row carries a `detail` payload — a single full-width detail panel. The first
+/// column gets a disclosure toggle on an expandable row (one with children OR a
+/// detail). Children render with the child class and are neither expandable nor
+/// row-click navigable.
 fn parent_with_children(
   columns: List(Column),
   row: Row,
@@ -889,11 +891,25 @@ fn parent_with_children(
 ) -> List(Element(Msg)) {
   let is_expanded = set.contains(expanded, row.id)
   let parent = body_row(columns, row, is_expanded)
-  case row.children, is_expanded {
-    [], _ -> [parent]
-    _, False -> [parent]
-    children, True -> [parent, ..list.map(children, child_row(columns, _))]
+  case is_expanded {
+    False -> [parent]
+    True ->
+      case row.children, row.detail {
+        [], Some(detail) -> [parent, detail_panel(list.length(columns), detail)]
+        [], None -> [parent]
+        children, _ -> [parent, ..list.map(children, child_row(columns, _))]
+      }
   }
+}
+
+/// A full-width detail panel row: one `<td>` spanning every visible column, holding
+/// the pre-formatted `detail` text (e.g. a JSON payload) in a `<pre>` block.
+fn detail_panel(span: Int, detail: String) -> Element(Msg) {
+  html.tr([attribute.class("dt-row--detail")], [
+    html.td([attribute.attribute("colspan", int.to_string(span))], [
+      html.pre([attribute.class("dt-detail")], [html.text(detail)]),
+    ]),
+  ])
 }
 
 fn header(column: Column, state: State) -> Element(Msg) {
@@ -921,9 +937,9 @@ fn body_row(
   row: Row,
   is_expanded: Bool,
 ) -> Element(Msg) {
-  let expandable = case row.children {
-    [] -> False
-    _ -> True
+  let expandable = case row.children, row.detail {
+    [], None -> False
+    _, _ -> True
   }
   html.tr(
     [attribute.class("clickable"), event.on_click(RowClicked(row.id))],

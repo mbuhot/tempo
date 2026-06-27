@@ -197,6 +197,7 @@ fn rate_card_row(
       #("actions", ActionsCell(actions)),
     ]),
     children: [],
+    detail: None,
   )
 }
 
@@ -209,6 +210,7 @@ fn leave_policy_row(policy: LeavePolicyRow) -> Row {
       #("days_per_year", NumberCell(policy.days_per_year)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

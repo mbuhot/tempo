@@ -294,6 +294,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("target_completion", DateCell(row.target_completion)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

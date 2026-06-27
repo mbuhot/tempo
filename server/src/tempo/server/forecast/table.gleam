@@ -352,6 +352,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("margin", PercentCell(row.margin)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

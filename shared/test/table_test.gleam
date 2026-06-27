@@ -185,11 +185,15 @@ pub fn response_round_trips_via_schema_test() {
       id: "1.1",
       cells: dict.from_list([#("name", TextCell("Ana · L4"))]),
       children: [],
+      detail: None,
     )
   let row =
-    Row(id: "1", cells: dict.from_list([#("name", TextCell("Ana"))]), children: [
-      child,
-    ])
+    Row(
+      id: "1",
+      cells: dict.from_list([#("name", TextCell("Ana"))]),
+      children: [child],
+      detail: None,
+    )
   let value =
     TableResponse(schema:, rows: [row], page: Page(next_cursor: Some("abc")))
   let assert Ok(decoded) =

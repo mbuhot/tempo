@@ -264,6 +264,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("status", status_cell(row.status)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

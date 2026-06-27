@@ -402,6 +402,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("utilization", PercentCell(row.utilization)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

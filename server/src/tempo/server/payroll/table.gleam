@@ -232,7 +232,7 @@ fn total_row(
     ])
   let children = list.map(segments, fn(segment) { total_child(segment) })
   BuiltRow(
-    row: Row(id: row_id(line), cells:, children:),
+    row: Row(id: row_id(line), cells:, children:, detail: None),
     engineer: line.engineer,
     amount:,
     delta: money.zero(),
@@ -248,6 +248,7 @@ fn total_child(segment: PayrollSegment) -> Row {
       #("amount", MoneyCell(segment.amount)),
     ]),
     children: [],
+    detail: None,
   )
 }
 
@@ -268,7 +269,7 @@ fn variance_row(line: PayrollLine) -> BuiltRow {
   let children =
     list.map(line.preview_segments, fn(segment) { variance_child(segment) })
   BuiltRow(
-    row: Row(id: row_id(line), cells:, children:),
+    row: Row(id: row_id(line), cells:, children:, detail: None),
     engineer: line.engineer,
     amount: paid,
     delta:,
@@ -285,6 +286,7 @@ fn variance_child(segment: PayrollSegment) -> Row {
       #("delta", SignedMoneyCell(amount: money.zero(), tone: Neutral)),
     ]),
     children: [],
+    detail: None,
   )
 }
 

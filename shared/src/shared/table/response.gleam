@@ -6,7 +6,7 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option.{type Option, None}
 import shared/pagination
 import shared/table/cell.{type Cell}
 import shared/table/column.{type Column, type Schema}
@@ -15,11 +15,17 @@ pub type Page {
   Page(next_cursor: Option(String))
 }
 
-/// One table row: its stable `id`, its `cells` keyed by column, and any nested
-/// `children` rows. A row with non-empty `children` is expandable (one level deep
-/// in practice — children carry no children of their own).
+/// One table row: its stable `id`, its `cells` keyed by column, any nested
+/// `children` rows, and an optional full-width `detail` panel (pre-formatted text,
+/// e.g. a JSON payload). A row is expandable when it has non-empty `children` OR a
+/// `Some(detail)`; children are one level deep and carry no children of their own.
 pub type Row {
-  Row(id: String, cells: Dict(String, Cell), children: List(Row))
+  Row(
+    id: String,
+    cells: Dict(String, Cell),
+    children: List(Row),
+    detail: Option(String),
+  )
 }
 
 pub type TableResponse {
@@ -45,6 +51,7 @@ fn encode_row(row: Row) -> Json {
       ),
     ),
     #("children", json.array(row.children, encode_row)),
+    #("detail", json.nullable(row.detail, json.string)),
   ])
 }
 
@@ -69,7 +76,12 @@ fn row_decoder(columns: List(Column)) -> Decoder(Row) {
     [],
     decode.list(row_decoder(columns)),
   )
-  decode.success(Row(id:, cells:, children:))
+  use detail <- decode.optional_field(
+    "detail",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(Row(id:, cells:, children:, detail:))
 }
 
 fn cells_decoder(columns: List(Column)) -> Decoder(Dict(String, Cell)) {
