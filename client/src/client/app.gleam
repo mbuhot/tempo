@@ -28,6 +28,7 @@
 //// Imports `client/*` and `shared/*` only — never `server/*`.
 
 import client/api
+import client/icons
 import client/page.{type OutMsg}
 import client/page/access
 import client/page/activity
@@ -877,7 +878,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Board,
-        "▦",
+        icons.board(),
         "Board",
       ),
       nav_link_if(
@@ -886,7 +887,7 @@ fn view_sidebar(
         active,
         as_of,
         route.People(id: None),
-        "◔",
+        icons.people(),
         "People",
       ),
       nav_link_if(
@@ -895,7 +896,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Clients(id: None),
-        "◇",
+        icons.clients(),
         "Clients",
       ),
       nav_link_if(
@@ -904,7 +905,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Projects(id: None),
-        "▪",
+        icons.projects(),
         "Projects",
       ),
       nav_link_if(
@@ -913,7 +914,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Finance(tab: route.Invoices, invoice: None),
-        "$",
+        icons.finance(),
         "Finance",
       ),
       nav_link_if(
@@ -922,7 +923,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Activity,
-        "≋",
+        icons.activity(),
         "Activity",
       ),
       admin_header(permissions),
@@ -932,7 +933,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Settings,
-        "⚙",
+        icons.settings(),
         "Settings",
       ),
       nav_link_if(
@@ -941,7 +942,7 @@ fn view_sidebar(
         active,
         as_of,
         route.Access,
-        "⛭",
+        icons.access(),
         "Access",
       ),
     ]),
@@ -957,7 +958,7 @@ fn nav_link_if(
   active: Route,
   as_of: calendar.Date,
   target: Route,
-  icon: String,
+  icon: Element(Msg),
   label: String,
 ) -> Element(Msg) {
   case set.contains(permissions, permission) {
@@ -988,7 +989,7 @@ fn view_nav_link(
   active: Route,
   as_of: calendar.Date,
   target: Route,
-  icon: String,
+  icon: Element(Msg),
   label: String,
 ) -> Element(Msg) {
   let class = case same_page(active, target) {
@@ -1004,7 +1005,7 @@ fn view_nav_link(
       attribute.href(route.to_path(target) <> "?" <> as_of_query(as_of)),
     ],
     [
-      html.span([attribute.class("sidebar__nav-icon")], [html.text(icon)]),
+      html.span([attribute.class("sidebar__nav-icon")], [icon]),
       html.text(" " <> label),
     ],
   )

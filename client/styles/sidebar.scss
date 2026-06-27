@@ -71,6 +71,9 @@
     font-weight: var(--weight-semibold);
 }
 .sidebar__nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: var(--size-icon);
     height: var(--size-icon);
     flex: none;
