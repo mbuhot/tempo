@@ -63,6 +63,22 @@ pub fn run_payroll(
         days: line.days,
       )
     })
+  use segments <- operation.try(sql.payroll_segments(
+    conn,
+    period_from,
+    period_to,
+  ))
+  let segment_facts =
+    list.map(segments.rows, fn(segment) {
+      fact.PayrollLineSegment(
+        run_id:,
+        engineer_id: fact.EngineerId(segment.engineer_id),
+        level: segment.level,
+        monthly_salary: money(segment.monthly_salary),
+        days: segment.days,
+        amount: money(segment.amount),
+      )
+    })
   Ok(Recorded(
     entry: Event(
       operation: "run_payroll",
@@ -76,6 +92,7 @@ pub fn run_payroll(
     facts: list.flatten([
       [fact.PayrollPeriod(run_id:, from: period_from, to: period_to)],
       line_facts,
+      segment_facts,
     ]),
   ))
 }

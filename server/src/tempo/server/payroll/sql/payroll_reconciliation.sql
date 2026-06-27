@@ -70,6 +70,7 @@ paid AS (
 )
 SELECT
   (SELECT run_id FROM run) AS "run_id?",
+  coalesce(preview.engineer_id, paid.engineer_id) AS engineer_id,
   coalesce(engineer.name, '') AS engineer,
   coalesce(preview.amount, 0)::text AS preview_amount,
   coalesce(preview.days, 0)::numeric AS preview_days,

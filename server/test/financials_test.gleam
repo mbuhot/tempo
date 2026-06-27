@@ -19,16 +19,20 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{None}
 import gleam/time/calendar.{type Date, August, Date, July, June, March}
 import pog
 import shared/command.{type Command} as gateway
 import shared/invoice/command as invoice_command
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
+import shared/payroll/view as payroll_view
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
 import tempo/server/command
+import tempo/server/context.{Context}
 import tempo/server/operation
+import tempo/server/payroll/view as payroll_read
 import test_pool
 
 // --- rollback harness -------------------------------------------------------
@@ -196,6 +200,40 @@ fn read_payroll_lines(
     )
     |> pog.parameter(pog.int(run_id))
     |> pog.parameter(pog.array(pog.text, names))
+    |> pog.returning(decoder)
+    |> pog.execute(on: conn)
+  returned.rows
+}
+
+/// One persisted payroll segment read back for exact assertion: the level, the
+/// monthly salary in force, the pro-rated days, and the amount at that level.
+type PaySegment {
+  PaySegment(level: Int, monthly_salary: Float, days: Float, amount: Float)
+}
+
+/// Read a run's frozen per-level segments back for one engineer, ascending by level.
+fn read_payroll_segments(
+  conn: pog.Connection,
+  run_id: Int,
+  name: String,
+) -> List(PaySegment) {
+  let decoder = {
+    use level <- decode.field(0, decode.int)
+    use monthly_salary <- decode.field(1, pog.numeric_decoder())
+    use days <- decode.field(2, pog.numeric_decoder())
+    use amount <- decode.field(3, pog.numeric_decoder())
+    decode.success(PaySegment(level:, monthly_salary:, days:, amount:))
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "SELECT pls.level, pls.monthly_salary, pls.days, pls.amount
+         FROM payroll_line_segment pls
+         JOIN engineer_current e ON e.id = pls.engineer_id
+        WHERE pls.run_id = $1 AND e.name = $2
+        ORDER BY pls.level",
+    )
+    |> pog.parameter(pog.int(run_id))
+    |> pog.parameter(pog.text(name))
     |> pog.returning(decoder)
     |> pog.execute(on: conn)
   returned.rows
@@ -695,6 +733,91 @@ pub fn run_payroll_prorates_hires_terminations_promotions_and_leave_test() {
         Date(2026, July, 1),
       )),
     )
+}
+
+// RunPayroll freezes the per-level breakdown (#23): an engineer promoted L1 -> L2
+// mid-June (Jun 16) has their June line split into two payroll_line_segment rows —
+// L1 over the first 15 days at 3000/mo (1500) and L2 over the last 15 days at
+// 6000/mo (3000) — which sum back to the 4500 / 30-day payroll_line total. The
+// read model surfaces the same split on BOTH sides: the frozen `paid_segments` and
+// the live `preview_segments` (reconciled, nothing back-dated).
+pub fn run_payroll_freezes_per_level_segments_test() {
+  let #(line, segments, read_line) =
+    rolling_back(fn(conn) {
+      exec(conn, "DELETE FROM salary WHERE level IN (1, 2)")
+      exec(
+        conn,
+        "INSERT INTO salary (level, monthly_salary, effective_during) VALUES "
+          <> "(1, 3000.00, daterange('2024-01-01', NULL, '[)')), "
+          <> "(2, 6000.00, daterange('2024-01-01', NULL, '[)'))",
+      )
+
+      let promoted = insert_engineer(conn, "Seg Promoted")
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(promoted)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO engineer_role (engineer_id, level, held_during) VALUES "
+          <> "("
+          <> int.to_string(promoted)
+          <> ", 1, daterange('2026-01-01','2026-06-16')), "
+          <> "("
+          <> int.to_string(promoted)
+          <> ", 2, daterange('2026-06-16', NULL, '[)'))",
+      )
+
+      apply(
+        conn,
+        gateway.PayrollCommand(payroll_command.RunPayroll(
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      let run_id = run_id_covering(conn, Date(2026, June, 15))
+      let assert Ok(payroll) =
+        payroll_read.payroll(
+          Context(db: conn, principal: None),
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )
+      let assert Ok(read_line) =
+        list.find(payroll.lines, fn(line) { line.engineer == "Seg Promoted" })
+      #(
+        read_payroll_lines(conn, run_id, ["Seg Promoted"]),
+        read_payroll_segments(conn, run_id, "Seg Promoted"),
+        read_line,
+      )
+    })
+
+  // The collapsed line is the full month at the blended total.
+  assert line == [PayLine("Seg Promoted", 4500.0, 30.0)]
+  // The frozen breakdown is one row per level, ascending, summing to the line.
+  assert segments
+    == [
+      PaySegment(level: 1, monthly_salary: 3000.0, days: 15.0, amount: 1500.0),
+      PaySegment(level: 2, monthly_salary: 6000.0, days: 15.0, amount: 3000.0),
+    ]
+  // The read model carries the split on both sides (reconciled: paid == preview).
+  let expected_segments = [
+    payroll_view.PayrollSegment(
+      1,
+      15.0,
+      money_of("3000.00"),
+      money_of("1500.00"),
+    ),
+    payroll_view.PayrollSegment(
+      2,
+      15.0,
+      money_of("6000.00"),
+      money_of("3000.00"),
+    ),
+  ]
+  assert read_line.paid_segments == expected_segments
+  assert read_line.preview_segments == expected_segments
 }
 
 // A second run whose period overlaps an existing run is rejected by the

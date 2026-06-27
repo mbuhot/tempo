@@ -204,6 +204,18 @@ pub type Fact {
     amount: Money,
     days: Float,
   )
+  /// A frozen per-level segment of a payroll line: the level, the monthly salary at
+  /// that level, the pro-rated days, and the amount. The segments of a (run,
+  /// engineer) sum back to its `PayrollLine` total — the breakdown a mid-month
+  /// promotion or salary revision splits into.
+  PayrollLineSegment(
+    run_id: PayrollRunId,
+    engineer_id: EngineerId,
+    level: Int,
+    monthly_salary: Money,
+    days: Float,
+    amount: Money,
+  )
 
   // --- access control ---------------------------------------------------------
   /// An account holds `role` from `from` onward (open-ended; a re-grant re-opens it).

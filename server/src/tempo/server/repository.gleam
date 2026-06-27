@@ -46,8 +46,8 @@ import tempo/server/fact.{
   EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
   EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
   EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
-  PayrollLine, PayrollPeriod, PayrollRunId, ProjectId, ProjectPlan,
-  ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
+  PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId, ProjectId,
+  ProjectPlan, ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
   UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
@@ -448,6 +448,26 @@ fn write(
         engineer_id,
         money.to_string(amount),
         days,
+        audit_id,
+      )
+      |> operation.run
+
+    PayrollLineSegment(
+      run_id: PayrollRunId(run_id),
+      engineer_id: EngineerId(engineer_id),
+      level:,
+      monthly_salary:,
+      days:,
+      amount:,
+    ) ->
+      payroll_sql.payroll_line_segment_insert(
+        conn,
+        run_id,
+        engineer_id,
+        level,
+        money.to_string(monthly_salary),
+        days,
+        money.to_string(amount),
         audit_id,
       )
       |> operation.run

@@ -181,6 +181,44 @@ VALUES ($1, $2, $3::text::numeric, $4, $5);
   |> pog.execute(db)
 }
 
+/// payroll_line_segment_insert.sql — one frozen per-level payroll segment (#23). Last
+/// param is the audit_id. $1 = run_id, $2 = engineer_id, $3 = level, $4 = monthly
+/// salary (exact decimal text), $5 = days, $6 = amount (exact decimal text).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_line_segment_insert(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Int,
+  arg_4: String,
+  arg_5: Float,
+  arg_6: String,
+  arg_7: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- payroll_line_segment_insert.sql — one frozen per-level payroll segment (#23). Last
+-- param is the audit_id. $1 = run_id, $2 = engineer_id, $3 = level, $4 = monthly
+-- salary (exact decimal text), $5 = days, $6 = amount (exact decimal text).
+INSERT INTO payroll_line_segment
+  (run_id, engineer_id, level, monthly_salary, days, amount, audit_id)
+VALUES ($1, $2, $3, $4::text::numeric, $5, $6::text::numeric, $7);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.float(arg_5))
+  |> pog.parameter(pog.text(arg_6))
+  |> pog.parameter(pog.int(arg_7))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `payroll_lines` query
 /// defined in `./src/tempo/server/payroll/sql/payroll_lines.sql`.
 ///
@@ -251,6 +289,87 @@ ORDER BY engineer.name;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `payroll_paid_segments` query
+/// defined in `./src/tempo/server/payroll/sql/payroll_paid_segments.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollPaidSegmentsRow {
+  PayrollPaidSegmentsRow(
+    engineer_id: Int,
+    level: Int,
+    monthly_salary: String,
+    days: Float,
+    amount: String,
+  )
+}
+
+/// payroll_paid_segments.sql — the FROZEN per-level breakdown a RunPayroll persisted
+/// (#23), for the Payroll panel's paid side. Reads payroll_line_segment via the run
+/// whose period OVERLAPS the month — the snapshot analogue of payroll_segments, so a
+/// completed run shows exactly the pro-rated days and salary it paid at each level,
+/// unmoved by any later back-dated fact.
+///
+/// Params: $1 = month start (date), $2 = month end (date, exclusive). Empty until a
+/// run exists. Ordered by engineer then level for a deterministic wire order.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_paid_segments(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PayrollPaidSegmentsRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use level <- decode.field(1, decode.int)
+    use monthly_salary <- decode.field(2, decode.string)
+    use days <- decode.field(3, pog.numeric_decoder())
+    use amount <- decode.field(4, decode.string)
+    decode.success(PayrollPaidSegmentsRow(
+      engineer_id:,
+      level:,
+      monthly_salary:,
+      days:,
+      amount:,
+    ))
+  }
+
+  "-- payroll_paid_segments.sql — the FROZEN per-level breakdown a RunPayroll persisted
+-- (#23), for the Payroll panel's paid side. Reads payroll_line_segment via the run
+-- whose period OVERLAPS the month — the snapshot analogue of payroll_segments, so a
+-- completed run shows exactly the pro-rated days and salary it paid at each level,
+-- unmoved by any later back-dated fact.
+--
+-- Params: $1 = month start (date), $2 = month end (date, exclusive). Empty until a
+-- run exists. Ordered by engineer then level for a deterministic wire order.
+WITH params AS (
+  SELECT daterange($1::date, $2::date, '[)') AS period
+),
+run AS (
+  SELECT payroll_period.run_id
+  FROM params
+  JOIN payroll_period ON payroll_period.period && params.period
+)
+SELECT
+  payroll_line_segment.engineer_id,
+  payroll_line_segment.level,
+  payroll_line_segment.monthly_salary::text AS monthly_salary,
+  payroll_line_segment.days::numeric AS days,
+  payroll_line_segment.amount::text AS amount
+FROM payroll_line_segment
+JOIN run ON run.run_id = payroll_line_segment.run_id
+ORDER BY payroll_line_segment.engineer_id, payroll_line_segment.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// payroll_period_insert.sql — the immutable 1:1 payroll period (one run per month).
 /// Last param is the audit_id. $1 = run_id, $2 = from, $3 = to.
 ///
@@ -289,6 +408,7 @@ VALUES ($1, daterange($2::date, $3::date, '[)'), $4);
 pub type PayrollReconciliationRow {
   PayrollReconciliationRow(
     run_id: Option(Int),
+    engineer_id: Int,
     engineer: String,
     preview_amount: String,
     preview_days: Float,
@@ -333,13 +453,15 @@ pub fn payroll_reconciliation(
 ) -> Result(pog.Returned(PayrollReconciliationRow), pog.QueryError) {
   let decoder = {
     use run_id <- decode.field(0, decode.optional(decode.int))
-    use engineer <- decode.field(1, decode.string)
-    use preview_amount <- decode.field(2, decode.string)
-    use preview_days <- decode.field(3, pog.numeric_decoder())
-    use paid_amount <- decode.field(4, decode.optional(decode.string))
-    use paid_days <- decode.field(5, decode.optional(pog.numeric_decoder()))
+    use engineer_id <- decode.field(1, decode.int)
+    use engineer <- decode.field(2, decode.string)
+    use preview_amount <- decode.field(3, decode.string)
+    use preview_days <- decode.field(4, pog.numeric_decoder())
+    use paid_amount <- decode.field(5, decode.optional(decode.string))
+    use paid_days <- decode.field(6, decode.optional(pog.numeric_decoder()))
     decode.success(PayrollReconciliationRow(
       run_id:,
+      engineer_id:,
       engineer:,
       preview_amount:,
       preview_days:,
@@ -420,6 +542,7 @@ paid AS (
 )
 SELECT
   (SELECT run_id FROM run) AS \"run_id?\",
+  coalesce(preview.engineer_id, paid.engineer_id) AS engineer_id,
   coalesce(engineer.name, '') AS engineer,
   coalesce(preview.amount, 0)::text AS preview_amount,
   coalesce(preview.days, 0)::numeric AS preview_days,
@@ -501,6 +624,113 @@ pub fn payroll_run_next_id(
 SELECT nextval('payroll_run_id_seq')::int AS id;
 "
   |> pog.query
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `payroll_segments` query
+/// defined in `./src/tempo/server/payroll/sql/payroll_segments.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type PayrollSegmentsRow {
+  PayrollSegmentsRow(
+    engineer_id: Int,
+    level: Int,
+    monthly_salary: String,
+    days: Float,
+    amount: String,
+  )
+}
+
+/// payroll_segments.sql — the per-level breakdown of each engineer's prorated salary
+/// for a month (#23): one row per (engineer, level, salary) sub-period, the detail
+/// payroll_amounts sums away. Used to FREEZE a run's breakdown (payroll_line_segment)
+/// and as the LIVE preview breakdown the Payroll panel discloses.
+///
+/// Params: $1 = month start (date), $2 = month end (date, exclusive).
+///
+/// The sub CTE is payroll_amounts' proration verbatim — employment ∩ engineer_role
+/// (level) ∩ salary-version ∩ month — but carrying the level, and grouped by
+/// (engineer, level, monthly_salary) rather than summed to one line. A mid-month
+/// promotion yields one row per level; a mid-month salary revision within a level
+/// yields one row per salary. The segments of an engineer sum back to their
+/// payroll_amounts total (same kernels), so total ≡ Σ segments.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn payroll_segments(
+  db: pog.Connection,
+  arg_1: Date,
+  arg_2: Date,
+) -> Result(pog.Returned(PayrollSegmentsRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    use level <- decode.field(1, decode.int)
+    use monthly_salary <- decode.field(2, decode.string)
+    use days <- decode.field(3, pog.numeric_decoder())
+    use amount <- decode.field(4, decode.string)
+    decode.success(PayrollSegmentsRow(
+      engineer_id:,
+      level:,
+      monthly_salary:,
+      days:,
+      amount:,
+    ))
+  }
+
+  "-- payroll_segments.sql — the per-level breakdown of each engineer's prorated salary
+-- for a month (#23): one row per (engineer, level, salary) sub-period, the detail
+-- payroll_amounts sums away. Used to FREEZE a run's breakdown (payroll_line_segment)
+-- and as the LIVE preview breakdown the Payroll panel discloses.
+--
+-- Params: $1 = month start (date), $2 = month end (date, exclusive).
+--
+-- The sub CTE is payroll_amounts' proration verbatim — employment ∩ engineer_role
+-- (level) ∩ salary-version ∩ month — but carrying the level, and grouped by
+-- (engineer, level, monthly_salary) rather than summed to one line. A mid-month
+-- promotion yields one row per level; a mid-month salary revision within a level
+-- yields one row per salary. The segments of an engineer sum back to their
+-- payroll_amounts total (same kernels), so total ≡ Σ segments.
+WITH params AS (
+  SELECT daterange($1::date, $2::date, '[)') AS month
+),
+sub AS (
+  SELECT
+    employment.engineer_id,
+    engineer_role.level,
+    salary.monthly_salary,
+    employment.employed_during
+      * engineer_role.held_during
+      * salary.effective_during
+      * params.month AS sub_period
+  FROM params
+  JOIN employment    ON employment.employed_during && params.month
+  JOIN engineer_role ON engineer_role.engineer_id = employment.engineer_id
+                    AND engineer_role.held_during && employment.employed_during
+                    AND engineer_role.held_during && params.month
+  JOIN salary        ON salary.level = engineer_role.level
+                    AND salary.effective_during && engineer_role.held_during
+                    AND salary.effective_during && params.month
+)
+SELECT
+  sub.engineer_id,
+  sub.level,
+  sub.monthly_salary::text AS monthly_salary,
+  sum(range_days(sub.sub_period))::numeric AS days,
+  sum(prorated_salary(sub.monthly_salary, sub.sub_period, params.month))::text
+    AS amount
+FROM sub
+CROSS JOIN params
+WHERE NOT isempty(sub.sub_period)
+GROUP BY sub.engineer_id, sub.level, sub.monthly_salary
+ORDER BY sub.engineer_id, sub.level;
+"
+  |> pog.query
+  |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

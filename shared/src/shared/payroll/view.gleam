@@ -21,14 +21,28 @@ pub type PayrollRunInfo {
 /// `preview_days` are the LIVE recompute over current facts (always present).
 /// `paid_amount`/`paid_days` are the MATERIALIZED values frozen at run time
 /// (`None` until a run exists). Variance Δ = preview_amount - paid_amount.
+/// `preview_segments`/`paid_segments` break the corresponding total down by salary
+/// level (the disclosure detail); each list sums to its side's total, and a single
+/// element means no mid-month promotion or salary revision split that side.
 pub type PayrollLine {
   PayrollLine(
+    engineer_id: Int,
     engineer: String,
     preview_amount: Money,
     preview_days: Float,
     paid_amount: Option(Money),
     paid_days: Option(Float),
+    preview_segments: List(PayrollSegment),
+    paid_segments: List(PayrollSegment),
   )
+}
+
+/// One salary-level slice of a payroll line: the seniority `level`, the pro-rated
+/// `days` worked at it, the `monthly_salary` in force, and the recognised `amount`.
+/// Two or more on a side means a mid-month promotion (different levels) or salary
+/// revision (same level, different salary) split the month.
+pub type PayrollSegment {
+  PayrollSegment(level: Int, days: Float, monthly_salary: Money, amount: Money)
 }
 
 /// A month's payroll read model (`GET /api/payroll?period=`): the
@@ -47,23 +61,30 @@ pub type Payroll {
 /// JSON object. `paid_amount`/`paid_days` are `null` until a run exists.
 pub fn encode_payroll_line(line: PayrollLine) -> Json {
   let PayrollLine(
+    engineer_id:,
     engineer:,
     preview_amount:,
     preview_days:,
     paid_amount:,
     paid_days:,
+    preview_segments:,
+    paid_segments:,
   ) = line
   json.object([
+    #("engineer_id", json.int(engineer_id)),
     #("engineer", json.string(engineer)),
     #("preview_amount", money.encode(preview_amount)),
     #("preview_days", json.float(preview_days)),
     #("paid_amount", json.nullable(paid_amount, money.encode)),
     #("paid_days", json.nullable(paid_days, json.float)),
+    #("preview_segments", json.array(preview_segments, encode_payroll_segment)),
+    #("paid_segments", json.array(paid_segments, encode_payroll_segment)),
   ])
 }
 
 /// Decode a `PayrollLine` from a JSON object.
 pub fn payroll_line_decoder() -> Decoder(PayrollLine) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
   use engineer <- decode.field("engineer", decode.string)
   use preview_amount <- decode.field("preview_amount", money.decoder())
   use preview_days <- decode.field("preview_days", wire.lenient_float_decoder())
@@ -75,13 +96,44 @@ pub fn payroll_line_decoder() -> Decoder(PayrollLine) {
     "paid_days",
     decode.optional(wire.lenient_float_decoder()),
   )
+  use preview_segments <- decode.field(
+    "preview_segments",
+    decode.list(payroll_segment_decoder()),
+  )
+  use paid_segments <- decode.field(
+    "paid_segments",
+    decode.list(payroll_segment_decoder()),
+  )
   decode.success(PayrollLine(
+    engineer_id:,
     engineer:,
     preview_amount:,
     preview_days:,
     paid_amount:,
     paid_days:,
+    preview_segments:,
+    paid_segments:,
   ))
+}
+
+/// Encode a `PayrollSegment` (one salary-level slice of a line) as a JSON object.
+pub fn encode_payroll_segment(segment: PayrollSegment) -> Json {
+  let PayrollSegment(level:, days:, monthly_salary:, amount:) = segment
+  json.object([
+    #("level", json.int(level)),
+    #("days", json.float(days)),
+    #("monthly_salary", money.encode(monthly_salary)),
+    #("amount", money.encode(amount)),
+  ])
+}
+
+/// Decode a `PayrollSegment` from a JSON object.
+pub fn payroll_segment_decoder() -> Decoder(PayrollSegment) {
+  use level <- decode.field("level", decode.int)
+  use days <- decode.field("days", wire.lenient_float_decoder())
+  use monthly_salary <- decode.field("monthly_salary", money.decoder())
+  use amount <- decode.field("amount", money.decoder())
+  decode.success(PayrollSegment(level:, days:, monthly_salary:, amount:))
 }
 
 /// Encode a `PayrollRunInfo` (the materialized run's id) as a JSON object.

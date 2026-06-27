@@ -32,15 +32,22 @@ import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/event
 import rsvp
 import shared/command.{type Event}
 import shared/money
-import shared/payroll/view.{type Payroll, type PayrollLine} as payroll_view
+import shared/payroll/view.{type Payroll, type PayrollLine, type PayrollSegment} as payroll_view
 
 /// The Payroll tab's state: the as-of its data answers, the load state of the
-/// payroll read model, and the open Run-payroll op form (or `None`).
+/// payroll read model, the open Run-payroll op form (or `None`), and the set of
+/// engineer ids whose per-level breakdown is currently disclosed.
 pub type Model {
-  Model(as_of: calendar.Date, payroll: Load, op: Option(ui.OpState))
+  Model(
+    as_of: calendar.Date,
+    payroll: Load,
+    op: Option(ui.OpState),
+    expanded: Set(Int),
+  )
 }
 
 /// The payroll read model's load state.
@@ -59,11 +66,15 @@ pub type Msg {
   OpSubmitted
   OpCancelled
   OpReplied(result: Result(List(Event), rsvp.Error(String)))
+  ToggleExpanded(engineer_id: Int)
 }
 
 /// Start the tab at `as_of`, kicking off its payroll fetch.
 pub fn init(as_of: calendar.Date) -> #(Model, Effect(Msg)) {
-  #(Model(as_of:, payroll: Loading, op: None), fetch(as_of))
+  #(
+    Model(as_of:, payroll: Loading, op: None, expanded: set.new()),
+    fetch(as_of),
+  )
 }
 
 /// Re-fetch the tab for a new `as_of` (stale-while-revalidate), keeping any open
@@ -142,6 +153,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
+    ToggleExpanded(engineer_id:) -> {
+      let expanded = case set.contains(model.expanded, engineer_id) {
+        True -> set.delete(model.expanded, engineer_id)
+        False -> set.insert(model.expanded, engineer_id)
+      }
+      #(Model(..model, expanded:), effect.none(), [])
+    }
+
     OpReplied(result:) ->
       case result {
         Ok(_) -> #(
@@ -176,7 +195,14 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let body = case model.payroll {
     Loading -> ui.empty_state(message: "Loading payroll…")
     Failed(message:) -> ui.empty_state(message: message)
-    Loaded(payroll:) -> panel(payroll, on_run: OpOpened, permit: permit)
+    Loaded(payroll:) ->
+      panel(
+        payroll,
+        on_run: OpOpened,
+        permit: permit,
+        expanded: model.expanded,
+        on_toggle: ToggleExpanded,
+      )
   }
   html.div([], [op_panel(model.op), body])
 }
@@ -223,12 +249,14 @@ pub fn panel(
   payroll: Payroll,
   on_run on_run: fn(ui.Permit) -> msg,
   permit permit: Result(ui.Permit, Nil),
+  expanded expanded: Set(Int),
+  on_toggle on_toggle: fn(Int) -> msg,
 ) -> Element(msg) {
   case payroll.run {
-    None -> view_preview(payroll, on_run, permit)
+    None -> view_preview(payroll, on_run, permit, expanded, on_toggle)
     Some(_) ->
       case reconciled(payroll.lines) {
-        True -> view_reconciled(payroll)
+        True -> view_reconciled(payroll, expanded, on_toggle)
         False -> view_variance(payroll)
       }
   }
@@ -253,6 +281,8 @@ fn view_preview(
   payroll: Payroll,
   on_run: fn(ui.Permit) -> msg,
   permit: Result(ui.Permit, Nil),
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
 ) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
@@ -278,25 +308,28 @@ fn view_preview(
     body: [
       ui.data_table(
         headers: [#("Engineer", False), #("Days", True), #("Preview", True)],
-        rows: list.map(payroll.lines, preview_row),
+        rows: list.flat_map(payroll.lines, fn(line) {
+          breakdown_rows(
+            line,
+            line.preview_segments,
+            line.preview_days,
+            line.preview_amount,
+            expanded,
+            on_toggle,
+          )
+        }),
       ),
     ],
   )
 }
 
-fn preview_row(line: PayrollLine) -> Element(msg) {
-  html.tr([], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [html.text(ui.days(line.preview_days))]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(money.to_float(line.preview_amount))),
-    ]),
-  ])
-}
-
 /// RUN, NO CHANGES: the frozen paid lines, reconciled against the live recompute.
 /// No run button — the DB refuses a second run for the same month.
-fn view_reconciled(payroll: Payroll) -> Element(msg) {
+fn view_reconciled(
+  payroll: Payroll,
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
+) -> Element(msg) {
   let month = time.format_month(payroll.period_from)
   let count = list.length(payroll.lines)
   let total =
@@ -316,24 +349,99 @@ fn view_reconciled(payroll: Payroll) -> Element(msg) {
     body: [
       ui.data_table(
         headers: [#("Engineer", False), #("Days", True), #("Paid", True)],
-        rows: list.map(payroll.lines, paid_row),
+        rows: list.flat_map(payroll.lines, fn(line) {
+          breakdown_rows(
+            line,
+            line.paid_segments,
+            option.unwrap(line.paid_days, 0.0),
+            option.unwrap(line.paid_amount, money.zero()),
+            expanded,
+            on_toggle,
+          )
+        }),
       ),
     ],
   )
 }
 
-fn paid_row(line: PayrollLine) -> Element(msg) {
-  html.tr([], [
-    html.td([], [html.text(line.engineer)]),
-    html.td([attribute.class("num")], [
-      html.text(ui.days(option.unwrap(line.paid_days, 0.0))),
-    ]),
-    html.td([attribute.class("num")], [
+/// One engineer's row(s) for a Days/amount table: the total row, plus — when the
+/// breakdown has more than one salary level and the engineer is disclosed — an
+/// indented sub-row per level (the pro-rated days and amount at that salary). A
+/// single-level engineer is just the one total row, no toggle.
+fn breakdown_rows(
+  line: PayrollLine,
+  segments: List(PayrollSegment),
+  days: Float,
+  amount: money.Money,
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
+) -> List(Element(msg)) {
+  let total_row =
+    html.tr([], [
+      engineer_cell(line, segments, expanded, on_toggle),
+      html.td([attribute.class("num")], [html.text(ui.days(days))]),
+      html.td([attribute.class("num")], [
+        html.text(ui.money(money.to_float(amount))),
+      ]),
+    ])
+  case has_breakdown(segments) && set.contains(expanded, line.engineer_id) {
+    True -> [total_row, ..list.map(segments, segment_row)]
+    False -> [total_row]
+  }
+}
+
+/// The engineer name cell — a disclosure toggle (▸/▾ + name) when the line has a
+/// multi-level breakdown, otherwise the plain name.
+fn engineer_cell(
+  line: PayrollLine,
+  segments: List(PayrollSegment),
+  expanded: Set(Int),
+  on_toggle: fn(Int) -> msg,
+) -> Element(msg) {
+  case has_breakdown(segments) {
+    False -> html.td([], [html.text(line.engineer)])
+    True -> {
+      let marker = case set.contains(expanded, line.engineer_id) {
+        True -> "▾ "
+        False -> "▸ "
+      }
+      html.td([], [
+        html.button(
+          [
+            attribute.class("payroll__disclosure"),
+            event.on_click(on_toggle(line.engineer_id)),
+          ],
+          [html.text(marker <> line.engineer)],
+        ),
+      ])
+    }
+  }
+}
+
+/// An indented per-level sub-row: the seniority band and monthly salary, the
+/// pro-rated days at that level, and the amount recognised.
+fn segment_row(segment: PayrollSegment) -> Element(msg) {
+  html.tr([attribute.class("payroll__segment")], [
+    html.td([], [
       html.text(
-        ui.money(money.to_float(option.unwrap(line.paid_amount, money.zero()))),
+        "↳ "
+        <> ui.level_band(segment.level)
+        <> " · "
+        <> ui.money(money.to_float(segment.monthly_salary))
+        <> "/mo",
       ),
     ]),
+    html.td([attribute.class("num")], [html.text(ui.days(segment.days))]),
+    html.td([attribute.class("num")], [
+      html.text(ui.money(money.to_float(segment.amount))),
+    ]),
   ])
+}
+
+/// Whether a line's breakdown has more than one salary level — the only case worth
+/// disclosing (a mid-month promotion or salary revision).
+fn has_breakdown(segments: List(PayrollSegment)) -> Bool {
+  list.length(segments) > 1
 }
 
 /// RUN + VARIANCE: a fact was back-dated into the month after the run, so the live

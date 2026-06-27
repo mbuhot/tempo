@@ -34,7 +34,7 @@ import shared/leave/command as leave_command
 import shared/leave/view.{LeaveBalance} as _
 import shared/money
 import shared/payroll/command as payroll_command
-import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as payroll_view
+import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as payroll_view
 import shared/pnl/view.{Pnl, PnlRow} as pnl_view
 import shared/project/view.{ProjectRequirement} as project_view
 import shared/project_requirement/command as project_requirement_command
@@ -920,11 +920,20 @@ pub fn invoice_detail_empty_round_trips_test() {
 pub fn payroll_line_round_trips_test() {
   let original =
     PayrollLine(
+      engineer_id: 2,
       engineer: "Marcus Chen",
-      preview_amount: money_of("8000.00"),
+      preview_amount: money_of("11000.00"),
       preview_days: 30.0,
-      paid_amount: Some(money_of("8000.00")),
+      paid_amount: Some(money_of("11000.00")),
       paid_days: Some(30.0),
+      preview_segments: [
+        PayrollSegment(4, 15.0, money_of("8000.00"), money_of("4000.00")),
+        PayrollSegment(5, 15.0, money_of("14000.00"), money_of("7000.00")),
+      ],
+      paid_segments: [
+        PayrollSegment(4, 15.0, money_of("8000.00"), money_of("4000.00")),
+        PayrollSegment(5, 15.0, money_of("14000.00"), money_of("7000.00")),
+      ],
     )
 
   assert round_trip(
@@ -947,18 +956,30 @@ pub fn payroll_round_trips_test() {
       run: Some(PayrollRunInfo(run_id: 7)),
       lines: [
         PayrollLine(
+          engineer_id: 2,
           engineer: "Marcus Chen",
           preview_amount: money_of("8000.00"),
           preview_days: 30.0,
           paid_amount: Some(money_of("8000.00")),
           paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(4, 30.0, money_of("8000.00"), money_of("8000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(4, 30.0, money_of("8000.00"), money_of("8000.00")),
+          ],
         ),
         PayrollLine(
+          engineer_id: 1,
           engineer: "Priya Sharma",
           preview_amount: money_of("5000.00"),
           preview_days: 15.0,
           paid_amount: None,
           paid_days: None,
+          preview_segments: [
+            PayrollSegment(5, 15.0, money_of("10000.00"), money_of("5000.00")),
+          ],
+          paid_segments: [],
         ),
       ],
     )

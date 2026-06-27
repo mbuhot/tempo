@@ -301,6 +301,44 @@ test("back-dating a promotion into a run month surfaces the back-pay owed", asyn
   ).toContainText("$20,000");
 });
 
+test("a mid-month promotion discloses the per-level pay breakdown in the payroll panel", async ({
+  page,
+}) => {
+  // The per-level breakdown (#23): an engineer promoted mid-month has their payroll
+  // line blended across two salary levels, and the panel discloses the split on
+  // demand. December 2026 is never RUN by any spec, so its panel stays a live PREVIEW
+  // (no materialized run => no cross-spec variance flip, so this is stable on the
+  // shared append-only DB). Promote Marcus to L6 effective 2026-12-16, so December
+  // splits L5 (1–16 Dec) / L6 (16–31 Dec). His row then carries a disclosure toggle;
+  // expanding it reveals the two per-level sub-rows (L5 · Principal and L6 ·
+  // Distinguished) that are hidden when collapsed.
+  //
+  // Re-run safe: promoting to L6 from the same fixed date is a FOR-PORTION-OF no-op
+  // on re-runs (same level, no split), and the month is never run so no materialized
+  // state accrues. Admin (the beforeEach actor) may both promote and read payroll.
+  await navigateTo(page, "People");
+  await clickContent(rosterRow(page, "Marcus Chen"));
+  await expect(page.getByRole("heading", { name: /Marcus Chen/ })).toBeVisible();
+  await page.getByRole("button", { name: "Promote" }).dispatchEvent("click");
+  await expect(page.getByLabel("New level")).toBeVisible();
+  await page.getByLabel("New level").fill("6");
+  await page.getByLabel("Effective").fill("2026-12-16");
+  await confirmOp(page, "Promote");
+
+  await navigateTo(page, "Finance");
+  await openPayrollTab(page);
+  await scrubTo(page, "2026-12-15");
+  await expect(page.getByText("Payroll preview · Dec 2026")).toBeVisible();
+
+  // Collapsed: the per-level bands are hidden until the row is disclosed.
+  await expect(page.getByText("L6 · Distinguished")).toHaveCount(0);
+
+  // Expanding Marcus's line reveals the two salary-level sub-rows.
+  await page.getByRole("button", { name: /Marcus Chen/ }).click();
+  await expect(page.getByText("L5 · Principal")).toBeVisible();
+  await expect(page.getByText("L6 · Distinguished")).toBeVisible();
+});
+
 // Open the P&L tab from the Finance page. The tab is a button labelled "P&L";
 // clicking it reveals the P&L panel, whose per-engineer table title is "Profit &
 // loss · <Mon year>" — we wait for that month-suffixed title as the visible signal

@@ -16,3 +16,17 @@
  * the flagged varying rows borrow the warning status token. */
 .finance__owed { color: var(--color-warn); font-weight: var(--weight-semibold); }
 .finance__variance-row { background: var(--color-warn-soft); }
+
+/* Payroll per-level breakdown: the engineer-name cell becomes a disclosure toggle
+ * (a plain in-text button), and each disclosed segment is an indented, muted,
+ * smaller sub-row under the engineer's total. */
+.payroll__disclosure {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.payroll__segment td { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.payroll__segment td:first-child { padding-left: var(--space-4); }

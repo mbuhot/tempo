@@ -33,7 +33,7 @@ import shared/invoice/command as invoice_command
 import shared/invoice/view.{type Invoice, Invoice, InvoiceDetail, InvoiceLine} as _
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
-import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo} as _
+import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as _
 import shared/pnl/view.{type PnlRow, PnlRow} as _
 import tempo/server/command
 import tempo/server/context.{Context}
@@ -324,25 +324,46 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
       run: Some(PayrollRunInfo(run_id:)),
       lines: [
         PayrollLine(
-          "Aisha Okafor",
-          money_of("14000.00"),
-          30.0,
-          Some(money_of("14000.00")),
-          Some(30.0),
+          engineer_id: 3,
+          engineer: "Aisha Okafor",
+          preview_amount: money_of("14000.00"),
+          preview_days: 30.0,
+          paid_amount: Some(money_of("14000.00")),
+          paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(6, 30.0, money_of("14000.00"), money_of("14000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(6, 30.0, money_of("14000.00"), money_of("14000.00")),
+          ],
         ),
         PayrollLine(
-          "Marcus Chen",
-          money_of("8000.00"),
-          30.0,
-          Some(money_of("8000.00")),
-          Some(30.0),
+          engineer_id: 2,
+          engineer: "Marcus Chen",
+          preview_amount: money_of("8000.00"),
+          preview_days: 30.0,
+          paid_amount: Some(money_of("8000.00")),
+          paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(4, 30.0, money_of("8000.00"), money_of("8000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(4, 30.0, money_of("8000.00"), money_of("8000.00")),
+          ],
         ),
         PayrollLine(
-          "Priya Sharma",
-          money_of("10000.00"),
-          30.0,
-          Some(money_of("10000.00")),
-          Some(30.0),
+          engineer_id: 1,
+          engineer: "Priya Sharma",
+          preview_amount: money_of("10000.00"),
+          preview_days: 30.0,
+          paid_amount: Some(money_of("10000.00")),
+          paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(5, 30.0, money_of("10000.00"), money_of("10000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(5, 30.0, money_of("10000.00"), money_of("10000.00")),
+          ],
         ),
       ],
     )
