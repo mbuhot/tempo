@@ -1238,6 +1238,45 @@ cannot bundle multi-declaration clusters). stylelint for the token check (reject
 
 ---
 
+## ADR-048 — A generic, server-driven data table
+**Status:** Accepted
+
+**Context.** Every list page hand-rolled its own table markup and row functions over the shared
+`ui.data_table`, with rich cells (money, dates, status pills, project swatches, team avatars) built
+inline per page and no shared filtering, sorting, or pagination UI. Adding the same filter/sort/page
+affordances to each list would have duplicated that surface many times.
+
+**Decision.** One generic table driven by a schema the server returns alongside the data, in a new
+`shared/table/` concept (`column`, `cell`, `filter`, `sort`, `response`, `query`). Each list endpoint
+answers `{schema, rows, page}`: the schema names each column's semantic **data-type**, whether it sorts,
+and the **filter kind** the server supports for it (filter options shipped live). Cells travel UNTAGGED
+on the wire — the column's `ColumnType` directs a Gleam decoder that builds a typed `Cell` union, so the
+type lives once on the column yet decoding is type-safe end to end. The client owns one reusable
+`client/table` MVU unit; its cell renderer (on `Cell`), tone→pill map (on `Tone`), and filter-widget
+picker (on `FilterKind`) each switch with no `_` arm, so a new column type fails the build until every
+site handles it.
+
+Filters/sort/page are URL query params (server applies them); column order and visibility are a per-user
+`localStorage` layout, reconciled against the live schema. Filters apply immediately; free-typing inputs
+debounce through the existing `client/scheduler` token guard (ADR-036). The server builds the filtered/
+sorted/paged query with the `(param IS NULL OR col matches param)` null-guard idiom over `pog`
+(hand-bound, since Squirrel cannot infer nullable params); sort is a `CASE`-driven `ORDER BY`. Pagination
+keeps the opaque-cursor wire convention (issue #12) but the cursor currently encodes an offset, so true
+keyset can replace the server internals later with no wire change.
+
+**Scope.** Proven on the Invoices list (rich entity/chips/enum/money cells). The inline per-row lifecycle
+actions move to the invoice detail (the table carries no per-row action column). Other list pages migrate
+one at a time.
+
+**Alternatives.** A separate `/schema` describe endpoint (rejected — a second round-trip and a cache to
+keep consistent with live filter options). Per-cell type tags on the wire (rejected — redundant; the
+column already names the type). Squirrel `''`/empty-array sentinels instead of real NULLs (viable, but the
+hand-bound null-guard reads as the literal intent). Server-persisted column layout (deferred — it is a
+per-device preference). True keyset across arbitrary user-chosen sort columns (deferred — disproportionate
+for the first cut; the offset cursor is wire-compatible with a later swap).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 
