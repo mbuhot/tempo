@@ -103,6 +103,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case out {
         table_host.Stay -> #(model, effect, [])
         table_host.Activated(id: _) -> #(model, effect, [])
+        table_host.ActionInvoked(..) -> #(model, effect, [])
       }
     }
   }

@@ -222,6 +222,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 ])
                 Error(Nil) -> #(model, effect, [])
               }
+            table_host.ActionInvoked(..) -> #(model, effect, [])
           }
         }
         _ -> #(model, effect.none(), [])

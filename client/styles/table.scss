@@ -407,3 +407,24 @@
 .dt-money--critical {
     color: var(--color-leave);
 }
+
+.dt-actions {
+    display: inline-flex;
+    gap: var(--space-xs);
+    justify-content: flex-end;
+}
+
+.dt-action {
+    @include hairline;
+    background: var(--color-surface);
+    color: var(--color-muted);
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+
+    &:hover {
+        border-color: var(--color-accent);
+        color: var(--color-accent);
+    }
+}

@@ -10,8 +10,8 @@ import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
 import shared/table/column.{
-  type ColumnType, type Tone, BoolType, ChipsType, DateType, EntityType,
-  EnumType, MoneyType, Neutral, NumberType, PercentType, PersonType,
+  type ColumnType, type Tone, ActionsType, BoolType, ChipsType, DateType,
+  EntityType, EnumType, MoneyType, Neutral, NumberType, PercentType, PersonType,
   SignedMoneyType, TextType,
 }
 import shared/wire
@@ -28,10 +28,18 @@ pub type Cell {
   PersonCell(name: String, sub: Option(String), initials: String, color: String)
   ChipsCell(List(Chip))
   BoolCell(Bool)
+  ActionsCell(List(Action))
 }
 
 pub type Chip {
   Chip(label: String, initials: Option(String), color: Option(String))
+}
+
+/// A server-advertised per-row action: its `id` is the op the host page maps it
+/// to, its `label` the button text. The server only includes the actions the
+/// actor may perform on that row, so availability is decided server-side.
+pub type Action {
+  Action(id: String, label: String)
 }
 
 pub fn encode_cell(cell: Cell) -> Json {
@@ -66,7 +74,15 @@ pub fn encode_cell(cell: Cell) -> Json {
       ])
     ChipsCell(chips) -> json.array(chips, encode_chip)
     BoolCell(value) -> json.bool(value)
+    ActionsCell(actions) -> json.array(actions, encode_action)
   }
+}
+
+fn encode_action(action: Action) -> Json {
+  json.object([
+    #("id", json.string(action.id)),
+    #("label", json.string(action.label)),
+  ])
 }
 
 fn encode_chip(chip: Chip) -> Json {
@@ -90,7 +106,14 @@ pub fn cell_decoder(of column_type: ColumnType) -> Decoder(Cell) {
     EntityType -> entity_decoder()
     PersonType -> person_decoder()
     ChipsType -> decode.map(decode.list(chip_decoder()), ChipsCell)
+    ActionsType -> decode.map(decode.list(action_decoder()), ActionsCell)
   }
+}
+
+fn action_decoder() -> Decoder(Action) {
+  use id <- decode.field("id", decode.string)
+  use label <- decode.field("label", decode.string)
+  decode.success(Action(id:, label:))
 }
 
 fn enum_decoder() -> Decoder(Cell) {

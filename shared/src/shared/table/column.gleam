@@ -22,6 +22,7 @@ pub type ColumnType {
   PersonType
   ChipsType
   BoolType
+  ActionsType
 }
 
 pub type Tone {
@@ -66,6 +67,7 @@ pub fn column_type_to_string(column_type: ColumnType) -> String {
     PersonType -> "person"
     ChipsType -> "chips"
     BoolType -> "bool"
+    ActionsType -> "actions"
   }
 }
 
@@ -82,6 +84,7 @@ pub fn column_type_from_string(text: String) -> Result(ColumnType, Nil) {
     "person" -> Ok(PersonType)
     "chips" -> Ok(ChipsType)
     "bool" -> Ok(BoolType)
+    "actions" -> Ok(ActionsType)
     _ -> Error(Nil)
   }
 }

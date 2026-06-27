@@ -57,6 +57,7 @@ pub type Msg {
 pub type Out {
   Stay
   Activated(id: String)
+  ActionInvoked(action: String, row: String)
 }
 
 /// Start a table against `endpoint`, fetching the first (bounded) page as-of `as_of`.
@@ -196,6 +197,11 @@ pub fn update(
               Stay,
             )
             table.Activated(id:) -> #(host, effect.none(), Activated(id))
+            table.ActionRaised(action:, row:) -> #(
+              host,
+              effect.none(),
+              ActionInvoked(action:, row:),
+            )
           }
         }
         _ -> #(host, effect.none(), Stay)

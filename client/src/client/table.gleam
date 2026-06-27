@@ -27,8 +27,9 @@ import lustre/element/html
 import lustre/event
 import shared/money
 import shared/table/cell.{
-  type Cell, type Chip, BoolCell, ChipsCell, DateCell, EntityCell, EnumCell,
-  MoneyCell, NumberCell, PercentCell, PersonCell, SignedMoneyCell, TextCell,
+  type Action, type Cell, type Chip, ActionsCell, BoolCell, ChipsCell, DateCell,
+  EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
+  SignedMoneyCell, TextCell,
 }
 import shared/table/column.{
   type Column, type Schema, type Tone, Accent, Critical, Neutral, NumericEnd,
@@ -106,6 +107,7 @@ pub type Msg {
   DragEnded
   LayoutReset
   RowClicked(id: String)
+  ActionInvoked(action: String, row: String)
 }
 
 /// What `update` asks the host page to do. `Requery` replaces the rows (a fresh
@@ -119,6 +121,7 @@ pub type Outcome {
   Persist(layout: String)
   Schedule(token: Int)
   Activated(id: String)
+  ActionRaised(action: String, row: String)
 }
 
 /// The page size the frontend requests — large enough to overflow the table's scroll
@@ -300,6 +303,7 @@ pub fn update(state: State, msg: Msg) -> #(State, Outcome) {
       #(next, Persist(encode_layout(next)))
     }
     RowClicked(id:) -> #(state, Activated(id))
+    ActionInvoked(action:, row:) -> #(state, ActionRaised(action:, row:))
   }
 }
 
@@ -872,6 +876,7 @@ fn body_row(columns: List(Column), row: Row) -> Element(Msg) {
         _ -> []
       }
       let content = case dict.get(row.cells, column.key) {
+        Ok(ActionsCell(actions)) -> actions_cell(actions, row.id)
         Ok(value) -> render_cell(value)
         Error(Nil) -> element.none()
       }
@@ -950,7 +955,28 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
       }
       html.div([attribute.class("chips")], list.append(avatars, more))
     }
+    ActionsCell(_) -> element.none()
   }
+}
+
+/// The action buttons for a row's `ActionsCell`. Rendered in the row builder
+/// (not `render_cell`) so each button carries the row id alongside the action id,
+/// dispatching `ActionInvoked(action.id, row_id)`. Clicks stop propagation so an
+/// action does not also trigger the row's `RowClicked`.
+fn actions_cell(actions: List(Action), row_id: String) -> Element(Msg) {
+  html.div(
+    [attribute.class("dt-actions")],
+    list.map(actions, fn(action) {
+      html.button(
+        [
+          attribute.class("dt-action"),
+          event.on_click(ActionInvoked(action.id, row_id))
+            |> event.stop_propagation,
+        ],
+        [html.text(action.label)],
+      )
+    }),
+  )
 }
 
 fn person_sub(sub: Option(String)) -> Element(msg) {
