@@ -21,7 +21,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import rsvp
 import shared/table/column
-import shared/table/response.{type Row, type TableResponse}
+import shared/table/response.{type Footer, type Row, type TableResponse}
 
 /// A table embedded in a page: the API endpoint that answers `{schema, rows, page}`,
 /// the fixed `base` query params prepended to every request (e.g. `as_of`, or a
@@ -40,6 +40,7 @@ pub type Load {
     rows: List(Row),
     next_cursor: Option(String),
     table_state: table.State,
+    footer: Option(Footer),
   )
   Failed(message: String)
 }
@@ -150,6 +151,7 @@ pub fn update(
                     rows: table_response.rows,
                     next_cursor: table_response.page.next_cursor,
                     table_state:,
+                    footer: table_response.footer,
                   ),
                 ),
                 effect.none(),
@@ -168,6 +170,7 @@ pub fn update(
               rows: list.append(rows, table_response.rows),
               next_cursor: table_response.page.next_cursor,
               table_state: table.reconcile(table_state, table_response.schema),
+              footer: table_response.footer,
             ),
           ),
           effect.none(),
@@ -177,7 +180,7 @@ pub fn update(
       }
     TableMsg(sub:) ->
       case host.load {
-        Loaded(schema:, rows:, next_cursor:, table_state:) -> {
+        Loaded(schema:, rows:, next_cursor:, table_state:, footer:) -> {
           let #(next_state, outcome) = table.update(table_state, sub)
           let host =
             Host(
@@ -187,6 +190,7 @@ pub fn update(
                 rows:,
                 next_cursor:,
                 table_state: next_state,
+                footer:,
               ),
             )
           case outcome {
@@ -233,9 +237,15 @@ pub fn view(host: Host, loading_message: String) -> Element(Msg) {
   case host.load {
     Loading -> ui.empty_state(message: loading_message)
     Failed(message:) -> ui.empty_state(message:)
-    Loaded(schema:, rows:, next_cursor:, table_state:) ->
+    Loaded(schema:, rows:, next_cursor:, table_state:, footer:) ->
       element.map(
-        table.view(schema, rows, table_state, option.is_some(next_cursor)),
+        table.view(
+          schema,
+          rows,
+          table_state,
+          option.is_some(next_cursor),
+          footer,
+        ),
         TableMsg,
       )
   }

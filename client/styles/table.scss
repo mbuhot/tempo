@@ -323,6 +323,19 @@
     font-weight: var(--weight-semibold);
 }
 
+// The summary row capping the table body: a hairline top rule and semibold weight
+// set it apart from the rows above, while sharing the body cells' padding and the
+// numeric columns' right alignment so each total lands under its column.
+.dt-foot-row td {
+    padding: var(--space-md) var(--space-md);
+    border-top: var(--border-thin) solid var(--color-border);
+    font-weight: var(--weight-semibold);
+}
+
+.dt-foot-row__label {
+    color: var(--color-muted);
+}
+
 .chips {
     display: flex;
     gap: var(--space-xs);

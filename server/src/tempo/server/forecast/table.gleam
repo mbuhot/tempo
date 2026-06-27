@@ -13,10 +13,10 @@
 ////
 //// Profit carries a server-driven tone: `Positive` when the month is in the black
 //// (profit ≥ 0), `Critical` when it runs at a loss, so the client renders it
-//// colour-coded via the shared `SignedMoneyCell`. The total/headline figures stay
-//// outside this table — the generic table has no footer-row concept — so the page
-//// keeps fetching `GET /api/forecast?as_of=` for the to-the-cliff total alongside
-//// these month rows.
+//// colour-coded via the shared `SignedMoneyCell`. The to-the-cliff totals ride in
+//// the response `footer` (the table's `<tfoot>`): the summed revenue / cost / profit
+//// over EVERY forecast month and the blended margin, rendered by the same typed cells
+//// as the body so they line up under their columns.
 
 import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
@@ -27,6 +27,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
 import pog
+import shared/forecast/view.{type Forecast, type ForecastMonth}
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{DateCell, MoneyCell, PercentCell, SignedMoneyCell}
@@ -37,10 +38,11 @@ import shared/table/column.{
 import shared/table/filter.{NumberRangeFilter}
 import shared/table/query.{type Applied}
 import shared/table/response.{
-  type Row, type TableResponse, Page, Row, TableResponse,
+  type Footer, type Row, type TableResponse, Footer, Page, Row, TableResponse,
 }
 import shared/table/sort.{Asc, Sort}
 import tempo/server/context.{type Context}
+import tempo/server/forecast/view as forecast_read
 import tempo/server/table/builder
 
 const default_sort_key = "month"
@@ -56,7 +58,8 @@ pub fn forecast_table(
   let schema = forecast_schema()
   let offset = decode_offset(applied.cursor)
   let limit = applied.page_size
-  use returned <- result.map(run_list(context, as_of, applied, limit, offset))
+  use returned <- result.try(run_list(context, as_of, applied, limit, offset))
+  use summary <- result.map(forecast_read.forecast(context, as_of))
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
@@ -67,6 +70,36 @@ pub fn forecast_table(
     schema:,
     rows: list.map(page_rows, row_to_table_row),
     page: Page(next_cursor:),
+    footer: Some(total_footer(summary)),
+  )
+}
+
+/// The to-the-cliff totals as the table footer: revenue / cost summed over EVERY
+/// forecast month, profit toned by sign, and the blended margin — the same figures
+/// the headline read derives, keyed to the numeric columns (the leading month column
+/// carries only the "Total" label).
+fn total_footer(summary: Forecast) -> Footer {
+  let months = summary.months
+  let total_revenue =
+    money.sum(list.map(months, fn(month: ForecastMonth) { month.revenue }))
+  let total_cost =
+    money.sum(list.map(months, fn(month: ForecastMonth) { month.cost }))
+  let total_profit = money.subtract(total_revenue, total_cost)
+  let total_margin = case money.to_float(total_revenue) >. 0.0 {
+    True -> money.ratio(total_profit, total_revenue) *. 100.0
+    False -> 0.0
+  }
+  Footer(
+    label: "Total",
+    cells: dict.from_list([
+      #("revenue", MoneyCell(total_revenue)),
+      #("cost", MoneyCell(total_cost)),
+      #(
+        "profit",
+        SignedMoneyCell(amount: total_profit, tone: profit_tone(total_profit)),
+      ),
+      #("margin", PercentCell(total_margin)),
+    ]),
   )
 }
 

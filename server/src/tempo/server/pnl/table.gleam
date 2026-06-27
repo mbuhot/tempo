@@ -65,6 +65,7 @@ pub fn pnl_table(
     schema:,
     rows: list.map(page_rows, row_to_table_row),
     page: Page(next_cursor:),
+    footer: None,
   )
 }
 

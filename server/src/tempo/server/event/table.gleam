@@ -56,6 +56,7 @@ pub fn events_table(
     schema:,
     rows: list.map(rows, row_to_table_row),
     page: Page(next_cursor:),
+    footer: None,
   )
 }
 

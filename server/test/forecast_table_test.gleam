@@ -18,7 +18,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/time/calendar.{type Date, Date, December, June}
 import pog
 import shared/money
-import shared/table/cell.{DateCell, MoneyCell, SignedMoneyCell}
+import shared/table/cell.{DateCell, MoneyCell, PercentCell, SignedMoneyCell}
 import shared/table/column
 import shared/table/query.{type Applied, type FilterValue, Applied, NumberRange}
 import shared/table/response.{type Row}
@@ -157,6 +157,29 @@ pub fn month_sort_descending_puts_december_first_test() {
       )
     let assert [first, ..] = response.rows
     assert cell_of(first, "month") == DateCell(Date(2026, December, 1))
+  })
+}
+
+pub fn footer_totals_the_forecast_to_the_cliff_test() {
+  rolling_back(fn(conn) {
+    let assert Ok(response) =
+      forecast_table.forecast_table(ctx(conn), as_of(), applied([], None))
+    let assert Ok(headline) = forecast_read.forecast(ctx(conn), as_of())
+    let total_revenue =
+      money.sum(list.map(headline.months, fn(month) { month.revenue }))
+    let total_cost =
+      money.sum(list.map(headline.months, fn(month) { month.cost }))
+    let total_profit = money.subtract(total_revenue, total_cost)
+    let total_margin = money.ratio(total_profit, total_revenue) *. 100.0
+
+    let assert Some(footer) = response.footer
+    assert footer.label == "Total"
+    assert dict.get(footer.cells, "revenue") == Ok(MoneyCell(total_revenue))
+    assert dict.get(footer.cells, "cost") == Ok(MoneyCell(total_cost))
+    assert dict.get(footer.cells, "profit")
+      == Ok(SignedMoneyCell(amount: total_profit, tone: column.Positive))
+    assert dict.get(footer.cells, "margin") == Ok(PercentCell(total_margin))
+    assert dict.get(footer.cells, "month") == Error(Nil)
   })
 }
 

@@ -6,19 +6,18 @@
 //// The forward P&L from committed demand. The month rows render via the generic
 //// data table, embedded through `table_host` (which owns the load state, infinite
 //// scroll, debounce, and column-layout persistence), reading
-//// `GET /api/forecast/table?as_of=&filter.*=&sort=&page_size=&cursor=`. The total to
-//// the cliff lives OUTSIDE the table (the generic table has no footer row): the tab
-//// keeps fetching the summary `GET /api/forecast?as_of=` and renders the to-the-cliff
-//// total below the table. Each summary result carries the `as_of` it answers so a
-//// stale reply is dropped. The months don't drill anywhere, so the host's
-//// `Activated` outcome is inert.
+//// `GET /api/forecast/table?as_of=&filter.*=&sort=&page_size=&cursor=`. The to-the-
+//// cliff totals ride in that table's footer row, aligned to its columns. The tab
+//// still fetches the summary `GET /api/forecast?as_of=` for the headline revenue note
+//// and the month count; each summary result carries the `as_of` it answers so a stale
+//// reply is dropped. The months don't drill anywhere, so the host's `Activated`
+//// outcome is inert.
 
 import client/api
 import client/page.{type OutMsg}
 import client/table_host
 import client/time
 import client/ui
-import gleam/float
 import gleam/int
 import gleam/list
 import gleam/time/calendar
@@ -133,12 +132,6 @@ fn panel(model: Model, forecast: Forecast) -> Element(Msg) {
       let count = list.length(months)
       let total_revenue =
         money.sum(list.map(months, fn(month) { month.revenue }))
-      let total_cost = money.sum(list.map(months, fn(month) { month.cost }))
-      let total_profit = money.subtract(total_revenue, total_cost)
-      let total_margin = case money.to_float(total_revenue) >. 0.0 {
-        True -> money.ratio(total_profit, total_revenue) *. 100.0
-        False -> 0.0
-      }
       ui.panel(
         title: "Forecast",
         count: int.to_string(count) <> " months",
@@ -154,44 +147,8 @@ fn panel(model: Model, forecast: Forecast) -> Element(Msg) {
             table_host.view(model.host, "Loading forecast…"),
             TableHostMsg,
           ),
-          total_row(total_revenue, total_cost, total_profit, total_margin),
         ],
       )
     }
-  }
-}
-
-/// The to-the-cliff total, summing each money column with the blended margin —
-/// rendered as a standalone strip below the month table.
-fn total_row(
-  revenue: money.Money,
-  cost: money.Money,
-  profit: money.Money,
-  margin: Float,
-) -> Element(Msg) {
-  let #(profit_class, profit_text) = forecast_profit(profit)
-  html.div([attribute.class("finance__total-row")], [
-    html.span([], [html.text("Total")]),
-    html.span([attribute.class("num")], [
-      html.text(ui.money(money.to_float(revenue))),
-    ]),
-    html.span([attribute.class("num")], [
-      html.text(ui.money(money.to_float(cost))),
-    ]),
-    html.span([attribute.class(profit_class)], [html.text(profit_text)]),
-    html.span([attribute.class("num")], [html.text(ui.pct(margin))]),
-  ])
-}
-
-/// The profit cell's class and signed text, mirroring the P&L table's positive /
-/// negative colouring (a leading minus glyph on a loss).
-fn forecast_profit(profit: money.Money) -> #(String, String) {
-  let profit = money.to_float(profit)
-  case profit >=. 0.0 {
-    True -> #("num pnl__profit--positive", ui.money(profit))
-    False -> #(
-      "num pnl__profit--negative",
-      "−" <> ui.money(float.absolute_value(profit)),
-    )
   }
 }

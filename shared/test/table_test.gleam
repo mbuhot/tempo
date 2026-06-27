@@ -18,7 +18,7 @@ import shared/table/filter.{
   DateRangeFilter, FilterOption, NumberRangeFilter, SelectFilter,
 }
 import shared/table/query.{Applied, NumberRange, SelectValue}
-import shared/table/response.{Page, Row, TableResponse}
+import shared/table/response.{Footer, Page, Row, TableResponse}
 import shared/table/sort.{Asc, Desc, Sort}
 
 fn render(value: Json) -> String {
@@ -198,7 +198,71 @@ pub fn response_round_trips_via_schema_test() {
       detail: None,
     )
   let value =
-    TableResponse(schema:, rows: [row], page: Page(next_cursor: Some("abc")))
+    TableResponse(
+      schema:,
+      rows: [row],
+      page: Page(next_cursor: Some("abc")),
+      footer: None,
+    )
+  let assert Ok(decoded) =
+    parse_with(
+      render(response.encode_response(value)),
+      response.response_decoder(),
+    )
+  assert decoded == value
+}
+
+pub fn response_with_footer_round_trips_test() {
+  let schema =
+    Schema(
+      table_id: "forecast",
+      child_columns: None,
+      columns: [
+        Column(
+          key: "month",
+          label: "Month",
+          column_type: TextType,
+          align: Start,
+          sortable: True,
+          hideable: False,
+          filter: None,
+        ),
+        Column(
+          key: "revenue",
+          label: "Revenue",
+          column_type: MoneyType,
+          align: NumericEnd,
+          sortable: True,
+          hideable: True,
+          filter: None,
+        ),
+      ],
+      filters: [],
+      default_sort: None,
+    )
+  let assert Ok(total) = money.from_string("3753800")
+  let row =
+    Row(
+      id: "2026-06-01",
+      cells: dict.from_list([
+        #("month", TextCell("Jun 2026")),
+        #("revenue", MoneyCell(total)),
+      ]),
+      children: [],
+      detail: None,
+    )
+  let footer =
+    Footer(
+      label: "Total",
+      cells: dict.from_list([#("revenue", MoneyCell(total))]),
+    )
+  let value =
+    TableResponse(
+      schema:,
+      rows: [row],
+      page: Page(next_cursor: None),
+      footer: Some(footer),
+    )
   let assert Ok(decoded) =
     parse_with(
       render(response.encode_response(value)),

@@ -60,6 +60,7 @@ pub fn rate_card_table(
       rate_card_row(rate, settings.salaries, actions)
     }),
     page: Page(next_cursor: None),
+    footer: None,
   )
 }
 
@@ -82,6 +83,7 @@ pub fn leave_policy_table(
     schema: leave_policy_schema(settings.leave_policy),
     rows: list.map(policy, leave_policy_row),
     page: Page(next_cursor: None),
+    footer: None,
   )
 }
 

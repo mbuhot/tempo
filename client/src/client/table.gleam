@@ -44,7 +44,7 @@ import shared/table/query.{
   type Applied, type FilterValue, Applied, BoolValue, DateRange, NumberRange,
   SelectValue, TextValue,
 }
-import shared/table/response.{type Row}
+import shared/table/response.{type Footer, type Row}
 import shared/table/sort.{Asc, Desc, Sort}
 
 /// Debounce window (ms) for free-typing filter inputs, so a burst of keystrokes
@@ -471,6 +471,7 @@ pub fn view(
   rows: List(Row),
   state: State,
   has_more: Bool,
+  table_footer: Option(Footer),
 ) -> Element(Msg) {
   let backdrop = case state.open {
     Closed -> element.none()
@@ -483,7 +484,7 @@ pub fn view(
   html.div([attribute.class("dt")], [
     backdrop,
     rail(schema, state),
-    table(schema, rows, state, has_more),
+    table(schema, rows, state, has_more, table_footer),
     footer(state),
   ])
 }
@@ -889,6 +890,7 @@ fn table(
   rows: List(Row),
   state: State,
   has_more: Bool,
+  table_footer: Option(Footer),
 ) -> Element(Msg) {
   let columns = visible_columns(schema, state)
   let scroll_listener = case has_more {
@@ -901,8 +903,47 @@ fn table(
         html.tr([], list.map(columns, fn(column) { header(column, state) })),
       ]),
       html.tbody([], body_rows(columns, rows, state.expanded)),
+      foot_row(columns, table_footer),
     ]),
   ])
+}
+
+/// The summary `<tfoot>` row, when the response carries a footer. The first visible
+/// column shows the footer's `label`; each later column shows its typed cell (via the
+/// same `render_cell` as the body, with the column's numeric alignment) when the
+/// footer carries one for that key, else an empty cell. No disclosure, no row click.
+fn foot_row(
+  columns: List(Column),
+  table_footer: Option(Footer),
+) -> Element(Msg) {
+  case table_footer {
+    None -> element.none()
+    Some(footer) ->
+      html.tfoot([], [
+        html.tr(
+          [attribute.class("dt-foot-row")],
+          list.index_map(columns, fn(column, index) {
+            case index == 0 {
+              True ->
+                html.td([attribute.class("dt-foot-row__label")], [
+                  html.text(footer.label),
+                ])
+              False -> {
+                let numeric = case column.align {
+                  NumericEnd -> [attribute.class("num")]
+                  _ -> []
+                }
+                let content = case dict.get(footer.cells, column.key) {
+                  Ok(value) -> [render_cell(value)]
+                  Error(Nil) -> []
+                }
+                html.td(numeric, content)
+              }
+            }
+          }),
+        ),
+      ])
+  }
 }
 
 /// Fire `ScrolledNearBottom` once the scroll viewport is within `scroll_threshold`

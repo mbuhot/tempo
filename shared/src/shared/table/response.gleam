@@ -28,8 +28,21 @@ pub type Row {
   )
 }
 
+/// A table summary row rendered in the `<tfoot>`: a leading `label` for the first
+/// column (which the footer never carries a typed cell for) and typed `cells` keyed
+/// by column for the numeric columns, decoded and rendered by the SAME path as a
+/// body row's cells so the formatting matches exactly.
+pub type Footer {
+  Footer(label: String, cells: Dict(String, Cell))
+}
+
 pub type TableResponse {
-  TableResponse(schema: Schema, rows: List(Row), page: Page)
+  TableResponse(
+    schema: Schema,
+    rows: List(Row),
+    page: Page,
+    footer: Option(Footer),
+  )
 }
 
 pub fn encode_response(value: TableResponse) -> Json {
@@ -37,6 +50,20 @@ pub fn encode_response(value: TableResponse) -> Json {
     #("schema", column.encode_schema(value.schema)),
     #("rows", json.array(value.rows, encode_row)),
     #("page", encode_page(value.page)),
+    #("footer", json.nullable(value.footer, encode_footer)),
+  ])
+}
+
+fn encode_footer(footer: Footer) -> Json {
+  json.object([
+    #("label", json.string(footer.label)),
+    #(
+      "cells",
+      json.object(
+        dict.to_list(footer.cells)
+        |> list.map(fn(pair) { #(pair.0, cell.encode_cell(pair.1)) }),
+      ),
+    ),
   ])
 }
 
@@ -69,7 +96,35 @@ pub fn response_decoder() -> Decoder(TableResponse) {
     decode.list(row_decoder(schema.columns, child_columns)),
   )
   use page <- decode.field("page", page_decoder())
-  decode.success(TableResponse(schema:, rows:, page:))
+  use footer <- decode.optional_field(
+    "footer",
+    None,
+    decode.optional(footer_decoder(schema.columns)),
+  )
+  decode.success(TableResponse(schema:, rows:, page:, footer:))
+}
+
+fn footer_decoder(columns: List(Column)) -> Decoder(Footer) {
+  use label <- decode.field("label", decode.string)
+  use cells <- decode.field("cells", footer_cells_decoder(columns))
+  decode.success(Footer(label:, cells:))
+}
+
+/// A LENIENT cells decoder: each column's cell is OPTIONAL, so the footer may omit
+/// columns (e.g. the leading month column it carries a `label` for). A cell is
+/// inserted only when its column key is present in the JSON.
+fn footer_cells_decoder(columns: List(Column)) -> Decoder(Dict(String, Cell)) {
+  list.fold(columns, decode.success(dict.new()), fn(acc, column) {
+    use so_far <- decode.then(acc)
+    use updated <- decode.optional_field(
+      column.key,
+      so_far,
+      decode.map(cell.cell_decoder(of: column.column_type), fn(value) {
+        dict.insert(so_far, column.key, value)
+      }),
+    )
+    decode.success(updated)
+  })
 }
 
 fn row_decoder(

@@ -104,7 +104,12 @@ pub fn payroll_table(
     True -> Some(encode_offset(offset + limit))
     False -> None
   }
-  TableResponse(schema:, rows: page_rows, page: Page(next_cursor:))
+  TableResponse(
+    schema:,
+    rows: page_rows,
+    page: Page(next_cursor:),
+    footer: None,
+  )
 }
 
 // --- schema -----------------------------------------------------------------
