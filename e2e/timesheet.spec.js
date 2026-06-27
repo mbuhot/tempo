@@ -63,6 +63,37 @@ test("shows the engineer's allocated projects as rows, with logged hours in the 
   await expect(
     page.getByRole("row", { name: /Data Platform/ }).getByLabel("Hours"),
   ).toHaveCount(0);
+  // The grid totals: Ledger is 4h on each of Mon–Fri, so its weekly row total reads
+  // 20, and the footer's overall total (both half-time projects, 20 each) reads 40.
+  await expect(
+    page.getByRole("row", { name: /Ledger Migration/ }).getByText("20", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /^Total/ }).getByText("40", { exact: true }),
+  ).toBeVisible();
+});
+
+test("the hours cell takes only numbers and rejects values over 24", async ({
+  page,
+}) => {
+  // The cell is a plain textbox (no number-spinner): it strips non-numeric
+  // characters as you type, and refuses a value over 24 hours by keeping the prior
+  // entry. Filling is client-only (no "Log week"), so this writes nothing and is
+  // re-run safe.
+  await signInAs(page, "Admin");
+  await scrubTo(page, "2026-06-10");
+  await openDetail(page, "Marcus Chen");
+  await expect(page.getByText("week of 2026-06-08")).toBeVisible();
+
+  const hours = cell(page, "Data Platform", WEEKDAY.Wed);
+  await hours.fill("8");
+  await expect(hours).toHaveValue("8");
+  // Letters are stripped, leaving the digits.
+  await hours.fill("1a2b");
+  await expect(hours).toHaveValue("12");
+  // Over 24 is refused — the cell keeps its prior valid value.
+  await hours.fill("99");
+  await expect(hours).toHaveValue("12");
 });
 
 test("logging a whole week persists across navigation", async ({ page }) => {

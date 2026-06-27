@@ -55,3 +55,11 @@
 .timesheet__cell--disabled input { color: var(--color-faint); cursor: default; }
 .timesheet__weekend { color: var(--color-faint); }
 .timesheet__daynum { font-family: var(--mono); font-weight: var(--weight-normal); }
+/* Row total (last column) and the day-/overall-total footer: monospace, semibold,
+ * with their own padding since the day cells carry none. */
+.timesheet td.timesheet__total, .timesheet tfoot td {
+  padding: var(--space-2xs) var(--space-xs);
+  font-family: var(--mono);
+  font-weight: var(--weight-semibold);
+}
+.timesheet tfoot { border-top: var(--border-thin) solid var(--color-border); }
