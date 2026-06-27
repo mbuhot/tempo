@@ -106,6 +106,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_finances)
       invoices.handle_list(request, context)
     }
+    ["api", "invoices", "table"] -> {
+      use _principal <- guard.require(context, access.read_finances)
+      invoices.handle_table(request, context)
+    }
     ["api", "invoices", id] -> {
       use _principal <- guard.require(context, access.read_finances)
       invoices.handle_detail(request, context, id)

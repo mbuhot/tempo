@@ -31,6 +31,7 @@ import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
 import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
 import shared/settings/view.{type Settings} as settings_view
+import shared/table/response as table_response
 import shared/timesheet/command as timesheet_command
 import shared/timesheet/view.{
   type TimesheetWeek, TimesheetCell, TimesheetWeek, TimesheetWeekRow,
@@ -887,6 +888,33 @@ pub fn invoices_default_page_on_empty_seed_is_empty_test() {
   assert page.next_cursor == option.None
 }
 
+// GET /api/invoices/table advertises the data-table schema and a (possibly empty)
+// page of rows. The base seed has no invoices, so the rows are empty here; the
+// schema is asserted directly. Row-content behaviour is covered in table_test and
+// the e2e suite.
+pub fn invoices_table_advertises_schema_test() {
+  let response =
+    simulate.request(http.Get, "/api/invoices/table?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 200
+
+  let table = decode_table(response)
+  assert table.schema.table_id == "invoices"
+  let keys = list.map(table.schema.columns, fn(column) { column.key })
+  assert keys
+    == [
+      "id",
+      "project",
+      "client",
+      "engineers",
+      "billing_month",
+      "total",
+      "status",
+    ]
+  assert table.rows == []
+}
+
 // A present-but-undecodable cursor is a 400 (a forged or corrupted token), not a
 // 500 or a silent first-page.
 pub fn invoices_malformed_cursor_is_bad_request_test() {
@@ -1169,6 +1197,13 @@ fn decode_invoice_page(response) -> InvoicePage {
     simulate.read_body(response)
     |> json.parse(invoice_view.invoice_page_decoder())
   page
+}
+
+fn decode_table(response) -> table_response.TableResponse {
+  let assert Ok(table) =
+    simulate.read_body(response)
+    |> json.parse(table_response.response_decoder())
+  table
 }
 
 fn decode_client_list(response) -> ClientList {

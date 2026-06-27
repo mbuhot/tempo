@@ -152,6 +152,13 @@ pub fn invoice_schema(options: FilterOptions) -> Schema {
   )
 }
 
+/// The schema with empty select options — its column filter KINDS are all the web
+/// boundary needs to parse the applied filters out of the query params (the live
+/// options matter only in the response the full read builds).
+pub fn filter_schema() -> Schema {
+  invoice_schema(FilterOptions(clients: [], projects: [], engineers: []))
+}
+
 fn select(values: List(String)) -> filter.FilterKind {
   SelectFilter(
     multi: True,
