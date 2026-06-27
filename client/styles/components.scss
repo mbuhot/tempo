@@ -8,6 +8,8 @@
 
 /* ---------- Content scroller + page header ---------- */
 .content {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: var(--space-lg) var(--space-xl) var(--space-xl);
 }

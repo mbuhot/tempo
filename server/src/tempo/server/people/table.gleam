@@ -26,10 +26,12 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/money.{type Money}
 import shared/pagination
-import shared/table/cell.{type Cell, EnumCell, MoneyCell, NumberCell, PersonCell}
+import shared/table/cell.{
+  type Cell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
+}
 import shared/table/column.{
   type Schema, Column, EnumType, MoneyType, Neutral, NumberType, NumericEnd,
-  PersonType, Positive, Schema, Start, Warning,
+  PercentType, PersonType, Positive, Schema, Start, Warning,
 }
 import shared/table/filter.{FilterOption, NumberRangeFilter, SelectFilter}
 import shared/table/query.{type Applied}
@@ -115,7 +117,7 @@ pub fn people_schema(options: FilterOptions) -> Schema {
       Column(
         key: "allocated",
         label: "Allocated",
-        column_type: NumberType,
+        column_type: PercentType,
         align: NumericEnd,
         sortable: True,
         hideable: True,
@@ -234,7 +236,7 @@ fn run_list(
       builder.select_values(filters, "level"),
     )
     |> builder.select("page.status", builder.select_values(filters, "status"))
-    |> builder.number_range("page.allocated", allocated_lo, allocated_hi)
+    |> builder.number_range("page.allocated * 100", allocated_lo, allocated_hi)
     |> builder.number_range("page.annual_leave", annual_lo, annual_hi)
     |> builder.number_range("page.day_rate::numeric", rate_lo, rate_hi)
 
@@ -370,7 +372,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       ),
       #("level", EnumCell(label: level_band(row.level), tone: Neutral)),
       #("status", status_cell(row.status)),
-      #("allocated", NumberCell(row.allocated)),
+      #("allocated", PercentCell(row.allocated *. 100.0)),
       #("annual_leave", NumberCell(row.annual_leave)),
       #("day_rate", MoneyCell(parse_money(row.day_rate))),
     ]),

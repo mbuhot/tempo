@@ -90,7 +90,7 @@ pub fn events_schema(options: FilterOptions) -> Schema {
       ),
     ],
     columns: [
-      column("when", "When", TextType),
+      column("when", "When (UTC)", TextType),
       column("actor", "Actor", PersonType),
       column("event", "Event", TextType),
     ],
@@ -253,7 +253,7 @@ fn row_to_table_row(row: ListRow) -> Row {
   Row(
     id: int.to_string(row.id),
     cells: dict.from_list([
-      #("when", TextCell(row.occurred_at)),
+      #("when", TextCell(string.slice(row.occurred_at, 0, 19))),
       #("actor", actor_cell(row.actor)),
       #("event", TextCell(event_summary(row.operation, row.summary))),
     ]),
