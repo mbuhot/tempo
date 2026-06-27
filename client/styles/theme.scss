@@ -142,7 +142,9 @@
     --shadow-accent: 0 2px 8px rgba(91, 91, 214, 0.4);
     --shadow-lg: 0 12px 40px rgba(26, 27, 42, 0.16);
 
-    /* stacking — the modal layer sits above all page chrome */
+    /* stacking — the table filter popovers float above page chrome but below the
+       modal layer, so an open operation modal still dims the filter rail */
+    --z-popover: 40;
     --z-modal: 100;
 
     /* typography families */

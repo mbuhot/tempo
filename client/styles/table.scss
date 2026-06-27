@@ -17,7 +17,7 @@
     min-height: 3rem;
     flex-wrap: wrap;
     position: relative;
-    z-index: var(--z-modal);
+    z-index: var(--z-popover);
 }
 
 .dt-rail__label {
@@ -113,7 +113,7 @@
 .dt-backdrop {
     position: fixed;
     inset: 0;
-    z-index: calc(var(--z-modal) - 1);
+    z-index: calc(var(--z-popover) - 1);
 }
 
 // A floating popover anchored beneath its rail chip, overlaying the table.
@@ -121,7 +121,7 @@
     position: absolute;
     top: calc(100% + var(--space-xs));
     left: 0;
-    z-index: var(--z-modal);
+    z-index: var(--z-popover);
     min-width: var(--size-field);
     background: var(--color-surface);
     border: var(--border-thin) solid var(--color-border);
