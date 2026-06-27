@@ -1,19 +1,24 @@
 //// The People roster list (FR-PE*), a self-contained sub-component MVU split out
 //// of `client/page/people`. This is the page's LIST mode: it owns its own `Model`
-//// (its as-of, the roster list load state, the as-of operations directory, and the
+//// (its as-of, the roster table load state, the as-of operations directory, and the
 //// open Onboard-engineer op form), its own `Msg`, its `init`/`update`, and its
 //// `view`.
 ////
-//// It reads `GET /api/people?as_of=` for the roster and `GET /api/roster?as_of=`
-//// for the op-form directory; each result carries the `as_of` it answers so a stale
-//// reply is dropped. Its one write is OnboardEngineer; submitting posts via
-//// `api.submit_operation` and, on success, raises `OperationCommitted` and
-//// refetches. Clicking a row raises `Navigate(People(Some(id)))` so the shell owns
-//// the URL (the detail mode is a different sub-component).
+//// The roster list renders via the generic data table (`client/table`): it reads
+//// `GET /api/people/table?as_of=&filter.*=&sort=&page_size=&cursor=` for the schema-
+//// driven, filtered/sorted/paged rows, and `GET /api/roster?as_of=` for the op-form
+//// directory. Each result carries the `as_of` it answers so a stale reply is dropped.
+//// Its one write is OnboardEngineer; submitting posts via `api.submit_operation` and,
+//// on success, raises `OperationCommitted` and refetches. The table's `Activated`
+//// outcome raises `Navigate(People(Some(id)))` so the shell owns the URL (the detail
+//// mode is a different sub-component).
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
+import client/scheduler
+import client/storage
+import client/table
 import client/time
 import client/ui
 import gleam/int
@@ -22,36 +27,39 @@ import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
-import lustre/attribute
+import gleam/uri
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
-import lustre/event
 import rsvp
-import shared/money
-import shared/people/view.{
-  type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
-  RosterOnLeave, RosterOnProjects, RosterUnassigned,
-} as people_view
 import shared/roster/view.{type Ref, type Roster} as roster_view
+import shared/table/column
+import shared/table/response.{type Row, type TableResponse}
 
-/// The roster list's state: the as-of its data answers, the roster list load
-/// state, the as-of operations directory (project/engineer `Ref`s for the op
-/// form), and the open Onboard-engineer op form (or `None`).
+/// The roster list's state: the as-of its data answers, the roster table load
+/// state, the as-of operations directory (project `Ref`s for the op form), and the
+/// open Onboard-engineer op form (or `None`).
 pub type Model {
   Model(
     as_of: calendar.Date,
-    people: Load,
+    table: Load,
     roster: Directory,
     op: Option(ui.OpState),
   )
 }
 
-/// The roster list's load state.
+/// The roster table's load state. `Loaded` holds the server schema, the rows
+/// accumulated across "Load more" pages, the opaque `next_cursor` for the following
+/// page, and the local table view state (sort/filters/column layout).
 pub type Load {
   Loading
-  Loaded(people: List(PersonRow))
-  Failed(message: String)
+  Loaded(
+    schema: column.Schema,
+    rows: List(Row),
+    next_cursor: Option(String),
+    table_state: table.State,
+  )
+  LoadFailed(message: String)
 }
 
 /// The as-of operations directory's load state.
@@ -61,19 +69,23 @@ pub type Directory {
   DirectoryFailed(message: String)
 }
 
-/// The list mode's messages: the roster and directory fetch results (each carrying
-/// the `as_of` they answer), the row-open navigation, the Onboard op lifecycle, and
-/// the operation reply.
+/// The list mode's messages: the table / load-more / directory fetch results (each
+/// carrying the `as_of` they answer), the table sub-messages, the Onboard op
+/// lifecycle, and the operation reply.
 pub type Msg {
-  RosterFetched(
+  GotTable(
     as_of: calendar.Date,
-    result: Result(PeopleList, rsvp.Error(String)),
+    result: Result(TableResponse, rsvp.Error(String)),
   )
+  GotMore(
+    as_of: calendar.Date,
+    result: Result(TableResponse, rsvp.Error(String)),
+  )
+  TableMsg(sub: table.Msg)
   DirectoryFetched(
     as_of: calendar.Date,
     result: Result(Roster, rsvp.Error(String)),
   )
-  RowClicked(engineer_id: Int)
   OpOpened(permit: ui.Permit)
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
@@ -81,27 +93,71 @@ pub type Msg {
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
-/// Start the list mode at `as_of`, fetching the roster and the directory.
+/// Start the list mode at `as_of`, fetching the roster table and the directory.
 pub fn init(as_of: calendar.Date) -> #(Model, Effect(Msg)) {
-  let model = Model(as_of:, people: Loading, roster: DirectoryLoading, op: None)
-  #(model, effect.batch([fetch_roster(as_of), fetch_directory(as_of)]))
+  let model = Model(as_of:, table: Loading, roster: DirectoryLoading, op: None)
+  #(
+    model,
+    effect.batch([
+      fetch_table(as_of, table.initial_params()),
+      fetch_directory(as_of),
+    ]),
+  )
 }
 
 /// Re-fetch the list mode for a new `as_of` (stale-while-revalidate), keeping any
-/// open op form.
+/// open op form and the active filters/sort/layout.
 pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
   #(
-    Model(..model, as_of:, people: Loading, roster: DirectoryLoading),
-    effect.batch([fetch_roster(as_of), fetch_directory(as_of)]),
+    Model(..model, as_of:, roster: DirectoryLoading),
+    effect.batch([
+      fetch_table(as_of, current_params(model)),
+      fetch_directory(as_of),
+    ]),
   )
 }
 
-fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
+fn current_params(model: Model) -> List(#(String, String)) {
+  case model.table {
+    Loaded(table_state:, ..) -> table.params(table_state)
+    _ -> []
+  }
+}
+
+fn fetch_table(
+  as_of: calendar.Date,
+  params: List(#(String, String)),
+) -> Effect(Msg) {
+  api.get(table_url(as_of, params), response.response_decoder(), GotTable(
+    as_of,
+    _,
+  ))
+}
+
+fn fetch_more(
+  as_of: calendar.Date,
+  params: List(#(String, String)),
+  cursor: String,
+) -> Effect(Msg) {
   api.get(
-    "/api/people?as_of=" <> time.iso_date(as_of),
-    people_view.people_list_decoder(),
-    fn(result) { RosterFetched(as_of:, result:) },
+    table_url(as_of, list.append(params, [#("cursor", cursor)])),
+    response.response_decoder(),
+    GotMore(as_of, _),
   )
+}
+
+fn table_url(as_of: calendar.Date, params: List(#(String, String))) -> String {
+  let base = "/api/people/table?as_of=" <> time.iso_date(as_of)
+  case params {
+    [] -> base
+    _ -> base <> "&" <> query_string(params)
+  }
+}
+
+fn query_string(params: List(#(String, String))) -> String {
+  params
+  |> list.map(fn(pair) { pair.0 <> "=" <> uri.percent_encode(pair.1) })
+  |> string.join("&")
 }
 
 fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
@@ -112,19 +168,57 @@ fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
   )
 }
 
+// --- Update -----------------------------------------------------------------
+
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
-    RosterFetched(as_of:, result:) ->
+    GotTable(as_of:, result:) ->
       case model.as_of == as_of {
         False -> #(model, effect.none(), [])
-        True -> {
-          let people = case result {
-            Ok(PeopleList(people:, ..)) -> Loaded(people:)
-            Error(error) -> Failed(message: api.describe_error(error))
+        True ->
+          case result {
+            Error(error) -> #(
+              Model(
+                ..model,
+                table: LoadFailed(message: api.describe_error(error)),
+              ),
+              effect.none(),
+              [],
+            )
+            Ok(table_response) -> {
+              let table_state = case model.table {
+                Loaded(table_state:, ..) ->
+                  table.reconcile(table_state, table_response.schema)
+                _ -> initial_state(table_response.schema)
+              }
+              let load =
+                Loaded(
+                  schema: table_response.schema,
+                  rows: table_response.rows,
+                  next_cursor: table_response.page.next_cursor,
+                  table_state:,
+                )
+              #(Model(..model, table: load), effect.none(), [])
+            }
           }
-          #(Model(..model, people:), effect.none(), [])
-        }
       }
+
+    GotMore(as_of:, result:) ->
+      case model.as_of == as_of, model.table, result {
+        True, Loaded(schema:, rows:, table_state:, ..), Ok(table_response) -> {
+          let load =
+            Loaded(
+              schema:,
+              rows: list.append(rows, table_response.rows),
+              next_cursor: table_response.page.next_cursor,
+              table_state: table.reconcile(table_state, table_response.schema),
+            )
+          #(Model(..model, table: load), effect.none(), [])
+        }
+        _, _, _ -> #(model, effect.none(), [])
+      }
+
+    TableMsg(sub:) -> on_table_msg(model, sub)
 
     DirectoryFetched(as_of:, result:) ->
       case model.as_of == as_of {
@@ -137,10 +231,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           #(Model(..model, roster:), effect.none(), [])
         }
       }
-
-    RowClicked(engineer_id:) -> #(model, effect.none(), [
-      Navigate(route.People(id: Some(engineer_id))),
-    ])
 
     OpOpened(permit:) -> {
       let kind = ui.permit_kind(permit)
@@ -210,6 +300,64 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   }
 }
 
+/// Build the table state for a freshly loaded schema, applying any saved column
+/// layout from local storage.
+fn initial_state(schema: column.Schema) -> table.State {
+  let base = table.init(schema)
+  case storage.get(table.layout_key(base)) {
+    Some(layout) -> table.with_layout(base, layout, schema)
+    None -> base
+  }
+}
+
+/// Fold a table sub-message: thread it through `table.update` and act on the
+/// `Outcome` — re-query (fresh), append the next page, persist the layout, schedule
+/// the debounce settle, or open the clicked engineer.
+fn on_table_msg(
+  model: Model,
+  sub: table.Msg,
+) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case model.table {
+    Loaded(schema:, rows:, next_cursor:, table_state:) -> {
+      let #(next_state, outcome) = table.update(table_state, sub)
+      let updated =
+        Loaded(schema:, rows:, next_cursor:, table_state: next_state)
+      let model = Model(..model, table: updated)
+      case outcome {
+        table.Idle -> #(model, effect.none(), [])
+        table.Requery(params:) -> #(model, fetch_table(model.as_of, params), [])
+        table.AppendPage(params:) ->
+          case next_cursor {
+            Some(cursor) -> #(
+              model,
+              fetch_more(model.as_of, params, cursor),
+              [],
+            )
+            None -> #(model, effect.none(), [])
+          }
+        table.Persist(layout:) -> #(
+          model,
+          storage.set(table.layout_key(next_state), layout),
+          [],
+        )
+        table.Schedule(token:) -> #(
+          model,
+          scheduler.after(table.debounce_ms, TableMsg(table.SettleFired(token))),
+          [],
+        )
+        table.Activated(id:) ->
+          case int.parse(id) {
+            Ok(engineer_id) -> #(model, effect.none(), [
+              Navigate(route.People(id: Some(engineer_id))),
+            ])
+            Error(Nil) -> #(model, effect.none(), [])
+          }
+      }
+    }
+    _ -> #(model, effect.none(), [])
+  }
+}
+
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case model.op {
@@ -239,7 +387,8 @@ fn project_refs(model: Model) -> List(Ref) {
 // --- View -------------------------------------------------------------------
 
 /// Render the list mode: the page head with the Onboard action, the op modal, and
-/// the roster panel (its own loading / failed guards).
+/// the roster panel (its own loading / failed guards), the roster rendered via the
+/// generic data table.
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let head =
     ui.page_head(
@@ -258,21 +407,35 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
       ],
     )
   let op_modal = view_op_modal(model.op)
-  case model.people {
-    Loading -> column([head, op_modal, ui.empty_state("Loading roster…")])
-    Failed(message:) ->
-      column([
-        head,
-        op_modal,
-        ui.empty_state("Could not load the roster: " <> message),
-      ])
-    Loaded(people:) ->
-      column([head, op_modal, panel(people, on_open: RowClicked)])
+  let body = case model.table {
+    Loading -> ui.empty_state("Loading roster…")
+    LoadFailed(message:) ->
+      ui.empty_state("Could not load the roster: " <> message)
+    Loaded(schema:, rows:, next_cursor:, table_state:) ->
+      list_view(schema, rows, next_cursor, table_state)
   }
+  column([head, op_modal, body])
 }
 
 fn column(children: List(Element(Msg))) -> Element(Msg) {
   html.div([], children)
+}
+
+/// The roster table: the generic data table (schema-driven rows, filters, sort,
+/// pagination, column layout) wrapped in the Roster panel. The table's own messages
+/// are mapped onto the list mode's `TableMsg`.
+fn list_view(
+  schema: column.Schema,
+  rows: List(Row),
+  next_cursor: Option(String),
+  table_state: table.State,
+) -> Element(Msg) {
+  ui.panel(title: "Roster", count: "", right: [], body: [
+    element.map(
+      table.view(schema, rows, table_state, option.is_some(next_cursor)),
+      TableMsg,
+    ),
+  ])
 }
 
 /// The Onboard-engineer op as a centred modal, shown only while open. The list
@@ -332,96 +495,4 @@ fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
     input_type: "date",
     to_msg: fn(field, value) { OpFieldEdited(field:, value:) },
   )
-}
-
-/// The roster panel: a table of everyone employed on the date (engineer, level,
-/// status, allocation, leave balance, day rate), or an empty-state when none are.
-/// `on_open(engineer_id)` is raised when a row is clicked.
-pub fn panel(
-  people: List(PersonRow),
-  on_open on_open: fn(Int) -> msg,
-) -> Element(msg) {
-  let rows = list.map(people, fn(person) { roster_row(person, on_open) })
-  let body = case people {
-    [] -> [ui.empty_state("No engineers employed on this date.")]
-    _ -> [
-      ui.data_table(
-        headers: [
-          #("Engineer", False),
-          #("Level", False),
-          #("Status", False),
-          #("Allocated", True),
-          #("Annual lv.", True),
-          #("Day rate", True),
-        ],
-        rows:,
-      ),
-    ]
-  }
-  ui.panel(
-    title: "Roster",
-    count: int.to_string(list.length(people)),
-    right: [],
-    body:,
-  )
-}
-
-fn roster_row(person: PersonRow, on_open: fn(Int) -> msg) -> Element(msg) {
-  let PersonRow(
-    engineer_id:,
-    name:,
-    email:,
-    level:,
-    status:,
-    allocated_fraction:,
-    annual_balance:,
-    day_rate:,
-  ) = person
-  let #(variant, label) = status_pill(status)
-  let allocated = case status {
-    RosterOnProjects(..) -> ui.fraction(allocated_fraction)
-    _ -> "—"
-  }
-  html.tr([attribute.class("clickable"), event.on_click(on_open(engineer_id))], [
-    html.td([], [name_cell(engineer_id, name, email)]),
-    html.td([], [
-      html.span([attribute.class("level-pill")], [
-        html.text(ui.level_band(level)),
-      ]),
-    ]),
-    html.td([], [ui.pill(variant:, label:)]),
-    html.td([attribute.class("num")], [html.text(allocated)]),
-    html.td([attribute.class("num")], [html.text(ui.days(annual_balance))]),
-    html.td([attribute.class("num")], [
-      html.text(ui.money(money.to_float(day_rate))),
-    ]),
-  ])
-}
-
-fn name_cell(engineer_id: Int, name: String, email: String) -> Element(msg) {
-  html.div([attribute.class("cell-name")], [
-    ui.avatar(name:, category: engineer_id, class: "avatar"),
-    html.div([], [
-      html.div([attribute.class("cell-name__name")], [html.text(name)]),
-      html.div([attribute.class("cell-sub")], [html.text(email)]),
-    ]),
-  ])
-}
-
-/// The pill variant and label for a roster status: on-projects is "active" with
-/// the project titles, on-leave is "issued" (the amber pill) with the leave
-/// kind, unassigned is "ended". Mirrors the prototype's status classes.
-fn status_pill(status: RosterStatus) -> #(String, String) {
-  case status {
-    RosterOnProjects(projects:) -> #("active", join_titles(projects))
-    RosterOnLeave(kind:) -> #("issued", "On " <> kind <> " leave")
-    RosterUnassigned -> #("ended", "Unassigned")
-  }
-}
-
-fn join_titles(titles: List(String)) -> String {
-  case titles {
-    [] -> "On projects"
-    _ -> string.join(titles, ", ")
-  }
 }

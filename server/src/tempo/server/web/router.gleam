@@ -136,6 +136,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_engineers)
       people.handle(request, context)
     }
+    ["api", "people", "table"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      people.handle_table(request, context)
+    }
     ["api", "engineers", id] -> {
       use principal <- guard.authenticated(context)
       engineers.handle_detail(request, context, id, principal)
