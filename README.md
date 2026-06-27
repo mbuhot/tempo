@@ -1,191 +1,291 @@
 # tempo
 
-A live-demo app showcasing **PostgreSQL 19 native temporal tables** (SQL:2011
-application-time periods) through a consultancy staffing model, built with
-Gleam, Squirrel, Wisp, and Lustre. See `docs/PRD.md` and `docs/ARCHITECTURE.md`.
+A consultancy-staffing system — engineers, clients, contracts, projects, allocations,
+timesheets, leave, invoices, payroll, P&L, and a forward forecast — built on
+**PostgreSQL 19 application-time temporal tables**. The organising idea is one axis:
+you view the whole company *as of* any chosen date, past or future, and the schema never
+overwrites state — it records dated **facts** and supersedes them.
 
-## Run-book
+This README is a tour of the architecture and the decisions behind it. The product
+requirements are in `docs/PRD.md`, the technical design in `docs/ARCHITECTURE.md`, and the
+full decision log (45 ADRs, each with its rationale and the alternatives weighed) in
+`docs/DECISIONS.md`. The schema map (regenerated from the live DB) is in `docs/SCHEMA.md`;
+the operational run-book is in `docs/RUNBOOK.md`.
 
-### Quick start
+---
 
-One command brings the whole stack up and runs it — starts PG19 and waits for it,
-applies pending migrations, builds the client bundle, then serves on
-**http://localhost:8000** (Ctrl-C stops the server; the DB container keeps running):
+## Stack and the type flow
 
-```sh
-bin/up
+| Concern | Tech |
+|---|---|
+| Database | PostgreSQL 19 — application-time temporal tables (`WITHOUT OVERLAPS`, `PERIOD` foreign keys, `FOR PORTION OF`) |
+| Typed SQL | Squirrel — generates typed Gleam from `.sql` files by introspecting the live database |
+| DB driver | pog |
+| Web server / JSON API | Wisp + mist (Erlang target) |
+| Frontend | Lustre SPA + modem (routing) + rsvp (HTTP) (JavaScript target) |
+| API contract | a `shared` Gleam package compiled to **both** targets |
+
+```
+PG temporal schema
+   │  Squirrel introspects the live DB and generates …
+   ▼
+typed query rows (sql.gleam)         ── server only (Erlang)
+   │  mapped to API types
+   ▼
+shared types + JSON codecs           ── BOTH targets
+   │  JSON over HTTP
+   ▼
+Lustre model / view                  ── client only (JavaScript)
 ```
 
-It is idempotent — safe to re-run. The individual steps below are for when you want
-to run a single piece (e.g. just the server, or just the tests).
+A schema change that breaks a query is caught at Squirrel **codegen / compile time**; a
+change to a `shared` type breaks **both** the server and client builds until they are
+reconciled. The query boundary is explicit rather than hidden behind an ORM, which is the
+point of the project: the temporal SQL is the model, and the type system carries it end to
+end.
 
-On a freshly-migrated DB the financial screens are empty. To populate a demo set —
-one issued invoice + one draft invoice + a June payroll run — on demand, run:
+## Repository layout — four packages
 
-```sh
-bin/seed-invoices            # populate demo financials; idempotent, NOT run by bin/up
+Three sibling Gleam packages wired by path dependencies, plus a Node harness:
+
+```
+shared/   target-agnostic — the API contract (types + JSON codecs), compiled for Erlang AND JS
+server/   the Wisp server (Erlang target); path-depends on ../shared
+client/   the Lustre SPA (JavaScript target); path-depends on ../shared
+e2e/      Playwright (Node) — drives the real app, asserts only what the user sees
+bin/      thin task wrappers run from the repo root (each cd's into the right package)
+docs/     PRD.md, ARCHITECTURE.md, DECISIONS.md, SCHEMA.md, RUNBOOK.md, per-page PRDs
 ```
 
-It is idempotent (skips if already populated) and deliberately left out of `bin/up`,
-so a freshly-migrated DB stays test-clean until you ask for the demo data.
+The split is forced, not stylistic (ADR-014). Gleam compiles a *whole package* per target
+with no per-module target exclusion, so a single package containing both the Lustre client
+and the `pog`/`wisp`/`mist` server cannot build for JavaScript — the JS compile type-checks
+the Erlang-only server modules (including Squirrel's generated `@external(erlang, …)` SQL
+bindings) and fails. Path dependencies on `shared` keep the client's dependency graph free
+of all server code while preserving one source of truth for the wire contract. They are
+path deps rather than symlinks so a fresh clone and CI build it unchanged.
 
-### Database (PostgreSQL 19)
+Each domain concept is a directory under `server/src/tempo/server/<concept>/` and
+`shared/src/shared/<concept>/`, split CQRS-style: `command.gleam` (the write model),
+`view.gleam` (the read model), `http.gleam` (the handler), and `sql/` (the `.sql` sources
+Squirrel compiles into `sql.gleam`). The same concept name appears on both sides of the
+wire, so the contract is read in one place.
 
-The demo requires **PostgreSQL 19** (for `WITHOUT OVERLAPS`, `PERIOD` foreign
-keys, and `FOR PORTION OF`). A local PG ≤ 18 will not work, so PG19 runs in
-Docker. Start it with one command:
+## The temporal data model
+
+Every entity is an **id-only anchor** (`engineer`, `client`, `contract`, `project`,
+`invoice`, `payroll_run` are bare `(id)` rows). All attributes live in **fact tables**
+keyed to the anchor, in one of three flavours, and the read mode is chosen per query
+(ADR-030):
+
+- **Valid-time facts, read as-of a date.** The period is named for the predicate it
+  asserts — `employed_during`, `held_during`, `allocated_during`, `on_leave_during`,
+  `term`, `active_during`, `effective_during`, `status_during`, `work_day`. The slider
+  reads the version in force on the chosen date. A static column would destroy history and
+  break retroactive questions ("what was her charge rate on that day in 2024?"); as a fact,
+  the answer is a plain as-of query, and a promotion seeded ahead activates on its own date.
+- **Latest-read facts, period `recorded_during`.** Descriptive detail (contact, banking,
+  emergency, profiles) where a new edit is a new `[effective, NULL)` row and the
+  most-recently-effective row is current truth; older rows are history. Current value is
+  exposed via `*_current` views. These key the anchor with a *plain* (non-PERIOD) FK — a
+  name and bank account are properties of the person, not facts contained by employment, so
+  an ex-employee still has them on file.
+- **Immutable 1:1 subjects** set once and never versioned (`invoice_subject`,
+  `payroll_period`); reads inner-join them directly.
+
+Mechanisms that do the work:
+
+- **`daterange ... WITHOUT OVERLAPS` primary keys** make "two versions of the same fact
+  can't overlap" a constraint, not application code (e.g. one charge rate per level at a
+  time).
+- **`PERIOD` foreign keys** chain containment so it reads as a sentence —
+  `contract_terms → project_run → allocation → timesheet`, and
+  `employment → {engineer_role, leave, allocation}`. You cannot log time to a project you
+  are not allocated to that day; the database refuses it.
+- **`FOR PORTION OF` writes** express a change as cap-the-current-version-and-assert-a-new-one
+  natively: `UPDATE … FOR PORTION OF p FROM $effective TO NULL SET … WHERE p @> $effective`.
+  The engine produces the temporal leftovers and deletes a fully-covered row itself.
+  Hand-rolling read-then-delete-then-insert would reimplement in application code exactly
+  what the database does (ADR-020). Open-ended versioned attributes are one writable-CTE
+  upsert — the `FOR PORTION OF` change plus an `INSERT … WHERE NOT EXISTS` that opens the
+  founding span only when nothing was there yet, so the first write and a later edit are the
+  same statement (ADR-045).
+- **`EXCLUDE` constraints** carry no-overlap where there is no anchor PK to put it on
+  (`payroll_period`).
+- **Provenance via `audit_id`.** Every fact row carries a nullable `audit_id` FK into
+  `event_log`, set at write time, so a row joins back to the command that recorded it and
+  "everything command X touched" is one query (ADR-032). The as-of reads never consult it;
+  it is audit, not part of the temporal logic.
+
+The model is **application-time only** — there is no system-time versioning of each fact, so
+back-dating a fact erases the previously-held belief, and that is accepted: a correction is
+the same write as a retroactive change (ADR-012/021). The one thing recorded on the
+wall-clock axis is the append-only `event_log` (who did what, when), written in the same
+transaction as the facts it describes.
+
+PostgreSQL **19** is required for `WITHOUT OVERLAPS`, `PERIOD` FKs, and `FOR PORTION OF`; a
+PG ≤ 18 will not run the schema, so it runs in Docker. There is no production database to
+migrate forward, so the original eighteen-file migration chain was collapsed into a single
+readable `001_schema.sql` that builds the final state in one pass (ADR-033); later feature
+work (performance indexes, proration views, deferrable constraints, account credentials,
+temporal RBAC) lands as timestamped migrations on top of it. The deterministic demo cast is
+applied separately from `priv/seed/base_seed.sql` (plus `rbac_seed.sql`) rather than as a
+numbered migration, so a freshly-migrated database is empty until seeded.
+
+## The write path — one command vocabulary, one transaction
+
+A typed **`Command`** union lives in `shared` (the client encodes it, the server decodes the
+same value) and every write — onboarding, promotion, allocation, leave, rate revision,
+invoicing, payroll — goes through a single `POST /api/operations`. There are no per-operation
+REST endpoints; one command vocabulary end to end matches the shared-contract thesis
+(ADR-019).
+
+`command.dispatch` (`server/src/tempo/server/command.gleam`) is the seam:
+
+1. **Authorize** the principal against the command (see below) before any transaction opens,
+   so a denied command never touches the database.
+2. Open **one** `pog.transaction`, **route** the command to its aggregate's `command.gleam`,
+   which returns a `fact.Recorded(entry, facts)` — the audit entry plus the facts the command
+   records (anchors first, then the facts contained by them).
+3. Hand them to `repository.record_facts`, the one place a fact's write *semantics* live: it
+   appends the `entry` to `event_log`, then writes each fact, passing the appended entry's id
+   as the `audit_id` every fact carries. Journal entry and facts commit together or not at
+   all.
+
+The `route` case is exhaustive over `Command`, so a new command with no arm is a compile
+error, never a silently-unguarded write. `dispatch_in` is the transaction-free core, so a
+test can drive it inside its own rolled-back transaction.
+
+`fact.Fact` is the typed information schema: its variants are *states that hold over a
+period* (`EngineerEmployed`, `AtLevel`, `AllocatedToProject`, the detail facts, `RateCard`,
+`Salary`, the invoice/payroll facts, the retraction facts), not events. Anchor ids are
+strongly typed (`EngineerId`, `ProjectId`, …) and minted by `create_*` functions, so an
+engineer id cannot land in a project-id position (ADR-046).
+
+Temporal integrity is enforced by the database, not duplicated in code: every `PERIOD` FK
+and exclusion constraint has a stable name, and a rejection is classified by SQLSTATE +
+constraint name into a typed `OperationError` (`ContainmentViolated` / `OverlappingFact` /
+`InvalidValue` / `InsufficientLeaveBalance` / …) mapped to an HTTP status (409 / 422 / 500;
+503 when the connection pool is saturated). The domain issues the write and lets the database
+reject it, then translates the rejection into a domain-meaningful, testable error (ADR-022).
+
+## The read path
+
+Each concept's `view.gleam` reads through its Squirrel-generated `sql.gleam`. Several reads
+are derived rather than stored, so they cannot drift from the facts:
+
+- **The board** is three all-inner-join as-of queries (on-project / unassigned / on-leave),
+  merged and sorted by name, because a single `LEFT JOIN` would have Squirrel type the joined
+  columns non-null and 500 on exactly the dates an engineer is employed but unallocated — the
+  state the `Unassigned` variant exists to show (ADR-015).
+- **Leave balance** is a pure as-of calculation (accrued − taken, leap-aware), never a stored
+  counter (ADR-034).
+- **P&L revenue** is capacity-based accrual — the billable value of work performed
+  (allocation × rate, split on the role and rate-card versions), recognized as work is done
+  and independent of the invoice lifecycle, so an in-progress month shows earned value rather
+  than $0 (ADR-043). The **forecast** is the demand-side mirror: forward revenue from
+  committed capacity requirements, falling back to allocations (ADR-044).
+
+A single board tick fans ~5 independent as-of queries out across the connection pool
+concurrently (`server/src/tempo/server/async.gleam`); the pool is sized so a few overlapping
+scrubs do not queue. List endpoints are keyset-paginated.
+
+## Money
+
+Money is exact decimal, carried by `shared/money` over a bigdecimal — never a float, because
+a float cannot represent currency exactly and rounding errors are unacceptable in invoices
+and payroll. The database seam reads money as `numeric::text` and writes it as
+`$N::text::numeric`, so no precision is lost crossing the driver. Ratios (fractions,
+margins, utilization) stay `Float` — they are not money.
+
+## Authentication and authorization
+
+The application has real password authentication and a temporal role/permission system.
+(This replaced an earlier demo identity gate, ADR-035, which only stamped the journal.)
+
+- **Passwords** are hashed with PBKDF2-HMAC-SHA512 via the OTP `crypto` FFI. (Argon2 was the
+  first choice; its NIF failed to link on the target platform, and PBKDF2 via the always-present
+  OTP `crypto` module needs no native dependency.)
+- **Sessions** are a signed cookie carrying **only the account id** — never roles or
+  permissions. Roles and permissions are temporal and resolved from the database as-of *each*
+  request, so a revoked role takes effect immediately and nothing stale is baked into the
+  cookie. "Remember me" is a separate opt-in (a persistent cookie vs a session cookie); a
+  signed cookie cannot be forged.
+- **The principal is resolved once per request** by a middleware at the top of the router,
+  into a request-scoped `Context.principal`; the route guards are then pure reads of it
+  (401/403, no cookie or DB work). An unauthenticated request has no cookie, so it pays no
+  query.
+- **Roles are temporal.** Permissions are atomic keys; a role is a composed set of them; both
+  the `role_permission` and `user_role` maps are themselves temporal facts (`valid_at`), so a
+  principal's effective permissions are the union resolved as-of today. An Owner-only Access
+  page visualises the role→permission matrix and grants/revokes user roles through the same
+  command bus.
+- **One authorization policy, shared.** `shared/access/policy` maps each command to its
+  requirement (`Direct(permission)` or, for ownership-sensitive commands, `Owned(own, any)`)
+  and holds the `satisfies` predicate. The **server enforcement gate and the client's UI
+  gating consult the same module**, so the two cannot drift; reads are gated by their single
+  required permission directly.
+- **The client gate is a capability.** A page's "start this operation" message carries an
+  opaque `ui.Permit` instead of a command kind, and the only way to mint one is the shared
+  permission check. Because `Permit` is opaque, a launcher that fires an unauthorized
+  operation cannot be constructed — an ungated or wrong-permission launcher is a **compile
+  error**, not a button that 403s when clicked. The server remains the boundary regardless.
+- On boot the client restores its session from the cookie via `GET /api/me`, which returns
+  the same effective permissions the server will enforce.
+
+## The client — a Lustre SPA
+
+The client is Model-View-Update: an `app.gleam` shell (the top-level model, the global as-of
+date, the login gate, the sidebar, and the `modem` router) plus one module per page under
+`client/page/` (ADR-039). Each page implements a frozen interface — `init` / `update` /
+`view` / `refetch` — and communicates with the shell only through an `OutMsg`
+(`Navigate` or `OperationCommitted`); pages never import each other's internals.
+
+- **One global as-of date** is the application's spine (ADR-036): a time rail owns it,
+  mirrored in the URL (`?date=YYYY-MM-DD`), and every page resolves its valid-time views
+  against it. The **Activity** journal is deliberately *not* filtered by the rail — it is
+  system time (when changes were recorded), a different axis the page documents rather than
+  conflates. Scrubbing the rail gives an instant readout and a debounced refetch.
+- Writes are **contextual operations**, not a monolithic console (ADR-037): Assign / Roll off
+  on a board card, Promote / Take leave on a person, Issue / Mark paid on an invoice — each
+  opens a small form pre-scoped to its subject, composes the same `Command`, and posts it. A
+  refused operation shows its typed domain error inline.
+- The form machinery (`OpKind` / `OpForm` / `build_command`) is one shared engine, so every
+  page composes commands the same way.
+- CSS is token-only and modular (ADR-038): every rule references a `var(--token)` from one
+  `theme.css`; there are no literal colours or sizes in component files, enforced by greps.
+
+## Testing
+
+Each guarantee is checked at the cheapest level that can prove it:
+
+- **Gleam tests** (`cd server && gleam test`) — DB-level temporal-constraint tests, as-of
+  query tests, shared-codec round-trips, and HTTP-layer tests that drive the real Wisp
+  handlers and assert the decoded JSON. Three connection pools back them for three reasons:
+  a **shared** pool for the rolled-back majority, a **serial** pool for reads that must commit
+  and fan out concurrently (a spawned fan-out cannot share one in-transaction connection), and
+  a dedicated **concurrency** pool for the two-connection read-modify-write race tests (the
+  race only exists across committed transactions).
+- **Playwright** (`bin/e2e`) — one spec per UI surface, driving the real app in a browser and
+  asserting only what the user sees (visible text, ARIA), never DOM internals or CSS, so the
+  suite is a behavioural contract. The harness starts the server itself and waits for it.
+
+`gleam test` runs against the **base seed** (no invoices), which keeps the financial tests
+deterministic; `bin/reseed` layers a full demo (timesheets, 18 invoices across the lifecycle,
+monthly payroll runs, a back-dated promotion that surfaces a payroll variance) for the e2e
+suite and for clicking around. Current state: **221 Gleam tests + 51 Playwright specs**.
+
+## Running it
 
 ```sh
-docker compose up -d        # PG19 on host port 5434 (db/user/password: tempo)
+bin/up                # PG19 up + migrate + build the client + serve on http://localhost:8000
+bin/seed-invoices     # on demand: layer the demo financials (idempotent; not run by bin/up)
 ```
 
-Then verify the pool connects (runs a `SELECT 1` smoke check):
-
-```sh
-cd server && gleam test     # includes the DB connection smoke check
-```
-
-Stop / reset the database:
-
-```sh
-docker compose down         # stop, keep data
-docker compose down -v      # stop and wipe the data volume
-```
-
-Connection settings come from the environment (defaults match the compose
-file): `TEMPO_DB_HOST` (127.0.0.1), `TEMPO_DB_PORT` (5434), `TEMPO_DB_NAME`
-(tempo), `TEMPO_DB_USER` (tempo), `TEMPO_DB_PASSWORD` (tempo),
-`TEMPO_DB_POOL_SIZE` (20).
-
-`TEMPO_DB_POOL_SIZE` is sized against PostgreSQL `max_connections` (100 on the
-dev container): a single board tick fans out ~5 concurrent as-of queries, so 20
-lets a few scrubs overlap without queueing while leaving headroom. Keep
-`instances × pool_size + headroom ≤ max_connections`. When the pool is
-saturated, a checkout times out and the API answers **503 Service Unavailable**
-(retryable) rather than hanging or returning a 500.
-
-### Application
-
-The Gleam server package lives in `server/` (it path-depends on `../shared`), so
-run all `gleam` commands from there. The repo root also ships thin `bin/` wrappers
-that `cd` into the right package for you:
-
-```sh
-cd server && gleam run       # start the Wisp server (serves API + static assets)
-cd server && gleam test      # run the test suite
-
-# or, from the repo root, via the bin/ scripts:
-bin/serve                    # cd server && gleam run
-bin/test                     # cd server && gleam test && gleam format --check src test
-```
-
-### Schema: anchors + edit-grouped facts
-
-Every entity is an **ID-only anchor** (`engineer`, `client`, `contract`,
-`project`, `invoice`, `payroll_run` are bare `id` rows); all attributes live in
-**fact tables** keyed to the anchor. Facts come in two temporal flavours, and the
-read chosen per query:
-
-- **Valid-time facts**, read **AS-OF** the slider date (period named for what it
-  asserts: `employed_during`, `held_during`, `on_leave_during`, `allocated_during`,
-  `term`, `active_during`, `effective_during`, `status_during`, `work_day`,
-  `planned_during`) — the version in force on that date.
-- **Latest-read facts** (descriptive / contact detail), period named
-  `recorded_during`: append-only, the most-recently-effective row is current
-  truth and older rows are history. Current value is exposed via the `*_current`
-  views (`engineer_current`, `client_current`, `project_current`).
-
-The new fact tables are `engineer_contact` / `engineer_banking` /
-`engineer_emergency`, `client_profile`, `contract_terms`, `project_run`,
-`project_profile`, `project_plan` (all of the above flavours), plus the immutable
-1:1 `invoice_subject` and `payroll_period` (the latter carries the no-overlap
-`EXCLUDE`). Writes flow through the command bus as temporal `Change`s
-(`UpdateContactDetails`, `UpdateBankingDetails`, `UpdateEmergencyContact`,
-`UpdateClientProfile`, `UpdateProjectProfile`, `UpdateProjectPlan`); `sign_contract`
-/ `start_project` / `onboard_engineer` mint the anchor and open its founding fact
-rows. The temporal containment chain is now
-`contract_terms → project_run → allocation → timesheet` and
-`employment → {engineer_role, leave, allocation}`, with `invoice_subject ⊂
-project_run`. See `docs/SCHEMA.md` (regenerated from the live DB by `bin/erd`) for the
-full table/relationship map.
-
-### Client (Lustre SPA)
-
-The repo is a **four-package layout** (ADR-014): a `server/` package (the Gleam
-Wisp server, Erlang target), a `shared/` package (the API contract — types + JSON
-codecs, compiled for both targets), a `client/` package (the Lustre SPA, JS
-target), and an `e2e/` package (the Playwright harness, Node). Gleam 1.17 compiles
-a whole package per target with no per-module target exclusion, so a single
-package cannot build the JS client: the server's Erlang-only modules
-(pog/wisp/mist) would be type-checked for JS and fail. The split keeps the
-client's dependency graph free of server code; both `client` and `server`
-path-depend on `shared`.
-
-The client is built from the `client/` package; its bundle is emitted into
-`../server/priv/static` (the client's `[tools.lustre.build] outdir`), which Wisp
-serves under `/static`:
-
-```sh
-cd client && gleam run -m lustre/dev build client/app
-# or: bin/build
-```
-
-`bin/build` does two things: it compiles the Lustre bundle to
-`../server/priv/static/app.js`, then copies the CSS source. The CSS source lives
-in `client/styles/` as plain-CSS component files (`base`, `slider`, `board`,
-`timesheet`, `console`, `event-log`, `financials`) plus a central `theme.css` of
-design tokens (a constrained t-shirt scale for spacing/type/sizes and a semantic
-`--color-*` palette — every component references `var(--token)`), imported in
-page order by `main.css`. `bin/build` copies `client/styles/` to
-`server/priv/static/styles/`, which is a gitignored build artifact (like
-`app.js`); `index.html` links `/static/styles/main.css`.
-
-Rebuild after changing `client/*` (including `client/styles/*`) or `shared/*`,
-then `cd server && gleam run` (or refresh the browser) to serve the new bundle.
-
-### End-to-end tests (Playwright)
-
-The Playwright harness is its own package under `e2e/` (`package.json`,
-`playwright.config.js`, and one spec per UI surface): the slider/org board
-(`slider-board.spec.js`), the my-timesheet panel including the negative beat
-(`timesheet.spec.js`), the operations console + event-log panel
-(`operations.spec.js`) — applying a `promote` and asserting the board re-renders
-to the new level/rate and the event log gains the entry, plus a
-containment-violating operation that surfaces a typed rejection to the user — and
-the financials view (`financials.spec.js`): drafting then issuing an invoice and
-watching its total land in the P&L revenue, with the invoice status read as-of the
-slider date. They drive the **real app** and assert only what the user sees. The
-read-model specs (slider/board and timesheet) assert only what the user sees; the
-operations and financials specs exercise the write model (operations console +
-`event_log` and the invoice/payroll tables).
-
-The whole suite is **129 Gleam tests** (`cd server && gleam test`) **+ 14
-Playwright specs** (across the four spec files above).
-
-First-time setup (from `e2e/`):
-
-```sh
-cd e2e && npm install       # install @playwright/test
-cd e2e && npx playwright install chromium
-```
-
-Run the suite — build the client, start the server on the migrated seed, then run
-Playwright (it targets `http://127.0.0.1:8000` by default). The
-operations spec applies a write and restores the seed afterward via `psql` (same
-`TEMPO_DB_*` env-var defaults as the server), so `psql` must be on `PATH`:
-
-```sh
-docker compose up -d                                      # PG19 (repo root)
-cd server && gleam run -m tempo/migrate                   # schema + seed
-cd client && gleam run -m lustre/dev build client/app     # bundle → ../server/priv/static
-cd server && gleam run &                                  # serve on :8000
-cd e2e && npx playwright test                             # the e2e suite (chromium)
-```
-
-Or use the `bin/` wrappers from the repo root: `bin/db`, `bin/migrate`,
-`bin/build`, `bin/serve` (background it), then `bin/e2e`. Point Playwright at a
-different host/port with `TEMPO_BASE_URL`:
-
-```sh
-cd e2e && TEMPO_BASE_URL=http://127.0.0.1:8000 npx playwright test
-```
+`bin/up` is idempotent and safe to re-run. The individual wrappers are there for running one
+piece: `bin/db` (PG19 container), `bin/migrate`, `bin/build` (client bundle →
+`server/priv/static`), `bin/serve`, `bin/test`, `bin/e2e`, `bin/squirrel` (regenerate
+`sql.gleam`), `bin/erd` (regenerate `docs/SCHEMA.md`). Connection settings come from the
+environment with dev defaults matching `docker-compose.yml` (`TEMPO_DB_HOST` 127.0.0.1,
+`TEMPO_DB_PORT` 5434, name/user/password `tempo`, `TEMPO_DB_POOL_SIZE` 20). The detailed
+run-book is in `docs/RUNBOOK.md`.
