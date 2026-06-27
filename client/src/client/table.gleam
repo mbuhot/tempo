@@ -681,10 +681,34 @@ fn date_widget(
     Ok(DateRange(from:, to:)) -> #(from, to)
     _ -> #(None, None)
   }
+  let field = case options {
+    [] -> date_input
+    _ -> fn(label, current, to_msg) {
+      month_select(label, current, options, to_msg)
+    }
+  }
   html.div([attribute.class("dt-range")], [
-    month_select("From", from, options, DateBoundPicked(key, From, _)),
+    field("From", from, DateBoundPicked(key, From, _)),
     html.span([attribute.class("dt-range__sep")], [html.text("–")]),
-    month_select("To", to, options, DateBoundPicked(key, To, _)),
+    field("To", to, DateBoundPicked(key, To, _)),
+  ])
+}
+
+/// A native date picker for a date-range bound, used when the filter advertises no
+/// discrete options (a free date range, e.g. an event timestamp).
+fn date_input(
+  label: String,
+  current: Option(String),
+  to_msg: fn(String) -> Msg,
+) -> Element(Msg) {
+  html.label([attribute.class("dt-field")], [
+    html.span([], [html.text(label)]),
+    html.input([
+      attribute.class("dt-input"),
+      attribute.type_("date"),
+      attribute.value(option.unwrap(current, "")),
+      event.on_input(to_msg),
+    ]),
   ])
 }
 
