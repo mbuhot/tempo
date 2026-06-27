@@ -67,7 +67,7 @@ pub type Msg {
   OpDismissed
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
-  OpResponded(result: Result(List(gateway.Event), rsvp.Error(String)))
+  OpResponded(result: Result(Nil, rsvp.Error(String)))
 }
 
 // --- Init / refetch ---------------------------------------------------------

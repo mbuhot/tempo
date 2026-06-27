@@ -43,7 +43,6 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command.{type Event}
 import shared/invoice/view.{type Invoice} as _
 import shared/money
 import shared/project/view.{
@@ -114,7 +113,7 @@ pub type Msg {
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
-  OpResponded(result: Result(List(Event), rsvp.Error(String)))
+  OpResponded(result: Result(Nil, rsvp.Error(String)))
 }
 
 // --- Init / refetch ---------------------------------------------------------

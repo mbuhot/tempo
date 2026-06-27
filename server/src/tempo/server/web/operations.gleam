@@ -64,13 +64,18 @@ fn dispatch(
   }
 }
 
-/// On success, return the event the operation just appended as a single-element
-/// JSON array — it carries its minted id/occurred_at, so this is exactly what was
-/// written (no race with a concurrent writer's newest row). The array shape is
-/// the stable wire contract the client decodes, even though a command appends
+/// On success, acknowledge with the event the operation just appended as a
+/// single-element JSON array of `CommittedEvent` — its minted id/occurred_at plus
+/// the operation/summary, but NOT the re-encoded `payload` (the caller sent the
+/// command; echoing it back is dead weight, and the client uses only success/failure
+/// then refetches — the journal at GET /api/events still carries the full payload).
+/// The array shape is the stable wire contract, even though a command appends
 /// exactly one event.
 fn created_event_response(event: Event) -> wisp.Response {
-  response.json_response(json.array([event], shared_command.encode_event))
+  response.json_response(json.array(
+    [shared_command.committed_event(event)],
+    shared_command.encode_committed_event,
+  ))
 }
 
 /// Map a typed `OperationError` to its HTTP status and a small JSON error body

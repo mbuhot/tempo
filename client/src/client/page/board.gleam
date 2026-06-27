@@ -36,7 +36,6 @@ import shared/board/view.{
   type BoardRow, type BoardSnapshot, type UnstaffedProject, BoardRow, OnLeave,
   OnProject, Unassigned, UnstaffedProject,
 } as board_view
-import shared/command.{type Event}
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 
@@ -86,7 +85,7 @@ pub type Msg {
   OpFieldEdited(field: ui.OpField, value: String)
   OpCancelled
   OpSubmitted
-  OpResolved(result: Result(List(Event), rsvp.Error(String)))
+  OpResolved(result: Result(Nil, rsvp.Error(String)))
 }
 
 // --- Init / refetch ----------------------------------------------------------

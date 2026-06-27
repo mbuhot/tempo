@@ -398,9 +398,10 @@ pub fn log_week_operation_logs_two_cells_test() {
 
 // --- POST /api/operations ---------------------------------------------------
 
-// A successful operation returns 200 with the newly-created event(s) as a JSON
-// array (the operation tag, summary, and re-encoded payload), and the journal
-// really grew by that row. Promote Marcus (id 2) to L6 effective 2026-09-01: the
+// A successful operation returns 200 with the committed-event ack(s) as a JSON
+// array (the operation tag and summary — NOT the re-encoded payload, which is the
+// journal's; GET /api/events), and the journal really grew by that row. Promote
+// Marcus (id 2) to L6 effective 2026-09-01: the
 // FOR PORTION OF change commits, so the role split and the appended event_log row
 // are both undone afterwards to leave the shared seed pristine.
 pub fn operation_promote_returns_created_event_test() {
@@ -433,8 +434,6 @@ pub fn operation_promote_returns_created_event_test() {
   // body — the forgeable-actor fix (issue #6).
   assert event.actor == "Admin"
   assert event.summary == "Promote engineer 2 to L6 from 2026-09-01"
-  assert event.payload
-    == "{\"op\": \"promote\", \"level\": 6, \"effective\": \"2026-09-01\", \"engineer_id\": 2}"
   assert after == before + 1
 }
 
@@ -1218,10 +1217,10 @@ fn decode_error_code(response) -> String {
   code
 }
 
-fn decode_events(response) -> List(Event) {
+fn decode_events(response) -> List(gateway.CommittedEvent) {
   let assert Ok(events) =
     simulate.read_body(response)
-    |> json.parse(decode.list(gateway.event_decoder()))
+    |> json.parse(decode.list(gateway.committed_event_decoder()))
   events
 }
 

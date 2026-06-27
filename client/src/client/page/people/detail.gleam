@@ -117,7 +117,7 @@ pub type Msg {
   OpSubmitted
   CellEdited(project_id: Int, day: calendar.Date, value: String)
   TimesheetSubmitted(permit: ui.Permit)
-  OperationReturned(result: Result(List(gateway.Event), rsvp.Error(String)))
+  OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
 // --- Init / refetch ---------------------------------------------------------

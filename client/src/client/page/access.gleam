@@ -19,7 +19,7 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared/access/view.{type AccessSnapshot, type RoleInfo, type UserRoles}
-import shared/command.{type Event, RoleCommand}
+import shared/command.{RoleCommand}
 import shared/role/command as role_command
 
 pub type Model {
@@ -37,7 +37,7 @@ pub type Msg {
   SnapshotReturned(result: Result(AccessSnapshot, rsvp.Error(String)))
   GrantRole(account_id: Int, role: String, effective: Date)
   RevokeRole(account_id: Int, role: String, effective: Date)
-  OperationReturned(result: Result(List(Event), rsvp.Error(String)))
+  OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
 pub fn init(_route, _as_of: Date, _actor: String) -> #(Model, Effect(Msg)) {

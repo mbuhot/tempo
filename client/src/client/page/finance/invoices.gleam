@@ -34,7 +34,6 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command.{type Event}
 import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, type InvoicePage,
 } as invoice_view
@@ -85,7 +84,7 @@ pub type Msg {
   OpFieldChanged(field: ui.OpField, value: String)
   OpSubmitted
   OpCancelled
-  OpReplied(result: Result(List(Event), rsvp.Error(String)))
+  OpReplied(result: Result(Nil, rsvp.Error(String)))
 }
 
 /// Start the tab at `as_of` with the route-supplied `selected` invoice id: fetch

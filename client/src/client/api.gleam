@@ -15,8 +15,7 @@ import gleam/option.{type Option}
 import lustre/effect.{type Effect}
 import rsvp
 import shared/command.{
-  type Command, type Event, OperationRequest, decode_error_detail,
-  encode_operation_request, event_decoder,
+  type Command, OperationRequest, decode_error_detail, encode_operation_request,
 }
 
 /// The signed-in identity the login endpoint returns: the journal actor, the linked
@@ -87,16 +86,17 @@ pub fn logout(
 
 /// POST `{command}` to `/api/operations` on the authenticated session's behalf.
 /// The actor is NO LONGER on the wire — the server derives it from the session
-/// cookie the browser carries (issue #6). The server returns the created `Event`s
-/// as a JSON array on success (the journal rows the dispatch appended) and a typed
-/// `{error, detail}` body on a 4xx/5xx, which arrives as an `rsvp.HttpError`
-/// carrying that body — render it with `describe_error`.
+/// cookie the browser carries (issue #6). On success the server replies with the
+/// committed-event ack; the client uses only success-vs-failure (then refetches the
+/// read models), so the body is ignored. A rejected operation is a 4xx/5xx whose
+/// typed `{error, detail}` body arrives as an `rsvp.HttpError` — render it with
+/// `describe_error`.
 pub fn submit_operation(
   command: Command,
-  to_msg: fn(Result(List(Event), rsvp.Error(String))) -> msg,
+  to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   let body = encode_operation_request(OperationRequest(command:))
-  let handler = rsvp.expect_json(decode.list(event_decoder()), to_msg)
+  let handler = rsvp.expect_json(decode.success(Nil), to_msg)
   rsvp.post("/api/operations", body, handler)
 }
 

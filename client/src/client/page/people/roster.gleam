@@ -28,7 +28,6 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command.{type Event}
 import shared/money
 import shared/people/view.{
   type PeopleList, type PersonRow, type RosterStatus, PeopleList, PersonRow,
@@ -79,7 +78,7 @@ pub type Msg {
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
-  OperationReturned(result: Result(List(Event), rsvp.Error(String)))
+  OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
 /// Start the list mode at `as_of`, fetching the roster and the directory.

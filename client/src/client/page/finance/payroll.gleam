@@ -34,7 +34,6 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/command.{type Event}
 import shared/money
 import shared/payroll/view.{type Payroll, type PayrollLine, type PayrollSegment} as payroll_view
 
@@ -65,7 +64,7 @@ pub type Msg {
   OpFieldChanged(field: ui.OpField, value: String)
   OpSubmitted
   OpCancelled
-  OpReplied(result: Result(List(Event), rsvp.Error(String)))
+  OpReplied(result: Result(Nil, rsvp.Error(String)))
   ToggleExpanded(engineer_id: Int)
 }
 

@@ -774,6 +774,26 @@ pub fn event_round_trips_test() {
     == original
 }
 
+// The operation-response ack: the same row MINUS the payload (the client uses only
+// success/failure, so the write path does not echo the command back).
+pub fn committed_event_round_trips_test() {
+  let original =
+    gateway.CommittedEvent(
+      id: 42,
+      occurred_at: "2026-06-15T09:30:00Z",
+      actor: "mike@alembic.com.au",
+      operation: "promote",
+      summary: "Promoted engineer 2 to L5 effective 2026-07-01",
+    )
+
+  assert round_trip(
+      original,
+      gateway.encode_committed_event,
+      gateway.committed_event_decoder(),
+    )
+    == original
+}
+
 // --- Invoice -----------------------------------------------------------------
 // The invoices-table read model (PRD-financials FR-F1/FR-F4): the durable subject,
 // its status as-of the selected date, and its line total.

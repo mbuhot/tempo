@@ -212,6 +212,55 @@ pub fn event_decoder() -> Decoder(Event) {
   ))
 }
 
+/// The write path's acknowledgement (POST /api/operations response): the journal
+/// row a dispatch appended, MINUS the re-encoded `payload`. The caller already holds
+/// the command it sent, so echoing the payload back is dead weight — the client uses
+/// only success/failure (then refetches the read models). The full payload-carrying
+/// `Event` above is the JOURNAL read model (GET /api/events), where the Activity page
+/// shows the payload verbatim.
+pub type CommittedEvent {
+  CommittedEvent(
+    id: Int,
+    occurred_at: String,
+    actor: String,
+    operation: String,
+    summary: String,
+  )
+}
+
+/// Project a journal `Event` to the slim `CommittedEvent` ack (drops `payload`).
+pub fn committed_event(event: Event) -> CommittedEvent {
+  CommittedEvent(
+    id: event.id,
+    occurred_at: event.occurred_at,
+    actor: event.actor,
+    operation: event.operation,
+    summary: event.summary,
+  )
+}
+
+/// Encode a `CommittedEvent` (the operation-response ack) as a JSON object.
+pub fn encode_committed_event(event: CommittedEvent) -> Json {
+  let CommittedEvent(id:, occurred_at:, actor:, operation:, summary:) = event
+  json.object([
+    #("id", json.int(id)),
+    #("occurred_at", json.string(occurred_at)),
+    #("actor", json.string(actor)),
+    #("operation", json.string(operation)),
+    #("summary", json.string(summary)),
+  ])
+}
+
+/// Decode a `CommittedEvent` from a JSON object.
+pub fn committed_event_decoder() -> Decoder(CommittedEvent) {
+  use id <- decode.field("id", decode.int)
+  use occurred_at <- decode.field("occurred_at", decode.string)
+  use actor <- decode.field("actor", decode.string)
+  use operation <- decode.field("operation", decode.string)
+  use summary <- decode.field("summary", decode.string)
+  decode.success(CommittedEvent(id:, occurred_at:, actor:, operation:, summary:))
+}
+
 /// One keyset page of the provenance journal (`GET /api/events`): the page's
 /// `events` (item shape unchanged) plus the opaque `next_cursor` to fetch the
 /// following page (`None` on the last page). Issue #12.
