@@ -29,11 +29,10 @@ import shared/workflow/schema.{type FieldType, type Step, type WorkflowSchema}
 import shared/workflow/value
 import shared/workflow/view.{type DraftView, DraftView}
 
-const kind = "onboard_engineer"
-
 pub type Model {
   Model(
     instance_id: String,
+    kind: String,
     schema: Option(WorkflowSchema),
     draft: Option(DraftView),
     step: String,
@@ -73,10 +72,11 @@ pub type Outcome {
 }
 
 /// Open the wizard for an existing instance, fetching its schema and draft.
-pub fn init(instance_id: String) -> #(Model, Effect(Msg)) {
+pub fn init(instance_id: String, kind: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       instance_id:,
+      kind:,
       schema: None,
       draft: None,
       step: "",
@@ -162,7 +162,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
     CommitClicked -> #(
       model,
-      wapi.commit(model.instance_id, CommitReturned),
+      case model.kind {
+        "create_project" -> wapi.commit_project(model.instance_id, CommitReturned)
+        _ -> wapi.commit(model.instance_id, CommitReturned)
+      },
       Working,
     )
     CommitReturned(Ok(_)) -> #(model, effect.none(), Committed)

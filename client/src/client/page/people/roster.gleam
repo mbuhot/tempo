@@ -128,7 +128,7 @@ fn open_wizard(
   pending: Effect(Msg),
   instance_id: String,
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
-  let #(wizard_model, wizard_effect) = wizard.init(instance_id)
+  let #(wizard_model, wizard_effect) = wizard.init(instance_id, "onboard_engineer")
   #(
     Model(..model, wizard: Some(wizard_model)),
     effect.batch([

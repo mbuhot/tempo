@@ -116,6 +116,17 @@ pub fn commit(
   )
 }
 
+/// Commit a completed create-project draft — a journaled command via /api/operations.
+pub fn commit_project(
+  id: String,
+  to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
+) -> Effect(msg) {
+  api.submit_operation(
+    WorkflowCommand(workflow_command.CreateProject(id)),
+    to_msg,
+  )
+}
+
 fn instance_id_decoder() -> Decoder(String) {
   use instance_id <- decode.field("instance_id", decode.string)
   decode.success(instance_id)

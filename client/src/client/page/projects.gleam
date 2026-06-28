@@ -611,7 +611,7 @@ fn open_wizard(
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
   case model {
     ListView(..) -> {
-      let #(wizard_model, wizard_effect) = wizard.init(instance_id)
+      let #(wizard_model, wizard_effect) = wizard.init(instance_id, create_kind)
       #(
         ListView(..model, wizard: Some(wizard_model)),
         effect.batch([
