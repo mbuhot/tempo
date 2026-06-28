@@ -52,7 +52,7 @@ pub fn resolve_gives_finance_money_but_not_people_permissions_test() {
 pub fn snapshot_lists_roles_permissions_matrix_and_users_test() {
   let assert Ok(snapshot) = access_view.snapshot(test_pool.ctx())
   assert list.length(snapshot.roles) == 4
-  assert list.length(snapshot.permissions) == 21
+  assert list.length(snapshot.permissions) == 22
   assert list.any(snapshot.matrix, fn(grant) {
     grant.role == access.role_owner && grant.permission == access.roles_manage
   })

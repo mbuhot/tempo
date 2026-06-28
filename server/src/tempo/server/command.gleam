@@ -24,7 +24,7 @@ import shared/command.{
   type Command, type Event, AllocationCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
   LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -45,6 +45,7 @@ import tempo/server/repository
 import tempo/server/role/command as role
 import tempo/server/salary/command as salary
 import tempo/server/timesheet/command as timesheet
+import tempo/server/workflow/commit as workflow_commit
 
 /// Apply a command on an authenticated `principal`'s behalf: the authorization
 /// gate runs FIRST — keyed on principal + command, ONE place covering all 24
@@ -125,5 +126,6 @@ fn route(
     PayrollCommand(command) -> payroll.route(conn, command)
     ProjectRequirementCommand(command) -> project_requirement.route(command)
     RoleCommand(command) -> role.route(command)
+    WorkflowCommand(command) -> workflow_commit.route(conn, command)
   }
 }

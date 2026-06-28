@@ -1,0 +1,103 @@
+//// Committing a confirmed onboarding draft mints an engineer and the employment,
+//// role, contact and banking facts from the saved values, and marks the instance
+//// committed. A draft not yet awaiting Finance is refused.
+
+import gleam/dynamic/decode
+import gleam/option.{Some}
+import gleam/time/calendar.{Date, July}
+import pog
+import shared/workflow/command.{CommitOnboarding}
+import shared/workflow/value.{BoolValue, DateValue, TextValue}
+import tempo/server/fact.{
+  EngineerAtLevel, EngineerBankingDetails, EngineerContactDetails,
+  EngineerEmployed, Recorded,
+}
+import tempo/server/operation
+import tempo/server/workflow/commit
+import tempo/server/workflow/instance.{Committed}
+import tempo/server/workflow/schema as flow
+import test_pool
+
+fn rolling_back(body: fn(pog.Connection) -> a) -> a {
+  let outcome = pog.transaction(test_pool.db(), fn(conn) { Error(body(conn)) })
+  let assert Error(pog.TransactionRolledBack(value)) = outcome
+  value
+}
+
+fn account_id(conn: pog.Connection) -> Int {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(id)
+  }
+  let assert Ok(returned) =
+    pog.query("SELECT id FROM account ORDER BY id LIMIT 1")
+    |> pog.returning(decoder)
+    |> pog.execute(conn)
+  let assert [id] = returned.rows
+  id
+}
+
+fn save(conn, id, step, field, field_value) {
+  let assert Ok(_) =
+    instance.save_field(conn, id, step, field, value.encode(field_value))
+}
+
+/// Start an onboarding draft, fill every required field, confirm payroll, and hand
+/// off so it is awaiting Finance — the precondition for commit.
+fn ready_to_commit(conn: pog.Connection, owner: Int) -> String {
+  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  save(conn, id, "identity", "full_name", TextValue("Aisha Okafor"))
+  save(conn, id, "identity", "work_email", TextValue("aisha@example.com"))
+  save(conn, id, "level", "level", TextValue("5"))
+  save(conn, id, "employment", "start_date", DateValue(Date(2026, July, 13)))
+  save(conn, id, "banking", "bank", TextValue("ANZ"))
+  save(conn, id, "banking", "account_no", TextValue("00112233"))
+  save(conn, id, "banking", "account_name", TextValue("A Okafor"))
+  save(conn, id, "payroll", "payroll_confirmed", BoolValue(True))
+  let assert Ok(_) = instance.hand_off(conn, id, owner)
+  id
+}
+
+pub fn commit_writes_engineer_facts_test() {
+  use conn <- rolling_back
+  let owner = account_id(conn)
+  let id = ready_to_commit(conn, owner)
+
+  let assert Ok(Recorded(entry:, facts:)) =
+    commit.route(conn, CommitOnboarding(id))
+
+  assert entry.operation == "onboard_engineer"
+  let assert [
+    EngineerEmployed(_, employed_from),
+    EngineerAtLevel(_, level, _),
+    EngineerContactDetails(_, name, email, _, _, _),
+    EngineerBankingDetails(_, bank, _, account_no, account_name, _),
+  ] = facts
+  assert employed_from == Date(2026, July, 13)
+  assert level == 5
+  assert name == "Aisha Okafor"
+  assert email == "aisha@example.com"
+  assert bank == "ANZ"
+  assert account_no == "00112233"
+  assert account_name == "A Okafor"
+}
+
+pub fn commit_marks_instance_committed_test() {
+  use conn <- rolling_back
+  let owner = account_id(conn)
+  let id = ready_to_commit(conn, owner)
+
+  let assert Ok(_) = commit.route(conn, CommitOnboarding(id))
+
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  assert loaded.status == Committed
+}
+
+pub fn commit_refused_before_handoff_test() {
+  use conn <- rolling_back
+  let owner = account_id(conn)
+  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+
+  assert commit.route(conn, CommitOnboarding(id))
+    == Error(operation.InvalidValue)
+}
