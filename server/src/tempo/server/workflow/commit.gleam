@@ -24,16 +24,6 @@ import shared/workflow/command.{
 import shared/workflow/value.{
   type FieldValue, BoolValue, DateValue, MoneyValue, TextValue,
 }
-
-fn field_at(
-  values: Dict(String, Dict(String, FieldValue)),
-  step: String,
-  field: String,
-) -> Result(FieldValue, Nil) {
-  use step_values <- result.try(dict.get(values, step))
-  dict.get(step_values, field)
-}
-
 import tempo/server/client/sql as client_sql
 import tempo/server/fact.{
   type EngineerId, type Recorded, ClientProfile, ContractTerms, EngineerAtLevel,
@@ -45,6 +35,16 @@ import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
 import tempo/server/workflow/instance.{
   AwaitingFinance, Cancelled, Committed, Draft,
+}
+
+/// Look up one field's value within the nested per-step draft values.
+fn field_at(
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
+) -> Result(FieldValue, Nil) {
+  use step_values <- result.try(dict.get(values, step))
+  dict.get(step_values, field)
 }
 
 /// Route a workflow commit command to its handler.
