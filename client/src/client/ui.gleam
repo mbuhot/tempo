@@ -1077,10 +1077,19 @@ pub fn dialog(
   body body: Element(msg),
 ) -> Element(msg) {
   html.div([attribute.class("modal-backdrop"), event.on_click(on_dismiss)], [
-    html.div([attribute.class("modal modal--wide"), swallow_click(on_dismiss)], [
-      html.div([attribute.class("modal__header")], [html.text(title)]),
-      html.div([attribute.class("modal__body")], [body]),
-    ]),
+    html.div(
+      [
+        attribute.class("modal modal--wide"),
+        attribute.attribute("role", "dialog"),
+        attribute.attribute("aria-modal", "true"),
+        attribute.attribute("tabindex", "-1"),
+        swallow_click(on_dismiss),
+      ],
+      [
+        html.div([attribute.class("modal__header")], [html.text(title)]),
+        html.div([attribute.class("modal__body")], [body]),
+      ],
+    ),
   ])
 }
 

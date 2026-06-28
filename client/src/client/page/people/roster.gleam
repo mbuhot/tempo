@@ -11,6 +11,7 @@
 //// The `+ Onboard` action starts a fresh draft and opens the wizard. Closing the
 //// wizard refetches the list; a commit also raises `OperationCommitted`.
 
+import client/focus
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
@@ -103,14 +104,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               [],
             )
             wizard.Dismissed -> {
-              let #(model, effect) =
+              let #(model, fetch) =
                 refetch(Model(..model, wizard: None), model.as_of)
-              #(model, effect, [])
+              #(model, effect.batch([fetch, focus.release()]), [])
             }
             wizard.Committed -> {
-              let #(model, effect) =
+              let #(model, fetch) =
                 refetch(Model(..model, wizard: None), model.as_of)
-              #(model, effect, [OperationCommitted])
+              #(model, effect.batch([fetch, focus.release()]), [
+                OperationCommitted,
+              ])
             }
           }
         }
@@ -128,7 +131,11 @@ fn open_wizard(
   let #(wizard_model, wizard_effect) = wizard.init(instance_id)
   #(
     Model(..model, wizard: Some(wizard_model)),
-    effect.batch([pending, effect.map(wizard_effect, WizardMsg)]),
+    effect.batch([
+      pending,
+      effect.map(wizard_effect, WizardMsg),
+      focus.trap(".modal--wide"),
+    ]),
     [],
   )
 }
