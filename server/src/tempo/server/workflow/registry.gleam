@@ -8,11 +8,13 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import shared/workflow/schema.{type Step, type WorkflowSchema}
 import tempo/server/context.{type Context}
+import tempo/server/workflow/project_schema as project
 import tempo/server/workflow/schema as onboard
 
-pub fn schema_for(kind: String, _ctx: Context) -> Result(WorkflowSchema, Nil) {
+pub fn schema_for(kind: String, ctx: Context) -> Result(WorkflowSchema, Nil) {
   case kind {
     "onboard_engineer" -> Ok(onboard.onboard_schema())
+    "create_project" -> project.create_project_schema(ctx)
     _ -> Error(Nil)
   }
 }

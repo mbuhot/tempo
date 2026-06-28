@@ -458,6 +458,38 @@ ORDER BY lower(project_run.active_during), title;
   |> pog.execute(db)
 }
 
+/// A row you get from running the `clients_for_choice` query
+/// defined in `./src/tempo/server/client/sql/clients_for_choice.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientsForChoiceRow {
+  ClientsForChoiceRow(id: Option(Int), name: Option(String))
+}
+
+/// clients_for_choice.sql — all current clients for the project-creation picker.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn clients_for_choice(
+  db: pog.Connection,
+) -> Result(pog.Returned(ClientsForChoiceRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.optional(decode.int))
+    use name <- decode.field(1, decode.optional(decode.string))
+    decode.success(ClientsForChoiceRow(id:, name:))
+  }
+
+  "-- clients_for_choice.sql — all current clients for the project-creation picker.
+SELECT id::integer, name::text FROM client_current ORDER BY name;
+"
+  |> pog.query
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// contract_create.sql — insert the contract identity (ID-ONLY anchor) at a reserved id.
 ///
 /// Step 1 of sign_contract. The id is reserved up-front from contract_id_seq
