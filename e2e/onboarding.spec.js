@@ -47,7 +47,7 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   await page.getByLabel("Bank").fill("ANZ");
   await page.getByLabel("Account number").fill("00112233");
   await page.getByLabel("Account name").fill("E Onboard");
-  await page.getByRole("button", { name: /Hand off to Finance/ }).click();
+  await page.getByRole("button", { name: /Hand off for approval/ }).click();
 
   // The modal closes and the draft shows as a row in the People list.
   await expect(rosterRow(page, name)).toBeVisible();
