@@ -8,13 +8,16 @@
 //// no-op guard; undo/redo is a per-step buffer that re-saves.
 
 import client/api
+import client/icons
 import client/workflow/api as wapi
 import client/workflow/render.{
   type FieldEvent, Committed as FieldCommitted, Edited,
 }
 import gleam/dict.{type Dict}
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set.{type Set}
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -33,6 +36,9 @@ pub type Model {
     schema: Option(WorkflowSchema),
     draft: Option(DraftView),
     step: String,
+    // The furthest step reached, so the rail can mark earlier steps done +
+    // clickable even after stepping Back.
+    furthest: String,
     edits: Dict(String, String),
     undo: List(#(String, String)),
     redo: List(#(String, String)),
@@ -47,6 +53,7 @@ pub type Msg {
   Saved(Result(Nil, rsvp.Error(String)))
   BackClicked
   NextClicked
+  GoToStep(step: String)
   StepAdvanced(String, Result(Nil, rsvp.Error(String)))
   UndoClicked
   RedoClicked
@@ -72,6 +79,7 @@ pub fn init(instance_id: String) -> #(Model, Effect(Msg)) {
       schema: None,
       draft: None,
       step: "",
+      furthest: "",
       edits: dict.new(),
       undo: [],
       redo: [],
@@ -97,7 +105,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         "" -> draft.current_step
         step -> step
       }
-      working(Model(..model, draft: Some(draft), step:))
+      let furthest = case model.furthest {
+        "" -> draft.current_step
+        furthest -> furthest
+      }
+      working(Model(..model, draft: Some(draft), step:, furthest:))
     }
     DraftFetched(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -129,7 +141,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         )
         None -> working(model)
       }
-    StepAdvanced(next, Ok(_)) -> working(enter_step(model, next))
+    GoToStep(step:) -> working(enter_step(model, step))
+    StepAdvanced(next, Ok(_)) -> {
+      let furthest = extend_furthest(model, next)
+      working(Model(..enter_step(model, next), furthest:))
+    }
     StepAdvanced(_, Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
 
@@ -258,13 +274,13 @@ fn apply_restore(
 
 // --- view -------------------------------------------------------------------
 
-pub fn view(model: Model) -> Element(Msg) {
+pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   case model.schema, model.draft {
     Some(schema), Some(draft) ->
       case find_step(schema, model.step) {
         Some(step) ->
           html.div([attribute.class("wizard wizard--modal")], [
-            view_rail(schema, model.step),
+            view_rail(model, schema, permissions),
             html.div([attribute.class("wizard__panel")], [
               html.h2([], [html.text(step.title)]),
               render.step_view(step, display_map(model, step), FieldChanged),
@@ -278,25 +294,82 @@ pub fn view(model: Model) -> Element(Msg) {
   }
 }
 
-/// The rail's status is computed from the LIVE client step (the panel and rail must
-/// agree): steps before the open one are done, the open one is active, the rest
-/// pending. The server's `step_status` is not used here — it lags until a refetch.
-fn view_rail(schema: WorkflowSchema, current_step: String) -> Element(Msg) {
+/// The rail, driven by the LIVE client step (panel and rail must agree; the server
+/// `step_status` lags until a refetch). Each step shows a numbered circle: a check
+/// once reached, the number while pending, a lock when it is permission-gated and the
+/// current user can't complete it (they'll hand it off). Reached steps are buttons
+/// that jump back to them.
+fn view_rail(
+  model: Model,
+  schema: WorkflowSchema,
+  permissions: Set(String),
+) -> Element(Msg) {
   let ids = list.map(schema.steps, fn(step) { step.id })
-  let current = index_of(ids, current_step, 0)
+  let current = index_of(ids, model.step, 0)
+  let furthest = index_of(ids, model.furthest, 0)
   html.ol(
     [attribute.class("wizard__rail")],
     list.index_map(schema.steps, fn(step, index) {
-      let status = case index < current, index == current {
-        True, _ -> "is-done"
-        _, True -> "is-active"
-        _, _ -> "is-pending"
-      }
-      html.li([attribute.class("wizard__rail-step " <> status)], [
-        html.text(step.title),
-      ])
+      rail_step(step, index, current, furthest, permissions)
     }),
   )
+}
+
+fn rail_step(
+  step: Step,
+  index: Int,
+  current: Int,
+  furthest: Int,
+  permissions: Set(String),
+) -> Element(Msg) {
+  let active = index == current
+  let reached = index <= furthest
+  let #(state, marker) = case active, reached, can_complete(step, permissions) {
+    True, _, _ -> #("is-active", html.text(int.to_string(index + 1)))
+    False, True, _ -> #("is-done", html.text("✓"))
+    False, False, True -> #("is-pending", html.text(int.to_string(index + 1)))
+    False, False, False -> #("is-handoff", icons.lock())
+  }
+  let inner = [
+    html.span([attribute.class("wizard__rail-num")], [marker]),
+    html.span([attribute.class("wizard__rail-label")], [html.text(step.title)]),
+  ]
+  // Only a reached, non-current step jumps back; the rest are inert.
+  let row = case reached && !active {
+    True ->
+      html.button(
+        [
+          attribute.class("wizard__rail-link"),
+          event.on_click(GoToStep(step.id)),
+        ],
+        inner,
+      )
+    False -> html.span([attribute.class("wizard__rail-row")], inner)
+  }
+  html.li([attribute.class("wizard__rail-step " <> state)], [row])
+}
+
+/// Whether the current user could complete this step themselves (an ungated step, or
+/// a gated one they hold the permission for).
+fn can_complete(step: Step, permissions: Set(String)) -> Bool {
+  case step.requires_permission {
+    None -> True
+    Some(permission) -> set.contains(permissions, permission)
+  }
+}
+
+/// The furthest step reached so far, by schema order (Next never regresses it).
+fn extend_furthest(model: Model, step: String) -> String {
+  case model.schema {
+    Some(schema) -> {
+      let ids = list.map(schema.steps, fn(step) { step.id })
+      case index_of(ids, step, 0) > index_of(ids, model.furthest, 0) {
+        True -> step
+        False -> model.furthest
+      }
+    }
+    None -> step
+  }
 }
 
 fn view_footer(

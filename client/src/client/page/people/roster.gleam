@@ -156,17 +156,20 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
         TableHostMsg,
       ),
     )
-  html.div([], [view_wizard(model.wizard), list_page])
+  html.div([], [view_wizard(model.wizard, permissions), list_page])
 }
 
-fn view_wizard(open: Option(wizard.Model)) -> Element(Msg) {
+fn view_wizard(
+  open: Option(wizard.Model),
+  permissions: Set(String),
+) -> Element(Msg) {
   case open {
     None -> element.none()
     Some(wizard_model) ->
       ui.dialog(
         title: "Onboard an engineer",
         on_dismiss: WizardMsg(wizard.DismissClicked),
-        body: element.map(wizard.view(wizard_model), WizardMsg),
+        body: element.map(wizard.view(wizard_model, permissions), WizardMsg),
       )
   }
 }

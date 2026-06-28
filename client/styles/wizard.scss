@@ -19,7 +19,7 @@
     align-items: start;
 }
 
-/* --- the step rail --- */
+/* --- the step rail: a numbered circle + label per step --- */
 .wizard__rail {
     list-style: none;
     margin: 0;
@@ -29,23 +29,74 @@
     gap: var(--space-2xs);
 }
 
-.wizard__rail-step {
-    font-size: var(--text-sm);
-    color: var(--color-faint);
+.wizard__rail-row,
+.wizard__rail-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
     padding: var(--space-sm) var(--space-md);
     border-radius: var(--radius-sm);
-    border-left: var(--border) solid transparent;
+    font-size: var(--text-sm);
+    color: var(--color-faint);
+    text-align: left;
 }
 
-.wizard__rail-step.is-done {
+/* A reached step jumps back when clicked. */
+.wizard__rail-link {
+    border: 0;
+    background: none;
+    font: inherit;
     color: var(--color-text);
+    cursor: pointer;
+    transition: background var(--ease);
 }
 
-.wizard__rail-step.is-active {
-    color: var(--color-accent);
-    background: var(--color-accent-soft);
-    border-left-color: var(--color-accent);
+.wizard__rail-link:hover {
+    background: var(--color-surface-sunken);
+}
+
+.wizard__rail-num {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-circle);
+    border: var(--border-thin) solid var(--color-border);
+    background: var(--color-surface);
+    font-size: var(--text-xs);
     font-weight: var(--weight-semibold);
+    color: var(--color-muted);
+}
+
+.wizard__rail-num svg {
+    width: 0.7rem;
+    height: 0.7rem;
+}
+
+/* states */
+.wizard__rail-step.is-active .wizard__rail-row {
+    color: var(--color-text);
+    font-weight: var(--weight-semibold);
+    background: var(--color-accent-soft);
+}
+
+.wizard__rail-step.is-active .wizard__rail-num {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.wizard__rail-step.is-done .wizard__rail-num {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-on-accent);
+}
+
+.wizard__rail-step.is-handoff .wizard__rail-num {
+    border-style: dashed;
+    border-color: var(--color-warn);
+    color: var(--color-warn);
 }
 
 /* --- the panel (the modal is the surface, so no card here) --- */

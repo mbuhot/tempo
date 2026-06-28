@@ -126,6 +126,14 @@ pub fn clock() -> Element(msg) {
   icon([circle("12", "12", "10"), path("M12 6v6l4 2")])
 }
 
+/// `lock` — a step the current user can't complete (they'll hand it off).
+pub fn lock() -> Element(msg) {
+  icon([
+    rect("3", "11", "18", "11", "2"),
+    path("M7 11V7a5 5 0 0 1 10 0v4"),
+  ])
+}
+
 /// `shield`
 pub fn access() -> Element(msg) {
   icon([
