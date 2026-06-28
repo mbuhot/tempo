@@ -10,10 +10,12 @@ import gleam/time/calendar.{Date, December, January, July}
 import pog
 import shared/money
 import shared/workflow/command.{CreateProject}
-import shared/workflow/value.{BoolValue, DateValue, MoneyValue, TextValue}
+import shared/workflow/value.{
+  BoolValue, DateValue, IntValue, MoneyValue, RowsValue, TextValue,
+}
 import tempo/server/fact.{
-  ClientProfile, ContractTerms, ProjectPlan, ProjectProfile, ProjectRun,
-  Recorded,
+  ClientProfile, ContractTerms, ProjectPlan, ProjectProfile, ProjectRequirement,
+  ProjectRun, Recorded,
 }
 import tempo/server/workflow/commit
 import tempo/server/workflow/instance
@@ -76,6 +78,15 @@ fn fill_project_draft(
       MoneyValue(budget_money)
     }),
   ])
+  save_step(conn, id, "team", [
+    #(
+      "requirements",
+      RowsValue([
+        dict.from_list([#("level", TextValue("4")), #("quantity", IntValue(2))]),
+        dict.from_list([#("level", TextValue("5")), #("quantity", IntValue(1))]),
+      ]),
+    ),
+  ])
   save_step(conn, id, "contract", [
     #("contract_from", DateValue(Date(2026, July, 1))),
     #("contract_to", DateValue(Date(2027, January, 1))),
@@ -99,6 +110,7 @@ pub fn commit_existing_client_writes_project_facts_test() {
     ProjectRun(_, _, run_from, run_to),
     ProjectProfile(_, title, summary, _),
     ProjectPlan(_, budget, target, _),
+    ..
   ] = facts
   assert client_name == "Northwind Trading"
   assert run_from == Date(2026, July, 1)
@@ -126,6 +138,7 @@ pub fn commit_new_client_emits_client_profile_test() {
     ProjectRun(..),
     ProjectProfile(..),
     ProjectPlan(..),
+    ..
   ] = facts
   assert client_name == "Acme Corp"
   assert contract_client == "Acme Corp"
@@ -139,6 +152,44 @@ pub fn commit_defaults_target_completion_to_end_test() {
 
   let assert Ok(Recorded(facts:, ..)) = commit.route(conn, CreateProject(id))
 
-  let assert [_, _, _, ProjectPlan(_, _, target, _)] = facts
+  let assert [_, _, _, ProjectPlan(_, _, target, _), ..] = facts
   assert target == Date(2026, December, 31)
+}
+
+pub fn commit_emits_project_requirement_facts_test() {
+  use conn <- rolling_back
+  let owner = account_id(conn)
+  let client_id = seeded_client_id(conn)
+  let id = fill_project_draft(conn, owner, int.to_string(client_id))
+
+  let assert Ok(Recorded(facts:, ..)) = commit.route(conn, CreateProject(id))
+
+  let assert [
+    _contract_terms,
+    _project_run,
+    _project_profile,
+    _project_plan,
+    ProjectRequirement(
+      project_id: _,
+      level: level_a,
+      quantity: qty_a,
+      from: from_a,
+      to: to_a,
+    ),
+    ProjectRequirement(
+      project_id: _,
+      level: level_b,
+      quantity: qty_b,
+      from: from_b,
+      to: to_b,
+    ),
+  ] = facts
+  assert level_a == 4
+  assert qty_a == 2.0
+  assert from_a == Date(2026, July, 1)
+  assert to_a == Date(2026, December, 31)
+  assert level_b == 5
+  assert qty_b == 1.0
+  assert from_b == Date(2026, July, 1)
+  assert to_b == Date(2026, December, 31)
 }

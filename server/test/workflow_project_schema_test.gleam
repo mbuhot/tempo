@@ -16,7 +16,7 @@ pub fn schema_kind_is_create_project_test() {
 pub fn step_ids_are_in_canonical_order_test() {
   let assert Ok(schema) = project_schema.create_project_schema(test_pool.ctx())
   assert registry.step_ids(schema)
-    == ["client", "description", "timeframe", "contract", "confirm"]
+    == ["client", "description", "timeframe", "team", "contract", "confirm"]
 }
 
 pub fn confirm_step_requires_project_create_confirm_test() {

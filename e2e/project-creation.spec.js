@@ -28,6 +28,16 @@ test("an admin creates a project via the wizard", async ({ page }) => {
   await page.getByLabel("Target completion").fill("2026-11-15");
   await page.getByRole("button", { name: /Continue/ }).click();
 
+  // Team requirements step
+  await page.getByRole("heading", { name: "Team requirements" }).waitFor();
+  await page.getByRole("button", { name: "+ Add requirement" }).click();
+  await page.getByRole("combobox", { name: "Level" }).nth(0).selectOption("4");
+  await page.getByRole("spinbutton", { name: "Quantity" }).nth(0).fill("2");
+  await page.getByRole("button", { name: "+ Add requirement" }).click();
+  await page.getByRole("combobox", { name: "Level" }).nth(1).selectOption("5");
+  await page.getByRole("spinbutton", { name: "Quantity" }).nth(1).fill("1");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
   // Contract step
   await page.getByRole("heading", { name: "Contract", exact: true }).waitFor();
   await page.getByLabel("Contract start").fill("2026-08-01");

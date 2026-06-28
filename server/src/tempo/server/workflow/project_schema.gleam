@@ -6,9 +6,11 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import shared/access
+import shared/level
 import shared/workflow/schema.{
-  type WorkflowSchema, BoolField, Choice, DateField, EnumField, Field,
-  MoneyField, OneColumn, Section, Step, TextField, TwoColumn, WorkflowSchema,
+  type Choice, type WorkflowSchema, BoolField, Choice, DateField, EnumField,
+  Field, GroupField, IntField, MoneyField, OneColumn, Section, Step, TextField,
+  TwoColumn, WorkflowSchema,
 }
 import tempo/server/client/sql as client_sql
 import tempo/server/context.{type Context}
@@ -78,6 +80,34 @@ pub fn create_project_schema(ctx: Context) -> Result(WorkflowSchema, Nil) {
       ],
     ),
     Step(
+      id: "team",
+      title: "Team requirements",
+      requires_permission: None,
+      sections: [
+        Section(title: "", layout: OneColumn, fields: [
+          Field(
+            "requirements",
+            "Requirements",
+            GroupField(
+              item_fields: [
+                Field(
+                  "level",
+                  "Level",
+                  EnumField(options: level_options()),
+                  True,
+                  None,
+                ),
+                Field("quantity", "Quantity", IntField, True, None),
+              ],
+              add_label: "+ Add requirement",
+            ),
+            True,
+            None,
+          ),
+        ]),
+      ],
+    ),
+    Step(
       id: "contract",
       title: "Contract",
       requires_permission: None,
@@ -111,4 +141,9 @@ pub fn create_project_schema(ctx: Context) -> Result(WorkflowSchema, Nil) {
       ],
     ),
   ])
+}
+
+fn level_options() -> List(Choice) {
+  [1, 2, 3, 4, 5, 6, 7]
+  |> list.map(fn(rank) { Choice(int.to_string(rank), level.band(rank)) })
 }

@@ -22,14 +22,15 @@ import shared/workflow/command.{
   type WorkflowCommand, CommitOnboarding, CreateProject,
 }
 import shared/workflow/value.{
-  type FieldValue, BoolValue, DateValue, MoneyValue, TextValue,
+  type FieldValue, BoolValue, DateValue, IntValue, MoneyValue, RowsValue,
+  TextValue,
 }
 import tempo/server/client/sql as client_sql
 import tempo/server/fact.{
   type EngineerId, type Recorded, ClientProfile, ContractTerms, EngineerAtLevel,
   EngineerBankingDetails, EngineerContactDetails, EngineerEmergencyContact,
-  EngineerEmployed, EngineerId, ProjectPlan, ProjectProfile, ProjectRun,
-  Recorded,
+  EngineerEmployed, EngineerId, ProjectPlan, ProjectProfile, ProjectRequirement,
+  ProjectRun, Recorded,
 }
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
@@ -176,6 +177,37 @@ fn create_project(
 
   use _ <- result.try(instance.mark_committed(conn, instance_id))
 
+  let requirement_facts =
+    rows_of(values, "team", "requirements")
+    |> list.filter_map(fn(row) {
+      use level_text <- result.try(
+        dict.get(row, "level")
+        |> result.try(fn(v) {
+          case v {
+            TextValue(t) -> Ok(t)
+            _ -> Error(Nil)
+          }
+        }),
+      )
+      use level <- result.try(int.parse(level_text))
+      use qty_value <- result.try(dict.get(row, "quantity"))
+      let quantity = case qty_value {
+        IntValue(n) -> int.to_float(n)
+        _ -> 0.0
+      }
+      case quantity == 0.0 {
+        True -> Error(Nil)
+        False ->
+          Ok(ProjectRequirement(
+            project_id:,
+            level:,
+            quantity:,
+            from: start,
+            to: end,
+          ))
+      }
+    })
+
   Ok(Recorded(
     entry: Event(
       operation: "create_project",
@@ -197,6 +229,7 @@ fn create_project(
       ProjectRun(project_id:, contract_id:, from: start, to: end),
       ProjectProfile(project_id:, title:, summary:, from: start),
       ProjectPlan(project_id:, budget:, target_completion: target, from: start),
+      ..requirement_facts
     ]),
   ))
 }
@@ -332,5 +365,16 @@ fn level_of(
   case field_at(values, "level", "level") {
     Ok(TextValue(t)) -> int.parse(t) |> result.replace_error(InvalidValue)
     _ -> Error(InvalidValue)
+  }
+}
+
+fn rows_of(
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
+) -> List(Dict(String, FieldValue)) {
+  case field_at(values, step, field) {
+    Ok(RowsValue(rows)) -> rows
+    _ -> []
   }
 }
