@@ -9,7 +9,7 @@ import gleam/json
 import lustre/effect.{type Effect}
 import rsvp
 import shared/command.{WorkflowCommand}
-import shared/workflow/command.{CommitOnboarding}
+import shared/workflow/command as workflow_command
 import shared/workflow/schema.{type WorkflowSchema}
 import shared/workflow/value.{type FieldValue}
 import shared/workflow/view.{type DraftSummary, type DraftView}
@@ -81,15 +81,14 @@ pub fn complete_step(
   )
 }
 
-/// POST to hand the draft to a Finance assignee.
+/// POST to hand the draft to the Finance queue (no specific assignee).
 pub fn hand_off(
   id: String,
-  assignee_id: Int,
   to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   rsvp.post(
     "/api/workflows/" <> id <> "/handoff",
-    json.object([#("assignee_id", json.int(assignee_id))]),
+    json.object([]),
     rsvp.expect_json(decode.success(Nil), to_msg),
   )
 }
@@ -111,7 +110,10 @@ pub fn commit(
   id: String,
   to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
-  api.submit_operation(WorkflowCommand(CommitOnboarding(id)), to_msg)
+  api.submit_operation(
+    WorkflowCommand(workflow_command.CommitOnboarding(id)),
+    to_msg,
+  )
 }
 
 fn instance_id_decoder() -> Decoder(String) {
