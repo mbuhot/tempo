@@ -100,6 +100,22 @@ pub fn step_ids() -> List(String) {
   onboard_schema().steps |> list.map(fn(step) { step.id })
 }
 
+/// The id of the first permission-gated step — the Finance step a hand-off advances
+/// to. Falls back to the first step if none is gated.
+pub fn finance_step() -> String {
+  let gated =
+    list.filter(onboard_schema().steps, fn(step) {
+      case step.requires_permission {
+        Some(_) -> True
+        None -> False
+      }
+    })
+  case gated {
+    [step, ..] -> step.id
+    [] -> first_step
+  }
+}
+
 /// The type of a field addressed by step id + field key, or `Error` if no such
 /// field exists in the schema (the commit/save path rejects unknown keys).
 pub fn field_type(

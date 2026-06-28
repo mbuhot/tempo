@@ -97,13 +97,15 @@ pub fn complete_step(
   sql.instance_set_step(conn, instance_id, next_step) |> operation.run
 }
 
-/// Hand the draft to Finance: set the assignee and move to `awaiting_finance`.
+/// Hand the draft to the Finance queue: move to `awaiting_finance` and advance the
+/// open step to `finance_step`. No specific assignee — any commit-permission holder
+/// can pick it up.
 pub fn hand_off(
   conn: pog.Connection,
   instance_id instance_id: String,
-  assignee_id assignee_id: Int,
+  finance_step finance_step: String,
 ) -> Result(Nil, OperationError) {
-  sql.instance_handoff(conn, instance_id, assignee_id) |> operation.run
+  sql.instance_handoff(conn, instance_id, finance_step) |> operation.run
 }
 
 /// Cancel the draft (retained for audit; excluded from resume lists).
@@ -163,10 +165,13 @@ pub fn current_values(
 }
 
 /// Assemble the `DraftView` for the viewer `me`, or `None` if no such instance.
+/// `can_commit` is whether the viewer holds the commit permission, which decides
+/// whether they may act on an instance that is awaiting Finance.
 pub fn draft_view(
   conn: pog.Connection,
   instance_id instance_id: String,
   me me: Int,
+  can_commit can_commit: Bool,
 ) -> Result(Option(DraftView), OperationError) {
   use maybe <- result.try(load(conn, instance_id))
   case maybe {
@@ -179,7 +184,7 @@ pub fn draft_view(
           kind: instance.kind,
           status: status_to_string(instance.status),
           current_step: instance.current_step,
-          assignee_is_me: acts_now(instance, me),
+          can_act: acts_now(instance, me, can_commit),
           values:,
           step_status: compute_step_status(instance.current_step),
         )),
@@ -188,12 +193,18 @@ pub fn draft_view(
   }
 }
 
-/// The open drafts `account_id` can resume — those they own or that await them.
+/// The open drafts `account_id` can resume — those they own, plus (when they can
+/// commit) every draft in the Finance queue.
 pub fn list_for(
   conn: pog.Connection,
   account_id account_id: Int,
+  can_commit can_commit: Bool,
 ) -> Result(List(DraftSummary), OperationError) {
-  use returned <- operation.try(sql.instance_list_for(conn, account_id))
+  use returned <- operation.try(sql.instance_list_for(
+    conn,
+    account_id,
+    can_commit,
+  ))
   returned.rows
   |> list.map(fn(row) {
     DraftSummary(
@@ -202,19 +213,18 @@ pub fn list_for(
       status: row.status,
       title: title_for(row.kind),
       current_step: row.current_step,
-      awaiting_me: row.status == "awaiting_finance"
-        && row.assignee_id == Some(account_id),
+      awaiting_me: row.status == "awaiting_finance" && can_commit,
     )
   })
   |> Ok
 }
 
-/// Whether `me` is the user the instance currently awaits: the owner while it is a
-/// draft, the assignee once it is awaiting Finance.
-fn acts_now(instance: Instance, me: Int) -> Bool {
+/// Whether `me` may act on the instance now: the owner while it is a draft, anyone
+/// holding the commit permission once it is awaiting Finance.
+fn acts_now(instance: Instance, me: Int, can_commit: Bool) -> Bool {
   case instance.status {
     Draft -> instance.owner_id == me
-    AwaitingFinance -> instance.assignee_id == Some(me)
+    AwaitingFinance -> can_commit
     Committed | Cancelled -> False
   }
 }

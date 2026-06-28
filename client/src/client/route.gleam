@@ -39,6 +39,10 @@ pub type Route {
   Activity
   Settings
   Access
+  /// The onboarding wizard. `/onboard` is the landing (start new or resume);
+  /// `/onboard/<id>/<step>` is the wizard open at a step, so browser back/forward
+  /// moves between steps and a deep link reopens mid-flow.
+  Onboard(instance_id: Option(String), step_id: Option(String))
   NotFound
 }
 
@@ -67,6 +71,9 @@ pub fn parse(uri: Uri) -> Route {
     ["activity"] -> Activity
     ["settings"] -> Settings
     ["access"] -> Access
+    ["onboard"] -> Onboard(instance_id: None, step_id: None)
+    ["onboard", id] -> Onboard(instance_id: Some(id), step_id: None)
+    ["onboard", id, step] -> Onboard(instance_id: Some(id), step_id: Some(step))
     _ -> NotFound
   }
 }
@@ -88,6 +95,10 @@ pub fn to_path(route: Route) -> String {
     Activity -> "/activity"
     Settings -> "/settings"
     Access -> "/access"
+    Onboard(instance_id: None, ..) -> "/onboard"
+    Onboard(instance_id: Some(id), step_id: None) -> "/onboard/" <> id
+    Onboard(instance_id: Some(id), step_id: Some(step)) ->
+      "/onboard/" <> id <> "/" <> step
     NotFound -> "/"
   }
 }

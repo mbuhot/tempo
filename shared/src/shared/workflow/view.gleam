@@ -18,15 +18,16 @@ pub type StepStatus {
 }
 
 /// One in-flight instance. `values` is keyed `"step.field"`; `step_status` is keyed
-/// by step id. `assignee_is_me` tells the client whether the signed-in user is the
-/// one this instance currently awaits (drives the commit/confirm affordance).
+/// by step id. `can_act` tells the client whether the signed-in user may act on this
+/// instance now (the owner while it is a draft, anyone holding the commit permission
+/// once it is awaiting Finance) — it drives the Next/hand-off/commit affordances.
 pub type DraftView {
   DraftView(
     instance_id: String,
     kind: String,
     status: String,
     current_step: String,
-    assignee_is_me: Bool,
+    can_act: Bool,
     values: Dict(String, FieldValue),
     step_status: Dict(String, StepStatus),
   )
@@ -68,7 +69,7 @@ pub fn encode_draft(draft: DraftView) -> Json {
     #("kind", json.string(draft.kind)),
     #("status", json.string(draft.status)),
     #("current_step", json.string(draft.current_step)),
-    #("assignee_is_me", json.bool(draft.assignee_is_me)),
+    #("can_act", json.bool(draft.can_act)),
     #("values", encode_values(draft.values)),
     #("step_status", encode_step_status(draft.step_status)),
   ])
@@ -93,7 +94,7 @@ pub fn draft_decoder() -> Decoder(DraftView) {
   use kind <- decode.field("kind", decode.string)
   use status <- decode.field("status", decode.string)
   use current_step <- decode.field("current_step", decode.string)
-  use assignee_is_me <- decode.field("assignee_is_me", decode.bool)
+  use can_act <- decode.field("can_act", decode.bool)
   use values <- decode.field(
     "values",
     decode.dict(decode.string, value.decoder()),
@@ -110,7 +111,7 @@ pub fn draft_decoder() -> Decoder(DraftView) {
     kind:,
     status:,
     current_step:,
-    assignee_is_me:,
+    can_act:,
     values:,
     step_status:,
   ))

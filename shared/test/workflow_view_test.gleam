@@ -64,7 +64,7 @@ pub fn draft_round_trips_test() {
       kind: "onboard_engineer",
       status: "draft",
       current_step: "employment",
-      assignee_is_me: True,
+      can_act: True,
       values: dict.from_list([
         #("identity.full_name", TextValue("Aisha Okafor")),
         #("employment.base_salary", MoneyValue(salary)),

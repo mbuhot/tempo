@@ -65,9 +65,10 @@ SELECT id, kind, status, owner_id, assignee_id, current_step
   |> pog.execute(db)
 }
 
-/// instance_handoff.sql — hand a draft to Finance (#28): set the assignee and move
-/// to 'awaiting_finance' so it surfaces in the assignee's resume list.
-/// $1 = instance id, $2 = assignee account id.
+/// instance_handoff.sql — hand a draft to the Finance queue (#28): move to
+/// 'awaiting_finance' and advance the open step to the finance step, so it surfaces
+/// for anyone holding the commit permission. No specific assignee — Finance is a pool.
+/// $1 = instance id, $2 = finance step id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -75,20 +76,21 @@ SELECT id, kind, status, owner_id, assignee_id, current_step
 pub fn instance_handoff(
   db: pog.Connection,
   arg_1: String,
-  arg_2: Int,
+  arg_2: String,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- instance_handoff.sql — hand a draft to Finance (#28): set the assignee and move
--- to 'awaiting_finance' so it surfaces in the assignee's resume list.
--- $1 = instance id, $2 = assignee account id.
+  "-- instance_handoff.sql — hand a draft to the Finance queue (#28): move to
+-- 'awaiting_finance' and advance the open step to the finance step, so it surfaces
+-- for anyone holding the commit permission. No specific assignee — Finance is a pool.
+-- $1 = instance id, $2 = finance step id.
 UPDATE workflow_instance
-   SET status = 'awaiting_finance', assignee_id = $2, updated_at = now()
+   SET status = 'awaiting_finance', current_step = $2, updated_at = now()
  WHERE id = $1;
 "
   |> pog.query
   |> pog.parameter(pog.text(arg_1))
-  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.text(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -105,14 +107,13 @@ pub type InstanceListForRow {
     kind: String,
     status: String,
     current_step: String,
-    owner_id: Int,
-    assignee_id: Option(Int),
   )
 }
 
-/// instance_list_for.sql — the open drafts a user can resume (#28): those they own
-/// or that currently await them, newest first. Committed/cancelled are excluded.
-/// $1 = account id.
+/// instance_list_for.sql — the open drafts a user can resume (#28): those they own,
+/// plus — when they can commit ($2) — every draft awaiting Finance (the shared queue).
+/// Newest first. Committed/cancelled are excluded.
+/// $1 = account id, $2 = whether the caller holds the commit permission.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -120,35 +121,29 @@ pub type InstanceListForRow {
 pub fn instance_list_for(
   db: pog.Connection,
   arg_1: Int,
+  arg_2: Bool,
 ) -> Result(pog.Returned(InstanceListForRow), pog.QueryError) {
   let decoder = {
     use id <- decode.field(0, decode.string)
     use kind <- decode.field(1, decode.string)
     use status <- decode.field(2, decode.string)
     use current_step <- decode.field(3, decode.string)
-    use owner_id <- decode.field(4, decode.int)
-    use assignee_id <- decode.field(5, decode.optional(decode.int))
-    decode.success(InstanceListForRow(
-      id:,
-      kind:,
-      status:,
-      current_step:,
-      owner_id:,
-      assignee_id:,
-    ))
+    decode.success(InstanceListForRow(id:, kind:, status:, current_step:))
   }
 
-  "-- instance_list_for.sql — the open drafts a user can resume (#28): those they own
--- or that currently await them, newest first. Committed/cancelled are excluded.
--- $1 = account id.
-SELECT id, kind, status, current_step, owner_id, assignee_id
+  "-- instance_list_for.sql — the open drafts a user can resume (#28): those they own,
+-- plus — when they can commit ($2) — every draft awaiting Finance (the shared queue).
+-- Newest first. Committed/cancelled are excluded.
+-- $1 = account id, $2 = whether the caller holds the commit permission.
+SELECT id, kind, status, current_step
   FROM workflow_instance
  WHERE status IN ('draft', 'awaiting_finance')
-   AND (owner_id = $1 OR assignee_id = $1)
+   AND (owner_id = $1 OR ($2 AND status = 'awaiting_finance'))
  ORDER BY updated_at DESC;
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.bool(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

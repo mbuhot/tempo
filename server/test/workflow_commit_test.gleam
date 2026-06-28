@@ -55,7 +55,7 @@ fn ready_to_commit(conn: pog.Connection, owner: Int) -> String {
   save(conn, id, "banking", "account_no", TextValue("00112233"))
   save(conn, id, "banking", "account_name", TextValue("A Okafor"))
   save(conn, id, "payroll", "payroll_confirmed", BoolValue(True))
-  let assert Ok(_) = instance.hand_off(conn, id, owner)
+  let assert Ok(_) = instance.hand_off(conn, id, "payroll")
   id
 }
 

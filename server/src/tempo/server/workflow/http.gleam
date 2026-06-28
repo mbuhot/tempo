@@ -2,14 +2,15 @@
 //// journaled commands — they autosave draft state — so they bypass the operations
 //// pipeline and write directly on the pooled connection, gated only by an
 //// authenticated principal. The final commit is a journaled command and goes
-//// through POST /api/operations instead. Owner/assignee scoping rides in the rows:
-//// reads resolve `assignee_is_me` for the caller, and the resume list is keyed to
-//// the caller's account.
+//// through POST /api/operations instead. Scoping rides in the rows: a draft belongs
+//// to its owner, and once it is awaiting Finance anyone holding the commit permission
+//// can see it (the shared queue) — `can_act` and the resume list reflect that.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http
 import gleam/json
 import gleam/option.{None, Some}
+import shared/access
 import shared/workflow/schema as wschema
 import shared/workflow/value.{type FieldValue}
 import shared/workflow/view
@@ -62,7 +63,9 @@ pub fn handle_instance(
 ) -> wisp.Response {
   use principal <- guard.authenticated(ctx)
   use <- wisp.require_method(req, http.Get)
-  case instance.draft_view(ctx.db, id, principal.account_id) {
+  case
+    instance.draft_view(ctx.db, id, principal.account_id, can_commit(principal))
+  {
     Ok(Some(draft)) -> response.json_response(view.encode_draft(draft))
     Ok(None) -> wisp.not_found()
     Error(error) -> error_response(error)
@@ -82,7 +85,8 @@ pub fn handle_action(
   case action {
     "field" -> save_field_action(req, ctx, id)
     "step" -> complete_step_action(req, ctx, id)
-    "handoff" -> hand_off_action(req, ctx, id)
+    "handoff" ->
+      void_response(instance.hand_off(ctx.db, id, flow.finance_step()))
     "cancel" -> void_response(instance.cancel(ctx.db, id))
     _ -> wisp.not_found()
   }
@@ -126,24 +130,17 @@ fn complete_step_action(
   }
 }
 
-fn hand_off_action(
-  req: wisp.Request,
-  ctx: Context,
-  id: String,
-) -> wisp.Response {
-  use body <- wisp.require_json(req)
-  case decode.run(body, assignee_decoder()) {
-    Ok(assignee_id) -> void_response(instance.hand_off(ctx.db, id, assignee_id))
-    Error(_) ->
-      response.error_response(400, "invalid_body", "expected {assignee_id}")
-  }
-}
-
 fn list_response(ctx: Context, principal: Principal) -> wisp.Response {
-  case instance.list_for(ctx.db, principal.account_id) {
+  case instance.list_for(ctx.db, principal.account_id, can_commit(principal)) {
     Ok(summaries) -> response.json_response(view.encode_summaries(summaries))
     Error(error) -> error_response(error)
   }
+}
+
+/// Whether the principal holds the onboarding commit permission — the gate for
+/// acting on a draft awaiting Finance.
+fn can_commit(principal: Principal) -> Bool {
+  auth.can(principal, access.engineer_onboard_commit)
 }
 
 fn start_response(
@@ -198,9 +195,4 @@ fn field_decoder() -> Decoder(#(String, String, FieldValue)) {
 fn next_step_decoder() -> Decoder(String) {
   use next_step <- decode.field("next_step", decode.string)
   decode.success(next_step)
-}
-
-fn assignee_decoder() -> Decoder(Int) {
-  use assignee_id <- decode.field("assignee_id", decode.int)
-  decode.success(assignee_id)
 }
