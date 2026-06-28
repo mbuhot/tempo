@@ -8,6 +8,7 @@ import gleam/json.{type Json}
 
 pub type WorkflowCommand {
   CommitOnboarding(instance_id: String)
+  CreateProject(instance_id: String)
 }
 
 pub fn encode(command: WorkflowCommand) -> Json {
@@ -15,6 +16,11 @@ pub fn encode(command: WorkflowCommand) -> Json {
     CommitOnboarding(instance_id:) ->
       json.object([
         #("op", json.string("commit_onboarding")),
+        #("instance_id", json.string(instance_id)),
+      ])
+    CreateProject(instance_id:) ->
+      json.object([
+        #("op", json.string("create_project")),
         #("instance_id", json.string(instance_id)),
       ])
   }
@@ -26,6 +32,11 @@ pub fn decoder(op: String) -> Result(Decoder(WorkflowCommand), Nil) {
       Ok({
         use instance_id <- decode.field("instance_id", decode.string)
         decode.success(CommitOnboarding(instance_id:))
+      })
+    "create_project" ->
+      Ok({
+        use instance_id <- decode.field("instance_id", decode.string)
+        decode.success(CreateProject(instance_id:))
       })
     _ -> Error(Nil)
   }

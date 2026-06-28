@@ -13,7 +13,9 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{WorkflowCommand} as gateway
-import shared/workflow/command.{type WorkflowCommand, CommitOnboarding}
+import shared/workflow/command.{
+  type WorkflowCommand, CommitOnboarding, CreateProject,
+}
 import shared/workflow/value.{type FieldValue, BoolValue, DateValue, TextValue}
 import tempo/server/fact.{
   type EngineerId, type Recorded, EngineerAtLevel, EngineerBankingDetails,
@@ -34,6 +36,7 @@ pub fn route(
   case command {
     CommitOnboarding(instance_id:) ->
       commit_onboarding(conn, command, instance_id)
+    CreateProject(..) -> Error(InvalidValue)
   }
 }
 

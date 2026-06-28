@@ -117,6 +117,8 @@ fn command_tag(command: Command) -> String {
     PayrollCommand(_) -> "run_payroll"
     RoleCommand(role_command.GrantUserRole(..)) -> "grant_user_role"
     RoleCommand(role_command.RevokeUserRole(..)) -> "revoke_user_role"
-    WorkflowCommand(workflow_command.CommitOnboarding(..)) -> "commit_onboarding"
+    WorkflowCommand(workflow_command.CommitOnboarding(..)) ->
+      "commit_onboarding"
+    WorkflowCommand(workflow_command.CreateProject(..)) -> "create_project"
   }
 }

@@ -48,6 +48,7 @@ pub type CommandKey {
   RunPayroll
   ManageRoles
   ConfirmOnboarding
+  ConfirmProjectCreate
 }
 
 /// What a key requires: a single permission (`Direct`), or — for the ownership-sensitive
@@ -78,6 +79,7 @@ pub fn requirement(key: CommandKey) -> Requirement {
     RunPayroll -> Direct(access.payroll_run)
     ManageRoles -> Direct(access.roles_manage)
     ConfirmOnboarding -> Direct(access.engineer_onboard_commit)
+    ConfirmProjectCreate -> Direct(access.project_create_confirm)
   }
 }
 
@@ -102,6 +104,7 @@ pub fn key(command: Command) -> CommandKey {
     PayrollCommand(_) -> RunPayroll
     RoleCommand(_) -> ManageRoles
     WorkflowCommand(workflow_command.CommitOnboarding(..)) -> ConfirmOnboarding
+    WorkflowCommand(workflow_command.CreateProject(..)) -> ConfirmProjectCreate
   }
 }
 
