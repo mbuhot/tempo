@@ -94,7 +94,8 @@ fn control(
     PersonField -> text_control(step_id, field, current, "number", on_event)
     MoneyField -> text_control(step_id, field, current, "text", on_event)
     DateField -> text_control(step_id, field, current, "date", on_event)
-    EnumField(options:) -> select_control(step_id, field, current, options, on_event)
+    EnumField(options:) ->
+      select_control(step_id, field, current, options, on_event)
     BoolField -> checkbox_control(step_id, field, current, on_event)
   }
 }
@@ -111,7 +112,7 @@ fn text_control(
     attribute.attribute("aria-label", field.label),
     attribute.value(current),
     event.on_input(fn(value) { on_event(Edited(step_id, field.key, value)) }),
-    on_blur(on_event(Committed(step_id, field.key, current))),
+    commit_on_blur(step_id, field.key, on_event),
   ])
 }
 
@@ -127,7 +128,10 @@ fn select_control(
   let choices =
     list.map(options, fn(choice) {
       html.option(
-        [attribute.value(choice.value), attribute.selected(choice.value == current)],
+        [
+          attribute.value(choice.value),
+          attribute.selected(choice.value == current),
+        ],
         choice.label,
       )
     })
@@ -165,6 +169,17 @@ fn bool_to_string(checked: Bool) -> String {
   }
 }
 
-fn on_blur(msg: msg) -> attribute.Attribute(msg) {
-  event.on("blur", decode.success(msg))
+/// Commit on blur, reading the field's LIVE value from the event target (not a value
+/// captured at render time — that would persist a stale value, since the handler is
+/// built once per render).
+fn commit_on_blur(
+  step_id: String,
+  field_key: String,
+  on_event: fn(FieldEvent) -> msg,
+) -> attribute.Attribute(msg) {
+  event.on(
+    "blur",
+    decode.at(["target", "value"], decode.string)
+      |> decode.map(fn(value) { on_event(Committed(step_id, field_key, value)) }),
+  )
 }
