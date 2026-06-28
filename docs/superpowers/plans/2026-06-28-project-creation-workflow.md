@@ -4,7 +4,7 @@
 
 **Goal:** Add a second fixed-structure workflow — *Create a project* — reusing the onboarding-era workflow engine, introducing a `kind → schema` registry seam and a repeating-group schema feature.
 
-**Architecture:** The DB tables, SQL, instance lifecycle, wire types, and client wizard are already generic. A new `workflow/registry` module maps `kind → WorkflowSchema` and derives first/finance/title/step-ids/commit-gate from the schema, so `http`/`instance` stop naming a specific workflow. The project schema is built server-side (it needs DB-sourced client choices). Commit routing stays per-kind. Repeating groups are added to the schema/value/render/wizard layer last, since they don't fit the scalar edit model.
+**Architecture:** The DB tables, SQL, instance lifecycle, wire types, and client wizard are already generic. A new `workflow/registry` module maps `kind → WorkflowSchema` and derives first/finance/title/step-ids/commit-gate from the schema, so `http`/`instance` stop naming a specific workflow. The project schema is built server-side (it needs DB-sourced client choices). Commit routing stays per-kind. Phase B.5 then moves draft persistence from per-field to **per-step** (one JSON document per step), aligning storage with the wizard's step navigation; on that base a repeating group is simply a field whose value is a list of rows nested in the step document (Phase C).
 
 **Tech Stack:** Gleam (Erlang server, JS Lustre client, shared wire package), Postgres temporal model, squirrel codegen, Playwright e2e.
 
@@ -432,72 +432,76 @@ wizard stays generic; the **host** fetches and renders the panel into a generic 
 
 ---
 
-# Phase C — Repeating-group engine feature + team-requirements step
+# Phase B.5 — Per-step persistence (refactor; both workflows)
 
-This is the invasive part: groups don't fit the scalar `Dict(String,String)` edit / `parse`(String→FieldValue) / undo model. Groups save their whole value at once; scalar fields keep fine-grained blur-save + undo.
+**Why:** the per-field storage/edit model is what made repeating groups invasive — a list cannot be a scalar `(step, field)` row, and `parse: String → FieldValue` / a flat `Dict(field, String)` edit buffer cannot express rows. Moving the unit of persistence to the **step** (one JSON document per step, holding all its fields) matches the wizard's step-based navigation and lets a group be a nested array in that document. After this, a group is "a field whose value is a list", not an exception to the storage model.
 
-### Task C1: Schema `GroupField`
+**No migration burden:** draft data is seed-driven and wipeable, so the table is recreated, not migrated. **Safety net:** onboarding and project-creation e2e (both green today) must both pass after this refactor — that is the gate proving no regression.
 
-**Files:**
-- Modify: `shared/src/shared/workflow/schema.gleam`
-- Test: `shared/test/workflow_schema_codec_test.gleam` (round-trip a schema containing a group)
+### Task P1: Convert persistence from per-field to per-step (atomic refactor, scalars only)
 
-**Interfaces:**
-- Add to `FieldType`: `GroupField(item_fields: List(Field), add_label: String)`.
-- `field_type_to_string(GroupField(..)) -> "group"`.
-- `encode_field_type`: a `GroupField(item_fields:, add_label:)` arm emitting `{type:"group", item_fields:[...], add_label:".."}` (item fields encoded with `encode_field`).
-- `field_type_decoder`: `"group"` arm decoding `item_fields` (list of `field_decoder()`) + `add_label`.
-
-- [ ] **Step 1:** Write the codec round-trip test for a schema with a group field.
-- [ ] **Step 2:** Add the variant + encode/decode + `field_type_to_string`. **Clean build** — exhaustive `case`s in `value.gleam`, `render.gleam` now fail; that's expected and handled in C2/C3.
-- [ ] **Step 3:** `gleam test` (shared). Commit `"Add GroupField to the workflow schema vocabulary"`.
-
-### Task C2: Value `RowsValue`
+This is a connected change across the persistence stack; it lands as one task, green at the end, with NO new field types (groups come in Phase C). If it proves too large, report BLOCKED and it will be split (server-half behind a temporary wire shim, then client-half).
 
 **Files:**
-- Modify: `shared/src/shared/workflow/value.gleam`
-- Test: `shared/test/workflow_value_codec_test.gleam`
+- Create: `server/priv/migrations/<ts>_workflow_step_per_step.sql` — DROP the existing `workflow_step_value`, recreate WITHOUT `field_key`: columns `(instance_id uuid, step_id text, value jsonb, recorded_during tstzrange)`, PK `(instance_id, step_id, recorded_during WITHOUT OVERLAPS) DEFERRABLE INITIALLY IMMEDIATE`, FK + `btree_gist` exactly as the original `20260628120000_workflow_onboarding.sql` (read it for exact types/FK/index).
+- Modify: `server/src/tempo/server/workflow/sql/step_value_set.sql` — upsert keyed by `(instance_id, step_id)` only; `value` is the whole step document; keep the FOR PORTION OF + `changed` no-op-when-unchanged CTE (now comparing the step document).
+- Modify: `server/src/tempo/server/workflow/sql/step_values_current.sql` — `SELECT step_id, value FROM ... WHERE instance_id = $1 AND upper_inf(recorded_during)` (one row per step). `bin/squirrel` to regen.
+- Modify: `shared/src/shared/workflow/value.gleam` — add step-document codec helpers: `encode_step(values: Dict(String, FieldValue)) -> Json` (a JSON object `{field_key: encode(FieldValue)}`) and `step_decoder() -> Decoder(Dict(String, FieldValue))` (`decode.dict(decode.string, decoder())`). The `FieldValue` union is UNCHANGED in P1.
+- Modify: `shared/src/shared/workflow/view.gleam` — `DraftView.values` changes from `Dict(String, FieldValue)` (flat "step.field") to `Dict(String, Dict(String, FieldValue))` (step_id → field_key → value); update `encode_draft`/`draft decoder` to nest (object of step → step-document).
+- Modify: `server/src/tempo/server/workflow/instance.gleam`:
+  - replace `save_field(conn, instance, step, field, value: Json)` with `save_step(conn, instance, step, values: Dict(String, FieldValue))` — encode via `value.encode_step` and upsert the step row.
+  - `current_values(conn, instance) -> Dict(String, Dict(String, FieldValue))` — parse each step row's `value` via `value.step_decoder()` into a `Dict(field, FieldValue)`, keyed by step_id.
+  - `draft_view` carries the nested values.
+- Modify: `server/src/tempo/server/workflow/http.gleam` — replace the `"field"` action with a `"values"` action: body `{step: String, values: <object of field → FieldValue>}` decoded with `value.step_decoder()`, calling `instance.save_step`. Keep `"step"` (advance), `"handoff"`, `"cancel"`.
+- Modify: `client/src/client/workflow/api.gleam` (`wapi`) — replace `save_field` with `save_step(instance, step, values: Dict(String, FieldValue), msg)` POSTing to `/values`.
+- Modify: `client/src/client/workflow/wizard.gleam`:
+  - `Model.draft.values` is now nested. `display_map(step)` reads `draft.values[step][field] |> to_input`, merged over the `edits` buffer (unchanged buffer type `Dict(field, String)`).
+  - on a scalar `Committed(step, field, raw)`: parse to a `FieldValue`, set it in the step's working `Dict(field, FieldValue)` (saved values for the step, overlaid with the new field), and `wapi.save_step(instance, step, updated_step_values, Saved)` (replaces the per-field save). The no-op-when-unchanged guard stays (compare against the saved value).
+  - undo/redo: operate on the step's working values dict (restore a field's prior `FieldValue`) then `save_step`.
+- Modify: `server/src/tempo/server/workflow/commit.gleam` — `current_values` is now nested. Add `field_at(values, step, field) -> Option(FieldValue)`; rewrite the helpers `text`/`optional`/`date`/`money_of`/`level_of`/`require_confirmed`/`require_project_confirmed` to take `(values, step, field)` (look up `values[step][field]`) instead of a flat `"step.field"` key. Both `commit_onboarding` and `create_project` call sites update mechanically.
+- Re-verify: `server/test/*` (the workflow commit/instance tests reshape to the nested values); BOTH e2e specs.
 
-**Interfaces:**
-- Add `RowsValue(rows: List(List(#(String, FieldValue))))` to `FieldValue`.
-- `tag(RowsValue) -> "rows"`; `encode_raw` emits a JSON array of objects (each row → object of `item_key → encode(child_value)`); decoder `"rows"` arm decodes it back.
-- `parse(GroupField(..), _) -> Error(Nil)` — groups never come through the scalar parse path (documented).
-- `to_input(RowsValue(..)) -> ""` — groups don't render through `to_input` (documented).
+- [ ] **Step 1:** Migration + the two SQL files + `bin/squirrel`; `bin/migrate` + `bin/seed` clean.
+- [ ] **Step 2:** Shared: step-document codec helpers + `DraftView.values` nesting + codec. Clean build shared.
+- [ ] **Step 3:** Server: `instance.save_step`/`current_values`, `http` `"values"` action, `commit.gleam` nested helpers. Update server tests to the nested shape. `cd server && gleam build && gleam test`.
+- [ ] **Step 4:** Client: `wapi.save_step`, wizard edit/save/undo on the step working dict, nested `display_map`. `cd client && gleam clean && gleam build && cd .. && ./bin/build`.
+- [ ] **Step 5:** Warm-server harness (see Task B7): reseed demo, restart server, run BOTH `onboarding.spec.js` and `project-creation.spec.js` — both GREEN.
+- [ ] **Step 6:** Commit `"Persist workflow drafts per step (one JSON document per step) instead of per field"`.
 
-- [ ] **Step 1:** Round-trip test for `RowsValue` with two rows.
-- [ ] **Step 2:** Implement variant + tag + encode/decode + the `parse`/`to_input` guard arms. **Clean build.**
-- [ ] **Step 3:** `gleam test`. Commit `"Add RowsValue for repeating-group field values"`.
+---
 
-### Task C3: Render group control + wizard group handling
+# Phase C — Repeating groups + team-requirements step
+
+On the per-step base, a group is just a field whose value is a list of rows, stored inside the step's document. No flat-key gymnastics.
+
+### Task C1: Group field type, value, render, and wizard handling
 
 **Files:**
-- Modify: `client/src/client/workflow/render.gleam` (group control: existing rows + per-row remove + "+ Add" button; raises new events)
-- Modify: `client/src/client/workflow/wizard.gleam` (handle group add/remove/edit by saving the whole `RowsValue` immediately; groups excluded from `display_map`/undo)
-- Modify: `client/styles/wizard.scss` (`.wizard__group` row layout)
+- Modify: `shared/src/shared/workflow/schema.gleam` — add `GroupField(item_fields: List(Field), add_label: String)` to `FieldType`; `field_type_to_string(GroupField(..)) -> "group"`; `encode_field_type` arm `{type:"group", item_fields:[…encode_field…], add_label:"…"}`; `field_type_decoder` `"group"` arm.
+- Modify: `shared/src/shared/workflow/value.gleam` — add `RowsValue(List(Dict(String, FieldValue)))` to `FieldValue`; `tag -> "rows"`; `encode_raw` emits a JSON array of row objects (each row encoded via `encode_step`); decoder `"rows"` arm (list of `step_decoder()`); `parse(of: GroupField(..), _) -> Error(Nil)` (a group is never parsed from one input string — documented); `to_input(RowsValue(..)) -> ""` (documented).
+- Modify: `client/src/client/workflow/render.gleam` — `GroupField` arm: render each existing row's `item_fields` (reuse the scalar `control` per child, sourcing each child's display from that row's values), a per-row remove button, and an "+ Add" button (`add_label`). Group child interactions raise new `FieldEvent`s: `RowAdded(step, field)`, `RowRemoved(step, field, index)`, `RowFieldEdited(step, field, index, item_key, raw)`.
+- Modify: `client/src/client/workflow/wizard.gleam` — handle the three group events by computing the group's new `RowsValue` from the step's working values, then `save_step` the whole step (the per-step model makes this one path — no special save). Groups are excluded from the scalar `display_map`/`commit_field` (the render reads group rows directly from `draft.values[step][field]`).
+- Modify: `client/styles/wizard.scss` — `.wizard__group` row layout (rows + remove + add button).
+- Test: `shared/test/workflow_value_codec_test.gleam` + `workflow_schema_codec_test.gleam` — round-trip a `GroupField` schema and a `RowsValue` (two rows) inside a step document.
 
-**Interfaces (render → wizard events):** extend `FieldEvent` with:
-- `RowAdded(step, field)`
-- `RowRemoved(step, field, index)`
-- `RowFieldEdited(step, field, index, item_key, raw)`
+- [ ] **Step 1:** Round-trip tests (schema with a group; a step document whose value contains a `RowsValue` of two rows). Confirm RED.
+- [ ] **Step 2:** Add `GroupField` + `RowsValue` + codecs + `parse`/`to_input` guards. **Clean build** (shared, then server, then client — exhaustive `case`s over `FieldType`/`FieldValue` must all gain arms).
+- [ ] **Step 3:** Render the group control + wizard event handling (`save_step` on add/remove/row-edit). `./bin/build`.
+- [ ] **Step 4:** `gleam test` (shared) GREEN; clean build all packages. Commit `"Add repeating-group fields (GroupField + RowsValue) rendered and persisted per step"`.
 
-Wizard maintains group state from `draft.values` (the saved `RowsValue`), applies the edit, and calls `wapi.save_field(instance, step, field, RowsValue(updated), Saved)` immediately. Scalar `Edited`/`Committed` paths are unchanged.
-
-- [ ] **Step 1:** Render: add the `GroupField` arm to `control`/`field_view`. A group renders each row's item-fields inline (reuse `control` for each scalar child, sourcing each child's display from the saved row, not the flat `display` dict), a remove button per row, and an add button. Group child controls commit through `RowFieldEdited`.
-- [ ] **Step 2:** Wizard: add `FieldChanged` arms for `RowAdded`/`RowRemoved`/`RowFieldEdited`, each computing the new `RowsValue` from `model.draft` and saving it whole. Exclude group keys from `display_map` and `commit_field`.
-- [ ] **Step 3:** `bin/build`; manual smoke against a temporary schema with a group. Commit `"Render and persist repeating-group fields in the wizard"`.
-
-### Task C4: Add the team-requirements step + commit ProjectRequirement facts
+### Task C2: Team-requirements step + ProjectRequirement facts + e2e
 
 **Files:**
-- Modify: `server/src/tempo/server/workflow/project_schema.gleam` (insert `team` step after `timeframe`: one section with a `requirements` `GroupField` of `level` (EnumField level options) + `quantity` (IntField), `add_label: "+ Add requirement"`)
-- Modify: `server/src/tempo/server/workflow/commit.gleam` (`create_project`: read the `team.requirements` `RowsValue`, emit `ProjectRequirement(project_id, level, quantity, from: start, to: end)` per row)
-- Modify: `server/test/workflow_project_schema_test.gleam` (step ids now include `team`)
-- Modify: `e2e/project-creation.spec.js` (fill 2 requirement rows)
+- Modify: `server/src/tempo/server/workflow/project_schema.gleam` — insert a `team` step (title "Team requirements") AFTER `timeframe`, one section with a single `GroupField` field `requirements` whose `item_fields` are `level` (`EnumField` over the level options — reuse the level-band choices, mirror onboarding's `level_options()`) and `quantity` (`IntField`), `add_label: "+ Add requirement"`.
+- Modify: `server/src/tempo/server/workflow/commit.gleam` — in `create_project`, read the `team`/`requirements` `RowsValue` via a `rows_of(values, step, field) -> List(Dict(String, FieldValue))` helper; per row emit `ProjectRequirement(project_id, level, quantity, from: start, to: end)`; skip rows missing a level or with quantity 0.
+- Modify: `server/test/workflow_project_schema_test.gleam` — step ids become `["client","description","timeframe","team","contract","confirm"]`.
+- Modify: `server/test/workflow_project_commit_test.gleam` — add requirement rows to the draft; assert `ProjectRequirement` facts are emitted with the right level/quantity.
+- Modify: `e2e/project-creation.spec.js` — on the new Team step, add two requirement rows (level + quantity) before continuing.
 
-- [ ] **Step 1:** Update the schema-test expected step ids to `["client","description","timeframe","team","contract","confirm"]`; run, confirm fail.
+- [ ] **Step 1:** Update the schema-test expected step ids (now includes `team`); confirm RED.
 - [ ] **Step 2:** Add the `team` step to the schema.
-- [ ] **Step 3:** Add a `rows_of(values, key)` helper in commit (returns `List(List(#(String,FieldValue)))` from a `RowsValue`), map each row to a `ProjectRequirement` fact (skip rows with quantity 0 or missing level). **Clean build**; `gleam test`.
-- [ ] **Step 4:** Extend the e2e to add requirement rows and assert the project's team requirements appear on the project detail. Run e2e green.
+- [ ] **Step 3:** `rows_of` helper + per-row `ProjectRequirement` emission; add the commit-test assertions. **Clean build**; `gleam test` GREEN.
+- [ ] **Step 4:** Extend the e2e to fill two requirement rows; warm-server run BOTH e2e GREEN.
 - [ ] **Step 5:** Commit `"Collect team requirements as a repeating group and record ProjectRequirement facts"`.
 
 ---
@@ -512,13 +516,14 @@ Wizard maintains group state from `draft.values` (the saved `RowsValue`), applie
 - Steps 1,2,3,5,6 + DB client choices → B4, B5 ✓
 - Host on Projects page + draft rows → B6 ✓
 - Derived read-only rate card → Task B6b: host-rendered, date-driven panel in a generic wizard `aside` slot. The wizard stays workflow-agnostic; the Projects host fetches `GET /api/projects/rate-card?as_of=<contract_from>` and renders the panel. ✓
-- Repeating group (team) → Phase C ✓
+- Per-step persistence refactor → Phase B.5 / Task P1 (gated by both e2e) ✓
+- Repeating group (team) → Phase C (C1 engine on per-step base, C2 team step) ✓
 - Admin-only confirmation gates commit → B2 policy + B4 gated step ✓
-- e2e → B7, C4 ✓
+- e2e → B7, C2 ✓
 
 **Placeholder scan:** No "TBD"/"handle errors" left. The one place needing a codebase check during execution is whether a rates read model/endpoint already exists to reuse (Task B6b) — noted inline.
 
-**Type consistency:** `RowsValue(rows: List(List(#(String, FieldValue))))`, `GroupField(item_fields, add_label)`, `CreateProject(instance_id)`, `project_create_confirm`, `create_project` kind — used consistently across tasks.
+**Type consistency:** `RowsValue(List(Dict(String, FieldValue)))`, `GroupField(item_fields, add_label)`, step document = `Dict(String, FieldValue)`, `DraftView.values: Dict(String, Dict(String, FieldValue))`, `CreateProject(instance_id)`, `project_create_confirm`, `create_project` kind — used consistently across tasks.
 
 ## Known deferrals (Phase 2 / issues)
 - Per-contract negotiated rates → GitHub #31 (until then the rate card is read-only/derived).
