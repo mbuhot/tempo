@@ -169,11 +169,11 @@ fn project_draft_rows(
 
 const project_drafts_sql = "
 SELECT i.id,
-       coalesce(v.value #>> '{value}', ''),
+       coalesce(v.value #>> '{title,value}', ''),
        i.status
   FROM workflow_instance i
   LEFT JOIN workflow_step_value v
-    ON v.instance_id = i.id AND v.step_id = 'description' AND v.field_key = 'title'
+    ON v.instance_id = i.id AND v.step_id = 'description'
        AND upper_inf(v.recorded_during)
  WHERE i.kind = 'create_project' AND i.status IN ('draft', 'awaiting_finance')
  ORDER BY i.created_at
