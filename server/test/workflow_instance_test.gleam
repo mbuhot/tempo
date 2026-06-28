@@ -54,6 +54,54 @@ pub fn save_then_draft_view_shows_value_test() {
   assert draft.can_act == True
 }
 
+/// Every version (open + closed) recorded for a field.
+fn version_count(
+  conn: pog.Connection,
+  instance_id: String,
+  field_key: String,
+) -> Int {
+  let decoder = {
+    use count <- decode.field(0, decode.int)
+    decode.success(count)
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "SELECT count(*)::int FROM workflow_step_value
+        WHERE instance_id = $1 AND field_key = $2",
+    )
+    |> pog.parameter(pog.text(instance_id))
+    |> pog.parameter(pog.text(field_key))
+    |> pog.returning(decoder)
+    |> pog.execute(conn)
+  let assert [count] = returned.rows
+  count
+}
+
+pub fn unchanged_value_records_no_new_version_test() {
+  use conn <- rolling_back
+  let #(owner, _) = two_account_ids(conn)
+  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+
+  let assert Ok(_) =
+    instance.save_field(
+      conn,
+      id,
+      "identity",
+      "full_name",
+      value.encode(TextValue("Aisha")),
+    )
+  let assert Ok(_) =
+    instance.save_field(
+      conn,
+      id,
+      "identity",
+      "full_name",
+      value.encode(TextValue("Aisha")),
+    )
+
+  assert version_count(conn, id, "full_name") == 1
+}
+
 pub fn latest_value_wins_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)

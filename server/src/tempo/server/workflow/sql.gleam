@@ -247,34 +247,74 @@ RETURNING id;
   |> pog.execute(db)
 }
 
-/// step_value_insert.sql — append one transaction-time field value (#28). Each save
-/// inserts a new row stamped at clock_timestamp(); the latest row per field is the
-/// current value, and the history backs undo/redo.
+/// step_value_set.sql — record a new transaction-time version of a field, IFF its
+/// value changed (#28). A no-op when the incoming value equals the current open
+/// version, so tabbing through a field, or an undo/redo that lands on the current
+/// value, records nothing.
+///
+/// `FOR PORTION OF ... FROM now() TO NULL` carves the open slice off, leaving the
+/// prior value as the closed history span [lower, now); the INSERT opens the new span
+/// from the same now(). now() is the transaction timestamp — every row a transaction
+/// writes shares it, so the carve and insert meet exactly (contiguous, no overlap).
+/// Each field save is its own request/transaction, so successive saves get distinct
+/// instants and history accrues. (clock_timestamp() would give sub-statement instants
+/// but is volatile, which FOR PORTION OF bounds forbid.) The portion-carve is the same
+/// pattern the other temporal upserts use; a plain range UPDATE can't close-and-open
+/// in one statement, as the INSERT would still see the original open span and overlap
+/// it. jsonb equality is semantic, so key order in the encoded value never matters.
 /// $1 = instance id, $2 = step id, $3 = field key, $4 = value (json text).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn step_value_insert(
+pub fn step_value_set(
   db: pog.Connection,
-  arg_1: String,
-  arg_2: String,
-  arg_3: String,
+  instance_id: String,
+  step_id: String,
+  field_key: String,
   arg_4: Json,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- step_value_insert.sql — append one transaction-time field value (#28). Each save
--- inserts a new row stamped at clock_timestamp(); the latest row per field is the
--- current value, and the history backs undo/redo.
+  "-- step_value_set.sql — record a new transaction-time version of a field, IFF its
+-- value changed (#28). A no-op when the incoming value equals the current open
+-- version, so tabbing through a field, or an undo/redo that lands on the current
+-- value, records nothing.
+--
+-- `FOR PORTION OF ... FROM now() TO NULL` carves the open slice off, leaving the
+-- prior value as the closed history span [lower, now); the INSERT opens the new span
+-- from the same now(). now() is the transaction timestamp — every row a transaction
+-- writes shares it, so the carve and insert meet exactly (contiguous, no overlap).
+-- Each field save is its own request/transaction, so successive saves get distinct
+-- instants and history accrues. (clock_timestamp() would give sub-statement instants
+-- but is volatile, which FOR PORTION OF bounds forbid.) The portion-carve is the same
+-- pattern the other temporal upserts use; a plain range UPDATE can't close-and-open
+-- in one statement, as the INSERT would still see the original open span and overlap
+-- it. jsonb equality is semantic, so key order in the encoded value never matters.
 -- $1 = instance id, $2 = step id, $3 = field key, $4 = value (json text).
-INSERT INTO workflow_step_value (instance_id, step_id, field_key, value)
-VALUES ($1, $2, $3, $4::jsonb);
+WITH changed AS (
+  SELECT 1
+   WHERE NOT EXISTS (
+     SELECT 1 FROM workflow_step_value
+      WHERE instance_id = $1 AND step_id = $2 AND field_key = $3
+        AND upper_inf(recorded_during) AND value = $4::jsonb
+   )
+),
+carved AS (
+  DELETE FROM workflow_step_value
+    FOR PORTION OF recorded_during FROM now() TO NULL
+   WHERE instance_id = $1 AND step_id = $2 AND field_key = $3
+     AND upper_inf(recorded_during)
+     AND EXISTS (SELECT 1 FROM changed)
+)
+INSERT INTO workflow_step_value (instance_id, step_id, field_key, value, recorded_during)
+SELECT $1, $2, $3, $4::jsonb, tstzrange(now(), NULL, '[)')
+ WHERE EXISTS (SELECT 1 FROM changed);
 "
   |> pog.query
-  |> pog.parameter(pog.text(arg_1))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(instance_id))
+  |> pog.parameter(pog.text(step_id))
+  |> pog.parameter(pog.text(field_key))
   |> pog.parameter(pog.text(json.to_string(arg_4)))
   |> pog.returning(decoder)
   |> pog.execute(db)
@@ -291,7 +331,8 @@ pub type StepValuesCurrentRow {
 }
 
 /// step_values_current.sql — the current value of every field in a draft (#28): the
-/// latest transaction-time row per field key, value rendered to text for the boundary.
+/// open (unbounded-upper) version per field, value rendered to text for the boundary.
+/// The WITHOUT OVERLAPS PK guarantees exactly one open span per (step, field).
 /// $1 = instance id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
@@ -309,12 +350,13 @@ pub fn step_values_current(
   }
 
   "-- step_values_current.sql — the current value of every field in a draft (#28): the
--- latest transaction-time row per field key, value rendered to text for the boundary.
+-- open (unbounded-upper) version per field, value rendered to text for the boundary.
+-- The WITHOUT OVERLAPS PK guarantees exactly one open span per (step, field).
 -- $1 = instance id.
-SELECT DISTINCT ON (field_key) step_id, field_key, value::text
+SELECT step_id, field_key, value::text
   FROM workflow_step_value
- WHERE instance_id = $1
- ORDER BY field_key, recorded_at DESC, id DESC;
+ WHERE instance_id = $1 AND upper_inf(recorded_during)
+ ORDER BY step_id, field_key;
 "
   |> pog.query
   |> pog.parameter(pog.text(instance_id))

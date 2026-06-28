@@ -75,8 +75,8 @@ pub fn start(
   Ok(row.id)
 }
 
-/// Append one field value (a self-describing `FieldValue` JSON) to the draft. Each
-/// call is a new transaction-time version; the latest wins.
+/// Record a field value (a self-describing `FieldValue` JSON). Supersedes the current
+/// open transaction-time version; a value equal to the current one writes nothing.
 pub fn save_field(
   conn: pog.Connection,
   instance_id instance_id: String,
@@ -84,7 +84,7 @@ pub fn save_field(
   field_key field_key: String,
   value value: Json,
 ) -> Result(Nil, OperationError) {
-  sql.step_value_insert(conn, instance_id, step_id, field_key, value)
+  sql.step_value_set(conn, instance_id, step_id, field_key, value)
   |> operation.run
 }
 
