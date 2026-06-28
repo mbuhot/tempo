@@ -40,6 +40,7 @@ fn account_id(conn: pog.Connection) -> Int {
 fn save(conn, id, step, field, field_value) {
   let assert Ok(_) =
     instance.save_field(conn, id, step, field, value.encode(field_value))
+  Nil
 }
 
 /// Start an onboarding draft, fill every required field, confirm payroll, and hand

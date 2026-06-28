@@ -40,6 +40,7 @@ import tempo/server/web/logout
 import tempo/server/web/me
 import tempo/server/web/operations
 import tempo/server/web/session
+import tempo/server/workflow/http as workflow_http
 import wisp
 
 /// Top-level request handler: wrap every request in the standard Wisp middleware,
@@ -79,6 +80,17 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     // POST /api/operations authenticates (the guard) then authorizes per command in
     // the domain dispatch.
     ["api", "operations"] -> operations.handle(request, context)
+    // Workflow drafts: un-journaled autosave reads/writes (the handlers self-guard
+    // on an authenticated principal). The commit is a journaled command via
+    // /api/operations, NOT here. The literal `schema` arm precedes the generic
+    // `:id/:action` so it is matched first.
+    ["api", "workflows"] -> workflow_http.handle_collection(request, context)
+    ["api", "workflows", "schema", kind] ->
+      workflow_http.handle_schema(request, context, kind)
+    ["api", "workflows", id] ->
+      workflow_http.handle_instance(request, context, id)
+    ["api", "workflows", id, action] ->
+      workflow_http.handle_action(request, context, id, action)
     // GET /api/me — the authenticated identity + effective permissions (boot-restore).
     ["api", "me"] -> {
       use principal <- guard.authenticated(context)
