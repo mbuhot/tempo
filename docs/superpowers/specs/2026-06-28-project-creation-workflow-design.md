@@ -83,16 +83,25 @@ schema branching.
 | 2 | Description | `title` (text), `summary` (text) | `ProjectProfile(project_id, title, summary, from)` |
 | 3 | Timeframe & budget | `start` (date), `end` (date), `budget` (money), `target_completion` (date) | `ProjectPlan(project_id, budget, target_completion, from)`; dates feed contract/run |
 | 4 | Team requirements | repeating group: `level` (enum), `quantity` (int) | `ProjectRequirement(project_id, level, quantity, from, to)` per row |
-| 5 | Contract & rate card | `contract_from` (date), `contract_to` (date), repeating rate-card group: `level` (enum), `day_rate` (money) | `ContractTerms(contract_id, client, from, to)`, `ProjectRun(project_id, contract_id, from, to)`, `RateCard(level, day_rate, contract_from, None)` per row |
+| 5 | Contract date | `contract_from` (date), `contract_to` (date) + a **read-only** display of the resolved rate card | `ContractTerms(contract_id, client, from, to)`, `ProjectRun(project_id, contract_id, from, to)` |
 | 6 | Confirmation | `confirmed` (bool) — gated `project.create.confirm` | gates the commit |
 
 Commit order honours containment: create client (if new) → `ClientProfile`; create contract
 → `ContractTerms`; create project → `ProjectRun`, `ProjectProfile`, `ProjectPlan`,
-`ProjectRequirement`×, `RateCard`×.
+`ProjectRequirement`×.
 
-**Open question for review:** `RateCard` is a *global* per-level fact, so writing it here
-revises firm-wide day rates from the contract start. Acceptable for the exercise; flag if
-the rate card should instead be project-scoped (no such fact today) or dropped from the flow.
+### Rate card is derived, not entered
+
+`rate_card` is firm-wide and temporal (`PK (level, effective_during WITHOUT OVERLAPS)`), with
+no contract dimension. Billing freezes each line to `rate_card[level]` as of
+`lower(contract.term)` — the contract date — see `invoice_billing_lines.sql`. So a project is
+linked to its rates **through the contract date**: that date selects the rate-card version the
+contract bills at.
+
+Step 5 therefore **displays** the resolved rates read-only (a `rate_card`-as-of-`contract_from`
+read) so the admin can confirm them; it writes no `RateCard` facts. Per-contract *negotiated*
+rates are not expressible today (tracked in GitHub #31) — the read-only display becomes
+editable once that lands.
 
 ## Permission
 
@@ -115,4 +124,4 @@ fold it, deferred).
 - Undo/redo for repeating-group rows
 - True conditional/branching fields
 - A shared `WorkflowHost` component to dedupe the two page hosts
-- Project-scoped rate cards
+- Per-contract negotiated rates (GitHub #31) — until then step 5's rate card is read-only
