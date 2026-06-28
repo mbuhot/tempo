@@ -214,3 +214,56 @@
     color: var(--color-text);
     cursor: pointer;
 }
+
+/* --- group field: repeating rows of item fields with per-row remove and a trailing
+ * add button --- */
+.wizard__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wizard__group-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.wizard__group-row .op-form__field {
+    flex: 1 1 10rem;
+}
+
+.wizard__group-remove {
+    flex: none;
+    align-self: flex-end;
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    background: none;
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--ease), border-color var(--ease);
+}
+
+.wizard__group-remove:hover {
+    color: var(--color-danger);
+    border-color: var(--color-danger);
+}
+
+.wizard__group-add {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--text-sm);
+    color: var(--color-accent);
+    background: none;
+    border: var(--border-thin) solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--ease), color var(--ease);
+}
+
+.wizard__group-add:hover {
+    background: var(--color-accent-soft);
+}

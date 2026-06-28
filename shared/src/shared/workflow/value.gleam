@@ -13,8 +13,8 @@ import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
 import shared/wire
 import shared/workflow/schema.{
-  type FieldType, BoolField, DateField, EmailField, EnumField, IntField,
-  MoneyField, PersonField, TextField,
+  type FieldType, BoolField, DateField, EmailField, EnumField, GroupField,
+  IntField, MoneyField, PersonField, TextField,
 }
 
 /// A field's saved value, tagged so it round-trips independently of the schema.
@@ -25,6 +25,7 @@ pub type FieldValue {
   DateValue(Date)
   BoolValue(Bool)
   PersonValue(Int)
+  RowsValue(List(Dict(String, FieldValue)))
 }
 
 fn tag(value: FieldValue) -> String {
@@ -35,6 +36,7 @@ fn tag(value: FieldValue) -> String {
     DateValue(..) -> "date"
     BoolValue(..) -> "bool"
     PersonValue(..) -> "person"
+    RowsValue(..) -> "rows"
   }
 }
 
@@ -46,6 +48,7 @@ fn encode_raw(value: FieldValue) -> Json {
     DateValue(date) -> wire.encode_date(date)
     BoolValue(flag) -> json.bool(flag)
     PersonValue(id) -> json.int(id)
+    RowsValue(rows) -> json.array(rows, encode_step)
   }
 }
 
@@ -64,6 +67,8 @@ pub fn decoder() -> Decoder(FieldValue) {
     "date" -> decode.at(["value"], wire.date_decoder()) |> decode.map(DateValue)
     "bool" -> decode.at(["value"], decode.bool) |> decode.map(BoolValue)
     "person" -> decode.at(["value"], decode.int) |> decode.map(PersonValue)
+    "rows" ->
+      decode.at(["value"], decode.list(step_decoder())) |> decode.map(RowsValue)
     _ -> decode.at(["value"], decode.string) |> decode.map(TextValue)
   }
 }
@@ -87,6 +92,7 @@ pub fn parse(of kind: FieldType, raw raw: String) -> Result(FieldValue, Nil) {
   case kind {
     TextField | EmailField -> Ok(TextValue(raw))
     EnumField(..) -> Ok(TextValue(raw))
+    GroupField(..) -> Error(Nil)
     IntField ->
       case int.parse(raw) {
         Ok(number) -> Ok(IntValue(number))
@@ -126,6 +132,7 @@ pub fn to_input(value: FieldValue) -> String {
     PersonValue(id) -> int.to_string(id)
     BoolValue(True) -> "true"
     BoolValue(False) -> "false"
+    RowsValue(..) -> ""
   }
 }
 

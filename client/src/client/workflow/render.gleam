@@ -14,28 +14,41 @@ import lustre/element/html
 import lustre/event
 import shared/workflow/schema.{
   type Field, type Section, type Step, BoolField, DateField, EmailField,
-  EnumField, IntField, MoneyField, OneColumn, PersonField, TextField, TwoColumn,
+  EnumField, GroupField, IntField, MoneyField, OneColumn, PersonField, TextField,
+  TwoColumn,
 }
 
 /// A field interaction. `Edited` carries each keystroke so the page updates its input
 /// buffer without saving; `Committed` (blur, or change for select/checkbox) tells the
-/// page to persist the value.
+/// page to persist the value. The `RowAdded`, `RowRemoved`, and `RowFieldEdited`
+/// variants manage repeating-group rows.
 pub type FieldEvent {
   Edited(step: String, field: String, raw: String)
   Committed(step: String, field: String, raw: String)
+  RowAdded(step: String, field: String)
+  RowRemoved(step: String, field: String, index: Int)
+  RowFieldEdited(
+    step: String,
+    field: String,
+    index: Int,
+    item_key: String,
+    raw: String,
+  )
 }
 
 /// Render one step: its sections as cards. `display` maps each field key to the string
-/// currently shown (the page's edit buffer merged over the saved value).
+/// currently shown (the page's edit buffer merged over the saved value). `groups` maps
+/// each group field key to its list of row display maps.
 pub fn step_view(
   step: Step,
   display: Dict(String, String),
+  groups: Dict(String, List(Dict(String, String))),
   on_event: fn(FieldEvent) -> msg,
 ) -> Element(msg) {
   html.div(
     [attribute.class("wizard__sections")],
     list.map(step.sections, fn(section) {
-      section_card(step.id, section, display, on_event)
+      section_card(step.id, section, display, groups, on_event)
     }),
   )
 }
@@ -44,6 +57,7 @@ fn section_card(
   step_id: String,
   section: Section,
   display: Dict(String, String),
+  groups: Dict(String, List(Dict(String, String))),
   on_event: fn(FieldEvent) -> msg,
 ) -> Element(msg) {
   let layout_class = case section.layout {
@@ -55,7 +69,7 @@ fn section_card(
     html.div(
       [attribute.class(layout_class)],
       list.map(section.fields, fn(field) {
-        field_view(step_id, field, display, on_event)
+        field_view(step_id, field, display, groups, on_event)
       }),
     ),
   ])
@@ -74,16 +88,20 @@ fn field_view(
   step_id: String,
   field: Field,
   display: Dict(String, String),
+  groups: Dict(String, List(Dict(String, String))),
   on_event: fn(FieldEvent) -> msg,
 ) -> Element(msg) {
   let current = dict.get(display, field.key) |> result.unwrap("")
   case field.kind {
-    // A checkbox reads as one line: the box beside its label, not an eyebrow over
-    // an orphaned box.
     BoolField ->
       html.label([attribute.class("op-form__check")], [
         checkbox_control(step_id, field, current, on_event),
         html.span([], [html.text(field.label)]),
+      ])
+    GroupField(item_fields:, add_label:) ->
+      html.div([attribute.class("op-form__field")], [
+        html.span([], [html.text(field_label(field))]),
+        group_view(step_id, field, item_fields, add_label, groups, on_event),
       ])
     _ ->
       html.label([attribute.class("op-form__field")], [
@@ -116,6 +134,7 @@ fn control(
     EnumField(options:) ->
       select_control(step_id, field, current, options, on_event)
     BoolField -> checkbox_control(step_id, field, current, on_event)
+    GroupField(..) -> element.none()
   }
 }
 
@@ -201,4 +220,106 @@ fn commit_on_blur(
     decode.at(["target", "value"], decode.string)
       |> decode.map(fn(value) { on_event(Committed(step_id, field_key, value)) }),
   )
+}
+
+fn group_view(
+  step_id: String,
+  field: Field,
+  item_fields: List(schema.Field),
+  add_label: String,
+  groups: Dict(String, List(Dict(String, String))),
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
+  let rows = dict.get(groups, field.key) |> result.unwrap([])
+  html.div(
+    [attribute.class("wizard__group")],
+    list.append(
+      list.index_map(rows, fn(row, index) {
+        group_row_view(step_id, field.key, index, item_fields, row, on_event)
+      }),
+      [
+        html.button(
+          [
+            attribute.class("wizard__group-add"),
+            attribute.type_("button"),
+            event.on_click(on_event(RowAdded(step_id, field.key))),
+          ],
+          [html.text("+ " <> add_label)],
+        ),
+      ],
+    ),
+  )
+}
+
+fn group_row_view(
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_fields: List(schema.Field),
+  row: Dict(String, String),
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
+  let item_controls =
+    list.map(item_fields, fn(item_field) {
+      let current = dict.get(row, item_field.key) |> result.unwrap("")
+      html.label([attribute.class("op-form__field")], [
+        html.span([], [html.text(item_field.label)]),
+        group_item_control(
+          step_id,
+          field_key,
+          index,
+          item_field,
+          current,
+          on_event,
+        ),
+      ])
+    })
+  let remove_btn =
+    html.button(
+      [
+        attribute.class("wizard__group-remove"),
+        attribute.type_("button"),
+        event.on_click(on_event(RowRemoved(step_id, field_key, index))),
+      ],
+      [html.text("Remove")],
+    )
+  html.div(
+    [attribute.class("wizard__group-row")],
+    list.append(item_controls, [remove_btn]),
+  )
+}
+
+fn group_item_control(
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_field: schema.Field,
+  current: String,
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
+  let input_type = case item_field.kind {
+    schema.IntField -> "number"
+    schema.PersonField -> "number"
+    schema.DateField -> "date"
+    schema.EmailField -> "email"
+    _ -> "text"
+  }
+  html.input([
+    attribute.type_(input_type),
+    attribute.attribute("aria-label", item_field.label),
+    attribute.value(current),
+    event.on(
+      "blur",
+      decode.at(["target", "value"], decode.string)
+        |> decode.map(fn(raw) {
+          on_event(RowFieldEdited(
+            step_id,
+            field_key,
+            index,
+            item_field.key,
+            raw,
+          ))
+        }),
+    ),
+  ])
 }

@@ -22,6 +22,7 @@ pub type FieldType {
   MoneyField
   DateField
   EnumField(options: List(Choice))
+  GroupField(item_fields: List(Field), add_label: String)
   PersonField
   BoolField
 }
@@ -74,6 +75,7 @@ pub fn field_type_to_string(kind: FieldType) -> String {
     MoneyField -> "money"
     DateField -> "date"
     EnumField(..) -> "enum"
+    GroupField(..) -> "group"
     PersonField -> "person"
     BoolField -> "bool"
   }
@@ -138,7 +140,19 @@ fn encode_field_type(kind: FieldType) -> Json {
         #("type", json.string("enum")),
         #("options", json.array(options, encode_choice)),
       ])
-    other -> json.object([#("type", json.string(field_type_to_string(other)))])
+    GroupField(item_fields:, add_label:) ->
+      json.object([
+        #("type", json.string("group")),
+        #("item_fields", json.array(item_fields, encode_field)),
+        #("add_label", json.string(add_label)),
+      ])
+    TextField -> json.object([#("type", json.string("text"))])
+    EmailField -> json.object([#("type", json.string("email"))])
+    IntField -> json.object([#("type", json.string("int"))])
+    MoneyField -> json.object([#("type", json.string("money"))])
+    DateField -> json.object([#("type", json.string("date"))])
+    PersonField -> json.object([#("type", json.string("person"))])
+    BoolField -> json.object([#("type", json.string("bool"))])
   }
 }
 
@@ -198,6 +212,14 @@ pub fn field_type_decoder() -> Decoder(FieldType) {
     "enum" -> {
       use options <- decode.field("options", decode.list(choice_decoder()))
       decode.success(EnumField(options:))
+    }
+    "group" -> {
+      use item_fields <- decode.field(
+        "item_fields",
+        decode.list(field_decoder()),
+      )
+      use add_label <- decode.field("add_label", decode.string)
+      decode.success(GroupField(item_fields:, add_label:))
     }
     "email" -> decode.success(EmailField)
     "int" -> decode.success(IntField)

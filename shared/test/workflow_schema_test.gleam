@@ -6,8 +6,8 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import shared/workflow/schema.{
-  Choice, EnumField, Field, MoneyField, OneColumn, Section, Step, TextField,
-  TwoColumn, WorkflowSchema,
+  Choice, EmailField, EnumField, Field, GroupField, MoneyField, OneColumn,
+  Section, Step, TextField, TwoColumn, WorkflowSchema,
 }
 
 fn render(value: Json) -> String {
@@ -61,6 +61,51 @@ pub fn schema_round_trips_test() {
               label: "Base salary",
               kind: MoneyField,
               required: True,
+              help: None,
+            ),
+          ]),
+        ],
+      ),
+    ])
+
+  let assert Ok(decoded) =
+    parse_with(render(schema.encode_schema(schema)), schema.schema_decoder())
+
+  assert decoded == schema
+}
+
+pub fn group_field_round_trips_test() {
+  let schema =
+    WorkflowSchema(kind: "onboard_engineer", title: "Onboard engineer", steps: [
+      Step(
+        id: "contacts",
+        title: "Contacts",
+        requires_permission: None,
+        sections: [
+          Section(title: "", layout: OneColumn, fields: [
+            Field(
+              key: "emergency_contacts",
+              label: "Emergency contacts",
+              kind: GroupField(
+                item_fields: [
+                  Field(
+                    key: "name",
+                    label: "Name",
+                    kind: TextField,
+                    required: True,
+                    help: None,
+                  ),
+                  Field(
+                    key: "email",
+                    label: "Email",
+                    kind: EmailField,
+                    required: False,
+                    help: None,
+                  ),
+                ],
+                add_label: "Add contact",
+              ),
+              required: False,
               help: None,
             ),
           ]),

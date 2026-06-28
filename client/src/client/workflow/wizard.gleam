@@ -12,12 +12,14 @@ import client/focus
 import client/icons
 import client/workflow/api as wapi
 import client/workflow/render.{
-  type FieldEvent, Committed as FieldCommitted, Edited,
+  type FieldEvent, Committed as FieldCommitted, Edited, RowAdded, RowFieldEdited,
+  RowRemoved,
 }
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set.{type Set}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -25,7 +27,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
-import shared/workflow/schema.{type FieldType, type Step, type WorkflowSchema}
+import shared/workflow/schema.{
+  type FieldType, type Step, type WorkflowSchema, GroupField,
+}
 import shared/workflow/value
 import shared/workflow/view.{type DraftView, DraftView}
 
@@ -120,6 +124,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       working(Model(..model, edits: dict.insert(model.edits, field, raw)))
     FieldChanged(FieldCommitted(step:, field:, raw:)) ->
       commit_field(model, step, field, raw)
+    FieldChanged(RowAdded(step:, field:)) -> add_group_row(model, step, field)
+    FieldChanged(RowRemoved(step:, field:, index:)) ->
+      remove_group_row(model, step, field, index)
+    FieldChanged(RowFieldEdited(step:, field:, index:, item_key:, raw:)) ->
+      edit_group_row(model, step, field, index, item_key, raw)
 
     Saved(Ok(_)) -> working(model)
     Saved(Error(error)) ->
@@ -319,7 +328,12 @@ pub fn view(
               html.div([attribute.class("wizard__divider")], []),
               html.div([attribute.class("wizard__content")], [
                 html.h2([], [html.text(step.title)]),
-                render.step_view(step, display_map(model, step), FieldChanged),
+                render.step_view(
+                  step,
+                  display_map(model, step),
+                  groups_map(model, step),
+                  FieldChanged,
+                ),
                 view_error(model.error),
                 aside(model.step),
               ]),
@@ -608,12 +622,149 @@ fn saved_value(model: Model, step_id: String, field_key: String) -> String {
 fn display_map(model: Model, step: Step) -> Dict(String, String) {
   let fields = list.flat_map(step.sections, fn(section) { section.fields })
   list.fold(fields, dict.new(), fn(acc, field) {
-    let shown = case dict.get(model.edits, field.key) {
-      Ok(v) -> v
-      Error(_) -> saved_value(model, step.id, field.key)
+    case field.kind {
+      GroupField(..) -> acc
+      _ -> {
+        let shown = case dict.get(model.edits, field.key) {
+          Ok(v) -> v
+          Error(_) -> saved_value(model, step.id, field.key)
+        }
+        dict.insert(acc, field.key, shown)
+      }
     }
-    dict.insert(acc, field.key, shown)
   })
+}
+
+fn groups_map(
+  model: Model,
+  step: Step,
+) -> Dict(String, List(Dict(String, String))) {
+  let fields = list.flat_map(step.sections, fn(section) { section.fields })
+  list.fold(fields, dict.new(), fn(acc, field) {
+    case field.kind {
+      GroupField(..) -> {
+        let rows = current_rows(model, step.id, field.key)
+        let display_rows =
+          list.map(rows, fn(row) {
+            dict.map_values(row, fn(_key, field_value) {
+              value.to_input(field_value)
+            })
+          })
+        dict.insert(acc, field.key, display_rows)
+      }
+      _ -> acc
+    }
+  })
+}
+
+fn current_rows(
+  model: Model,
+  step_id: String,
+  field_key: String,
+) -> List(Dict(String, value.FieldValue)) {
+  case dict.get(step_values_for(model, step_id), field_key) {
+    Ok(value.RowsValue(rows)) -> rows
+    _ -> []
+  }
+}
+
+fn save_group(
+  model: Model,
+  step_id: String,
+  field_key: String,
+  new_rows: List(Dict(String, value.FieldValue)),
+) -> #(Model, Effect(Msg), Outcome) {
+  let new_step_values =
+    step_values_for(model, step_id)
+    |> dict.insert(field_key, value.RowsValue(new_rows))
+  let updated_model =
+    Model(..model, draft: set_value(model.draft, step_id, new_step_values))
+  #(
+    updated_model,
+    wapi.save_step(updated_model.instance_id, step_id, new_step_values, Saved),
+    Working,
+  )
+}
+
+fn add_group_row(
+  model: Model,
+  step_id: String,
+  field_key: String,
+) -> #(Model, Effect(Msg), Outcome) {
+  let rows = current_rows(model, step_id, field_key)
+  save_group(model, step_id, field_key, list.append(rows, [dict.new()]))
+}
+
+fn remove_group_row(
+  model: Model,
+  step_id: String,
+  field_key: String,
+  index: Int,
+) -> #(Model, Effect(Msg), Outcome) {
+  let rows = current_rows(model, step_id, field_key)
+  let new_rows =
+    list.index_map(rows, fn(row, i) { #(i, row) })
+    |> list.filter(fn(pair) { pair.0 != index })
+    |> list.map(fn(pair) { pair.1 })
+  save_group(model, step_id, field_key, new_rows)
+}
+
+fn edit_group_row(
+  model: Model,
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_key: String,
+  raw: String,
+) -> #(Model, Effect(Msg), Outcome) {
+  case group_item_field_type(model, step_id, field_key, item_key) {
+    Some(kind) ->
+      case value.parse(kind, raw) {
+        Ok(field_value) -> {
+          let rows = current_rows(model, step_id, field_key)
+          let new_rows =
+            list.index_map(rows, fn(row, i) {
+              case i == index {
+                True -> dict.insert(row, item_key, field_value)
+                False -> row
+              }
+            })
+          save_group(model, step_id, field_key, new_rows)
+        }
+        Error(_) -> working(model)
+      }
+    None -> working(model)
+  }
+}
+
+fn group_item_field_type(
+  model: Model,
+  step_id: String,
+  field_key: String,
+  item_key: String,
+) -> Option(FieldType) {
+  case model.schema {
+    Some(schema) ->
+      case find_step(schema, step_id) {
+        Some(step) -> {
+          let fields =
+            list.flat_map(step.sections, fn(section) { section.fields })
+          list.find(fields, fn(field) { field.key == field_key })
+          |> result.map(fn(group_field) {
+            case group_field.kind {
+              GroupField(item_fields:, ..) ->
+                list.find(item_fields, fn(f) { f.key == item_key })
+                |> result.map(fn(item_field) { item_field.kind })
+                |> option.from_result
+              _ -> None
+            }
+          })
+          |> result.unwrap(None)
+        }
+        None -> None
+      }
+    None -> None
+  }
 }
 
 fn set_value(

@@ -8,7 +8,7 @@ import gleam/json.{type Json}
 import gleam/time/calendar.{Date, June}
 import shared/money
 import shared/workflow/value.{
-  BoolValue, DateValue, IntValue, MoneyValue, PersonValue, TextValue,
+  BoolValue, DateValue, IntValue, MoneyValue, PersonValue, RowsValue, TextValue,
 }
 import shared/workflow/view.{
   Active, Done, DraftSummary, DraftView, Locked, Pending,
@@ -90,6 +90,33 @@ pub fn draft_round_trips_test() {
     parse_with(render(view.encode_draft(draft)), view.draft_decoder())
 
   assert decoded == draft
+}
+
+pub fn rows_value_round_trips_test() {
+  let step_values =
+    dict.from_list([
+      #(
+        "emergency_contacts",
+        RowsValue([
+          dict.from_list([
+            #("name", TextValue("Alice Smith")),
+            #("email", TextValue("alice@example.com")),
+          ]),
+          dict.from_list([
+            #("name", TextValue("Bob Jones")),
+            #("email", TextValue("bob@example.com")),
+          ]),
+        ]),
+      ),
+    ])
+
+  let assert Ok(decoded) =
+    json.parse(
+      json.to_string(value.encode_step(step_values)),
+      value.step_decoder(),
+    )
+
+  assert decoded == step_values
 }
 
 pub fn summary_round_trips_test() {
