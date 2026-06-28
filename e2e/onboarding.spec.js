@@ -35,6 +35,14 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   await page.getByRole("heading", { name: "Contact" }).waitFor();
   await page.getByRole("button", { name: /Continue/ }).click();
 
+  // Emergency (optional) — fill a contact so the commit records it.
+  await page.getByRole("heading", { name: "Emergency" }).waitFor();
+  await page.getByLabel("Contact name").fill("Jordan Kin");
+  await page.getByLabel("Relationship").fill("spouse");
+  await page.getByLabel("Phone").fill("0400000000");
+  await page.getByLabel("Email").fill("jordan.kin@example.com");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
   await page.getByLabel("Bank").waitFor();
   await page.getByLabel("Bank").fill("ANZ");
   await page.getByLabel("Account number").fill("00112233");

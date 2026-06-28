@@ -68,6 +68,25 @@ pub fn onboard_schema() -> WorkflowSchema {
         Field("postal_address", "Postal address", TextField, False, None),
       ]),
     ]),
+    Step(
+      id: "emergency",
+      title: "Emergency",
+      requires_permission: None,
+      sections: [
+        Section(title: "", layout: TwoColumn, fields: [
+          Field("emergency_name", "Contact name", TextField, False, None),
+          Field(
+            "emergency_relation",
+            "Relationship",
+            TextField,
+            False,
+            Some("e.g. spouse, parent"),
+          ),
+          Field("emergency_phone", "Phone", TextField, False, None),
+          Field("emergency_email", "Email", EmailField, False, None),
+        ]),
+      ],
+    ),
     Step(id: "banking", title: "Banking", requires_permission: None, sections: [
       Section(title: "", layout: TwoColumn, fields: [
         Field("bank", "Bank", TextField, True, None),

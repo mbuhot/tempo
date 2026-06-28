@@ -391,15 +391,16 @@ fn prefill_from_detail(
           |> ui.update_op_form(ui.FAccountNo, account_no)
           |> ui.update_op_form(ui.FAccountName, account_name)
         }
-        ui.OpUpdateEmergency -> {
-          let EngineerEmergency(relation:, name:, phone:, email:, ..) =
-            detail.emergency
-          form
-          |> ui.update_op_form(ui.FRelation, relation)
-          |> ui.update_op_form(ui.FEmergencyName, name)
-          |> ui.update_op_form(ui.FEmergencyPhone, phone)
-          |> ui.update_op_form(ui.FEmergencyEmail, email)
-        }
+        ui.OpUpdateEmergency ->
+          case detail.emergency {
+            Some(EngineerEmergency(relation:, name:, phone:, email:, ..)) ->
+              form
+              |> ui.update_op_form(ui.FRelation, relation)
+              |> ui.update_op_form(ui.FEmergencyName, name)
+              |> ui.update_op_form(ui.FEmergencyPhone, phone)
+              |> ui.update_op_form(ui.FEmergencyEmail, email)
+            None -> form
+          }
         ui.OpRollOff ->
           case active_allocation(detail.allocations) {
             Some(project_id) ->
@@ -749,13 +750,16 @@ fn banking_panel(
 fn employment_panel(
   employment: engineer_view.Employment,
   level: Int,
-  emergency: engineer_view.EngineerEmergency,
+  emergency: Option(engineer_view.EngineerEmergency),
   permissions: Set(String),
   own: Bool,
 ) -> Element(Msg) {
   let Employment(started:, monthly_salary:, ..) = employment
-  let EngineerEmergency(relation:, name:, phone:, ..) = emergency
-  let emergency_line = name <> " (" <> relation <> ", " <> phone <> ")"
+  let emergency_line = case emergency {
+    Some(EngineerEmergency(relation:, name:, phone:, ..)) ->
+      name <> " (" <> relation <> ", " <> phone <> ")"
+    None -> "Not on record"
+  }
   ui.panel(
     title: "Employment",
     count: "",

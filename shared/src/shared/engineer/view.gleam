@@ -85,7 +85,7 @@ pub type EngineerDetail {
     level: Int,
     contact: EngineerContact,
     banking: EngineerBanking,
-    emergency: EngineerEmergency,
+    emergency: Option(EngineerEmergency),
     employment: Employment,
     roles: List(RoleVersion),
     allocations: List(allocation_view.AllocationRow),
@@ -243,7 +243,7 @@ pub fn encode_engineer_detail(detail: EngineerDetail) -> Json {
     #("level", json.int(level)),
     #("contact", encode_engineer_contact(contact)),
     #("banking", encode_engineer_banking(banking)),
-    #("emergency", encode_engineer_emergency(emergency)),
+    #("emergency", json.nullable(emergency, encode_engineer_emergency)),
     #("employment", encode_employment(employment)),
     #("roles", json.array(roles, encode_role_version)),
     #(
@@ -265,7 +265,10 @@ pub fn engineer_detail_decoder() -> Decoder(EngineerDetail) {
   use level <- decode.field("level", decode.int)
   use contact <- decode.field("contact", engineer_contact_decoder())
   use banking <- decode.field("banking", engineer_banking_decoder())
-  use emergency <- decode.field("emergency", engineer_emergency_decoder())
+  use emergency <- decode.field(
+    "emergency",
+    decode.optional(engineer_emergency_decoder()),
+  )
   use employment <- decode.field("employment", employment_decoder())
   use roles <- decode.field("roles", decode.list(role_version_decoder()))
   use allocations <- decode.field(

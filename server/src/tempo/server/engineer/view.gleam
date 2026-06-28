@@ -115,22 +115,22 @@ pub fn detail(
     [] -> Error(Nil)
     [contact_row, ..] -> {
       let contact = contact_to_shared(contact_row)
-      case banking.rows, emergency.rows, employment.rows {
-        [banking, ..], [emergency, ..], [employment, ..] ->
+      case banking.rows, employment.rows {
+        [banking, ..], [employment, ..] ->
           Ok(EngineerDetail(
             engineer_id:,
             name: contact.name,
             level: employment.level,
             contact:,
             banking: banking_to_shared(banking),
-            emergency: emergency_to_shared(emergency),
+            emergency: emergency_of(emergency.rows),
             employment: employment_to_shared(employment),
             roles: list.map(roles.rows, role_to_shared),
             allocations: list.map(allocations.rows, allocation_to_shared),
             balance: balance(contact.name, annual.rows, sick.rows),
             leave_history: list.map(leave_history.rows, leave_record_to_shared),
           ))
-        _, _, _ -> Error(Nil)
+        _, _ -> Error(Nil)
       }
     }
   }
@@ -163,6 +163,17 @@ fn banking_to_shared(
     account_no: row.account_no,
     account_name: row.account_name,
   )
+}
+
+/// The current emergency contact, or `None` when the engineer has none on record
+/// (a wizard-onboarded engineer may skip it; the detail renders it as optional).
+fn emergency_of(
+  rows: List(engineer_sql.EngineerEmergencyCurrentRow),
+) -> Option(EngineerEmergency) {
+  case rows {
+    [row, ..] -> Some(emergency_to_shared(row))
+    [] -> None
+  }
 }
 
 fn emergency_to_shared(

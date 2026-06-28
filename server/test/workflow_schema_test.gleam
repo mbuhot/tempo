@@ -9,7 +9,10 @@ import tempo/server/workflow/schema as flow
 
 pub fn onboard_steps_in_order_test() {
   assert flow.step_ids()
-    == ["identity", "level", "employment", "contact", "banking", "payroll"]
+    == [
+      "identity", "level", "employment", "contact", "emergency", "banking",
+      "payroll",
+    ]
 }
 
 pub fn payroll_step_is_finance_gated_test() {

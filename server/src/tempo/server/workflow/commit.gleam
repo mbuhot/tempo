@@ -16,8 +16,9 @@ import shared/command.{WorkflowCommand} as gateway
 import shared/workflow/command.{type WorkflowCommand, CommitOnboarding}
 import shared/workflow/value.{type FieldValue, BoolValue, DateValue, TextValue}
 import tempo/server/fact.{
-  type Recorded, EngineerAtLevel, EngineerBankingDetails, EngineerContactDetails,
-  EngineerEmployed, EngineerId, Recorded,
+  type EngineerId, type Recorded, EngineerAtLevel, EngineerBankingDetails,
+  EngineerContactDetails, EngineerEmergencyContact, EngineerEmployed, EngineerId,
+  Recorded,
 }
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
@@ -71,6 +72,8 @@ fn commit_onboarding(
 
   use _ <- result.try(instance.mark_committed(conn, instance_id))
 
+  let emergency_facts = emergency_contact(values, engineer_id, start_date)
+
   Ok(
     Recorded(
       entry: Event(
@@ -104,9 +107,33 @@ fn commit_onboarding(
           account_name:,
           from: start_date,
         ),
+        ..emergency_facts
       ],
     ),
   )
+}
+
+/// The engineer's emergency contact as a (possibly empty) fact list: written only
+/// when a contact name was entered, since every other field is meaningless without
+/// one. The wizard's emergency step is optional, so a skipped step records nothing.
+fn emergency_contact(
+  values: Dict(String, FieldValue),
+  engineer_id: EngineerId,
+  from: Date,
+) -> List(fact.Fact) {
+  case optional(values, "emergency.emergency_name") {
+    "" -> []
+    name -> [
+      EngineerEmergencyContact(
+        engineer_id:,
+        relation: optional(values, "emergency.emergency_relation"),
+        name:,
+        phone: optional(values, "emergency.emergency_phone"),
+        email: optional(values, "emergency.emergency_email"),
+        from:,
+      ),
+    ]
+  }
 }
 
 fn require_confirmed(
