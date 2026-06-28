@@ -2,21 +2,36 @@
  * inside a modal (ui.dialog). The modal frame is the surface, so the panel adds no
  * card of its own. Reuses the op-form field atoms for inputs and the global .btn. */
 
-/* A wider modal than the default op modal, with a scrolling body for tall steps. */
+/* A wider modal than the default op modal. The wizard owns its own padding so the
+ * footer can span the full width with a divider above it, so the body padding is 0. */
 .modal--wide {
     width: min(100%, 44rem);
 }
 
 .modal--wide .modal__body {
+    padding: 0;
     max-height: 70vh;
     overflow-y: auto;
 }
 
+/* The wizard stacks a two-column body (rail | divider | content) above a full-width
+ * footer. */
 .wizard {
+    display: flex;
+    flex-direction: column;
+}
+
+.wizard__body {
     display: grid;
-    grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
-    gap: var(--space-xl);
-    align-items: start;
+    grid-template-columns: minmax(0, 10rem) 1px minmax(0, 1fr);
+    gap: var(--space-lg);
+    align-items: stretch;
+    padding: var(--space-lg);
+}
+
+/* The vertical divider between the steps list and the step content. */
+.wizard__divider {
+    background: var(--color-border);
 }
 
 /* --- the step rail: a numbered circle + label per step --- */
@@ -99,14 +114,14 @@
     color: var(--color-warn);
 }
 
-/* --- the panel (the modal is the surface, so no card here) --- */
-.wizard__panel {
+/* --- the step content (the modal is the surface, so no card here) --- */
+.wizard__content {
     display: flex;
     flex-direction: column;
     gap: var(--space-lg);
 }
 
-.wizard__panel > h2 {
+.wizard__content > h2 {
     font-size: var(--text-xl);
     letter-spacing: var(--tracking-tight);
     margin: 0;
@@ -155,7 +170,7 @@
     -moz-appearance: auto;
 }
 
-/* --- the footer action row: Undo/Redo grouped left, Back/Continue grouped right --- */
+/* --- the full-width footer: Undo/Redo grouped left, Back/Continue grouped right --- */
 .wizard__footer {
     display: flex;
     align-items: center;
@@ -163,11 +178,39 @@
     gap: var(--space-md);
     flex-wrap: wrap;
     border-top: var(--border-thin) solid var(--color-border);
-    padding-top: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
 }
 
 .wizard__footer-group {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
+}
+
+/* Back and Continue share a width so the navigation pair reads as one control. */
+.wizard__footer-nav .btn {
+    min-width: 6.5rem;
+    text-align: center;
+}
+
+/* Disabled Undo/Redo (an empty stack) read as inert, with no hover. */
+.wizard__footer .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.wizard__footer .btn--ghost:disabled:hover {
+    background: var(--color-surface);
+    color: var(--color-muted);
+    border-color: var(--color-border);
+}
+
+/* A boolean field is one line: the box beside its label. */
+.op-form__check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--text-base);
+    color: var(--color-text);
+    cursor: pointer;
 }

@@ -8,7 +8,7 @@
 
 import gleam/dict.{type Dict}
 import gleam/int
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -21,7 +21,9 @@ import tempo/server/fact.{
 }
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
-import tempo/server/workflow/instance.{AwaitingFinance}
+import tempo/server/workflow/instance.{
+  AwaitingFinance, Cancelled, Committed, Draft,
+}
 
 /// Route a workflow command. Phase 1 has one: commit an onboarding draft.
 pub fn route(
@@ -40,9 +42,17 @@ fn commit_onboarding(
   instance_id: String,
 ) -> Result(Recorded, OperationError) {
   use maybe <- result.try(instance.load(conn, instance_id))
+  // The commit PERMISSION (engineer.onboard.commit, enforced by the command gate) is
+  // the real authority — so an admin who holds it commits straight from a draft with
+  // no hand-off, while a manager who lacks it must hand off first. The status check
+  // only blocks committing something already committed or cancelled.
   use _ <- result.try(case maybe {
-    Some(loaded) if loaded.status == AwaitingFinance -> Ok(Nil)
-    _ -> Error(InvalidValue)
+    Some(loaded) ->
+      case loaded.status {
+        Draft | AwaitingFinance -> Ok(Nil)
+        Committed | Cancelled -> Error(InvalidValue)
+      }
+    None -> Error(InvalidValue)
   })
 
   use values <- result.try(instance.current_values(conn, instance_id))

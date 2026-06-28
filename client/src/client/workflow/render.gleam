@@ -77,10 +77,20 @@ fn field_view(
   on_event: fn(FieldEvent) -> msg,
 ) -> Element(msg) {
   let current = dict.get(display, field.key) |> result.unwrap("")
-  html.label([attribute.class("op-form__field")], [
-    html.span([], [html.text(field_label(field))]),
-    control(step_id, field, current, on_event),
-  ])
+  case field.kind {
+    // A checkbox reads as one line: the box beside its label, not an eyebrow over
+    // an orphaned box.
+    BoolField ->
+      html.label([attribute.class("op-form__check")], [
+        checkbox_control(step_id, field, current, on_event),
+        html.span([], [html.text(field.label)]),
+      ])
+    _ ->
+      html.label([attribute.class("op-form__field")], [
+        html.span([], [html.text(field_label(field))]),
+        control(step_id, field, current, on_event),
+      ])
+  }
 }
 
 fn field_label(field: Field) -> String {

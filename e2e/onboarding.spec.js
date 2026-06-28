@@ -62,7 +62,7 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   ]);
   const [commit] = await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/operations")),
-    page.getByRole("button", { name: "Confirm & commit" }).click(),
+    page.getByRole("button", { name: "Finish" }).click(),
   ]);
   expect(commit.status()).toBe(200);
 

@@ -43,9 +43,9 @@ fn save(conn, id, step, field, field_value) {
   Nil
 }
 
-/// Start an onboarding draft, fill every required field, confirm payroll, and hand
-/// off so it is awaiting Finance — the precondition for commit.
-fn ready_to_commit(conn: pog.Connection, owner: Int) -> String {
+/// Start an onboarding draft and fill every required field + confirm payroll. Leaves
+/// the instance a `draft` (no hand-off).
+fn fill_complete(conn: pog.Connection, owner: Int) -> String {
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
   save(conn, id, "identity", "full_name", TextValue("Aisha Okafor"))
   save(conn, id, "identity", "work_email", TextValue("aisha@example.com"))
@@ -55,6 +55,12 @@ fn ready_to_commit(conn: pog.Connection, owner: Int) -> String {
   save(conn, id, "banking", "account_no", TextValue("00112233"))
   save(conn, id, "banking", "account_name", TextValue("A Okafor"))
   save(conn, id, "payroll", "payroll_confirmed", BoolValue(True))
+  id
+}
+
+/// A filled draft handed off to Finance (awaiting_finance) — the Manager→Finance path.
+fn ready_to_commit(conn: pog.Connection, owner: Int) -> String {
+  let id = fill_complete(conn, owner)
   let assert Ok(_) = instance.hand_off(conn, id, "payroll")
   id
 }
@@ -94,7 +100,20 @@ pub fn commit_marks_instance_committed_test() {
   assert loaded.status == Committed
 }
 
-pub fn commit_refused_before_handoff_test() {
+/// A filled draft can be committed directly, with no hand-off — the permission (not
+/// the status) is the gate, so a holder of it onboards end-to-end (the Admin path).
+pub fn commit_from_draft_without_handoff_succeeds_test() {
+  use conn <- rolling_back
+  let owner = account_id(conn)
+  let id = fill_complete(conn, owner)
+
+  let assert Ok(_) = commit.route(conn, CommitOnboarding(id))
+
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  assert loaded.status == Committed
+}
+
+pub fn commit_refused_when_incomplete_test() {
   use conn <- rolling_back
   let owner = account_id(conn)
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)

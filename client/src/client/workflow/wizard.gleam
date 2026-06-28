@@ -276,17 +276,20 @@ fn apply_restore(
 
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   case model.schema, model.draft {
-    Some(schema), Some(draft) ->
+    Some(schema), Some(_draft) ->
       case find_step(schema, model.step) {
         Some(step) ->
           html.div([attribute.class("wizard wizard--modal")], [
-            view_rail(model, schema, permissions),
-            html.div([attribute.class("wizard__panel")], [
-              html.h2([], [html.text(step.title)]),
-              render.step_view(step, display_map(model, step), FieldChanged),
-              view_error(model.error),
-              view_footer(model, schema, step, draft),
+            html.div([attribute.class("wizard__body")], [
+              view_rail(model, schema, permissions),
+              html.div([attribute.class("wizard__divider")], []),
+              html.div([attribute.class("wizard__content")], [
+                html.h2([], [html.text(step.title)]),
+                render.step_view(step, display_map(model, step), FieldChanged),
+                view_error(model.error),
+              ]),
             ]),
+            view_footer(model, schema, step, permissions),
           ])
         None -> html.p([], [html.text("Loading…")])
       }
@@ -323,8 +326,12 @@ fn rail_step(
   permissions: Set(String),
 ) -> Element(Msg) {
   let active = index == current
+  // Done (✓) means BEHIND the current step — completed and moved past. A step that
+  // is ahead (even if previously reached) is not done; it shows its number, or a
+  // lock when it is gated and the current user can't complete it.
+  let done = index < current
   let reached = index <= furthest
-  let #(state, marker) = case active, reached, can_complete(step, permissions) {
+  let #(state, marker) = case active, done, can_complete(step, permissions) {
     True, _, _ -> #("is-active", html.text(int.to_string(index + 1)))
     False, True, _ -> #("is-done", html.text("✓"))
     False, False, True -> #("is-pending", html.text(int.to_string(index + 1)))
@@ -372,58 +379,79 @@ fn extend_furthest(model: Model, step: String) -> String {
   }
 }
 
+/// The footer is permission-driven, not a rigid hand-off. The advance action depends
+/// on whether the current user can complete the NEXT step: if they can, Continue into
+/// it; if it is gated beyond their permission, Hand off to Finance. On the last step,
+/// Finish (commit) when they hold the permission, else they are awaiting Finance. So
+/// an Admin who can do every step never hands off; a Manager hands off at payroll.
 fn view_footer(
   model: Model,
   schema: WorkflowSchema,
   step: Step,
-  draft: DraftView,
+  permissions: Set(String),
 ) -> Element(Msg) {
   let back = case prev_step_id(model) {
     Some(_) ->
       html.button(
         [attribute.class("btn btn--ghost"), event.on_click(BackClicked)],
-        [
-          html.text("← Back"),
-        ],
+        [html.text("← Back")],
       )
     None -> element.none()
   }
   let undo =
     html.button(
-      [attribute.class("btn btn--ghost"), event.on_click(UndoClicked)],
       [
-        html.text("Undo"),
+        attribute.class("btn btn--ghost"),
+        attribute.disabled(list.is_empty(model.undo)),
+        event.on_click(UndoClicked),
       ],
+      [html.text("Undo")],
     )
   let redo =
     html.button(
-      [attribute.class("btn btn--ghost"), event.on_click(RedoClicked)],
       [
-        html.text("Redo"),
+        attribute.class("btn btn--ghost"),
+        attribute.disabled(list.is_empty(model.redo)),
+        event.on_click(RedoClicked),
       ],
+      [html.text("Redo")],
     )
-  let advance = case is_gated(step), next_gated(schema, step) {
-    True, _ ->
-      case draft.can_act {
+  let advance = case next_step_obj(schema, step) {
+    Some(next) ->
+      case can_complete(next, permissions) {
+        True ->
+          html.button([attribute.class("btn"), event.on_click(NextClicked)], [
+            html.text("Continue →"),
+          ])
+        False ->
+          html.button([attribute.class("btn"), event.on_click(HandOffClicked)], [
+            html.text("Hand off to Finance →"),
+          ])
+      }
+    None ->
+      case can_complete(step, permissions) {
         True ->
           html.button([attribute.class("btn"), event.on_click(CommitClicked)], [
-            html.text("Confirm & commit"),
+            html.text("Finish"),
           ])
         False -> html.p([], [html.text("Awaiting Finance confirmation.")])
       }
-    False, True ->
-      html.button([attribute.class("btn"), event.on_click(HandOffClicked)], [
-        html.text("Hand off to Finance →"),
-      ])
-    False, False ->
-      html.button([attribute.class("btn"), event.on_click(NextClicked)], [
-        html.text("Continue →"),
-      ])
   }
   html.div([attribute.class("wizard__footer")], [
     html.div([attribute.class("wizard__footer-group")], [undo, redo]),
-    html.div([attribute.class("wizard__footer-group")], [back, advance]),
+    html.div([attribute.class("wizard__footer-group wizard__footer-nav")], [
+      back,
+      advance,
+    ]),
   ])
+}
+
+/// The step after `step`, or `None` if it is the last.
+fn next_step_obj(schema: WorkflowSchema, step: Step) -> Option(Step) {
+  case neighbour(schema, step.id, 1) {
+    Some(id) -> find_step(schema, id)
+    None -> None
+  }
 }
 
 fn view_error(error: String) -> Element(Msg) {
@@ -442,24 +470,6 @@ fn find_step(schema: WorkflowSchema, step_id: String) -> Option(Step) {
   case list.find(schema.steps, fn(step) { step.id == step_id }) {
     Ok(step) -> Some(step)
     Error(_) -> None
-  }
-}
-
-fn is_gated(step: Step) -> Bool {
-  case step.requires_permission {
-    Some(_) -> True
-    None -> False
-  }
-}
-
-fn next_gated(schema: WorkflowSchema, step: Step) -> Bool {
-  case neighbour(schema, step.id, 1) {
-    Some(next) ->
-      case find_step(schema, next) {
-        Some(found) -> is_gated(found)
-        None -> False
-      }
-    None -> False
   }
 }
 
