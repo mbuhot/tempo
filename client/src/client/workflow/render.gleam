@@ -297,13 +297,92 @@ fn group_item_control(
   current: String,
   on_event: fn(FieldEvent) -> msg,
 ) -> Element(msg) {
-  let input_type = case item_field.kind {
-    schema.IntField -> "number"
-    schema.PersonField -> "number"
-    schema.DateField -> "date"
-    schema.EmailField -> "email"
-    _ -> "text"
+  case item_field.kind {
+    TextField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "text",
+        on_event,
+      )
+    EmailField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "email",
+        on_event,
+      )
+    IntField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "number",
+        on_event,
+      )
+    PersonField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "number",
+        on_event,
+      )
+    MoneyField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "text",
+        on_event,
+      )
+    DateField ->
+      group_text_input(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        "date",
+        on_event,
+      )
+    EnumField(options:) ->
+      group_select(
+        step_id,
+        field_key,
+        index,
+        item_field,
+        current,
+        options,
+        on_event,
+      )
+    BoolField ->
+      group_checkbox(step_id, field_key, index, item_field, current, on_event)
+    GroupField(..) -> element.none()
   }
+}
+
+fn group_text_input(
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_field: schema.Field,
+  current: String,
+  input_type: String,
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
   html.input([
     attribute.type_(input_type),
     attribute.attribute("aria-label", item_field.label),
@@ -321,5 +400,67 @@ fn group_item_control(
           ))
         }),
     ),
+  ])
+}
+
+fn group_select(
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_field: schema.Field,
+  current: String,
+  options: List(schema.Choice),
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
+  let placeholder =
+    html.option([attribute.value(""), attribute.selected(current == "")], "—")
+  let choices =
+    list.map(options, fn(choice) {
+      html.option(
+        [
+          attribute.value(choice.value),
+          attribute.selected(choice.value == current),
+        ],
+        choice.label,
+      )
+    })
+  html.select(
+    [
+      attribute.attribute("aria-label", item_field.label),
+      event.on_change(fn(value) {
+        on_event(RowFieldEdited(
+          step_id,
+          field_key,
+          index,
+          item_field.key,
+          value,
+        ))
+      }),
+    ],
+    [placeholder, ..choices],
+  )
+}
+
+fn group_checkbox(
+  step_id: String,
+  field_key: String,
+  index: Int,
+  item_field: schema.Field,
+  current: String,
+  on_event: fn(FieldEvent) -> msg,
+) -> Element(msg) {
+  html.input([
+    attribute.type_("checkbox"),
+    attribute.attribute("aria-label", item_field.label),
+    attribute.checked(current == "true"),
+    event.on_check(fn(checked) {
+      on_event(RowFieldEdited(
+        step_id,
+        field_key,
+        index,
+        item_field.key,
+        bool_to_string(checked),
+      ))
+    }),
   ])
 }
