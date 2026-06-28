@@ -20,7 +20,7 @@ import tempo/server/operation.{type OperationError, DatabaseError, InvalidValue}
 import tempo/server/web/guard
 import tempo/server/web/response
 import tempo/server/workflow/instance
-import tempo/server/workflow/schema as flow
+import tempo/server/workflow/registry
 import wisp
 
 /// GET /api/workflows — the caller's resumable drafts; POST /api/workflows — start
@@ -49,9 +49,9 @@ pub fn handle_schema(
 ) -> wisp.Response {
   use _ <- guard.authenticated(ctx)
   use <- wisp.require_method(req, http.Get)
-  case kind == flow.kind {
-    True -> response.json_response(wschema.encode_schema(flow.onboard_schema()))
-    False -> wisp.not_found()
+  case registry.schema_for(kind, ctx) {
+    Ok(schema) -> response.json_response(wschema.encode_schema(schema))
+    Error(_) -> wisp.not_found()
   }
 }
 
@@ -85,8 +85,7 @@ pub fn handle_action(
   case action {
     "field" -> save_field_action(req, ctx, id)
     "step" -> complete_step_action(req, ctx, id)
-    "handoff" ->
-      void_response(instance.hand_off(ctx.db, id, flow.finance_step()))
+    "handoff" -> handoff_action(ctx, id)
     "cancel" -> void_response(instance.cancel(ctx.db, id))
     _ -> wisp.not_found()
   }
@@ -137,8 +136,8 @@ fn list_response(ctx: Context, principal: Principal) -> wisp.Response {
   }
 }
 
-/// Whether the principal holds the onboarding commit permission — the gate for
-/// acting on a draft awaiting Finance.
+/// Gates queue visibility; per-instance gating is enforced at commit time by
+/// the command access policy.
 fn can_commit(principal: Principal) -> Bool {
   auth.can(principal, access.engineer_onboard_commit)
 }
@@ -148,12 +147,17 @@ fn start_response(
   principal: Principal,
   kind: String,
 ) -> wisp.Response {
-  case kind == flow.kind {
-    False ->
+  case registry.schema_for(kind, ctx) {
+    Error(_) ->
       response.error_response(400, "unknown_kind", "unknown workflow kind")
-    True ->
+    Ok(schema) ->
       case
-        instance.start(ctx.db, flow.kind, principal.account_id, flow.first_step)
+        instance.start(
+          ctx.db,
+          kind,
+          principal.account_id,
+          registry.first_step(schema),
+        )
       {
         Ok(id) ->
           response.json_response(
@@ -161,6 +165,23 @@ fn start_response(
           )
         Error(error) -> error_response(error)
       }
+  }
+}
+
+fn handoff_action(ctx: Context, id: String) -> wisp.Response {
+  case instance.load(ctx.db, id) {
+    Ok(Some(found)) ->
+      case registry.schema_for(found.kind, ctx) {
+        Ok(schema) ->
+          void_response(instance.hand_off(
+            ctx.db,
+            id,
+            registry.finance_step(schema),
+          ))
+        Error(_) -> wisp.not_found()
+      }
+    Ok(None) -> wisp.not_found()
+    Error(error) -> error_response(error)
   }
 }
 
