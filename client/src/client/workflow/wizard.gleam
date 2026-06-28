@@ -279,9 +279,27 @@ fn apply_restore(
   }
 }
 
+/// The current step id.
+pub fn current_step(model: Model) -> String {
+  model.step
+}
+
+/// The displayed value for `step.key` — the edit buffer when the field has been
+/// touched, otherwise the persisted saved value.
+pub fn field_value(model: Model, step: String, key: String) -> String {
+  case dict.get(model.edits, key) {
+    Ok(value) -> value
+    Error(_) -> saved_value(model, step, key)
+  }
+}
+
 // --- view -------------------------------------------------------------------
 
-pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
+pub fn view(
+  model: Model,
+  permissions: Set(String),
+  aside: fn(String) -> Element(Msg),
+) -> Element(Msg) {
   case model.schema, model.draft {
     Some(schema), Some(_draft) ->
       case find_step(schema, model.step) {
@@ -294,6 +312,7 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
                 html.h2([], [html.text(step.title)]),
                 render.step_view(step, display_map(model, step), FieldChanged),
                 view_error(model.error),
+                aside(model.step),
               ]),
             ]),
             view_footer(model, schema, step, permissions),
@@ -432,7 +451,7 @@ fn view_footer(
           ])
         False ->
           html.button([attribute.class("btn"), event.on_click(HandOffClicked)], [
-            html.text("Hand off to Finance →"),
+            html.text("Hand off for approval →"),
           ])
       }
     None ->

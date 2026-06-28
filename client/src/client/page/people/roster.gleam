@@ -176,7 +176,10 @@ fn view_wizard(
       ui.dialog(
         title: "Onboard an engineer",
         on_dismiss: WizardMsg(wizard.DismissClicked),
-        body: element.map(wizard.view(wizard_model, permissions), WizardMsg),
+        body: element.map(
+          wizard.view(wizard_model, permissions, fn(_step) { element.none() }),
+          WizardMsg,
+        ),
       )
   }
 }

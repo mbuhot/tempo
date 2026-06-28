@@ -1,7 +1,9 @@
 //// Web: the project read handlers — GET /api/projects?as_of= (list) and
-//// GET /api/projects/:id?as_of= (detail). Parse the request, call the domain, encode
-//// the result. Imports `wisp` (it owns the HTTP shape) but never `sql` — it talks
-//// to the domain `project_detail` module, which already speaks shared types.
+//// GET /api/projects/:id?as_of= (detail), plus GET /api/projects/rate-card?as_of=
+//// (the firm-wide rate card effective at a date, for the create-project wizard).
+//// Parse the request, call the domain, encode the result. Imports `wisp` (it owns
+//// the HTTP shape) but never `sql` — it talks to the domain modules, which already
+//// speak shared types.
 ////
 //// Both reads take an `as_of` date: the list shows each project's active flag and
 //// team size as of the date, the detail its run active flag, team and invoices as
@@ -10,15 +12,20 @@
 
 import gleam/http
 import gleam/int
+import gleam/json
+import gleam/list
 import gleam/option
 import gleam/result
 import gleam/time/calendar.{type Date}
+import shared/money
 import shared/project/view as project_view
+import shared/settings/view as settings_view
 import shared/table/query.{Applied}
 import shared/table/response as table_response
 import tempo/server/context.{type Context}
 import tempo/server/project/table as project_table
 import tempo/server/project/view as project_detail
+import tempo/server/rate_card/sql as rate_card_sql
 import tempo/server/web/cursor
 import tempo/server/web/request
 import tempo/server/web/response
@@ -120,5 +127,31 @@ fn detail_response(
       response.json_response(project_view.encode_project_detail(detail))
     Ok(Error(Nil)) -> wisp.not_found()
     Error(error) -> response.db_error_response(error)
+  }
+}
+
+/// Handle GET /api/projects/rate-card?as_of=YYYY-MM-DD — the firm-wide rate card
+/// effective at `as_of`, as a JSON array of `RateCardRow` objects. Used by the
+/// create-project wizard contract step to show what rates the chosen start date
+/// resolves to. A missing/malformed `as_of` is a 400; a database failure is a 500.
+pub fn handle_rate_card(req: wisp.Request, ctx: Context) -> wisp.Response {
+  use <- wisp.require_method(req, http.Get)
+  case request.date_from_query(req, "as_of") {
+    Error(detail) -> wisp.bad_request(detail)
+    Ok(as_of) ->
+      case rate_card_sql.rate_card_list(ctx.db, as_of) {
+        Ok(returned) -> {
+          let rows =
+            list.map(returned.rows, fn(row) {
+              let assert Ok(day_rate) = money.from_string(row.day_rate)
+              settings_view.RateCardRow(level: row.level, day_rate:)
+            })
+          response.json_response(json.array(
+            rows,
+            settings_view.encode_rate_card_row,
+          ))
+        }
+        Error(error) -> response.db_error_response(error)
+      }
   }
 }

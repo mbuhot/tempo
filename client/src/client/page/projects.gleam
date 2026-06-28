@@ -35,6 +35,7 @@ import client/time
 import client/ui
 import client/workflow/api as wapi
 import client/workflow/wizard
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
@@ -53,6 +54,7 @@ import shared/project/view.{
   type ProjectDetail, type ProjectRequirement, type TeamMember,
 } as project_view
 import shared/roster/view.{type Ref, type Roster} as roster_view
+import shared/settings/view.{type RateCardRow} as settings_view
 
 // --- Model ------------------------------------------------------------------
 
@@ -72,6 +74,8 @@ pub type Model {
     roster: Load(Roster),
     op: Option(ui.OpState),
     wizard: Option(wizard.Model),
+    rates: Option(List(RateCardRow)),
+    rates_for: String,
   )
   DetailView(
     actor: String,
@@ -110,6 +114,10 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
     as_of: calendar.Date,
   )
+  RatesFetched(
+    date: String,
+    result: Result(List(RateCardRow), rsvp.Error(String)),
+  )
   BackToListClicked
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
@@ -147,7 +155,16 @@ pub fn init(
     _ -> {
       let #(host, host_effect) = table_host.init("/api/projects/table", as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op: None, wizard: None),
+        ListView(
+          actor:,
+          as_of:,
+          host:,
+          roster: Loading,
+          op: None,
+          wizard: None,
+          rates: None,
+          rates_for: "",
+        ),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -170,7 +187,16 @@ pub fn refetch(
     ListView(host:, op:, ..) -> {
       let #(host, host_effect) = table_host.refetch(host, as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op:, wizard: None),
+        ListView(
+          actor:,
+          as_of:,
+          host:,
+          roster: Loading,
+          op:,
+          wizard: None,
+          rates: None,
+          rates_for: "",
+        ),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -207,6 +233,14 @@ fn fetch_roster(as_of: calendar.Date) -> Effect(Msg) {
     "/api/roster?as_of=" <> iso_date(as_of),
     roster_view.roster_decoder(),
     fn(result) { RosterFetched(result:, as_of:) },
+  )
+}
+
+fn fetch_rate_card(date: String) -> Effect(Msg) {
+  api.get(
+    "/api/projects/rate-card?as_of=" <> date,
+    decode.list(settings_view.rate_card_row_decoder()),
+    fn(result) { RatesFetched(date:, result:) },
   )
 }
 
@@ -251,14 +285,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     WizardMsg(sub:) ->
       case model {
-        ListView(wizard: Some(current), ..) -> {
+        ListView(wizard: Some(current), rates_for:, ..) -> {
           let #(next, wizard_effect, outcome) = wizard.update(current, sub)
           case outcome {
-            wizard.Working -> #(
-              ListView(..model, wizard: Some(next)),
-              effect.map(wizard_effect, WizardMsg),
-              [],
-            )
+            wizard.Working -> {
+              let rates_effect = case wizard.current_step(next) == "contract" {
+                False -> effect.none()
+                True -> {
+                  let contract_from =
+                    wizard.field_value(next, "contract", "contract_from")
+                  case contract_from != "" && contract_from != rates_for {
+                    False -> effect.none()
+                    True -> fetch_rate_card(contract_from)
+                  }
+                }
+              }
+              #(
+                ListView(..model, wizard: Some(next)),
+                effect.batch([
+                  effect.map(wizard_effect, WizardMsg),
+                  rates_effect,
+                ]),
+                [],
+              )
+            }
             wizard.Dismissed -> {
               let #(reloaded, fetch) = reload(ListView(..model, wizard: None))
               #(reloaded, effect.batch([fetch, focus.release()]), [])
@@ -269,6 +319,31 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 OperationCommitted,
               ])
             }
+          }
+        }
+        _ -> #(model, effect.none(), [])
+      }
+
+    RatesFetched(date:, result:) ->
+      case model {
+        ListView(wizard: Some(current_wizard), ..) -> {
+          let current_date =
+            wizard.field_value(current_wizard, "contract", "contract_from")
+          case date == current_date {
+            False -> #(model, effect.none(), [])
+            True ->
+              case result {
+                Ok(rows) -> #(
+                  ListView(..model, rates: Some(rows), rates_for: date),
+                  effect.none(),
+                  [],
+                )
+                Error(_) -> #(
+                  ListView(..model, rates: Some([]), rates_for: date),
+                  effect.none(),
+                  [],
+                )
+              }
           }
         }
         _ -> #(model, effect.none(), [])
@@ -389,7 +464,16 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
     ListView(actor:, as_of:, host:, op:, ..) -> {
       let #(host, host_effect) = table_host.refetch(host, as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op:, wizard: None),
+        ListView(
+          actor:,
+          as_of:,
+          host:,
+          roster: Loading,
+          op:,
+          wizard: None,
+          rates: None,
+          rates_for: "",
+        ),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -551,8 +635,8 @@ pub fn view(
   permissions: Set(String),
 ) -> Element(Msg) {
   case model {
-    ListView(host:, roster:, op:, wizard:, ..) ->
-      view_list(host, roster, op, wizard, as_of, permissions)
+    ListView(host:, roster:, op:, wizard:, rates:, ..) ->
+      view_list(host, roster, op, wizard, rates, as_of, permissions)
     DetailView(detail:, roster:, op:, ..) ->
       view_detail(detail, roster, op, as_of, permissions)
   }
@@ -566,6 +650,7 @@ fn view_list(
   roster: Load(Roster),
   op: Option(ui.OpState),
   wizard_open: Option(wizard.Model),
+  rates: Option(List(RateCardRow)),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -593,7 +678,7 @@ fn view_list(
       ),
     )
   html.div([], [
-    view_wizard(wizard_open, permissions),
+    view_wizard(wizard_open, rates, permissions),
     page,
     op_modal(op, roster, None),
   ])
@@ -601,6 +686,7 @@ fn view_list(
 
 fn view_wizard(
   open: Option(wizard.Model),
+  rates: Option(List(RateCardRow)),
   permissions: Set(String),
 ) -> Element(Msg) {
   case open {
@@ -609,9 +695,41 @@ fn view_wizard(
       ui.dialog(
         title: "Create a project",
         on_dismiss: WizardMsg(wizard.DismissClicked),
-        body: element.map(wizard.view(wizard_model, permissions), WizardMsg),
+        body: element.map(
+          wizard.view(wizard_model, permissions, fn(step) {
+            case step {
+              "contract" -> rates_panel(rates)
+              _ -> element.none()
+            }
+          }),
+          WizardMsg,
+        ),
       )
   }
+}
+
+fn rates_panel(rates: Option(List(RateCardRow))) -> Element(a) {
+  let body = case rates {
+    None -> [html.p([], [html.text("Set a contract start date to see rates.")])]
+    Some([]) -> [html.p([], [html.text("No rate card for that date.")])]
+    Some(rows) ->
+      list.map(rows, fn(row) {
+        html.div([attribute.class("kv__row")], [
+          html.span([attribute.class("kv__key")], [
+            html.span([attribute.class("level-pill")], [
+              html.text(ui.level_band(row.level)),
+            ]),
+          ]),
+          html.span([attribute.class("kv__value mono")], [
+            html.text(ui.money(money.to_float(row.day_rate)) <> "/d"),
+          ]),
+        ])
+      })
+  }
+  html.div([attribute.class("wizard__aside")], [
+    html.h3([], [html.text("Rate card (from contract date)")]),
+    html.div([attribute.class("kv")], body),
+  ])
 }
 
 fn view_detail(

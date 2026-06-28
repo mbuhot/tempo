@@ -192,6 +192,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_projects)
       projects.handle_table(request, context)
     }
+    ["api", "projects", "rate-card"] -> {
+      use _principal <- guard.require(context, access.read_projects)
+      projects.handle_rate_card(request, context)
+    }
     ["api", "projects", id] -> {
       use _principal <- guard.require(context, access.read_projects)
       projects.handle_detail(request, context, id)
