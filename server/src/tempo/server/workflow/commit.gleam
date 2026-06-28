@@ -1,25 +1,34 @@
-//// Commit a completed onboarding draft into real engineer facts — the only moment
-//// onboarding writes domain data. Runs inside `command.dispatch`'s transaction:
-//// it reads the draft's current values, mints the engineer, maps the fields to the
-//// employment/role/contact/banking facts, marks the instance committed, and returns
-//// them for `repository.record_facts` to persist with the journal entry. Requires
-//// the instance to be awaiting Finance and the payroll step confirmed; anything
-//// missing rejects the whole commit (the transaction rolls back).
+//// Commit a completed workflow draft into real domain facts — the only moment a
+//// workflow writes domain data. Runs inside `command.dispatch`'s transaction:
+//// reads the draft's current values, mints the anchors, maps fields to facts, marks
+//// the instance committed, and returns them for `repository.record_facts`. Requires
+//// the instance to be in a committable status and the confirmation step confirmed;
+//// anything missing rejects the whole commit (the transaction rolls back).
+////
+//// Supported workflows: `CommitOnboarding` (engineer facts) and `CreateProject`
+//// (client/contract/project facts).
 
 import gleam/dict.{type Dict}
 import gleam/int
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
+import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{WorkflowCommand} as gateway
+import shared/money.{type Money}
 import shared/workflow/command.{
   type WorkflowCommand, CommitOnboarding, CreateProject,
 }
-import shared/workflow/value.{type FieldValue, BoolValue, DateValue, TextValue}
+import shared/workflow/value.{
+  type FieldValue, BoolValue, DateValue, MoneyValue, TextValue,
+}
+import tempo/server/client/sql as client_sql
 import tempo/server/fact.{
-  type EngineerId, type Recorded, EngineerAtLevel, EngineerBankingDetails,
-  EngineerContactDetails, EngineerEmergencyContact, EngineerEmployed, EngineerId,
+  type EngineerId, type Recorded, ClientProfile, ContractTerms, EngineerAtLevel,
+  EngineerBankingDetails, EngineerContactDetails, EngineerEmergencyContact,
+  EngineerEmployed, EngineerId, ProjectPlan, ProjectProfile, ProjectRun,
   Recorded,
 }
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
@@ -28,7 +37,7 @@ import tempo/server/workflow/instance.{
   AwaitingFinance, Cancelled, Committed, Draft,
 }
 
-/// Route a workflow command. Phase 1 has one: commit an onboarding draft.
+/// Route a workflow commit command to its handler.
 pub fn route(
   conn: pog.Connection,
   command: WorkflowCommand,
@@ -36,7 +45,7 @@ pub fn route(
   case command {
     CommitOnboarding(instance_id:) ->
       commit_onboarding(conn, command, instance_id)
-    CreateProject(..) -> Error(InvalidValue)
+    CreateProject(instance_id:) -> create_project(conn, command, instance_id)
   }
 }
 
@@ -114,6 +123,131 @@ fn commit_onboarding(
       ],
     ),
   )
+}
+
+fn create_project(
+  conn: pog.Connection,
+  command: WorkflowCommand,
+  instance_id: String,
+) -> Result(Recorded, OperationError) {
+  use maybe <- result.try(instance.load(conn, instance_id))
+  use _ <- result.try(case maybe {
+    Some(loaded) ->
+      case loaded.status {
+        Draft | AwaitingFinance -> Ok(Nil)
+        Committed | Cancelled -> Error(InvalidValue)
+      }
+    None -> Error(InvalidValue)
+  })
+
+  use values <- result.try(instance.current_values(conn, instance_id))
+  use _ <- result.try(require_project_confirmed(values))
+
+  use title <- result.try(text(values, "description.title"))
+  let summary = optional(values, "description.summary")
+  use start <- result.try(date(values, "timeframe.start"))
+  use end <- result.try(date(values, "timeframe.end"))
+  use budget <- result.try(money_of(values, "timeframe.budget"))
+  let target = case date(values, "timeframe.target_completion") {
+    Ok(target_date) -> target_date
+    Error(_) -> end
+  }
+  use contract_from <- result.try(date(values, "contract.contract_from"))
+  use contract_to <- result.try(date(values, "contract.contract_to"))
+
+  use #(client_name, profile_facts) <- result.try(resolve_client(
+    conn,
+    values,
+    contract_from,
+  ))
+
+  use contract_id <- result.try(repository.create_contract(conn))
+  use project_id <- result.try(repository.create_project(conn))
+
+  use _ <- result.try(instance.mark_committed(conn, instance_id))
+
+  Ok(Recorded(
+    entry: Event(
+      operation: "create_project",
+      summary: "Create project "
+        <> title
+        <> " for "
+        <> client_name
+        <> " from "
+        <> operation.iso(start),
+      payload: gateway.encode_command(WorkflowCommand(command)),
+    ),
+    facts: list.append(profile_facts, [
+      ContractTerms(
+        contract_id:,
+        client: client_name,
+        from: contract_from,
+        to: contract_to,
+      ),
+      ProjectRun(project_id:, contract_id:, from: start, to: end),
+      ProjectProfile(project_id:, title:, summary:, from: start),
+      ProjectPlan(project_id:, budget:, target_completion: target, from: start),
+    ]),
+  ))
+}
+
+/// Resolve the client field to its name and any profile facts to emit.
+/// Returns `#(name, profile_facts)` where `profile_facts` is non-empty only for
+/// new clients (a single `ClientProfile`).
+fn resolve_client(
+  conn: pog.Connection,
+  values: Dict(String, FieldValue),
+  contract_from: Date,
+) -> Result(#(String, List(fact.Fact)), OperationError) {
+  let chosen = optional(values, "client.client")
+  case chosen == "__new__" {
+    True -> {
+      use name <- result.try(text(values, "client.new_client_name"))
+      case string.is_empty(name) {
+        True -> Error(InvalidValue)
+        False -> {
+          use client_id <- result.try(repository.create_client(conn))
+          Ok(#(name, [ClientProfile(client_id:, name:, from: contract_from)]))
+        }
+      }
+    }
+    False -> {
+      use client_int_id <- result.try(
+        int.parse(chosen) |> result.replace_error(InvalidValue),
+      )
+      use returned <- operation.try(client_sql.client_current(
+        conn,
+        client_int_id,
+      ))
+      case returned.rows {
+        [row, ..] ->
+          case row.name {
+            Some(name) -> Ok(#(name, []))
+            None -> Error(InvalidValue)
+          }
+        [] -> Error(InvalidValue)
+      }
+    }
+  }
+}
+
+fn require_project_confirmed(
+  values: Dict(String, FieldValue),
+) -> Result(Nil, OperationError) {
+  case dict.get(values, "confirm.confirmed") {
+    Ok(BoolValue(True)) -> Ok(Nil)
+    _ -> Error(InvalidValue)
+  }
+}
+
+fn money_of(
+  values: Dict(String, FieldValue),
+  key: String,
+) -> Result(Money, OperationError) {
+  case dict.get(values, key) {
+    Ok(MoneyValue(amount)) -> Ok(amount)
+    _ -> Error(InvalidValue)
+  }
 }
 
 /// The engineer's emergency contact as a (possibly empty) fact list: written only
