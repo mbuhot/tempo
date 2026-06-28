@@ -314,12 +314,12 @@ Delivers a working second workflow end-to-end. Team-requirements step is added i
 
 **Files:**
 - Modify: `shared/src/shared/access.gleam` (add `pub const project_create_confirm = "project.create.confirm"`)
-- Modify: `server/priv/seed/rbac_seed.sql` (insert the permission; grant to `owner` and `admin` — mirror the `engineer.onboard.commit` rows already there)
-- Test: `server/test/...` existing access tests; add one asserting admin holds it if such a test module exists.
+- Modify: `server/priv/seed/rbac_seed.sql` (insert the permission `('project.create.confirm', 'Confirm and create a project')`; grant to `owner` ONLY — there is no `admin` role; the Admin user holds `owner`. "Admin-only confirmation" = owner-only. Mirror the placement of the `engineer.onboard.commit` rows.)
+- Test: existing access tests; add one asserting the owner role holds it if such a test module exists.
 
-- [ ] **Step 1:** Read the existing `engineer.onboard.commit` rows in `rbac_seed.sql`; copy them for `project.create.confirm`.
-- [ ] **Step 2:** Add the `access.gleam` constant.
-- [ ] **Step 3:** `bin/seed` (reseed base so the grant lands), then a quick check: login as admin, `GET /api/session`/identity includes the permission. Commit `"Add project.create.confirm permission, granted to owner + admin"`.
+- [ ] **Step 1:** Read the existing `engineer.onboard.commit` rows in `rbac_seed.sql`; add a `('project.create.confirm', ...)` permission row and one `('owner', 'project.create.confirm')` grant row. Do NOT grant to manager or finance.
+- [ ] **Step 2:** Add the `access.gleam` constant `pub const project_create_confirm = "project.create.confirm"`.
+- [ ] **Step 3:** `bin/seed` (reseed base so the grant lands), then a quick check: login as the Admin user, identity includes the permission. Commit `"Add project.create.confirm permission, granted to owner"`.
 
 ### Task B2: WorkflowCommand variant + access policy + command_tag
 
