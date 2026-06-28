@@ -20,10 +20,11 @@ import shared/command.{
   type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
   EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
   PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/role/command as role_command
+import shared/workflow/command as workflow_command
 
 /// An authenticated identity: the `account_id` (carried in the signed cookie), the
 /// `actor` display name stamped on the journal, the `engineer_id` it is linked to (for
@@ -116,5 +117,6 @@ fn command_tag(command: Command) -> String {
     PayrollCommand(_) -> "run_payroll"
     RoleCommand(role_command.GrantUserRole(..)) -> "grant_user_role"
     RoleCommand(role_command.RevokeUserRole(..)) -> "revoke_user_role"
+    WorkflowCommand(workflow_command.CommitOnboarding(..)) -> "commit_onboarding"
   }
 }
