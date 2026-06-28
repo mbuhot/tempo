@@ -24,6 +24,7 @@ import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
 import shared/leave/command as leave_command
 import shared/timesheet/command as timesheet_command
+import shared/workflow/command as workflow_command
 
 /// The payload-free identity of a write command — the key the authorization policy is
 /// keyed on. One per distinct permission outcome: the engineer lifecycle splits
@@ -76,7 +77,7 @@ pub fn requirement(key: CommandKey) -> Requirement {
     ManageInvoice -> Direct(access.invoice_manage)
     RunPayroll -> Direct(access.payroll_run)
     ManageRoles -> Direct(access.roles_manage)
-    ConfirmOnboarding -> Direct(access.payroll_run)
+    ConfirmOnboarding -> Direct(access.engineer_onboard_commit)
   }
 }
 
@@ -100,7 +101,7 @@ pub fn key(command: Command) -> CommandKey {
     InvoiceCommand(_) -> ManageInvoice
     PayrollCommand(_) -> RunPayroll
     RoleCommand(_) -> ManageRoles
-    WorkflowCommand(_) -> ConfirmOnboarding
+    WorkflowCommand(workflow_command.CommitOnboarding(..)) -> ConfirmOnboarding
   }
 }
 

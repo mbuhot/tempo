@@ -40,6 +40,10 @@ pub const engineer_promote = "engineer.promote"
 
 pub const engineer_terminate = "engineer.terminate"
 
+/// Confirm payroll and commit a completed onboarding draft into real engineer facts
+/// (the Finance side of the Manager -> Finance hand-off).
+pub const engineer_onboard_commit = "engineer.onboard.commit"
+
 /// Assign/reallocate/roll engineers off projects.
 pub const allocation_manage = "allocation.manage"
 
@@ -81,8 +85,9 @@ pub fn all() -> List(String) {
   [
     read_projects, read_engineers, read_finances, profile_update_own,
     profile_update_any, timesheet_log_own, timesheet_log_any, leave_take_own,
-    leave_take_any, engineer_onboard, engineer_promote, engineer_terminate,
-    allocation_manage, engagement_manage, project_manage, client_manage,
-    salary_set, ratecard_manage, invoice_manage, payroll_run, roles_manage,
+    leave_take_any, engineer_onboard, engineer_onboard_commit, engineer_promote,
+    engineer_terminate, allocation_manage, engagement_manage, project_manage,
+    client_manage, salary_set, ratecard_manage, invoice_manage, payroll_run,
+    roles_manage,
   ]
 }

@@ -20,6 +20,7 @@ INSERT INTO permission (key, description) VALUES
   ('engineer.onboard',    'Onboard engineers'),
   ('engineer.promote',    'Promote engineers'),
   ('engineer.terminate',  'Terminate engineers'),
+  ('engineer.onboard.commit', 'Confirm payroll and commit an onboarding draft'),
   ('allocation.manage',   'Allocate engineers to projects'),
   ('engagement.manage',   'Sign contracts and start projects'),
   ('project.manage',      'Edit projects and capacity requirements'),
@@ -66,6 +67,7 @@ FROM (VALUES
   ('finance', 'ratecard.manage'),
   ('finance', 'invoice.manage'),
   ('finance', 'payroll.run'),
+  ('finance', 'engineer.onboard.commit'),
 
   ('owner', 'read.projects'),
   ('owner', 'read.engineers'),
@@ -87,6 +89,7 @@ FROM (VALUES
   ('owner', 'ratecard.manage'),
   ('owner', 'invoice.manage'),
   ('owner', 'payroll.run'),
+  ('owner', 'engineer.onboard.commit'),
   ('owner', 'roles.manage')
 ) AS m(role, permission);
 
