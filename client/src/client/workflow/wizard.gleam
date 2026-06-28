@@ -347,7 +347,10 @@ fn view_footer(
         html.text("Continue →"),
       ])
   }
-  html.div([attribute.class("wizard__footer")], [back, undo, redo, advance])
+  html.div([attribute.class("wizard__footer")], [
+    html.div([attribute.class("wizard__footer-group")], [undo, redo]),
+    html.div([attribute.class("wizard__footer-group")], [back, advance]),
+  ])
 }
 
 fn view_error(error: String) -> Element(Msg) {

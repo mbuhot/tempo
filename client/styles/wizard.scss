@@ -104,17 +104,19 @@
     -moz-appearance: auto;
 }
 
-/* --- the footer action row --- */
+/* --- the footer action row: Undo/Redo grouped left, Back/Continue grouped right --- */
 .wizard__footer {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    justify-content: space-between;
+    gap: var(--space-md);
     flex-wrap: wrap;
     border-top: var(--border-thin) solid var(--color-border);
     padding-top: var(--space-lg);
 }
 
-/* The primary action (the non-ghost .btn) sits at the trailing edge. */
-.wizard__footer .btn:not(.btn--ghost) {
-    margin-left: auto;
+.wizard__footer-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
 }
