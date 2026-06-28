@@ -1068,6 +1068,22 @@ pub fn modal(
   ])
 }
 
+/// A modal that hosts arbitrary `body` content and owns NO footer — for flows (like
+/// the onboarding wizard) that supply their own actions. The backdrop and a header
+/// title are provided; clicking the backdrop raises `on_dismiss`.
+pub fn dialog(
+  title title: String,
+  on_dismiss on_dismiss: msg,
+  body body: Element(msg),
+) -> Element(msg) {
+  html.div([attribute.class("modal-backdrop"), event.on_click(on_dismiss)], [
+    html.div([attribute.class("modal modal--wide"), swallow_click(on_dismiss)], [
+      html.div([attribute.class("modal__header")], [html.text(title)]),
+      html.div([attribute.class("modal__body")], [body]),
+    ]),
+  ])
+}
+
 /// A click handler that stops the event reaching parent elements but dispatches
 /// nothing: the decoder reads a path that is never present on a click event, so it
 /// always fails and no message is raised, while the `stop_propagation` flag still

@@ -35,7 +35,6 @@ import client/page/activity
 import client/page/board
 import client/page/clients
 import client/page/finance
-import client/page/onboard
 import client/page/people
 import client/page/projects
 import client/page/settings
@@ -69,7 +68,6 @@ pub type Page {
   ActivityPage(activity.Model)
   SettingsPage(settings.Model)
   AccessPage(access.Model)
-  OnboardPage(onboard.Model)
 }
 
 /// Who is signed in, as one of three states: `Verifying` while the boot `GET /api/me`
@@ -183,7 +181,6 @@ pub type Msg {
   ActivityMsg(activity.Msg)
   SettingsMsg(settings.Msg)
   AccessMsg(access.Msg)
-  OnboardMsg(onboard.Msg)
 }
 
 /// Client entrypoint: start the Lustre application mounted on `#app`.
@@ -499,20 +496,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
-
-    OnboardMsg(page_msg) ->
-      case model.page {
-        OnboardPage(page_model) -> {
-          let #(next, page_effect, outs) = onboard.update(page_model, page_msg)
-          handle_page(
-            model,
-            OnboardPage(next),
-            effect.map(page_effect, OnboardMsg),
-            page_outs(outs),
-          )
-        }
-        _ -> #(model, effect.none())
-      }
   }
 }
 
@@ -642,10 +625,6 @@ fn init_page(
       let #(page, eff) = access.init(route, as_of, actor)
       #(AccessPage(page), effect.map(eff, AccessMsg))
     }
-    route.Onboard(..) -> {
-      let #(page, eff) = onboard.init(route, as_of, actor)
-      #(OnboardPage(page), effect.map(eff, OnboardMsg))
-    }
     route.NotFound -> {
       let #(page, eff) = board.init(route, as_of, actor)
       #(BoardPage(page), effect.map(eff, BoardMsg))
@@ -693,10 +672,6 @@ fn refetch_page(
     AccessPage(model) -> {
       let #(next, eff) = access.refetch(model, as_of, actor)
       #(AccessPage(next), effect.map(eff, AccessMsg))
-    }
-    OnboardPage(model) -> {
-      let #(next, eff) = onboard.refetch(model, as_of, actor)
-      #(OnboardPage(next), effect.map(eff, OnboardMsg))
     }
   }
 }
@@ -951,15 +926,6 @@ fn view_sidebar(
         icons.activity(),
         "Activity",
       ),
-      nav_link_if(
-        permissions,
-        perm.engineer_onboard,
-        active,
-        as_of,
-        route.Onboard(instance_id: None, step_id: None),
-        icons.people(),
-        "Onboard",
-      ),
       admin_header(permissions),
       nav_link_if(
         permissions,
@@ -1127,8 +1093,6 @@ fn view_page(model: Model) -> Element(Msg) {
     SettingsPage(page) ->
       element.map(settings.view(page, model.as_of, permissions), SettingsMsg)
     AccessPage(page) -> element.map(access.view(page, model.as_of), AccessMsg)
-    OnboardPage(page) ->
-      element.map(onboard.view(page, model.as_of, permissions), OnboardMsg)
   }
 }
 

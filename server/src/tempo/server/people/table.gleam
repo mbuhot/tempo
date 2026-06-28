@@ -28,11 +28,12 @@ import shared/level
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
-  type Cell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
+  type Cell, EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
 }
 import shared/table/column.{
-  type Schema, Column, EntityType, EnumType, MoneyType, Neutral, NumberType,
-  NumericEnd, PercentType, PersonType, Positive, Schema, Start, Warning,
+  type Schema, Accent, Column, EntityType, EnumType, MoneyType, Neutral,
+  NumberType, NumericEnd, PercentType, PersonType, Positive, Schema, Start,
+  Warning,
 }
 import shared/table/filter.{FilterOption, NumberRangeFilter, SelectFilter}
 import shared/table/query.{type Applied}
@@ -57,19 +58,98 @@ pub fn people_table(
   let schema = people_schema(options)
   let offset = decode_offset(applied.cursor)
   let limit = applied.page_size
-  use returned <- result.map(run_list(context, as_of, applied, limit, offset))
+  use returned <- result.try(run_list(context, as_of, applied, limit, offset))
+  // In-progress onboardings are not engineers yet, so they ride atop the FIRST page
+  // (offset 0) regardless of filters/sort — a small set, always visible to resume.
+  use drafts <- result.map(case offset {
+    0 -> onboarding_draft_rows(context)
+    _ -> Ok([])
+  })
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
     True -> Some(encode_offset(offset + limit))
     False -> None
   }
-  TableResponse(
-    schema:,
-    rows: list.map(page_rows, row_to_table_row),
-    page: Page(next_cursor:),
-    footer: None,
+  let rows =
+    list.append(
+      list.map(drafts, draft_row_to_table_row),
+      list.map(page_rows, row_to_table_row),
+    )
+  TableResponse(schema:, rows:, page: Page(next_cursor:), footer: None)
+}
+
+// --- in-progress onboarding drafts ------------------------------------------
+
+type DraftRow {
+  DraftRow(instance_id: String, name: String, status: String)
+}
+
+/// The in-progress onboarding drafts, with the engineer's entered name (the open
+/// transaction-time value of identity.full_name) and lifecycle status. These appear
+/// as rows in the roster so a manager/Finance can resume them.
+fn onboarding_draft_rows(
+  context: Context,
+) -> Result(List(DraftRow), pog.QueryError) {
+  let row_decoder = {
+    use instance_id <- decode.field(0, decode.string)
+    use name <- decode.field(1, decode.string)
+    use status <- decode.field(2, decode.string)
+    decode.success(DraftRow(instance_id:, name:, status:))
+  }
+  use returned <- result.map(
+    pog.query(onboarding_drafts_sql)
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: context.db),
   )
+  returned.rows
+}
+
+const onboarding_drafts_sql = "
+SELECT i.id,
+       coalesce(v.value #>> '{value}', ''),
+       i.status
+  FROM workflow_instance i
+  LEFT JOIN workflow_step_value v
+    ON v.instance_id = i.id AND v.step_id = 'identity' AND v.field_key = 'full_name'
+       AND upper_inf(v.recorded_during)
+ WHERE i.kind = 'onboard_engineer' AND i.status IN ('draft', 'awaiting_finance')
+ ORDER BY i.created_at
+"
+
+fn draft_row_to_table_row(row: DraftRow) -> Row {
+  let display_name = case row.name {
+    "" -> "New engineer"
+    name -> name
+  }
+  Row(
+    id: row.instance_id,
+    cells: dict.from_list([
+      #(
+        "name",
+        PersonCell(
+          name: display_name,
+          sub: Some("Onboarding"),
+          initials: initials(display_name),
+          color: "var(--color-accent)",
+        ),
+      ),
+      #("level", EntityCell(label: "—", sub: None, color: "var(--color-border)")),
+      #("status", draft_status_cell(row.status)),
+      #("allocated", PercentCell(0.0)),
+      #("annual_leave", NumberCell(0.0)),
+      #("day_rate", MoneyCell(money.zero())),
+    ]),
+    children: [],
+    detail: None,
+  )
+}
+
+fn draft_status_cell(status: String) -> Cell {
+  case status {
+    "awaiting_finance" -> EnumCell(label: "Awaiting payroll", tone: Warning)
+    _ -> EnumCell(label: "Onboarding", tone: Accent)
+  }
 }
 
 // --- schema -----------------------------------------------------------------
