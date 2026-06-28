@@ -39,27 +39,25 @@ pub fn save_then_draft_view_shows_value_test() {
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
 
   let assert Ok(_) =
-    instance.save_field(
+    instance.save_step(
       conn,
       id,
       "identity",
-      "full_name",
-      value.encode(TextValue("Aisha Okafor")),
+      dict.from_list([#("full_name", TextValue("Aisha Okafor"))]),
     )
 
   let assert Ok(Some(draft)) =
     instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
-  assert dict.get(draft.values, "identity.full_name")
-    == Ok(TextValue("Aisha Okafor"))
+  let assert Ok(identity_values) = dict.get(draft.values, "identity")
+  assert dict.get(identity_values, "full_name") == Ok(TextValue("Aisha Okafor"))
   assert draft.current_step == "identity"
   assert draft.can_act == True
 }
 
-/// Every version (open + closed) recorded for a field.
-fn version_count(
+fn step_version_count(
   conn: pog.Connection,
   instance_id: String,
-  field_key: String,
+  step_id: String,
 ) -> Int {
   let decoder = {
     use count <- decode.field(0, decode.int)
@@ -68,10 +66,10 @@ fn version_count(
   let assert Ok(returned) =
     pog.query(
       "SELECT count(*)::int FROM workflow_step_value
-        WHERE instance_id = $1 AND field_key = $2",
+        WHERE instance_id = $1 AND step_id = $2",
     )
     |> pog.parameter(pog.text(instance_id))
-    |> pog.parameter(pog.text(field_key))
+    |> pog.parameter(pog.text(step_id))
     |> pog.returning(decoder)
     |> pog.execute(conn)
   let assert [count] = returned.rows
@@ -83,24 +81,11 @@ pub fn unchanged_value_records_no_new_version_test() {
   let #(owner, _) = two_account_ids(conn)
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
 
-  let assert Ok(_) =
-    instance.save_field(
-      conn,
-      id,
-      "identity",
-      "full_name",
-      value.encode(TextValue("Aisha")),
-    )
-  let assert Ok(_) =
-    instance.save_field(
-      conn,
-      id,
-      "identity",
-      "full_name",
-      value.encode(TextValue("Aisha")),
-    )
+  let step_values = dict.from_list([#("full_name", TextValue("Aisha"))])
+  let assert Ok(_) = instance.save_step(conn, id, "identity", step_values)
+  let assert Ok(_) = instance.save_step(conn, id, "identity", step_values)
 
-  assert version_count(conn, id, "full_name") == 1
+  assert step_version_count(conn, id, "identity") == 1
 }
 
 pub fn latest_value_wins_test() {
@@ -109,25 +94,24 @@ pub fn latest_value_wins_test() {
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
 
   let assert Ok(_) =
-    instance.save_field(
+    instance.save_step(
       conn,
       id,
       "identity",
-      "full_name",
-      value.encode(TextValue("First")),
+      dict.from_list([#("full_name", TextValue("First"))]),
     )
   let assert Ok(_) =
-    instance.save_field(
+    instance.save_step(
       conn,
       id,
       "identity",
-      "full_name",
-      value.encode(TextValue("Second")),
+      dict.from_list([#("full_name", TextValue("Second"))]),
     )
 
   let assert Ok(Some(draft)) =
     instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
-  assert dict.get(draft.values, "identity.full_name") == Ok(TextValue("Second"))
+  let assert Ok(identity_values) = dict.get(draft.values, "identity")
+  assert dict.get(identity_values, "full_name") == Ok(TextValue("Second"))
 }
 
 pub fn complete_step_advances_and_marks_status_test() {

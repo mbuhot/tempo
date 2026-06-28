@@ -24,6 +24,16 @@ import shared/workflow/command.{
 import shared/workflow/value.{
   type FieldValue, BoolValue, DateValue, MoneyValue, TextValue,
 }
+
+fn field_at(
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
+) -> Result(FieldValue, Nil) {
+  use step_values <- result.try(dict.get(values, step))
+  dict.get(step_values, field)
+}
+
 import tempo/server/client/sql as client_sql
 import tempo/server/fact.{
   type EngineerId, type Recorded, ClientProfile, ContractTerms, EngineerAtLevel,
@@ -71,13 +81,13 @@ fn commit_onboarding(
   use values <- result.try(instance.current_values(conn, instance_id))
   use _ <- result.try(require_confirmed(values))
 
-  use full_name <- result.try(text(values, "identity.full_name"))
-  use email <- result.try(text(values, "identity.work_email"))
+  use full_name <- result.try(text(values, "identity", "full_name"))
+  use email <- result.try(text(values, "identity", "work_email"))
   use level <- result.try(level_of(values))
-  use start_date <- result.try(date(values, "employment.start_date"))
-  use bank <- result.try(text(values, "banking.bank"))
-  use account_no <- result.try(text(values, "banking.account_no"))
-  use account_name <- result.try(text(values, "banking.account_name"))
+  use start_date <- result.try(date(values, "employment", "start_date"))
+  use bank <- result.try(text(values, "banking", "bank"))
+  use account_no <- result.try(text(values, "banking", "account_no"))
+  use account_name <- result.try(text(values, "banking", "account_name"))
 
   use engineer_id <- result.try(repository.create_engineer(conn))
   let EngineerId(id) = engineer_id
@@ -107,14 +117,14 @@ fn commit_onboarding(
           engineer_id:,
           name: full_name,
           email:,
-          phone: optional(values, "contact.phone"),
-          postal_address: optional(values, "contact.postal_address"),
+          phone: optional(values, "contact", "phone"),
+          postal_address: optional(values, "contact", "postal_address"),
           from: start_date,
         ),
         EngineerBankingDetails(
           engineer_id:,
           bank:,
-          branch: optional(values, "banking.branch"),
+          branch: optional(values, "banking", "branch"),
           account_no:,
           account_name:,
           from: start_date,
@@ -143,17 +153,17 @@ fn create_project(
   use values <- result.try(instance.current_values(conn, instance_id))
   use _ <- result.try(require_project_confirmed(values))
 
-  use title <- result.try(text(values, "description.title"))
-  let summary = optional(values, "description.summary")
-  use start <- result.try(date(values, "timeframe.start"))
-  use end <- result.try(date(values, "timeframe.end"))
-  use budget <- result.try(money_of(values, "timeframe.budget"))
-  let target = case date(values, "timeframe.target_completion") {
+  use title <- result.try(text(values, "description", "title"))
+  let summary = optional(values, "description", "summary")
+  use start <- result.try(date(values, "timeframe", "start"))
+  use end <- result.try(date(values, "timeframe", "end"))
+  use budget <- result.try(money_of(values, "timeframe", "budget"))
+  let target = case date(values, "timeframe", "target_completion") {
     Ok(target_date) -> target_date
     Error(_) -> end
   }
-  use contract_from <- result.try(date(values, "contract.contract_from"))
-  use contract_to <- result.try(date(values, "contract.contract_to"))
+  use contract_from <- result.try(date(values, "contract", "contract_from"))
+  use contract_to <- result.try(date(values, "contract", "contract_to"))
 
   use #(client_name, profile_facts) <- result.try(resolve_client(
     conn,
@@ -196,13 +206,13 @@ fn create_project(
 /// new clients (a single `ClientProfile`).
 fn resolve_client(
   conn: pog.Connection,
-  values: Dict(String, FieldValue),
+  values: Dict(String, Dict(String, FieldValue)),
   contract_from: Date,
 ) -> Result(#(String, List(fact.Fact)), OperationError) {
-  let chosen = optional(values, "client.client")
+  let chosen = optional(values, "client", "client")
   case chosen == "__new__" {
     True -> {
-      use name <- result.try(text(values, "client.new_client_name"))
+      use name <- result.try(text(values, "client", "new_client_name"))
       case string.is_empty(name) {
         True -> Error(InvalidValue)
         False -> {
@@ -232,19 +242,20 @@ fn resolve_client(
 }
 
 fn require_project_confirmed(
-  values: Dict(String, FieldValue),
+  values: Dict(String, Dict(String, FieldValue)),
 ) -> Result(Nil, OperationError) {
-  case dict.get(values, "confirm.confirmed") {
+  case field_at(values, "confirm", "confirmed") {
     Ok(BoolValue(True)) -> Ok(Nil)
     _ -> Error(InvalidValue)
   }
 }
 
 fn money_of(
-  values: Dict(String, FieldValue),
-  key: String,
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
 ) -> Result(Money, OperationError) {
-  case dict.get(values, key) {
+  case field_at(values, step, field) {
     Ok(MoneyValue(amount)) -> Ok(amount)
     _ -> Error(InvalidValue)
   }
@@ -254,19 +265,19 @@ fn money_of(
 /// when a contact name was entered, since every other field is meaningless without
 /// one. The wizard's emergency step is optional, so a skipped step records nothing.
 fn emergency_contact(
-  values: Dict(String, FieldValue),
+  values: Dict(String, Dict(String, FieldValue)),
   engineer_id: EngineerId,
   from: Date,
 ) -> List(fact.Fact) {
-  case optional(values, "emergency.emergency_name") {
+  case optional(values, "emergency", "emergency_name") {
     "" -> []
     name -> [
       EngineerEmergencyContact(
         engineer_id:,
-        relation: optional(values, "emergency.emergency_relation"),
+        relation: optional(values, "emergency", "emergency_relation"),
         name:,
-        phone: optional(values, "emergency.emergency_phone"),
-        email: optional(values, "emergency.emergency_email"),
+        phone: optional(values, "emergency", "emergency_phone"),
+        email: optional(values, "emergency", "emergency_email"),
         from:,
       ),
     ]
@@ -274,44 +285,52 @@ fn emergency_contact(
 }
 
 fn require_confirmed(
-  values: Dict(String, FieldValue),
+  values: Dict(String, Dict(String, FieldValue)),
 ) -> Result(Nil, OperationError) {
-  case dict.get(values, "payroll.payroll_confirmed") {
+  case field_at(values, "payroll", "payroll_confirmed") {
     Ok(BoolValue(True)) -> Ok(Nil)
     _ -> Error(InvalidValue)
   }
 }
 
 fn text(
-  values: Dict(String, FieldValue),
-  key: String,
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
 ) -> Result(String, OperationError) {
-  case dict.get(values, key) {
-    Ok(TextValue(text)) -> Ok(text)
+  case field_at(values, step, field) {
+    Ok(TextValue(t)) -> Ok(t)
     _ -> Error(InvalidValue)
   }
 }
 
-fn optional(values: Dict(String, FieldValue), key: String) -> String {
-  case dict.get(values, key) {
-    Ok(TextValue(text)) -> text
+fn optional(
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
+) -> String {
+  case field_at(values, step, field) {
+    Ok(TextValue(t)) -> t
     _ -> ""
   }
 }
 
 fn date(
-  values: Dict(String, FieldValue),
-  key: String,
+  values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
 ) -> Result(Date, OperationError) {
-  case dict.get(values, key) {
-    Ok(DateValue(date)) -> Ok(date)
+  case field_at(values, step, field) {
+    Ok(DateValue(d)) -> Ok(d)
     _ -> Error(InvalidValue)
   }
 }
 
-fn level_of(values: Dict(String, FieldValue)) -> Result(Int, OperationError) {
-  case dict.get(values, "level.level") {
-    Ok(TextValue(text)) -> int.parse(text) |> result.replace_error(InvalidValue)
+fn level_of(
+  values: Dict(String, Dict(String, FieldValue)),
+) -> Result(Int, OperationError) {
+  case field_at(values, "level", "level") {
+    Ok(TextValue(t)) -> int.parse(t) |> result.replace_error(InvalidValue)
     _ -> Error(InvalidValue)
   }
 }

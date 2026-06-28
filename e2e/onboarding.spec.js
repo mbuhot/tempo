@@ -64,7 +64,7 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   await confirm.waitFor();
   await Promise.all([
     page.waitForResponse(
-      (r) => r.url().includes("/field") && r.request().method() === "POST",
+      (r) => r.url().includes("/values") && r.request().method() === "POST",
     ),
     confirm.check(),
   ]);

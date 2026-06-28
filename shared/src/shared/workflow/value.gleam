@@ -3,9 +3,11 @@
 //// `parse` lifts a raw input string into the right variant for a field's type, and
 //// `to_input` renders a stored value back into an input string for the client.
 
+import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
+import gleam/list
 import gleam/string
 import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
@@ -64,6 +66,19 @@ pub fn decoder() -> Decoder(FieldValue) {
     "person" -> decode.at(["value"], decode.int) |> decode.map(PersonValue)
     _ -> decode.at(["value"], decode.string) |> decode.map(TextValue)
   }
+}
+
+/// Encode a step's field map as a JSON object `{field_key: FieldValue}`.
+pub fn encode_step(values: Dict(String, FieldValue)) -> Json {
+  json.object(
+    dict.to_list(values)
+    |> list.map(fn(pair) { #(pair.0, encode(pair.1)) }),
+  )
+}
+
+/// Decode a step document back into `Dict(field_key, FieldValue)`.
+pub fn step_decoder() -> Decoder(Dict(String, FieldValue)) {
+  decode.dict(decode.string, decoder())
 }
 
 /// Lift a raw input string into the variant a field of `kind` expects. Returns

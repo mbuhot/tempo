@@ -2,6 +2,7 @@
 //// role, contact and banking facts from the saved values, and marks the instance
 //// committed. A draft not yet awaiting Finance is refused.
 
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/option.{Some}
 import gleam/time/calendar.{Date, July}
@@ -37,9 +38,8 @@ fn account_id(conn: pog.Connection) -> Int {
   id
 }
 
-fn save(conn, id, step, field, field_value) {
-  let assert Ok(_) =
-    instance.save_field(conn, id, step, field, value.encode(field_value))
+fn save_step(conn, id, step, fields) {
+  let assert Ok(_) = instance.save_step(conn, id, step, dict.from_list(fields))
   Nil
 }
 
@@ -47,14 +47,20 @@ fn save(conn, id, step, field, field_value) {
 /// the instance a `draft` (no hand-off).
 fn fill_complete(conn: pog.Connection, owner: Int) -> String {
   let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
-  save(conn, id, "identity", "full_name", TextValue("Aisha Okafor"))
-  save(conn, id, "identity", "work_email", TextValue("aisha@example.com"))
-  save(conn, id, "level", "level", TextValue("5"))
-  save(conn, id, "employment", "start_date", DateValue(Date(2026, July, 13)))
-  save(conn, id, "banking", "bank", TextValue("ANZ"))
-  save(conn, id, "banking", "account_no", TextValue("00112233"))
-  save(conn, id, "banking", "account_name", TextValue("A Okafor"))
-  save(conn, id, "payroll", "payroll_confirmed", BoolValue(True))
+  save_step(conn, id, "identity", [
+    #("full_name", TextValue("Aisha Okafor")),
+    #("work_email", TextValue("aisha@example.com")),
+  ])
+  save_step(conn, id, "level", [#("level", TextValue("5"))])
+  save_step(conn, id, "employment", [
+    #("start_date", DateValue(Date(2026, July, 13))),
+  ])
+  save_step(conn, id, "banking", [
+    #("bank", TextValue("ANZ")),
+    #("account_no", TextValue("00112233")),
+    #("account_name", TextValue("A Okafor")),
+  ])
+  save_step(conn, id, "payroll", [#("payroll_confirmed", BoolValue(True))])
   id
 }
 

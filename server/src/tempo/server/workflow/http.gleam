@@ -6,6 +6,7 @@
 //// to its owner, and once it is awaiting Finance anyone holding the commit permission
 //// can see it (the shared queue) — `can_act` and the resume list reflect that.
 
+import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http
 import gleam/json
@@ -89,7 +90,7 @@ pub fn handle_instance(
   }
 }
 
-/// POST /api/workflows/:id/:action — a draft mutation: field | step | handoff |
+/// POST /api/workflows/:id/:action — a draft mutation: values | step | handoff |
 /// cancel.
 pub fn handle_action(
   req: wisp.Request,
@@ -100,7 +101,7 @@ pub fn handle_action(
   use _ <- guard.authenticated(ctx)
   use <- wisp.require_method(req, http.Post)
   case action {
-    "field" -> save_field_action(req, ctx, id)
+    "values" -> save_values_action(req, ctx, id)
     "step" -> complete_step_action(req, ctx, id)
     "handoff" -> handoff_action(ctx, id)
     "cancel" -> void_response(instance.cancel(ctx.db, id))
@@ -108,27 +109,17 @@ pub fn handle_action(
   }
 }
 
-fn save_field_action(
+fn save_values_action(
   req: wisp.Request,
   ctx: Context,
   id: String,
 ) -> wisp.Response {
   use body <- wisp.require_json(req)
-  case decode.run(body, field_decoder()) {
-    Ok(#(step, field, field_value)) ->
-      void_response(instance.save_field(
-        ctx.db,
-        id,
-        step,
-        field,
-        value.encode(field_value),
-      ))
+  case decode.run(body, step_values_decoder()) {
+    Ok(#(step, step_values)) ->
+      void_response(instance.save_step(ctx.db, id, step, step_values))
     Error(_) ->
-      response.error_response(
-        400,
-        "invalid_body",
-        "expected {step, field, value}",
-      )
+      response.error_response(400, "invalid_body", "expected {step, values}")
   }
 }
 
@@ -223,11 +214,10 @@ fn start_decoder() -> Decoder(String) {
   decode.success(kind)
 }
 
-fn field_decoder() -> Decoder(#(String, String, FieldValue)) {
+fn step_values_decoder() -> Decoder(#(String, dict.Dict(String, FieldValue))) {
   use step <- decode.field("step", decode.string)
-  use field <- decode.field("field", decode.string)
-  use field_value <- decode.field("value", value.decoder())
-  decode.success(#(step, field, field_value))
+  use step_values <- decode.field("values", value.step_decoder())
+  decode.success(#(step, step_values))
 }
 
 fn next_step_decoder() -> Decoder(String) {

@@ -17,10 +17,11 @@ pub type StepStatus {
   Locked
 }
 
-/// One in-flight instance. `values` is keyed `"step.field"`; `step_status` is keyed
-/// by step id. `can_act` tells the client whether the signed-in user may act on this
-/// instance now (the owner while it is a draft, anyone holding the commit permission
-/// once it is awaiting Finance) — it drives the Next/hand-off/commit affordances.
+/// One in-flight instance. `values` is keyed step_id → field_key → FieldValue;
+/// `step_status` is keyed by step id. `can_act` tells the client whether the
+/// signed-in user may act on this instance now (the owner while it is a draft,
+/// anyone holding the commit permission once it is awaiting Finance) — it drives
+/// the Next/hand-off/commit affordances.
 pub type DraftView {
   DraftView(
     instance_id: String,
@@ -28,7 +29,7 @@ pub type DraftView {
     status: String,
     current_step: String,
     can_act: Bool,
-    values: Dict(String, FieldValue),
+    values: Dict(String, Dict(String, FieldValue)),
     step_status: Dict(String, StepStatus),
   )
 }
@@ -75,10 +76,10 @@ pub fn encode_draft(draft: DraftView) -> Json {
   ])
 }
 
-fn encode_values(values: Dict(String, FieldValue)) -> Json {
+fn encode_values(values: Dict(String, Dict(String, FieldValue))) -> Json {
   values
   |> dict.to_list
-  |> list.map(fn(pair) { #(pair.0, value.encode(pair.1)) })
+  |> list.map(fn(pair) { #(pair.0, value.encode_step(pair.1)) })
   |> json.object
 }
 
@@ -97,7 +98,7 @@ pub fn draft_decoder() -> Decoder(DraftView) {
   use can_act <- decode.field("can_act", decode.bool)
   use values <- decode.field(
     "values",
-    decode.dict(decode.string, value.decoder()),
+    decode.dict(decode.string, value.step_decoder()),
   )
   use step_status <- decode.field(
     "step_status",

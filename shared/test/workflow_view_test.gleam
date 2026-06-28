@@ -66,9 +66,17 @@ pub fn draft_round_trips_test() {
       current_step: "employment",
       can_act: True,
       values: dict.from_list([
-        #("identity.full_name", TextValue("Aisha Okafor")),
-        #("employment.base_salary", MoneyValue(salary)),
-        #("employment.start_date", DateValue(Date(2026, June, 13))),
+        #(
+          "identity",
+          dict.from_list([#("full_name", TextValue("Aisha Okafor"))]),
+        ),
+        #(
+          "employment",
+          dict.from_list([
+            #("base_salary", MoneyValue(salary)),
+            #("start_date", DateValue(Date(2026, June, 13))),
+          ]),
+        ),
       ]),
       step_status: dict.from_list([
         #("identity", Done),

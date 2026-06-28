@@ -4,6 +4,7 @@
 //// build URLs or bodies themselves.
 
 import client/api
+import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json
 import lustre/effect.{type Effect}
@@ -49,20 +50,18 @@ pub fn start(
   )
 }
 
-/// POST one field value to a draft.
-pub fn save_field(
+/// POST a step's full values document to a draft.
+pub fn save_step(
   id: String,
   step: String,
-  field: String,
-  field_value: FieldValue,
+  values: dict.Dict(String, FieldValue),
   to_msg: fn(Result(Nil, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   rsvp.post(
-    "/api/workflows/" <> id <> "/field",
+    "/api/workflows/" <> id <> "/values",
     json.object([
       #("step", json.string(step)),
-      #("field", json.string(field)),
-      #("value", value.encode(field_value)),
+      #("values", value.encode_step(values)),
     ]),
     rsvp.expect_json(decode.success(Nil), to_msg),
   )

@@ -3,6 +3,7 @@
 //// values, and marks the instance committed. The new-client path additionally emits
 //// a ClientProfile.
 
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/int
 import gleam/time/calendar.{Date, December, January, July}
@@ -51,9 +52,8 @@ fn seeded_client_id(conn: pog.Connection) -> Int {
   id
 }
 
-fn save(conn, id, step, field, field_value) {
-  let assert Ok(_) =
-    instance.save_field(conn, id, step, field, value.encode(field_value))
+fn save_step(conn, id, step, fields) {
+  let assert Ok(_) = instance.save_step(conn, id, step, dict.from_list(fields))
   Nil
 }
 
@@ -63,22 +63,24 @@ fn fill_project_draft(
   client_field_value: String,
 ) -> String {
   let assert Ok(id) = instance.start(conn, project_schema.kind, owner, "client")
-  save(conn, id, "client", "client", TextValue(client_field_value))
-  save(conn, id, "description", "title", TextValue("Website Rebuild"))
-  save(
-    conn,
-    id,
-    "description",
-    "summary",
-    TextValue("Rebuild the marketing site"),
-  )
-  save(conn, id, "timeframe", "start", DateValue(Date(2026, July, 1)))
-  save(conn, id, "timeframe", "end", DateValue(Date(2026, December, 31)))
-  let assert Ok(budget_money) = money.from_string("50000.00")
-  save(conn, id, "timeframe", "budget", MoneyValue(budget_money))
-  save(conn, id, "contract", "contract_from", DateValue(Date(2026, July, 1)))
-  save(conn, id, "contract", "contract_to", DateValue(Date(2027, January, 1)))
-  save(conn, id, "confirm", "confirmed", BoolValue(True))
+  save_step(conn, id, "client", [#("client", TextValue(client_field_value))])
+  save_step(conn, id, "description", [
+    #("title", TextValue("Website Rebuild")),
+    #("summary", TextValue("Rebuild the marketing site")),
+  ])
+  save_step(conn, id, "timeframe", [
+    #("start", DateValue(Date(2026, July, 1))),
+    #("end", DateValue(Date(2026, December, 31))),
+    #("budget", {
+      let assert Ok(budget_money) = money.from_string("50000.00")
+      MoneyValue(budget_money)
+    }),
+  ])
+  save_step(conn, id, "contract", [
+    #("contract_from", DateValue(Date(2026, July, 1))),
+    #("contract_to", DateValue(Date(2027, January, 1))),
+  ])
+  save_step(conn, id, "confirm", [#("confirmed", BoolValue(True))])
   id
 }
 
@@ -111,7 +113,10 @@ pub fn commit_new_client_emits_client_profile_test() {
   use conn <- rolling_back
   let owner = account_id(conn)
   let id = fill_project_draft(conn, owner, "__new__")
-  save(conn, id, "client", "new_client_name", TextValue("Acme Corp"))
+  save_step(conn, id, "client", [
+    #("client", TextValue("__new__")),
+    #("new_client_name", TextValue("Acme Corp")),
+  ])
 
   let assert Ok(Recorded(facts:, ..)) = commit.route(conn, CreateProject(id))
 

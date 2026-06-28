@@ -28,7 +28,8 @@ import shared/level
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
-  type Cell, EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
+  type Cell, EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell,
+  PersonCell,
 }
 import shared/table/column.{
   type Schema, Accent, Column, EntityType, EnumType, MoneyType, Neutral,
@@ -107,11 +108,11 @@ fn onboarding_draft_rows(
 
 const onboarding_drafts_sql = "
 SELECT i.id,
-       coalesce(v.value #>> '{value}', ''),
+       coalesce(v.value #>> '{full_name,value}', ''),
        i.status
   FROM workflow_instance i
   LEFT JOIN workflow_step_value v
-    ON v.instance_id = i.id AND v.step_id = 'identity' AND v.field_key = 'full_name'
+    ON v.instance_id = i.id AND v.step_id = 'identity'
        AND upper_inf(v.recorded_during)
  WHERE i.kind = 'onboard_engineer' AND i.status IN ('draft', 'awaiting_finance')
  ORDER BY i.created_at
@@ -134,7 +135,10 @@ fn draft_row_to_table_row(row: DraftRow) -> Row {
           color: "var(--color-accent)",
         ),
       ),
-      #("level", EntityCell(label: "—", sub: None, color: "var(--color-border)")),
+      #(
+        "level",
+        EntityCell(label: "—", sub: None, color: "var(--color-border)"),
+      ),
       #("status", draft_status_cell(row.status)),
       #("allocated", PercentCell(0.0)),
       #("annual_leave", NumberCell(0.0)),

@@ -5,7 +5,7 @@
 //// (see `workflow/commit`) is journaled.
 
 import gleam/dict.{type Dict}
-import gleam/json.{type Json}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -74,16 +74,15 @@ pub fn start(
   Ok(row.id)
 }
 
-/// Record a field value (a self-describing `FieldValue` JSON). Supersedes the current
-/// open transaction-time version; a value equal to the current one writes nothing.
-pub fn save_field(
+/// Record a step document. Supersedes the current open transaction-time version;
+/// a document equal to the current one writes nothing.
+pub fn save_step(
   conn: pog.Connection,
   instance_id instance_id: String,
   step_id step_id: String,
-  field_key field_key: String,
-  value value: Json,
+  values values: Dict(String, FieldValue),
 ) -> Result(Nil, OperationError) {
-  sql.step_value_set(conn, instance_id, step_id, field_key, value)
+  sql.step_value_set(conn, instance_id, step_id, value.encode_step(values))
   |> operation.run
 }
 
@@ -145,17 +144,16 @@ pub fn load(
   }
 }
 
-/// The current value of every saved field, keyed `"step.field"`. Each value decodes
-/// from its self-describing JSON, so no schema is needed here.
+/// The current step documents, keyed step_id → field_key → FieldValue.
 pub fn current_values(
   conn: pog.Connection,
   instance_id instance_id: String,
-) -> Result(Dict(String, FieldValue), OperationError) {
+) -> Result(Dict(String, Dict(String, FieldValue)), OperationError) {
   use returned <- operation.try(sql.step_values_current(conn, instance_id))
   returned.rows
   |> list.filter_map(fn(row) {
-    case json.parse(row.value, value.decoder()) {
-      Ok(field_value) -> Ok(#(row.step_id <> "." <> row.field_key, field_value))
+    case json.parse(row.value, value.step_decoder()) {
+      Ok(step_values) -> Ok(#(row.step_id, step_values))
       Error(_) -> Error(Nil)
     }
   })

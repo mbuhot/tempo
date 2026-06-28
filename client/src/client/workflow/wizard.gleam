@@ -163,7 +163,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
     CommitClicked -> #(
       model,
       case model.kind {
-        "create_project" -> wapi.commit_project(model.instance_id, CommitReturned)
+        "create_project" ->
+          wapi.commit_project(model.instance_id, CommitReturned)
         _ -> wapi.commit(model.instance_id, CommitReturned)
       },
       Working,
@@ -199,14 +200,16 @@ fn commit_field(
   case field_type(model, step, field) {
     Some(kind) ->
       case value.parse(kind, raw), saved_field_value(model, step, field) {
-        // A blur that doesn't change the value is a no-op: no save, no undo entry.
         Ok(field_value), saved if Some(field_value) == saved -> working(model)
         Ok(field_value), _ -> {
           let prev = saved_value(model, step, field)
+          let new_step_values =
+            step_values_for(model, step)
+            |> dict.insert(field, field_value)
           let model =
             Model(
               ..model,
-              draft: set_value(model.draft, step, field, field_value),
+              draft: set_value(model.draft, step, new_step_values),
               edits: dict.insert(model.edits, field, raw),
               undo: [#(field, prev), ..model.undo],
               redo: [],
@@ -214,7 +217,7 @@ fn commit_field(
             )
           #(
             model,
-            wapi.save_field(model.instance_id, step, field, field_value, Saved),
+            wapi.save_step(model.instance_id, step, new_step_values, Saved),
             Working,
           )
         }
@@ -264,15 +267,18 @@ fn apply_restore(
         Ok(field_value) -> {
           let current = saved_value(model, step, field)
           let model = bookkeep(current)
+          let new_step_values =
+            step_values_for(model, step)
+            |> dict.insert(field, field_value)
           let model =
             Model(
               ..model,
-              draft: set_value(model.draft, step, field, field_value),
+              draft: set_value(model.draft, step, new_step_values),
               edits: dict.insert(model.edits, field, raw),
             )
           #(
             model,
-            wapi.save_field(model.instance_id, step, field, field_value, Saved),
+            wapi.save_step(model.instance_id, step, new_step_values, Saved),
             Working,
           )
         }
@@ -570,26 +576,32 @@ fn field_type(
   }
 }
 
+fn step_values_for(
+  model: Model,
+  step_id: String,
+) -> Dict(String, value.FieldValue) {
+  case model.draft {
+    Some(draft) ->
+      case dict.get(draft.values, step_id) {
+        Ok(step_values) -> step_values
+        Error(_) -> dict.new()
+      }
+    None -> dict.new()
+  }
+}
+
 fn saved_field_value(
   model: Model,
   step_id: String,
   field_key: String,
 ) -> Option(value.FieldValue) {
-  case model.draft {
-    Some(draft) ->
-      option.from_result(dict.get(draft.values, step_id <> "." <> field_key))
-    None -> None
-  }
+  option.from_result(dict.get(step_values_for(model, step_id), field_key))
 }
 
 fn saved_value(model: Model, step_id: String, field_key: String) -> String {
-  case model.draft {
-    Some(draft) ->
-      case dict.get(draft.values, step_id <> "." <> field_key) {
-        Ok(field_value) -> value.to_input(field_value)
-        Error(_) -> ""
-      }
-    None -> ""
+  case dict.get(step_values_for(model, step_id), field_key) {
+    Ok(field_value) -> value.to_input(field_value)
+    Error(_) -> ""
   }
 }
 
@@ -597,7 +609,7 @@ fn display_map(model: Model, step: Step) -> Dict(String, String) {
   let fields = list.flat_map(step.sections, fn(section) { section.fields })
   list.fold(fields, dict.new(), fn(acc, field) {
     let shown = case dict.get(model.edits, field.key) {
-      Ok(value) -> value
+      Ok(v) -> v
       Error(_) -> saved_value(model, step.id, field.key)
     }
     dict.insert(acc, field.key, shown)
@@ -607,19 +619,14 @@ fn display_map(model: Model, step: Step) -> Dict(String, String) {
 fn set_value(
   draft: Option(DraftView),
   step_id: String,
-  field_key: String,
-  field_value: value.FieldValue,
+  step_values: Dict(String, value.FieldValue),
 ) -> Option(DraftView) {
   case draft {
     Some(current) ->
       Some(
         DraftView(
           ..current,
-          values: dict.insert(
-            current.values,
-            step_id <> "." <> field_key,
-            field_value,
-          ),
+          values: dict.insert(current.values, step_id, step_values),
         ),
       )
     None -> None
