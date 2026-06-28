@@ -56,8 +56,13 @@
     font-weight: var(--weight-semibold);
 }
 
-/* --- the panel + section cards --- */
+/* --- the panel: one surface card holding the step --- */
 .wizard__panel {
+    background: var(--color-surface);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--space-xl);
     display: flex;
     flex-direction: column;
     gap: var(--space-lg);
@@ -75,15 +80,16 @@
     gap: var(--space-lg);
 }
 
+/* Sections are divider-separated blocks inside the panel card, not nested cards. */
 .wizard__card {
-    background: var(--color-surface);
-    border: var(--border-thin) solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    box-shadow: var(--shadow);
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
+}
+
+.wizard__card + .wizard__card {
+    border-top: var(--border-thin) solid var(--color-border);
+    padding-top: var(--space-lg);
 }
 
 .wizard__card-title {
@@ -119,7 +125,8 @@
     align-items: center;
     gap: var(--space-sm);
     flex-wrap: wrap;
-    margin-top: var(--space-sm);
+    border-top: var(--border-thin) solid var(--color-border);
+    padding-top: var(--space-lg);
 }
 
 .wizard__footer button:not(.login__submit) {
