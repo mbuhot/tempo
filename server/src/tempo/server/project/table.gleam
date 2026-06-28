@@ -53,19 +53,23 @@ pub fn project_table(
   let schema = project_schema()
   let offset = decode_offset(applied.cursor)
   let limit = applied.page_size
-  use returned <- result.map(run_list(context, as_of, applied, limit, offset))
+  use returned <- result.try(run_list(context, as_of, applied, limit, offset))
+  use drafts <- result.map(case offset {
+    0 -> project_draft_rows(context)
+    _ -> Ok([])
+  })
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
     True -> Some(encode_offset(offset + limit))
     False -> None
   }
-  TableResponse(
-    schema:,
-    rows: list.map(page_rows, row_to_table_row),
-    page: Page(next_cursor:),
-    footer: None,
-  )
+  let rows =
+    list.append(
+      list.map(drafts, draft_row_to_table_row),
+      list.map(page_rows, row_to_table_row),
+    )
+  TableResponse(schema:, rows:, page: Page(next_cursor:), footer: None)
 }
 
 // --- schema -----------------------------------------------------------------
@@ -138,6 +142,74 @@ pub fn project_schema() -> Schema {
 /// applied filters out of the query params.
 pub fn filter_schema() -> Schema {
   project_schema()
+}
+
+// --- in-progress create_project drafts --------------------------------------
+
+type DraftRow {
+  DraftRow(instance_id: String, title: String, status: String)
+}
+
+fn project_draft_rows(
+  context: Context,
+) -> Result(List(DraftRow), pog.QueryError) {
+  let row_decoder = {
+    use instance_id <- decode.field(0, decode.string)
+    use title <- decode.field(1, decode.string)
+    use status <- decode.field(2, decode.string)
+    decode.success(DraftRow(instance_id:, title:, status:))
+  }
+  use returned <- result.map(
+    pog.query(project_drafts_sql)
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: context.db),
+  )
+  returned.rows
+}
+
+const project_drafts_sql = "
+SELECT i.id,
+       coalesce(v.value #>> '{value}', ''),
+       i.status
+  FROM workflow_instance i
+  LEFT JOIN workflow_step_value v
+    ON v.instance_id = i.id AND v.step_id = 'description' AND v.field_key = 'title'
+       AND upper_inf(v.recorded_during)
+ WHERE i.kind = 'create_project' AND i.status IN ('draft', 'awaiting_finance')
+ ORDER BY i.created_at
+"
+
+fn draft_row_to_table_row(row: DraftRow) -> Row {
+  let display_title = case row.title {
+    "" -> "(untitled project)"
+    title -> title
+  }
+  Row(
+    id: row.instance_id,
+    cells: dict.from_list([
+      #(
+        "title",
+        EntityCell(
+          label: display_title,
+          sub: Some("Draft"),
+          color: "var(--color-accent)",
+        ),
+      ),
+      #("state", draft_state_cell(row.status)),
+      #("team_size", NumberCell(0.0)),
+      #("budget", MoneyCell(money.zero())),
+      #("target_completion", DateCell(calendar.Date(2000, calendar.January, 1))),
+    ]),
+    children: [],
+    detail: None,
+  )
+}
+
+fn draft_state_cell(status: String) -> Cell {
+  case status {
+    "awaiting_finance" -> EnumCell(label: "Awaiting approval", tone: Neutral)
+    _ -> EnumCell(label: "Draft", tone: Neutral)
+  }
 }
 
 // --- list query -------------------------------------------------------------

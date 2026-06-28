@@ -27,11 +27,14 @@
 //// back link raises `Navigate(route.Projects(None))`.
 
 import client/api
+import client/focus
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
 import client/ui
+import client/workflow/api as wapi
+import client/workflow/wizard
 import gleam/float
 import gleam/int
 import gleam/list
@@ -53,6 +56,8 @@ import shared/roster/view.{type Ref, type Roster} as roster_view
 
 // --- Model ------------------------------------------------------------------
 
+const create_kind = "create_project"
+
 /// The page renders one of two sub-views: the project list or a single project's
 /// detail. Each is independently loadable, so the model is a sum over the two with
 /// each arm carrying its own load state plus the as-of `Roster` the op selects
@@ -66,6 +71,7 @@ pub type Model {
     host: table_host.Host,
     roster: Load(Roster),
     op: Option(ui.OpState),
+    wizard: Option(wizard.Model),
   )
   DetailView(
     actor: String,
@@ -92,6 +98,9 @@ pub type Load(a) {
 /// fetch result tags the `as_of` it answers for the staleness guard.
 pub type Msg {
   TableHostMsg(sub: table_host.Msg)
+  CreateProjectClicked(permit: ui.Permit)
+  CreateProjectStarted(result: Result(String, rsvp.Error(String)))
+  WizardMsg(sub: wizard.Msg)
   DetailFetched(
     project_id: Int,
     result: Result(ProjectDetail, rsvp.Error(String)),
@@ -138,7 +147,7 @@ pub fn init(
     _ -> {
       let #(host, host_effect) = table_host.init("/api/projects/table", as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op: None),
+        ListView(actor:, as_of:, host:, roster: Loading, op: None, wizard: None),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -161,7 +170,7 @@ pub fn refetch(
     ListView(host:, op:, ..) -> {
       let #(host, host_effect) = table_host.refetch(host, as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op:),
+        ListView(actor:, as_of:, host:, roster: Loading, op:, wizard: None),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -220,9 +229,46 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
                 Ok(project_id) -> #(model, effect, [
                   Navigate(route.Projects(id: Some(project_id))),
                 ])
-                Error(Nil) -> #(model, effect, [])
+                Error(Nil) -> open_wizard(model, effect, id)
               }
             table_host.ActionInvoked(..) -> #(model, effect, [])
+          }
+        }
+        _ -> #(model, effect.none(), [])
+      }
+
+    CreateProjectClicked(..) -> #(
+      model,
+      wapi.start(create_kind, CreateProjectStarted),
+      [],
+    )
+
+    CreateProjectStarted(result:) ->
+      case result {
+        Ok(id) -> open_wizard(model, effect.none(), id)
+        Error(_) -> #(model, effect.none(), [])
+      }
+
+    WizardMsg(sub:) ->
+      case model {
+        ListView(wizard: Some(current), ..) -> {
+          let #(next, wizard_effect, outcome) = wizard.update(current, sub)
+          case outcome {
+            wizard.Working -> #(
+              ListView(..model, wizard: Some(next)),
+              effect.map(wizard_effect, WizardMsg),
+              [],
+            )
+            wizard.Dismissed -> {
+              let #(reloaded, fetch) = reload(ListView(..model, wizard: None))
+              #(reloaded, effect.batch([fetch, focus.release()]), [])
+            }
+            wizard.Committed -> {
+              let #(reloaded, fetch) = reload(ListView(..model, wizard: None))
+              #(reloaded, effect.batch([fetch, focus.release()]), [
+                OperationCommitted,
+              ])
+            }
           }
         }
         _ -> #(model, effect.none(), [])
@@ -343,7 +389,7 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
     ListView(actor:, as_of:, host:, op:, ..) -> {
       let #(host, host_effect) = table_host.refetch(host, as_of)
       #(
-        ListView(actor:, as_of:, host:, roster: Loading, op:),
+        ListView(actor:, as_of:, host:, roster: Loading, op:, wizard: None),
         effect.batch([
           effect.map(host_effect, TableHostMsg),
           fetch_roster(as_of),
@@ -474,6 +520,28 @@ fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
   ui.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
+fn open_wizard(
+  model: Model,
+  pending: Effect(Msg),
+  instance_id: String,
+) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case model {
+    ListView(..) -> {
+      let #(wizard_model, wizard_effect) = wizard.init(instance_id)
+      #(
+        ListView(..model, wizard: Some(wizard_model)),
+        effect.batch([
+          pending,
+          effect.map(wizard_effect, WizardMsg),
+          focus.trap(".modal--wide"),
+        ]),
+        [],
+      )
+    }
+    _ -> #(model, pending, [])
+  }
+}
+
 // --- View -------------------------------------------------------------------
 
 /// Render the page for `as_of`.
@@ -483,8 +551,8 @@ pub fn view(
   permissions: Set(String),
 ) -> Element(Msg) {
   case model {
-    ListView(host:, roster:, op:, ..) ->
-      view_list(host, roster, op, as_of, permissions)
+    ListView(host:, roster:, op:, wizard:, ..) ->
+      view_list(host, roster, op, wizard, as_of, permissions)
     DetailView(detail:, roster:, op:, ..) ->
       view_detail(detail, roster, op, as_of, permissions)
   }
@@ -497,6 +565,7 @@ fn view_list(
   host: table_host.Host,
   roster: Load(Roster),
   op: Option(ui.OpState),
+  wizard_open: Option(wizard.Model),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -508,6 +577,11 @@ fn view_list(
         <> ", with budget and target completion.",
       actions: [
         ui.page_action(
+          ui.permit(permissions, own: False, kind: ui.OpCreateProject),
+          CreateProjectClicked,
+          "+ New project",
+        ),
+        ui.page_action(
           ui.permit(permissions, own: False, kind: ui.OpStartProject),
           OpStarted,
           "+ Start project",
@@ -518,7 +592,26 @@ fn view_list(
         TableHostMsg,
       ),
     )
-  html.div([], [page, op_modal(op, roster, None)])
+  html.div([], [
+    view_wizard(wizard_open, permissions),
+    page,
+    op_modal(op, roster, None),
+  ])
+}
+
+fn view_wizard(
+  open: Option(wizard.Model),
+  permissions: Set(String),
+) -> Element(Msg) {
+  case open {
+    None -> element.none()
+    Some(wizard_model) ->
+      ui.dialog(
+        title: "Create a project",
+        on_dismiss: WizardMsg(wizard.DismissClicked),
+        body: element.map(wizard.view(wizard_model, permissions), WizardMsg),
+      )
+  }
 }
 
 fn view_detail(

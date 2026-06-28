@@ -391,6 +391,7 @@ fn one_decimal(value: Float) -> String {
 /// write (PRD §6) — frozen here so adding a page never widens this union.
 pub type OpKind {
   OpOnboardEngineer
+  OpCreateProject
   OpPromote
   OpTakeLeave
   OpRollOff
@@ -425,6 +426,7 @@ pub type OpKind {
 fn op_command_key(kind: OpKind) -> policy.CommandKey {
   case kind {
     OpOnboardEngineer -> policy.Onboard
+    OpCreateProject -> policy.ManageEngagement
     OpPromote -> policy.Promote
     OpTerminateEmployment -> policy.Terminate
     OpUpdateContact -> policy.UpdateProfile
@@ -1030,6 +1032,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         ),
       )
     }
+    OpCreateProject -> Error("Create project is handled by the wizard.")
   }
 }
 
