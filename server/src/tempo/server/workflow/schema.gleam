@@ -4,9 +4,11 @@
 //// + banking become the engineer's employment, role, contact and banking facts; the
 //// final payroll step is gated to Finance and gates the commit.
 
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import shared/access
+import shared/level
 import shared/workflow/schema.{
   type Choice, type FieldType, type WorkflowSchema, BoolField, Choice, DateField,
   EmailField, EnumField, Field, OneColumn, Section, Step, TextField, TwoColumn,
@@ -27,7 +29,7 @@ pub fn onboard_schema() -> WorkflowSchema {
       title: "Identity",
       requires_permission: None,
       sections: [
-        Section(title: "Name", layout: TwoColumn, fields: [
+        Section(title: "", layout: TwoColumn, fields: [
           Field(
             "full_name",
             "Full name",
@@ -40,7 +42,7 @@ pub fn onboard_schema() -> WorkflowSchema {
       ],
     ),
     Step(id: "level", title: "Level", requires_permission: None, sections: [
-      Section(title: "Seniority", layout: OneColumn, fields: [
+      Section(title: "", layout: OneColumn, fields: [
         Field("level", "Level", EnumField(options: level_options()), True, None),
       ]),
     ]),
@@ -49,7 +51,7 @@ pub fn onboard_schema() -> WorkflowSchema {
       title: "Employment",
       requires_permission: None,
       sections: [
-        Section(title: "Engagement", layout: OneColumn, fields: [
+        Section(title: "", layout: OneColumn, fields: [
           Field(
             "start_date",
             "Start date",
@@ -61,13 +63,13 @@ pub fn onboard_schema() -> WorkflowSchema {
       ],
     ),
     Step(id: "contact", title: "Contact", requires_permission: None, sections: [
-      Section(title: "Reaching them", layout: OneColumn, fields: [
+      Section(title: "", layout: OneColumn, fields: [
         Field("phone", "Phone", TextField, False, None),
         Field("postal_address", "Postal address", TextField, False, None),
       ]),
     ]),
     Step(id: "banking", title: "Banking", requires_permission: None, sections: [
-      Section(title: "Bank account", layout: TwoColumn, fields: [
+      Section(title: "", layout: TwoColumn, fields: [
         Field("bank", "Bank", TextField, True, None),
         Field("branch", "Branch", TextField, False, None),
         Field("account_no", "Account number", TextField, True, None),
@@ -79,7 +81,7 @@ pub fn onboard_schema() -> WorkflowSchema {
       title: "Payroll",
       requires_permission: Some(access.engineer_onboard_commit),
       sections: [
-        Section(title: "Finance confirmation", layout: OneColumn, fields: [
+        Section(title: "", layout: OneColumn, fields: [
           Field(
             "payroll_confirmed",
             "Payroll details entered externally",
@@ -131,15 +133,8 @@ pub fn field_type(
 }
 
 fn level_options() -> List(Choice) {
-  [
-    Choice("1", "L1"),
-    Choice("2", "L2"),
-    Choice("3", "L3"),
-    Choice("4", "L4"),
-    Choice("5", "L5"),
-    Choice("6", "L6"),
-    Choice("7", "L7"),
-  ]
+  [1, 2, 3, 4, 5, 6, 7]
+  |> list.map(fn(rank) { Choice(int.to_string(rank), level.band(rank)) })
 }
 
 fn result_then(

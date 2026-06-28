@@ -273,8 +273,15 @@ fn commit_field(
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
   case model.instance_id, field_type(model, step, field) {
     Some(id), Some(kind) ->
-      case value.parse(kind, raw) {
-        Ok(field_value) -> {
+      case value.parse(kind, raw), saved_field_value(model, step, field) {
+        // A blur that doesn't change the value (tabbing through) is a no-op: no
+        // save, no undo entry, and the redo stack is left intact.
+        Ok(field_value), saved if Some(field_value) == saved -> #(
+          model,
+          effect.none(),
+          [],
+        )
+        Ok(field_value), _ -> {
           let prev = saved_value(model, step, field)
           let model =
             Model(
@@ -287,7 +294,7 @@ fn commit_field(
             )
           #(model, wapi.save_field(id, step, field, field_value, Saved), [])
         }
-        Error(_) -> #(
+        Error(_), _ -> #(
           Model(
             ..model,
             edits: dict.insert(model.edits, field, raw),
@@ -614,6 +621,20 @@ fn field_type(
         }
         None -> None
       }
+    None -> None
+  }
+}
+
+/// The last-saved value of a field as its typed `FieldValue`, or `None` if unset.
+/// Used to skip a no-op blur (the value the user tabbed past is unchanged).
+fn saved_field_value(
+  model: Model,
+  step_id: String,
+  field_key: String,
+) -> Option(value.FieldValue) {
+  case model.draft {
+    Some(draft) ->
+      option.from_result(dict.get(draft.values, step_id <> "." <> field_key))
     None -> None
   }
 }

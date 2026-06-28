@@ -51,7 +51,7 @@ fn section_card(
     TwoColumn -> "wizard__fields wizard__fields--two"
   }
   html.section([attribute.class("wizard__card")], [
-    html.h3([attribute.class("wizard__card-title")], [html.text(section.title)]),
+    section_title(section.title),
     html.div(
       [attribute.class(layout_class)],
       list.map(section.fields, fn(field) {
@@ -59,6 +59,15 @@ fn section_card(
       }),
     ),
   ])
+}
+
+/// A section's heading, shown only when it carries one. A single-section step needs
+/// no title — the step heading already names it.
+fn section_title(title: String) -> Element(msg) {
+  case title {
+    "" -> element.none()
+    _ -> html.h3([attribute.class("wizard__card-title")], [html.text(title)])
+  }
 }
 
 fn field_view(

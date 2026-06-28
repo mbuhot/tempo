@@ -93,11 +93,9 @@
 }
 
 .wizard__card-title {
-    @include mono-xs;
-    letter-spacing: var(--tracking-wide);
-    text-transform: uppercase;
-    color: var(--color-faint);
+    font-size: var(--text-base);
     font-weight: var(--weight-semibold);
+    color: var(--color-text);
     margin: 0;
 }
 
