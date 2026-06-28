@@ -16,7 +16,9 @@ import gleam/option.{Some}
 import gleam/time/calendar.{April, August, Date, January, June, March, May}
 import pog
 import tempo/server/board/sql as board_sql
+import tempo/server/fact.{ClientId}
 import tempo/server/rate_card/sql as rate_card_sql
+import tempo/server/repository
 import tempo/server/timesheet/sql as timesheet_sql
 import test_pool
 
@@ -365,6 +367,28 @@ pub fn rate_card_for_portion_of_splits_test() {
       RatePeriod("950.00", "2026-04-01", "2026-08-01"),
       RatePeriod("1000.00", "2026-08-01", "2027-01-01"),
     ]
+}
+
+// --- repository.create_client -----------------------------------------------
+
+pub fn create_client_mints_anchor_test() {
+  let #(client_id, row_exists) =
+    run_rolling_back(fn(conn) {
+      let assert Ok(ClientId(client_id)) = repository.create_client(conn)
+      let decoder = {
+        use id <- decode.field(0, decode.int)
+        decode.success(id)
+      }
+      let assert Ok(returned) =
+        pog.query("SELECT id FROM client WHERE id = $1")
+        |> pog.parameter(pog.int(client_id))
+        |> pog.returning(decoder)
+        |> pog.execute(on: conn)
+      #(client_id, returned.rows == [client_id])
+    })
+
+  assert client_id > 0
+  assert row_exists == True
 }
 
 // --- rollback helpers -------------------------------------------------------

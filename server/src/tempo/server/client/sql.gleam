@@ -80,6 +80,34 @@ ORDER BY lower(contract_terms.term), contract_terms.contract_id;
   |> pog.execute(db)
 }
 
+/// client_create.sql — insert the client identity (ID-ONLY anchor) at a reserved id.
+///
+/// Step 1 of create_client. The id is reserved up-front from client_id_seq
+/// (client_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+/// The client profile lives in a separate client_profile fact recorded alongside.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_create(
+  db: pog.Connection,
+  arg_1: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- client_create.sql — insert the client identity (ID-ONLY anchor) at a reserved id.
+--
+-- Step 1 of create_client. The id is reserved up-front from client_id_seq
+-- (client_next_id) and supplied as $1, so this is a plain insert with no RETURNING.
+-- The client profile lives in a separate client_profile fact recorded alongside.
+INSERT INTO client (id) VALUES ($1);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `client_current` query
 /// defined in `./src/tempo/server/client/sql/client_current.sql`.
 ///
@@ -244,6 +272,43 @@ LIMIT $4::int;
   |> pog.parameter(pog.text(arg_2))
   |> pog.parameter(pog.int(arg_3))
   |> pog.parameter(pog.int(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `client_next_id` query
+/// defined in `./src/tempo/server/client/sql/client_next_id.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ClientNextIdRow {
+  ClientNextIdRow(id: Int)
+}
+
+/// client_next_id.sql — reserve the next client id from its sequence.
+///
+/// Called before create_client records any client fact: the handler threads this id
+/// into the Client anchor and its profile in one transaction, so nothing is read back.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn client_next_id(
+  db: pog.Connection,
+) -> Result(pog.Returned(ClientNextIdRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(ClientNextIdRow(id:))
+  }
+
+  "-- client_next_id.sql — reserve the next client id from its sequence.
+--
+-- Called before create_client records any client fact: the handler threads this id
+-- into the Client anchor and its profile in one transaction, so nothing is read back.
+SELECT nextval('client_id_seq')::int AS id;
+"
+  |> pog.query
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

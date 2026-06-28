@@ -40,15 +40,15 @@ import tempo/server/client/sql as client_sql
 import tempo/server/engineer/sql as engineer_sql
 import tempo/server/event
 import tempo/server/fact.{
-  type ContractId, type EngineerId, type Fact, type InvoiceId, type PayrollRunId,
-  type ProjectId, ClientId, ClientProfile, ContractId, ContractTerms,
-  EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
-  EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
-  EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
-  EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
-  PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId, ProjectId,
-  ProjectPlan, ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary,
-  UserRoleGranted, UserRoleRevoked,
+  type ClientId, type ContractId, type EngineerId, type Fact, type InvoiceId,
+  type PayrollRunId, type ProjectId, ClientId, ClientProfile, ContractId,
+  ContractTerms, EngineerAllocatedToProject, EngineerAtLevel,
+  EngineerBankingDetails, EngineerContactDetails, EngineerDeparted,
+  EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerOffProject,
+  EngineerOnLeave, EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine,
+  InvoiceSubject, PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId,
+  ProjectId, ProjectPlan, ProjectProfile, ProjectRequirement, ProjectRun,
+  RateCard, Salary, UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -74,6 +74,14 @@ pub fn create_engineer(
     engineer_sql.engineer_create(conn, row.id) |> operation.run,
   )
   Ok(EngineerId(row.id))
+}
+
+/// Mint a client anchor (reserve id, insert the id-only row), returning its typed id.
+pub fn create_client(conn: pog.Connection) -> Result(ClientId, OperationError) {
+  use returned <- operation.try(client_sql.client_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(client_sql.client_create(conn, row.id) |> operation.run)
+  Ok(ClientId(row.id))
 }
 
 /// Mint a contract anchor (reserve id, insert the id-only row), returning its typed id.
