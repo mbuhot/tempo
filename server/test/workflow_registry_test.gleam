@@ -1,4 +1,3 @@
-import gleam/option.{Some}
 import tempo/server/workflow/registry
 import tempo/server/workflow/schema as onboard
 
@@ -15,9 +14,4 @@ pub fn first_step_is_first_test() {
 pub fn finance_step_is_the_gated_step_test() {
   let schema = onboard.onboard_schema()
   assert registry.finance_step(schema) == "payroll"
-}
-
-pub fn commit_permission_is_the_gated_steps_permission_test() {
-  let schema = onboard.onboard_schema()
-  assert registry.commit_permission(schema) == Some("engineer.onboard.commit")
 }

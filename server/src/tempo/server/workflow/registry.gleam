@@ -47,13 +47,6 @@ pub fn finance_step(schema: WorkflowSchema) -> String {
   }
 }
 
-pub fn commit_permission(schema: WorkflowSchema) -> Option(String) {
-  case gated_step(schema) {
-    Some(step) -> step.requires_permission
-    None -> None
-  }
-}
-
 pub fn title(schema: WorkflowSchema) -> String {
   schema.title
 }

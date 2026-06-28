@@ -144,10 +144,13 @@ fn list_response(ctx: Context, principal: Principal) -> wisp.Response {
   }
 }
 
-/// Gates queue visibility; per-instance gating is enforced at commit time by
-/// the command access policy.
+/// Whether the principal holds any workflow's commit permission — the gate for
+/// SEEING a draft that is awaiting a commit-holder in the resume queue. This is
+/// queue visibility only; the per-instance authority is enforced at commit time by
+/// the command access policy (each workflow command maps to its own permission).
 fn can_commit(principal: Principal) -> Bool {
   auth.can(principal, access.engineer_onboard_commit)
+  || auth.can(principal, access.project_create_confirm)
 }
 
 fn start_response(
