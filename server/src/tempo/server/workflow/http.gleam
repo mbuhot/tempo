@@ -63,12 +63,29 @@ pub fn handle_instance(
 ) -> wisp.Response {
   use principal <- guard.authenticated(ctx)
   use <- wisp.require_method(req, http.Get)
-  case
-    instance.draft_view(ctx.db, id, principal.account_id, can_commit(principal))
-  {
-    Ok(Some(draft)) -> response.json_response(view.encode_draft(draft))
+  case instance.load(ctx.db, id) {
     Ok(None) -> wisp.not_found()
     Error(error) -> error_response(error)
+    Ok(Some(found)) ->
+      case registry.schema_for(found.kind, ctx) {
+        Error(_) -> wisp.not_found()
+        Ok(schema) -> {
+          let ids = registry.step_ids(schema)
+          case
+            instance.draft_view(
+              ctx.db,
+              id,
+              principal.account_id,
+              can_commit(principal),
+              ids,
+            )
+          {
+            Ok(Some(draft)) -> response.json_response(view.encode_draft(draft))
+            Ok(None) -> wisp.not_found()
+            Error(error) -> error_response(error)
+          }
+        }
+      }
   }
 }
 

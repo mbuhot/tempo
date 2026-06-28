@@ -16,7 +16,6 @@ import shared/workflow/view.{
   DraftView, Pending,
 }
 import tempo/server/operation.{type OperationError}
-import tempo/server/workflow/schema as flow
 import tempo/server/workflow/sql
 
 /// The lifecycle status of a draft instance.
@@ -172,6 +171,7 @@ pub fn draft_view(
   instance_id instance_id: String,
   me me: Int,
   can_commit can_commit: Bool,
+  ids ids: List(String),
 ) -> Result(Option(DraftView), OperationError) {
   use maybe <- result.try(load(conn, instance_id))
   case maybe {
@@ -186,7 +186,7 @@ pub fn draft_view(
           current_step: instance.current_step,
           can_act: acts_now(instance, me, can_commit),
           values:,
-          step_status: compute_step_status(instance.current_step),
+          step_status: compute_step_status(ids, instance.current_step),
         )),
       )
     }
@@ -230,14 +230,17 @@ fn acts_now(instance: Instance, me: Int, can_commit: Bool) -> Bool {
 }
 
 fn title_for(kind: String) -> String {
-  case kind == flow.kind {
-    True -> flow.onboard_schema().title
-    False -> kind
+  case kind {
+    "onboard_engineer" -> "Onboard engineer"
+    "create_project" -> "Create a project"
+    _ -> kind
   }
 }
 
-fn compute_step_status(current_step: String) -> Dict(String, StepStatus) {
-  let ids = flow.step_ids()
+fn compute_step_status(
+  ids: List(String),
+  current_step: String,
+) -> Dict(String, StepStatus) {
   let current_index = index_of(ids, current_step, 0)
   ids
   |> list.index_map(fn(id, index) {

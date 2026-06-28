@@ -47,7 +47,8 @@ pub fn save_then_draft_view_shows_value_test() {
       value.encode(TextValue("Aisha Okafor")),
     )
 
-  let assert Ok(Some(draft)) = instance.draft_view(conn, id, owner, False)
+  let assert Ok(Some(draft)) =
+    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
   assert dict.get(draft.values, "identity.full_name")
     == Ok(TextValue("Aisha Okafor"))
   assert draft.current_step == "identity"
@@ -124,7 +125,8 @@ pub fn latest_value_wins_test() {
       value.encode(TextValue("Second")),
     )
 
-  let assert Ok(Some(draft)) = instance.draft_view(conn, id, owner, False)
+  let assert Ok(Some(draft)) =
+    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
   assert dict.get(draft.values, "identity.full_name") == Ok(TextValue("Second"))
 }
 
@@ -135,7 +137,8 @@ pub fn complete_step_advances_and_marks_status_test() {
 
   let assert Ok(_) = instance.complete_step(conn, id, "level")
 
-  let assert Ok(Some(draft)) = instance.draft_view(conn, id, owner, False)
+  let assert Ok(Some(draft)) =
+    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
   assert draft.current_step == "level"
   assert dict.get(draft.step_status, "identity") == Ok(Done)
   assert dict.get(draft.step_status, "level") == Ok(Active)
@@ -154,10 +157,11 @@ pub fn hand_off_queues_for_finance_test() {
   assert loaded.current_step == "payroll"
 
   let assert Ok(Some(for_finance)) =
-    instance.draft_view(conn, id, finance, True)
+    instance.draft_view(conn, id, finance, True, ids: flow.step_ids())
   assert for_finance.can_act == True
 
-  let assert Ok(Some(for_other)) = instance.draft_view(conn, id, finance, False)
+  let assert Ok(Some(for_other)) =
+    instance.draft_view(conn, id, finance, False, ids: flow.step_ids())
   assert for_other.can_act == False
 }
 
