@@ -28,6 +28,7 @@
 - `server/src/tempo/server/workflow/project_schema.gleam` — `create_project_schema(ctx) -> Result(WorkflowSchema, _)`, building client choices from a DB read.
 - `server/src/tempo/server/project/sql/clients_for_choice.sql` — list `(id, name)` of current clients for the picker.
 - `server/src/tempo/server/project/sql/rate_card_asof.sql` — `(level, day_rate)` effective at a date, for the read-only display.
+- `shared/src/shared/rate/view.gleam` *(or reuse an existing rates read model if one exists)* — `RateRow(level: Int, day_rate: Money)` + codec, for the rate-card panel response.
 - `client/src/client/page/projects/roster.gleam` *(only if projects.gleam isn't already a list/detail split — otherwise fold the host into projects.gleam)*.
 
 **Modified files:**
@@ -46,7 +47,9 @@
 - `client/src/client/page/projects.gleam` — host the wizard (trigger + draft rows + resume).
 - `server/src/tempo/server/project/table.gleam` — prepend project draft rows.
 - `client/src/client/ui.gleam` — add `OpCreateProject` `OpKind`.
+- `client/src/client/workflow/wizard.gleam` — `current_step/1` + `field_value/3` accessors; optional `aside` slot in `view` (Task B6b).
 - `client/src/client/workflow/render.gleam` + `wizard.gleam` — group rendering (Phase C).
+- `server/src/tempo/server/router` (wherever routes are dispatched) — `GET /api/projects/rate-card?as_of=` (Task B6b).
 - `client/styles/wizard.scss` — repeating-group styles (Phase C).
 - `e2e/project-creation.spec.js` — new spec.
 
@@ -388,6 +391,35 @@ Delivers a working second workflow end-to-end. Team-requirements step is added i
 - [ ] **Step 4:** Prepend project draft rows in `project/table.gleam`.
 - [ ] **Step 5:** `bin/build`; manual smoke (start a draft, see it as a row, resume). Commit `"Host the create-project wizard on the Projects page"`.
 
+### Task B6b: Date-driven read-only rate-card panel beside the contract step
+
+The contract step shows the firm-wide rates the chosen `contract_from` resolves to. The
+wizard stays generic; the **host** fetches and renders the panel into a generic `aside` slot.
+
+**Files:**
+- Create: `server/src/tempo/server/project/sql/rate_card_asof.sql` (`SELECT level, day_rate::text FROM rate_card WHERE effective_during @> $1::date ORDER BY level`)
+- Create/modify: a rates read model `shared/src/shared/rate/view.gleam` (`RateRow(level: Int, day_rate: Money)` + list codec) unless one exists.
+- Modify: the server router — add `GET /api/projects/rate-card?as_of=` → `rate_card_asof` rows as JSON.
+- Modify: `client/src/client/workflow/wizard.gleam`:
+  - `pub fn current_step(model: Model) -> String { model.step }`
+  - `pub fn field_value(model: Model, step: String, key: String) -> String` (reuse `saved_value`, merged over `edits`)
+  - `pub fn view(model, permissions, aside: fn(String) -> Element(Msg))` — render `aside(model.step)` as a third column / panel inside `wizard__content` (or a new `wizard__aside`). The aside element carries no event handlers, so the host builds it as a generic `Element(a)`.
+- Modify: `client/src/client/page/projects.gleam` host:
+  - state: `rates: Option(List(RateRow))`, `rates_for: String` (the date the rates answer)
+  - in `WizardMsg`, after `wizard.update`, read `wizard.field_value(next, "contract", "contract_from")`; if `wizard.current_step(next) == "contract"` and the date changed from `rates_for`, fire `fetch_rates(date)`.
+  - `RatesFetched(date, result)` stores the rows when `date == current contract_from`.
+  - `view_wizard` passes `aside: fn(step) { case step { "contract" -> rates_panel(model.rates); _ -> element.none() } }`.
+
+**Interfaces:**
+- Consumes: `wizard.current_step/1`, `wizard.field_value/3`, `api.get`.
+- Produces: a read-only rates panel; **no** facts, **no** schema field.
+
+- [ ] **Step 1:** `rate_card_asof.sql` + `bin/squirrel`; the read model + codec.
+- [ ] **Step 2:** The `GET /api/projects/rate-card?as_of=` route returning the rows.
+- [ ] **Step 3:** Wizard accessors + `aside` slot param; update the onboarding host call site (`people/roster.gleam`) to pass `aside: fn(_) { element.none() }`. **Clean build** (the `view` arity change ripples to all callers).
+- [ ] **Step 4:** Projects host: rates state + fetch-on-date-change + `rates_panel` + wire the aside.
+- [ ] **Step 5:** `bin/build`; manual smoke — on the contract step, changing the date refetches and re-renders the rates. Commit `"Show date-driven read-only rate card beside the contract step"`.
+
 ### Task B7: e2e — admin creates a project straight through
 
 **Files:**
@@ -479,12 +511,12 @@ Wizard maintains group state from `draft.values` (the saved `RowsValue`), applie
 - New-client creation → B3 + B5 ✓
 - Steps 1,2,3,5,6 + DB client choices → B4, B5 ✓
 - Host on Projects page + draft rows → B6 ✓
-- Derived read-only rate card → **GAP**: B4/B6 must render the rate card read-only on the contract step. Add as a sub-item: step 5 shows `rate_card_asof.sql` results; since the wizard renders only schema fields, the read-only rates are shown by the host as a panel beside the contract step OR via a new non-input `FieldType`. **Decision:** simplest is a `rate_card_asof.sql` read surfaced as static help text the schema embeds at build time keyed to a default date, refined client-side later; flag to user that the *dynamic* (date-driven) read-only display is deferred with a static rates note in Phase B, fully wired only if a display-only field type is added. Tracked inline; not blocking the fact-writing path.
+- Derived read-only rate card → Task B6b: host-rendered, date-driven panel in a generic wizard `aside` slot. The wizard stays workflow-agnostic; the Projects host fetches `GET /api/projects/rate-card?as_of=<contract_from>` and renders the panel. ✓
 - Repeating group (team) → Phase C ✓
 - Admin-only confirmation gates commit → B2 policy + B4 gated step ✓
 - e2e → B7, C4 ✓
 
-**Placeholder scan:** No "TBD"/"handle errors" left; the rate-card read-only display is the one under-specified area, called out above as a deferral with a concrete fallback.
+**Placeholder scan:** No "TBD"/"handle errors" left. The one place needing a codebase check during execution is whether a rates read model/endpoint already exists to reuse (Task B6b) — noted inline.
 
 **Type consistency:** `RowsValue(rows: List(List(#(String, FieldValue))))`, `GroupField(item_fields, add_label)`, `CreateProject(instance_id)`, `project_create_confirm`, `create_project` kind — used consistently across tasks.
 
