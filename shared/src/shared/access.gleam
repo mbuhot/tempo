@@ -53,6 +53,9 @@ pub const engagement_manage = "engagement.manage"
 /// Edit project profiles, plans, and capacity requirements.
 pub const project_manage = "project.manage"
 
+/// Confirm and create a project from a completed workflow draft.
+pub const project_create_confirm = "project.create.confirm"
+
 /// Edit client profiles.
 pub const client_manage = "client.manage"
 
@@ -87,7 +90,7 @@ pub fn all() -> List(String) {
     profile_update_any, timesheet_log_own, timesheet_log_any, leave_take_own,
     leave_take_any, engineer_onboard, engineer_onboard_commit, engineer_promote,
     engineer_terminate, allocation_manage, engagement_manage, project_manage,
-    client_manage, salary_set, ratecard_manage, invoice_manage, payroll_run,
-    roles_manage,
+    project_create_confirm, client_manage, salary_set, ratecard_manage,
+    invoice_manage, payroll_run, roles_manage,
   ]
 }

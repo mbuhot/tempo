@@ -24,6 +24,7 @@ INSERT INTO permission (key, description) VALUES
   ('allocation.manage',   'Allocate engineers to projects'),
   ('engagement.manage',   'Sign contracts and start projects'),
   ('project.manage',      'Edit projects and capacity requirements'),
+  ('project.create.confirm', 'Confirm and create a project'),
   ('client.manage',       'Edit clients'),
   ('salary.set',          'Set salaries'),
   ('ratecard.manage',     'Revise the rate card'),
@@ -90,6 +91,7 @@ FROM (VALUES
   ('owner', 'invoice.manage'),
   ('owner', 'payroll.run'),
   ('owner', 'engineer.onboard.commit'),
+  ('owner', 'project.create.confirm'),
   ('owner', 'roles.manage')
 ) AS m(role, permission);
 
