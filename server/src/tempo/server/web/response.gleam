@@ -4,6 +4,7 @@
 //// to handlers that themselves build responses without forming an import cycle.
 
 import gleam/json.{type Json}
+import gleam/string
 import pog
 import wisp
 
@@ -29,7 +30,12 @@ pub fn db_error_response(error: pog.QueryError) -> wisp.Response {
         "unavailable",
         "the database connection pool is saturated; retry shortly",
       )
-    _ -> wisp.internal_server_error()
+    _ -> {
+      // The error was otherwise discarded — log the full QueryError (decode
+      // mismatch, constraint, etc.) so a 500 is diagnosable, not silent.
+      wisp.log_error("database query failed: " <> string.inspect(error))
+      wisp.internal_server_error()
+    }
   }
 }
 

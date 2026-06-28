@@ -17,7 +17,7 @@
 //// present for a row that exists.
 
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -192,8 +192,16 @@ fn role_to_shared(row: engineer_sql.EngineerRoleHistoryRow) -> RoleVersion {
   RoleVersion(
     level: row.level,
     valid_from: row.valid_from,
-    valid_to: row.valid_to,
+    valid_to: open_end(row.ongoing, row.valid_to),
   )
+}
+
+/// An open (`ongoing`) period has no end date; otherwise its coalesced upper bound.
+fn open_end(ongoing: Bool, valid_to: Date) -> Option(Date) {
+  case ongoing {
+    True -> None
+    False -> Some(valid_to)
+  }
 }
 
 fn allocation_to_shared(
@@ -204,7 +212,7 @@ fn allocation_to_shared(
     project: row.project,
     fraction: row.fraction,
     valid_from: row.valid_from,
-    valid_to: row.valid_to,
+    valid_to: open_end(row.ongoing, row.valid_to),
     active: row.active,
   )
 }

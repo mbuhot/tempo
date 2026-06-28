@@ -10,6 +10,12 @@ pub fn trap(selector: String) -> Effect(msg) {
   effect.from(fn(_dispatch) { do_trap(selector) })
 }
 
+/// Focus the first focusable element within `selector` — the step's form region — so
+/// entering a step lands the caret in the first field, not the step rail.
+pub fn first_field(selector: String) -> Effect(msg) {
+  effect.from(fn(_dispatch) { do_first(selector) })
+}
+
 /// Release the active trap and return focus to where it was before the modal opened.
 pub fn release() -> Effect(msg) {
   effect.from(fn(_dispatch) { do_release() })
@@ -17,6 +23,11 @@ pub fn release() -> Effect(msg) {
 
 @external(javascript, "./focus_ffi.mjs", "trapFocus")
 fn do_trap(_selector: String) -> Nil {
+  panic as "JavaScript only"
+}
+
+@external(javascript, "./focus_ffi.mjs", "focusFirst")
+fn do_first(_selector: String) -> Nil {
   panic as "JavaScript only"
 }
 

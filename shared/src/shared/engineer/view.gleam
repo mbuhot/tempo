@@ -8,6 +8,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import shared/allocation/view as allocation_view
 import shared/leave/view as leave_view
@@ -69,7 +70,7 @@ pub type Employment {
 /// to plain dates): the `level` held over `[valid_from, valid_to)`. Band is
 /// derived client-side from `level`.
 pub type RoleVersion {
-  RoleVersion(level: Int, valid_from: Date, valid_to: Date)
+  RoleVersion(level: Int, valid_from: Date, valid_to: Option(Date))
 }
 
 /// The engineer-detail read model (`GET /api/engineers/:id?as_of=`): the engineer's
@@ -209,7 +210,7 @@ pub fn encode_role_version(role: RoleVersion) -> Json {
   json.object([
     #("level", json.int(level)),
     #("valid_from", wire.encode_date(valid_from)),
-    #("valid_to", wire.encode_date(valid_to)),
+    #("valid_to", wire.encode_option_date(valid_to)),
   ])
 }
 
@@ -217,7 +218,7 @@ pub fn encode_role_version(role: RoleVersion) -> Json {
 pub fn role_version_decoder() -> Decoder(RoleVersion) {
   use level <- decode.field("level", decode.int)
   use valid_from <- decode.field("valid_from", wire.date_decoder())
-  use valid_to <- decode.field("valid_to", wire.date_decoder())
+  use valid_to <- decode.field("valid_to", wire.option_date_decoder())
   decode.success(RoleVersion(level:, valid_from:, valid_to:))
 }
 

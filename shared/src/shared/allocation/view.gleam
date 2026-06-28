@@ -5,6 +5,7 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import shared/wire
 
@@ -18,7 +19,7 @@ pub type AllocationRow {
     project: String,
     fraction: Float,
     valid_from: Date,
-    valid_to: Date,
+    valid_to: Option(Date),
     active: Bool,
   )
 }
@@ -38,7 +39,7 @@ pub fn encode_allocation_row(allocation: AllocationRow) -> Json {
     #("project", json.string(project)),
     #("fraction", json.float(fraction)),
     #("valid_from", wire.encode_date(valid_from)),
-    #("valid_to", wire.encode_date(valid_to)),
+    #("valid_to", wire.encode_option_date(valid_to)),
     #("active", json.bool(active)),
   ])
 }
@@ -49,7 +50,7 @@ pub fn allocation_row_decoder() -> Decoder(AllocationRow) {
   use project <- decode.field("project", decode.string)
   use fraction <- decode.field("fraction", wire.lenient_float_decoder())
   use valid_from <- decode.field("valid_from", wire.date_decoder())
-  use valid_to <- decode.field("valid_to", wire.date_decoder())
+  use valid_to <- decode.field("valid_to", wire.option_date_decoder())
   use active <- decode.field("active", decode.bool)
   decode.success(AllocationRow(
     project_id:,

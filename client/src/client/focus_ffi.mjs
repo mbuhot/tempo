@@ -43,6 +43,17 @@ export function trapFocus(selector) {
   });
 }
 
+// Focus the first focusable element within `selector` (the step's form region), so
+// entering a step lands the caret in the first field rather than the step rail.
+export function focusFirst(selector) {
+  requestAnimationFrame(() => {
+    const root = document.querySelector(selector);
+    if (!root) return;
+    const items = focusables(root);
+    if (items.length > 0) items[0].focus();
+  });
+}
+
 export function releaseFocus() {
   if (!active) return;
   active.modal.removeEventListener("keydown", active.onKeydown);

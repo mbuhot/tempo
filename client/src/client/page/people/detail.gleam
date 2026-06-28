@@ -627,10 +627,18 @@ fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
     ]),
     html.td([attribute.class("num")], [html.text(ui.fraction(fraction))]),
     html.td([attribute.class("mono muted")], [
-      html.text(time.iso_date(valid_from) <> " → " <> time.iso_date(valid_to)),
+      html.text(time.iso_date(valid_from) <> " → " <> period_end(valid_to)),
     ]),
     html.td([], [ui.pill(variant:, label:)]),
   ])
+}
+
+/// A period's end date, or "present" when it is open-ended (no upper bound).
+fn period_end(valid_to: Option(calendar.Date)) -> String {
+  case valid_to {
+    Some(date) -> time.iso_date(date)
+    None -> "present"
+  }
 }
 
 // --- Timesheet grid ---------------------------------------------------------

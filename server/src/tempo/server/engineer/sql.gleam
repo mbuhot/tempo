@@ -88,6 +88,7 @@ pub type EngineerAllocationsRow {
     valid_from: Date,
     valid_to: Date,
     active: Bool,
+    ongoing: Bool,
   )
 }
 
@@ -95,13 +96,11 @@ pub type EngineerAllocationsRow {
 /// read model (GET /api/engineers/:id; the AllocationRow list). Params:
 /// $1 = engineer_id, $2 = as-of (for the active flag only).
 ///
-/// Every allocation period-row for the engineer joined to project_current for the
-/// title (and to the project anchor for the clickable project_id). Range columns are
-/// decomposed to plain dates: lower(allocated_during) AS valid_from,
-/// upper(allocated_during) AS valid_to (non-null for every seed row). `active` is
-/// (allocated_during @> $2) — the as-of marks each row active/ended per FR-PE4
-/// without hiding it, so the whole history is returned regardless of $2. Ordered
-/// oldest-first then by title for a stable list.
+/// Joined to project_current for the title and the project anchor for the clickable
+/// id. Range decomposed to dates: lower(allocated_during) AS valid_from. An open
+/// allocation has a NULL upper — `ongoing` reports it and `valid_to` coalesces to the
+/// start (a non-null date the boundary decodes; the server maps ongoing -> None).
+/// `active` is (allocated_during @> $2). Ordered oldest-first then by title.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -118,6 +117,7 @@ pub fn engineer_allocations(
     use valid_from <- decode.field(3, pog.calendar_date_decoder())
     use valid_to <- decode.field(4, pog.calendar_date_decoder())
     use active <- decode.field(5, decode.bool)
+    use ongoing <- decode.field(6, decode.bool)
     decode.success(EngineerAllocationsRow(
       project_id:,
       project:,
@@ -125,6 +125,7 @@ pub fn engineer_allocations(
       valid_from:,
       valid_to:,
       active:,
+      ongoing:,
     ))
   }
 
@@ -132,20 +133,20 @@ pub fn engineer_allocations(
 -- read model (GET /api/engineers/:id; the AllocationRow list). Params:
 -- $1 = engineer_id, $2 = as-of (for the active flag only).
 --
--- Every allocation period-row for the engineer joined to project_current for the
--- title (and to the project anchor for the clickable project_id). Range columns are
--- decomposed to plain dates: lower(allocated_during) AS valid_from,
--- upper(allocated_during) AS valid_to (non-null for every seed row). `active` is
--- (allocated_during @> $2) — the as-of marks each row active/ended per FR-PE4
--- without hiding it, so the whole history is returned regardless of $2. Ordered
--- oldest-first then by title for a stable list.
+-- Joined to project_current for the title and the project anchor for the clickable
+-- id. Range decomposed to dates: lower(allocated_during) AS valid_from. An open
+-- allocation has a NULL upper — `ongoing` reports it and `valid_to` coalesces to the
+-- start (a non-null date the boundary decodes; the server maps ongoing -> None).
+-- `active` is (allocated_during @> $2). Ordered oldest-first then by title.
 SELECT
   allocation.project_id,
   coalesce(project_current.title, '') AS project,
   allocation.fraction,
   lower(allocation.allocated_during) AS valid_from,
-  upper(allocation.allocated_during) AS valid_to,
-  (allocation.allocated_during @> $2::date) AS active
+  coalesce(upper(allocation.allocated_during), lower(allocation.allocated_during))
+    AS valid_to,
+  (allocation.allocated_during @> $2::date) AS active,
+  upper_inf(allocation.allocated_during) AS ongoing
 FROM allocation
 JOIN project_current ON project_current.id = allocation.project_id
 WHERE allocation.engineer_id = $1
@@ -789,18 +790,23 @@ DELETE FROM engineer_role
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub type EngineerRoleHistoryRow {
-  EngineerRoleHistoryRow(level: Int, valid_from: Date, valid_to: Date)
+  EngineerRoleHistoryRow(
+    level: Int,
+    valid_from: Date,
+    valid_to: Date,
+    ongoing: Bool,
+  )
 }
 
 /// engineer_role_history.sql — one engineer's full role timeline for the detail read
 /// model (GET /api/engineers/:id; the RoleVersion list). Param: $1 = engineer_id.
 ///
-/// Every engineer_role period-row for the engineer, decomposed to plain dates at the
-/// boundary (ADR-011): level, lower(held_during) AS valid_from,
-/// upper(held_during) AS valid_to. Ordered oldest-first by the period start. This is
-/// not as-of filtered — the detail page shows the whole promotion history (including
-/// future-dated rows like Marcus's L5 from 2026-07-01). upper(held_during) is
-/// non-null for every seed role row (all bounded at 2027-01-01).
+/// Decomposed to plain dates at the boundary: level, lower(held_during) AS valid_from.
+/// A current role is OPEN ([start, ∞) for a wizard-onboarded engineer), so
+/// upper(held_during) is NULL — `ongoing` reports that, and `valid_to` coalesces to
+/// the start so the column stays a non-null date the boundary can decode (the server
+/// maps ongoing -> None). Ordered oldest-first; not as-of filtered (the whole
+/// promotion history shows, including future-dated rows).
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -813,22 +819,30 @@ pub fn engineer_role_history(
     use level <- decode.field(0, decode.int)
     use valid_from <- decode.field(1, pog.calendar_date_decoder())
     use valid_to <- decode.field(2, pog.calendar_date_decoder())
-    decode.success(EngineerRoleHistoryRow(level:, valid_from:, valid_to:))
+    use ongoing <- decode.field(3, decode.bool)
+    decode.success(EngineerRoleHistoryRow(
+      level:,
+      valid_from:,
+      valid_to:,
+      ongoing:,
+    ))
   }
 
   "-- engineer_role_history.sql — one engineer's full role timeline for the detail read
 -- model (GET /api/engineers/:id; the RoleVersion list). Param: $1 = engineer_id.
 --
--- Every engineer_role period-row for the engineer, decomposed to plain dates at the
--- boundary (ADR-011): level, lower(held_during) AS valid_from,
--- upper(held_during) AS valid_to. Ordered oldest-first by the period start. This is
--- not as-of filtered — the detail page shows the whole promotion history (including
--- future-dated rows like Marcus's L5 from 2026-07-01). upper(held_during) is
--- non-null for every seed role row (all bounded at 2027-01-01).
+-- Decomposed to plain dates at the boundary: level, lower(held_during) AS valid_from.
+-- A current role is OPEN ([start, ∞) for a wizard-onboarded engineer), so
+-- upper(held_during) is NULL — `ongoing` reports that, and `valid_to` coalesces to
+-- the start so the column stays a non-null date the boundary can decode (the server
+-- maps ongoing -> None). Ordered oldest-first; not as-of filtered (the whole
+-- promotion history shows, including future-dated rows).
 SELECT
   engineer_role.level,
   lower(engineer_role.held_during) AS valid_from,
-  upper(engineer_role.held_during) AS valid_to
+  coalesce(upper(engineer_role.held_during), lower(engineer_role.held_during))
+    AS valid_to,
+  upper_inf(engineer_role.held_during) AS ongoing
 FROM engineer_role
 WHERE engineer_role.engineer_id = $1
 ORDER BY lower(engineer_role.held_during);

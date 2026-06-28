@@ -8,6 +8,7 @@
 //// no-op guard; undo/redo is a per-step buffer that re-saves.
 
 import client/api
+import client/focus
 import client/icons
 import client/workflow/api as wapi
 import client/workflow/render.{
@@ -109,7 +110,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         "" -> draft.current_step
         furthest -> furthest
       }
-      working(Model(..model, draft: Some(draft), step:, furthest:))
+      // The fields render now — focus the first one.
+      entered(Model(..model, draft: Some(draft), step:, furthest:))
     }
     DraftFetched(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -128,7 +130,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
     BackClicked ->
       case prev_step_id(model) {
-        Some(prev) -> working(enter_step(model, prev))
+        Some(prev) -> entered(enter_step(model, prev))
         None -> working(model)
       }
 
@@ -141,10 +143,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         )
         None -> working(model)
       }
-    GoToStep(step:) -> working(enter_step(model, step))
+    GoToStep(step:) -> entered(enter_step(model, step))
     StepAdvanced(next, Ok(_)) -> {
       let furthest = extend_furthest(model, next)
-      working(Model(..enter_step(model, next), furthest:))
+      entered(Model(..enter_step(model, next), furthest:))
     }
     StepAdvanced(_, Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -173,6 +175,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
 fn working(model: Model) -> #(Model, Effect(Msg), Outcome) {
   #(model, effect.none(), Working)
+}
+
+/// Like `working`, but also focuses the first field of the (now-rendered) step.
+fn entered(model: Model) -> #(Model, Effect(Msg), Outcome) {
+  #(model, focus.first_field(".wizard__content"), Working)
 }
 
 /// Move to `step`, clearing the per-step edit buffer and undo/redo stacks.
