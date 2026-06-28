@@ -23,9 +23,7 @@ import lustre/event
 import rsvp
 import shared/workflow/schema.{type FieldType, type Step, type WorkflowSchema}
 import shared/workflow/value
-import shared/workflow/view.{
-  type DraftView, type StepStatus, Active, Done, DraftView, Locked, Pending,
-}
+import shared/workflow/view.{type DraftView, DraftView}
 
 const kind = "onboard_engineer"
 
@@ -266,7 +264,7 @@ pub fn view(model: Model) -> Element(Msg) {
       case find_step(schema, model.step) {
         Some(step) ->
           html.div([attribute.class("wizard wizard--modal")], [
-            view_rail(schema, draft),
+            view_rail(schema, model.step),
             html.div([attribute.class("wizard__panel")], [
               html.h2([], [html.text(step.title)]),
               render.step_view(step, display_map(model, step), FieldChanged),
@@ -280,28 +278,25 @@ pub fn view(model: Model) -> Element(Msg) {
   }
 }
 
-fn view_rail(schema: WorkflowSchema, draft: DraftView) -> Element(Msg) {
+/// The rail's status is computed from the LIVE client step (the panel and rail must
+/// agree): steps before the open one are done, the open one is active, the rest
+/// pending. The server's `step_status` is not used here — it lags until a refetch.
+fn view_rail(schema: WorkflowSchema, current_step: String) -> Element(Msg) {
+  let ids = list.map(schema.steps, fn(step) { step.id })
+  let current = index_of(ids, current_step, 0)
   html.ol(
     [attribute.class("wizard__rail")],
-    list.map(schema.steps, fn(step) {
-      let status = case dict.get(draft.step_status, step.id) {
-        Ok(status) -> status
-        Error(_) -> Pending
+    list.index_map(schema.steps, fn(step, index) {
+      let status = case index < current, index == current {
+        True, _ -> "is-done"
+        _, True -> "is-active"
+        _, _ -> "is-pending"
       }
-      html.li([attribute.class("wizard__rail-step " <> status_class(status))], [
+      html.li([attribute.class("wizard__rail-step " <> status)], [
         html.text(step.title),
       ])
     }),
   )
-}
-
-fn status_class(status: StepStatus) -> String {
-  case status {
-    Done -> "is-done"
-    Active -> "is-active"
-    Pending -> "is-pending"
-    Locked -> "is-locked"
-  }
 }
 
 fn view_footer(
