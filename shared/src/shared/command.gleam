@@ -25,6 +25,7 @@ import shared/role/command as role_command
 import shared/salary/command as salary_command
 import shared/timesheet/command as timesheet_command
 import shared/wire
+import shared/workflow/command as workflow_command
 
 /// The typed command vocabulary (the write model). One variant per business
 /// aggregate, each wrapping that aggregate's command type: the client encodes a
@@ -61,6 +62,7 @@ pub type Command {
     project_requirement_command.ProjectRequirementCommand,
   )
   RoleCommand(role_command.RoleCommand)
+  WorkflowCommand(workflow_command.WorkflowCommand)
 }
 
 /// Encode a `Command` as a tagged JSON object keyed by `op`, delegating to the
@@ -82,6 +84,7 @@ pub fn encode_command(command: Command) -> Json {
     ProjectRequirementCommand(command) ->
       project_requirement_command.encode(command)
     RoleCommand(command) -> role_command.encode(command)
+    WorkflowCommand(command) -> workflow_command.encode(command)
   }
 }
 
@@ -107,6 +110,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
     ProjectRequirementCommand,
   )
   use <- try_group(role_command.decoder(op), RoleCommand)
+  use <- try_group(workflow_command.decoder(op), WorkflowCommand)
   Error(Nil)
 }
 

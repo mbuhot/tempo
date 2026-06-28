@@ -18,7 +18,7 @@ import shared/command.{
   type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
   EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
   PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
@@ -46,6 +46,7 @@ pub type CommandKey {
   ManageInvoice
   RunPayroll
   ManageRoles
+  ConfirmOnboarding
 }
 
 /// What a key requires: a single permission (`Direct`), or — for the ownership-sensitive
@@ -75,6 +76,7 @@ pub fn requirement(key: CommandKey) -> Requirement {
     ManageInvoice -> Direct(access.invoice_manage)
     RunPayroll -> Direct(access.payroll_run)
     ManageRoles -> Direct(access.roles_manage)
+    ConfirmOnboarding -> Direct(access.payroll_run)
   }
 }
 
@@ -98,6 +100,7 @@ pub fn key(command: Command) -> CommandKey {
     InvoiceCommand(_) -> ManageInvoice
     PayrollCommand(_) -> RunPayroll
     RoleCommand(_) -> ManageRoles
+    WorkflowCommand(_) -> ConfirmOnboarding
   }
 }
 
