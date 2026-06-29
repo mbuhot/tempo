@@ -104,7 +104,7 @@
     text-underline-offset: 2px;
 
     &:hover {
-        color: var(--color-leave);
+        color: var(--color-danger);
     }
 }
 
@@ -395,11 +395,11 @@
 }
 
 .pill--critical {
-    background: var(--color-leave-soft);
-    color: var(--color-leave);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
 
     &::before {
-        background: var(--color-leave);
+        background: var(--color-danger);
     }
 }
 
@@ -422,7 +422,7 @@
     color: var(--color-warn);
 }
 .dt-money--critical {
-    color: var(--color-leave);
+    color: var(--color-danger);
 }
 
 .dt-actions {
