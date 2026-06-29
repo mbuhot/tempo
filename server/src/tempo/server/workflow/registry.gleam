@@ -25,10 +25,8 @@ pub fn step_ids(schema: WorkflowSchema) -> List(String) {
 }
 
 pub fn first_step(schema: WorkflowSchema) -> String {
-  case schema.steps {
-    [step, ..] -> step.id
-    [] -> ""
-  }
+  let assert [step, ..] = schema.steps
+  step.id
 }
 
 pub fn gated_step(schema: WorkflowSchema) -> Option(Step) {

@@ -162,34 +162,26 @@ pub fn current_values(
   |> Ok
 }
 
-/// Assemble the `DraftView` for the viewer `me`, or `None` if no such instance.
+/// Assemble the `DraftView` for the viewer `me` from an already-loaded instance.
 /// `can_commit` is whether the viewer holds the commit permission, which decides
 /// whether they may act on an instance that is awaiting Finance.
 pub fn draft_view(
   conn: pog.Connection,
-  instance_id instance_id: String,
+  instance instance: Instance,
   me me: Int,
   can_commit can_commit: Bool,
   ids ids: List(String),
-) -> Result(Option(DraftView), OperationError) {
-  use maybe <- result.try(load(conn, instance_id))
-  case maybe {
-    None -> Ok(None)
-    Some(instance) -> {
-      use values <- result.try(current_values(conn, instance_id))
-      Ok(
-        Some(DraftView(
-          instance_id: instance.id,
-          kind: instance.kind,
-          status: status_to_string(instance.status),
-          current_step: instance.current_step,
-          can_act: acts_now(instance, me, can_commit),
-          values:,
-          step_status: compute_step_status(ids, instance.current_step),
-        )),
-      )
-    }
-  }
+) -> Result(DraftView, OperationError) {
+  use values <- result.try(current_values(conn, instance.id))
+  Ok(DraftView(
+    instance_id: instance.id,
+    kind: instance.kind,
+    status: status_to_string(instance.status),
+    current_step: instance.current_step,
+    can_act: acts_now(instance, me, can_commit),
+    values:,
+    step_status: compute_step_status(ids, instance.current_step),
+  ))
 }
 
 /// The open drafts `account_id` can resume — those they own, plus (when they can

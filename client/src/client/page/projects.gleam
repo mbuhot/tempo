@@ -101,7 +101,7 @@ pub type Load(a) {
 /// fetch result tags the `as_of` it answers for the staleness guard.
 pub type Msg {
   TableHostMsg(sub: table_host.Msg)
-  CreateProjectClicked(permit: ui.Permit)
+  CreateProjectClicked
   CreateProjectStarted(result: Result(String, rsvp.Error(String)))
   WizardMsg(sub: wizard.Msg)
   DetailFetched(
@@ -270,7 +270,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
-    CreateProjectClicked(..) -> #(
+    CreateProjectClicked -> #(
       model,
       wapi.start(wkind.to_string(wkind.CreateProject), CreateProjectStarted),
       [],
@@ -661,10 +661,16 @@ fn view_list(
         <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        ui.page_action(
+        ui.when_permitted(
           ui.permit(permissions, own: False, kind: ui.OpCreateProject),
-          CreateProjectClicked,
-          "+ New project",
+          fn(_granted) {
+            ui.button(
+              label: "+ New project",
+              kind: ui.Primary,
+              size: ui.Medium,
+              on_press: CreateProjectClicked,
+            )
+          },
         ),
         ui.page_action(
           ui.permit(permissions, own: False, kind: ui.OpStartProject),

@@ -80,7 +80,7 @@ fn commit_onboarding(
   })
 
   use values <- result.try(instance.current_values(conn, instance_id))
-  use _ <- result.try(require_confirmed(values))
+  use _ <- result.try(require_flag(values, "payroll", "payroll_confirmed"))
 
   use full_name <- result.try(text(values, "identity", "full_name"))
   use email <- result.try(text(values, "identity", "work_email"))
@@ -152,7 +152,7 @@ fn create_project(
   })
 
   use values <- result.try(instance.current_values(conn, instance_id))
-  use _ <- result.try(require_project_confirmed(values))
+  use _ <- result.try(require_flag(values, "confirm", "confirmed"))
 
   use title <- result.try(text(values, "description", "title"))
   let summary = optional(values, "description", "summary")
@@ -274,10 +274,12 @@ fn resolve_client(
   }
 }
 
-fn require_project_confirmed(
+fn require_flag(
   values: Dict(String, Dict(String, FieldValue)),
+  step: String,
+  field: String,
 ) -> Result(Nil, OperationError) {
-  case field_at(values, "confirm", "confirmed") {
+  case field_at(values, step, field) {
     Ok(BoolValue(True)) -> Ok(Nil)
     _ -> Error(InvalidValue)
   }
@@ -314,15 +316,6 @@ fn emergency_contact(
         from:,
       ),
     ]
-  }
-}
-
-fn require_confirmed(
-  values: Dict(String, Dict(String, FieldValue)),
-) -> Result(Nil, OperationError) {
-  case field_at(values, "payroll", "payroll_confirmed") {
-    Ok(BoolValue(True)) -> Ok(Nil)
-    _ -> Error(InvalidValue)
   }
 }
 

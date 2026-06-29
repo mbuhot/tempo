@@ -46,8 +46,9 @@ pub fn save_then_draft_view_shows_value_test() {
       dict.from_list([#("full_name", TextValue("Aisha Okafor"))]),
     )
 
-  let assert Ok(Some(draft)) =
-    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  let assert Ok(draft) =
+    instance.draft_view(conn, loaded, owner, False, ids: flow.step_ids())
   let assert Ok(identity_values) = dict.get(draft.values, "identity")
   assert dict.get(identity_values, "full_name") == Ok(TextValue("Aisha Okafor"))
   assert draft.current_step == "identity"
@@ -108,8 +109,9 @@ pub fn latest_value_wins_test() {
       dict.from_list([#("full_name", TextValue("Second"))]),
     )
 
-  let assert Ok(Some(draft)) =
-    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  let assert Ok(draft) =
+    instance.draft_view(conn, loaded, owner, False, ids: flow.step_ids())
   let assert Ok(identity_values) = dict.get(draft.values, "identity")
   assert dict.get(identity_values, "full_name") == Ok(TextValue("Second"))
 }
@@ -121,8 +123,9 @@ pub fn complete_step_advances_and_marks_status_test() {
 
   let assert Ok(_) = instance.complete_step(conn, id, "level")
 
-  let assert Ok(Some(draft)) =
-    instance.draft_view(conn, id, owner, False, ids: flow.step_ids())
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  let assert Ok(draft) =
+    instance.draft_view(conn, loaded, owner, False, ids: flow.step_ids())
   assert draft.current_step == "level"
   assert dict.get(draft.step_status, "identity") == Ok(Done)
   assert dict.get(draft.step_status, "level") == Ok(Active)
@@ -140,12 +143,13 @@ pub fn hand_off_queues_for_finance_test() {
   assert loaded.status == AwaitingFinance
   assert loaded.current_step == "payroll"
 
-  let assert Ok(Some(for_finance)) =
-    instance.draft_view(conn, id, finance, True, ids: flow.step_ids())
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  let assert Ok(for_finance) =
+    instance.draft_view(conn, loaded, finance, True, ids: flow.step_ids())
   assert for_finance.can_act == True
 
-  let assert Ok(Some(for_other)) =
-    instance.draft_view(conn, id, finance, False, ids: flow.step_ids())
+  let assert Ok(for_other) =
+    instance.draft_view(conn, loaded, finance, False, ids: flow.step_ids())
   assert for_other.can_act == False
 }
 
@@ -173,4 +177,36 @@ pub fn list_for_shows_finance_queue_only_to_committers_test() {
   let assert Ok(for_other) = instance.list_for(conn, finance, False)
   let other_ids = list.map(for_other, fn(summary) { summary.instance_id })
   assert list.contains(other_ids, id) == False
+}
+
+pub fn saving_same_step_twice_accumulates_fields_test() {
+  use conn <- rolling_back
+  let #(owner, _) = two_account_ids(conn)
+  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+
+  let assert Ok(_) =
+    instance.save_step(
+      conn,
+      id,
+      "identity",
+      dict.from_list([#("full_name", TextValue("Aisha Okafor"))]),
+    )
+  let assert Ok(_) =
+    instance.save_step(
+      conn,
+      id,
+      "identity",
+      dict.from_list([
+        #("full_name", TextValue("Aisha Okafor")),
+        #("work_email", TextValue("aisha@example.com")),
+      ]),
+    )
+
+  let assert Ok(Some(loaded)) = instance.load(conn, id)
+  let assert Ok(draft) =
+    instance.draft_view(conn, loaded, owner, False, ids: flow.step_ids())
+  let assert Ok(identity_values) = dict.get(draft.values, "identity")
+  assert dict.get(identity_values, "full_name") == Ok(TextValue("Aisha Okafor"))
+  assert dict.get(identity_values, "work_email")
+    == Ok(TextValue("aisha@example.com"))
 }

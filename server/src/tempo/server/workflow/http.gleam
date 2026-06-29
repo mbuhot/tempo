@@ -75,14 +75,13 @@ pub fn handle_instance(
           case
             instance.draft_view(
               ctx.db,
-              id,
+              found,
               principal.account_id,
               can_commit(principal),
               ids,
             )
           {
-            Ok(Some(draft)) -> response.json_response(view.encode_draft(draft))
-            Ok(None) -> wisp.not_found()
+            Ok(draft) -> response.json_response(view.encode_draft(draft))
             Error(error) -> error_response(error)
           }
         }
