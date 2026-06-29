@@ -61,12 +61,24 @@ test("scrolling to the bottom loads more invoice rows (infinite scroll)", async 
   page,
 }) => {
   // The first page is a bounded slice; the seed has more invoices than fit, so
-  // scrolling the last loaded row into view loads the next page and grows the table.
-  // Retry the scroll: a scroll can land while the page is still appending.
-  const before = await page.getByRole("row").count();
+  // scrolling the invoices viewport to the bottom loads the next page and grows the
+  // table. We drive the real scroll container (the table's overflow wrapper) to its
+  // end and re-fire the scroll each retry: the rail's debounced as-of refetch can land
+  // a fresh first page just after an append, so a single bottom-scroll may be undone —
+  // re-driving it reloads page two until the row count settles above the first page.
+  const invoices = page
+    .getByRole("table")
+    .filter({ has: page.getByRole("columnheader", { name: "#" }) });
+  const viewport = invoices.locator(
+    "xpath=ancestor::div[contains(@class,'dt-scroll')]",
+  );
+  const firstPage = await invoices.getByRole("row").count();
   await expect(async () => {
-    await page.getByRole("row").last().scrollIntoViewIfNeeded();
-    expect(await page.getByRole("row").count()).toBeGreaterThan(before);
+    await viewport.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    expect(await invoices.getByRole("row").count()).toBeGreaterThan(firstPage);
   }).toPass();
 });
 
