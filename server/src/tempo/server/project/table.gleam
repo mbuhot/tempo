@@ -38,9 +38,10 @@ import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
 }
 import shared/table/sort.{Asc, Sort}
-import tempo/server/auth
+import shared/workflow/kind as wkind
 import tempo/server/context.{type Context}
 import tempo/server/table/builder
+import tempo/server/workflow/drafts
 
 const default_sort_key = "title"
 
@@ -148,60 +149,25 @@ pub fn filter_schema() -> Schema {
 
 // --- in-progress create_project drafts --------------------------------------
 
-type DraftRow {
-  DraftRow(instance_id: String, title: String, status: String)
-}
-
+/// The in-progress create-project drafts, with the entered title (the open
+/// transaction-time value of description.title) and lifecycle status. These appear as
+/// rows in the project list so a manager/Finance can resume them.
 fn project_draft_rows(
   context: Context,
-) -> Result(List(DraftRow), pog.QueryError) {
-  let #(account_id, can_commit) = draft_scope(context)
-  let row_decoder = {
-    use instance_id <- decode.field(0, decode.string)
-    use title <- decode.field(1, decode.string)
-    use status <- decode.field(2, decode.string)
-    decode.success(DraftRow(instance_id:, title:, status:))
-  }
-  use returned <- result.map(
-    pog.query(project_drafts_sql)
-    |> pog.parameter(pog.int(account_id))
-    |> pog.parameter(pog.bool(can_commit))
-    |> pog.returning(row_decoder)
-    |> pog.execute(on: context.db),
+) -> Result(List(drafts.DraftRow), pog.QueryError) {
+  drafts.rows(
+    context,
+    drafts.DraftSource(
+      kind: wkind.to_string(wkind.CreateProject),
+      commit_permission: access.project_create_confirm,
+      step_id: "description",
+      value_path: "{title,value}",
+    ),
   )
-  returned.rows
 }
 
-/// The draft-prepend scope for the viewer: their account id, and whether they hold the
-/// create-project commit permission (so they may also see the shared awaiting-Finance
-/// queue). Mirrors `workflow/instance.list_for`. No principal (the route guard makes
-/// this unreachable in production) sees no drafts.
-fn draft_scope(context: Context) -> #(Int, Bool) {
-  case context.principal {
-    Some(principal) -> #(
-      principal.account_id,
-      auth.can(principal, access.project_create_confirm),
-    )
-    None -> #(-1, False)
-  }
-}
-
-const project_drafts_sql = "
-SELECT i.id,
-       coalesce(v.value #>> '{title,value}', ''),
-       i.status
-  FROM workflow_instance i
-  LEFT JOIN workflow_step_value v
-    ON v.instance_id = i.id AND v.step_id = 'description'
-       AND upper_inf(v.recorded_during)
- WHERE i.kind = 'create_project'
-   AND i.status IN ('draft', 'awaiting_finance')
-   AND (i.owner_id = $1 OR ($2 AND i.status = 'awaiting_finance'))
- ORDER BY i.created_at
-"
-
-fn draft_row_to_table_row(row: DraftRow) -> Row {
-  let display_title = case row.title {
+fn draft_row_to_table_row(row: drafts.DraftRow) -> Row {
+  let display_title = case row.label {
     "" -> "(untitled project)"
     title -> title
   }

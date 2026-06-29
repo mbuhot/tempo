@@ -11,13 +11,12 @@
 //// The `+ Onboard` action starts a fresh draft and opens the wizard. Closing the
 //// wizard refetches the list; a commit also raises `OperationCommitted`.
 
-import client/focus
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
 import client/ui
-import client/workflow/api as wapi
+import client/workflow/host
 import client/workflow/wizard
 import gleam/int
 import gleam/option.{type Option, None, Some}
@@ -83,11 +82,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
     }
 
-    OnboardClicked(..) -> #(
-      model,
-      wapi.start(wkind.to_string(wkind.OnboardEngineer), OnboardStarted),
-      [],
-    )
+    OnboardClicked(..) -> #(model, host.start(config(), OnboardStarted), [])
 
     OnboardStarted(result:) ->
       case result {
@@ -98,30 +93,31 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     WizardMsg(sub:) ->
       case model.wizard {
         None -> #(model, effect.none(), [])
-        Some(current) -> {
-          let #(next, wizard_effect, outcome) = wizard.update(current, sub)
-          case outcome {
-            wizard.Working -> #(
-              Model(..model, wizard: Some(next)),
-              effect.map(wizard_effect, WizardMsg),
+        Some(current) ->
+          case host.update(current, sub, WizardMsg) {
+            host.Working(wizard:, effect:) -> #(
+              Model(..model, wizard: Some(wizard)),
+              effect,
               [],
             )
-            wizard.Dismissed -> {
+            host.Dismissed(effect:) -> {
               let #(model, fetch) =
                 refetch(Model(..model, wizard: None), model.as_of)
-              #(model, effect.batch([fetch, focus.release()]), [])
+              #(model, effect.batch([fetch, effect]), [])
             }
-            wizard.Committed -> {
+            host.Committed(effect:) -> {
               let #(model, fetch) =
                 refetch(Model(..model, wizard: None), model.as_of)
-              #(model, effect.batch([fetch, focus.release()]), [
-                OperationCommitted,
-              ])
+              #(model, effect.batch([fetch, effect]), [OperationCommitted])
             }
           }
-        }
       }
   }
+}
+
+/// The onboarding host configuration for the People roster.
+fn config() -> host.Config {
+  host.Config(kind: wkind.OnboardEngineer, title: "Onboard an engineer")
 }
 
 /// Open the wizard for an instance, batching its init effect with any pending host
@@ -132,14 +128,10 @@ fn open_wizard(
   instance_id: String,
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
   let #(wizard_model, wizard_effect) =
-    wizard.init(instance_id, wkind.OnboardEngineer)
+    host.open(config(), instance_id, WizardMsg)
   #(
     Model(..model, wizard: Some(wizard_model)),
-    effect.batch([
-      pending,
-      effect.map(wizard_effect, WizardMsg),
-      focus.trap(".modal--wide"),
-    ]),
+    effect.batch([pending, wizard_effect]),
     [],
   )
 }
@@ -174,16 +166,11 @@ fn view_wizard(
   open: Option(wizard.Model),
   permissions: Set(String),
 ) -> Element(Msg) {
-  case open {
-    None -> element.none()
-    Some(wizard_model) ->
-      ui.dialog(
-        title: "Onboard an engineer",
-        on_dismiss: WizardMsg(wizard.DismissClicked),
-        body: element.map(
-          wizard.view(wizard_model, permissions, fn(_step) { element.none() }),
-          WizardMsg,
-        ),
-      )
-  }
+  host.view(
+    open,
+    config(),
+    permissions,
+    fn(_step) { element.none() },
+    WizardMsg,
+  )
 }

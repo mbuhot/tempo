@@ -43,9 +43,10 @@ import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
 }
 import shared/table/sort.{Asc, Sort}
-import tempo/server/auth
+import shared/workflow/kind as wkind
 import tempo/server/context.{type Context}
 import tempo/server/table/builder
+import tempo/server/workflow/drafts
 
 const default_sort_key = "name"
 
@@ -84,63 +85,25 @@ pub fn people_table(
 
 // --- in-progress onboarding drafts ------------------------------------------
 
-type DraftRow {
-  DraftRow(instance_id: String, name: String, status: String)
-}
-
 /// The in-progress onboarding drafts, with the engineer's entered name (the open
 /// transaction-time value of identity.full_name) and lifecycle status. These appear
 /// as rows in the roster so a manager/Finance can resume them.
 fn onboarding_draft_rows(
   context: Context,
-) -> Result(List(DraftRow), pog.QueryError) {
-  let #(account_id, can_commit) = draft_scope(context)
-  let row_decoder = {
-    use instance_id <- decode.field(0, decode.string)
-    use name <- decode.field(1, decode.string)
-    use status <- decode.field(2, decode.string)
-    decode.success(DraftRow(instance_id:, name:, status:))
-  }
-  use returned <- result.map(
-    pog.query(onboarding_drafts_sql)
-    |> pog.parameter(pog.int(account_id))
-    |> pog.parameter(pog.bool(can_commit))
-    |> pog.returning(row_decoder)
-    |> pog.execute(on: context.db),
+) -> Result(List(drafts.DraftRow), pog.QueryError) {
+  drafts.rows(
+    context,
+    drafts.DraftSource(
+      kind: wkind.to_string(wkind.OnboardEngineer),
+      commit_permission: access.engineer_onboard_commit,
+      step_id: "identity",
+      value_path: "{full_name,value}",
+    ),
   )
-  returned.rows
 }
 
-/// The draft-prepend scope for the viewer: their account id, and whether they hold the
-/// onboarding commit permission (so they may also see the shared awaiting-Finance
-/// queue). Mirrors `workflow/instance.list_for`. No principal (the route guard makes
-/// this unreachable in production) sees no drafts.
-fn draft_scope(context: Context) -> #(Int, Bool) {
-  case context.principal {
-    Some(principal) -> #(
-      principal.account_id,
-      auth.can(principal, access.engineer_onboard_commit),
-    )
-    None -> #(-1, False)
-  }
-}
-
-const onboarding_drafts_sql = "
-SELECT i.id,
-       coalesce(v.value #>> '{full_name,value}', ''),
-       i.status
-  FROM workflow_instance i
-  LEFT JOIN workflow_step_value v
-    ON v.instance_id = i.id AND v.step_id = 'identity'
-       AND upper_inf(v.recorded_during)
- WHERE i.kind = 'onboard_engineer'
-   AND i.status IN ('draft', 'awaiting_finance')
-   AND (i.owner_id = $1 OR ($2 AND i.status = 'awaiting_finance'))
- ORDER BY i.created_at
-"
-
-fn draft_row_to_table_row(row: DraftRow) -> Row {
-  let display_name = case row.name {
+fn draft_row_to_table_row(row: drafts.DraftRow) -> Row {
+  let display_name = case row.label {
     "" -> "New engineer"
     name -> name
   }

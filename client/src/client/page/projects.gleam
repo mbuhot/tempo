@@ -27,13 +27,12 @@
 //// back link raises `Navigate(route.Projects(None))`.
 
 import client/api
-import client/focus
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
 import client/ui
-import client/workflow/api as wapi
+import client/workflow/host
 import client/workflow/wizard
 import gleam/dynamic/decode
 import gleam/float
@@ -272,7 +271,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     CreateProjectClicked -> #(
       model,
-      wapi.start(wkind.to_string(wkind.CreateProject), CreateProjectStarted),
+      host.start(config(), CreateProjectStarted),
       [],
     )
 
@@ -284,10 +283,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     WizardMsg(sub:) ->
       case model {
-        ListView(wizard: Some(current), rates_for:, ..) -> {
-          let #(next, wizard_effect, outcome) = wizard.update(current, sub)
-          case outcome {
-            wizard.Working -> {
+        ListView(wizard: Some(current), rates_for:, ..) ->
+          case host.update(current, sub, WizardMsg) {
+            host.Working(wizard: next, effect:) -> {
               let rates_effect = case wizard.current_step(next) == "contract" {
                 False -> effect.none()
                 True -> {
@@ -301,25 +299,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               }
               #(
                 ListView(..model, wizard: Some(next)),
-                effect.batch([
-                  effect.map(wizard_effect, WizardMsg),
-                  rates_effect,
-                ]),
+                effect.batch([effect, rates_effect]),
                 [],
               )
             }
-            wizard.Dismissed -> {
+            host.Dismissed(effect:) -> {
               let #(reloaded, fetch) = reload(ListView(..model, wizard: None))
-              #(reloaded, effect.batch([fetch, focus.release()]), [])
+              #(reloaded, effect.batch([fetch, effect]), [])
             }
-            wizard.Committed -> {
+            host.Committed(effect:) -> {
               let #(reloaded, fetch) = reload(ListView(..model, wizard: None))
-              #(reloaded, effect.batch([fetch, focus.release()]), [
-                OperationCommitted,
-              ])
+              #(reloaded, effect.batch([fetch, effect]), [OperationCommitted])
             }
           }
-        }
         _ -> #(model, effect.none(), [])
       }
 
@@ -603,6 +595,11 @@ fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
   ui.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
+/// The create-project host configuration for the Projects list.
+fn config() -> host.Config {
+  host.Config(kind: wkind.CreateProject, title: "Create a project")
+}
+
 fn open_wizard(
   model: Model,
   pending: Effect(Msg),
@@ -611,14 +608,10 @@ fn open_wizard(
   case model {
     ListView(..) -> {
       let #(wizard_model, wizard_effect) =
-        wizard.init(instance_id, wkind.CreateProject)
+        host.open(config(), instance_id, WizardMsg)
       #(
         ListView(..model, wizard: Some(wizard_model)),
-        effect.batch([
-          pending,
-          effect.map(wizard_effect, WizardMsg),
-          focus.trap(".modal--wide"),
-        ]),
+        effect.batch([pending, wizard_effect]),
         [],
       )
     }
@@ -695,23 +688,18 @@ fn view_wizard(
   rates: Option(List(RateCardRow)),
   permissions: Set(String),
 ) -> Element(Msg) {
-  case open {
-    None -> element.none()
-    Some(wizard_model) ->
-      ui.dialog(
-        title: "Create a project",
-        on_dismiss: WizardMsg(wizard.DismissClicked),
-        body: element.map(
-          wizard.view(wizard_model, permissions, fn(step) {
-            case step {
-              "contract" -> rates_panel(rates)
-              _ -> element.none()
-            }
-          }),
-          WizardMsg,
-        ),
-      )
-  }
+  host.view(
+    open,
+    config(),
+    permissions,
+    fn(step) {
+      case step {
+        "contract" -> rates_panel(rates)
+        _ -> element.none()
+      }
+    },
+    WizardMsg,
+  )
 }
 
 fn rates_panel(rates: Option(List(RateCardRow))) -> Element(a) {
