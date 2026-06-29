@@ -72,14 +72,22 @@
     --lvl-6: #4338ca;
     --lvl-7: #3730a3;
 
-    /* ---------- Domain & status colours ---------- */
-    /* Leave (board on-leave cards) and the invoice / P&L lifecycle states. These
-     carry domain meaning — they are not part of the generic neutral palette. */
+    /* ---------- Status / intent colours ---------- */
+    /* Generic feedback signals, reusable wherever that intent occurs: ok marks a
+     positive / success state, warn a caution state, danger a destructive or error
+     state. The -soft variants are the matching tinted backgrounds. Each variable
+     stands for its meaning — apply it only to an element that carries that meaning. */
     --color-ok: #2e9e6b;
     --color-ok-soft: #e4f4ec;
     --color-warn: #c7841c;
     --color-warn-soft: #fbf0dc;
     --color-danger: #d23b3b;
+
+    /* ---------- Domain colours ---------- */
+    /* Each is tied to one business concept and belongs only on that concept:
+     --color-leave is time-off (board on-leave cards); errors and destructive
+     actions take --color-danger above. --color-payload-* styles the raw event
+     payload viewer. */
     --color-leave: #c2566f;
     --color-leave-soft: #fbe7ec;
     --color-leave-border: #f3d2da;
