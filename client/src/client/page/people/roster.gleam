@@ -27,8 +27,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import rsvp
-
-const onboard_kind = "onboard_engineer"
+import shared/workflow/kind as wkind
 
 /// The roster list's state: the as-of its data answers, the roster table host, and
 /// the open onboarding wizard (or `None`).
@@ -84,7 +83,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
     }
 
-    OnboardClicked(..) -> #(model, wapi.start(onboard_kind, OnboardStarted), [])
+    OnboardClicked(..) -> #(
+      model,
+      wapi.start(wkind.to_string(wkind.OnboardEngineer), OnboardStarted),
+      [],
+    )
 
     OnboardStarted(result:) ->
       case result {
@@ -128,7 +131,8 @@ fn open_wizard(
   pending: Effect(Msg),
   instance_id: String,
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
-  let #(wizard_model, wizard_effect) = wizard.init(instance_id, "onboard_engineer")
+  let #(wizard_model, wizard_effect) =
+    wizard.init(instance_id, wkind.OnboardEngineer)
   #(
     Model(..model, wizard: Some(wizard_model)),
     effect.batch([

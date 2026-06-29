@@ -10,6 +10,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import pog
+import shared/workflow/kind as wkind
 import shared/workflow/value.{type FieldValue}
 import shared/workflow/view.{
   type DraftSummary, type DraftView, type StepStatus, Active, Done, DraftSummary,
@@ -227,11 +228,11 @@ fn acts_now(instance: Instance, me: Int, can_commit: Bool) -> Bool {
   }
 }
 
-fn title_for(kind: String) -> String {
-  case kind {
-    "onboard_engineer" -> "Onboard engineer"
-    "create_project" -> "Create a project"
-    _ -> kind
+fn title_for(kind_string: String) -> String {
+  case wkind.from_string(kind_string) {
+    Ok(wkind.OnboardEngineer) -> "Onboard engineer"
+    Ok(wkind.CreateProject) -> "Create a project"
+    Error(_) -> kind_string
   }
 }
 

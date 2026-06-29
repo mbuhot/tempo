@@ -55,10 +55,9 @@ import shared/project/view.{
 } as project_view
 import shared/roster/view.{type Ref, type Roster} as roster_view
 import shared/settings/view.{type RateCardRow} as settings_view
+import shared/workflow/kind as wkind
 
 // --- Model ------------------------------------------------------------------
-
-const create_kind = "create_project"
 
 /// The page renders one of two sub-views: the project list or a single project's
 /// detail. Each is independently loadable, so the model is a sum over the two with
@@ -273,7 +272,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     CreateProjectClicked(..) -> #(
       model,
-      wapi.start(create_kind, CreateProjectStarted),
+      wapi.start(wkind.to_string(wkind.CreateProject), CreateProjectStarted),
       [],
     )
 
@@ -611,7 +610,8 @@ fn open_wizard(
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
   case model {
     ListView(..) -> {
-      let #(wizard_model, wizard_effect) = wizard.init(instance_id, create_kind)
+      let #(wizard_model, wizard_effect) =
+        wizard.init(instance_id, wkind.CreateProject)
       #(
         ListView(..model, wizard: Some(wizard_model)),
         effect.batch([

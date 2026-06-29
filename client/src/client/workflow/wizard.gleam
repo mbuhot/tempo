@@ -27,6 +27,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
+import shared/workflow/kind as wkind
 import shared/workflow/schema.{
   type FieldType, type Step, type WorkflowSchema, GroupField,
 }
@@ -36,7 +37,7 @@ import shared/workflow/view.{type DraftView, DraftView}
 pub type Model {
   Model(
     instance_id: String,
-    kind: String,
+    kind: wkind.WorkflowKind,
     schema: Option(WorkflowSchema),
     draft: Option(DraftView),
     step: String,
@@ -76,7 +77,10 @@ pub type Outcome {
 }
 
 /// Open the wizard for an existing instance, fetching its schema and draft.
-pub fn init(instance_id: String, kind: String) -> #(Model, Effect(Msg)) {
+pub fn init(
+  instance_id: String,
+  kind: wkind.WorkflowKind,
+) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       instance_id:,
@@ -93,7 +97,7 @@ pub fn init(instance_id: String, kind: String) -> #(Model, Effect(Msg)) {
   #(
     model,
     effect.batch([
-      wapi.fetch_schema(kind, SchemaFetched),
+      wapi.fetch_schema(wkind.to_string(kind), SchemaFetched),
       wapi.fetch_draft(instance_id, DraftFetched),
     ]),
   )
@@ -172,9 +176,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
     CommitClicked -> #(
       model,
       case model.kind {
-        "create_project" ->
+        wkind.CreateProject ->
           wapi.commit_project(model.instance_id, CommitReturned)
-        _ -> wapi.commit(model.instance_id, CommitReturned)
+        wkind.OnboardEngineer -> wapi.commit(model.instance_id, CommitReturned)
       },
       Working,
     )
