@@ -187,12 +187,12 @@ test("an invoice's status is temporal: scrubbing before its issue date shows it 
 });
 
 // Open the Payroll tab from the Finance page. The tab is a button labelled
-// "Payroll"; clicking it reveals the payroll panel. The panel's title flexes by
-// state ("Payroll preview · <month>" un-run, "Payroll run · <month>" once run), so
-// we wait for the state-agnostic month suffix rather than a fixed title.
+// "Payroll"; clicking it reveals the payroll panel, whose heading is "Payroll ·
+// <month>". Run state is shown by the mode tabs and headline, not the title, so we
+// wait on the month-suffixed heading as the signal the panel has landed.
 async function openPayrollTab(page) {
   await page.getByRole("button", { name: "Payroll", exact: true }).click();
-  await expect(page.getByText(/Payroll (preview|run) ·/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Payroll ·/ })).toBeVisible();
 }
 
 // The three employed engineers, by visible name. Self-contained: they exist on the
@@ -207,19 +207,23 @@ const EMPLOYED = ["Priya Sharma", "Marcus Chen", "Aisha Okafor"];
 async function ensurePayrollRun(page, month, monthFrom, monthTo) {
   // Wait for the payroll panel to SETTLE on this month before deciding: scrubbing the
   // rail refetches the panel asynchronously, so an instant visibility check can race
-  // the refetch (still showing the prior month, which has no Run button) and wrongly
-  // skip a needed run. The panel has landed once it is either already run for this
-  // month or showing this month's un-run preview (its Run button).
-  const alreadyRun = page.getByText(`Payroll run · ${month}`);
+  // the refetch (still showing the prior month). The month-suffixed heading is the
+  // signal the panel has landed on THIS month; the "Run payroll" button is present
+  // only in the un-run preview state, so its presence is what needs a run.
+  await expect(
+    page.getByRole("heading", { name: `Payroll · ${month}` }),
+  ).toBeVisible();
   const runButton = page.getByRole("button", { name: "Run payroll", exact: true });
-  await expect(alreadyRun.or(runButton).first()).toBeVisible();
   if (await runButton.isVisible().catch(() => false)) {
     await runButton.click();
     await expect(page.getByText("Run payroll").first()).toBeVisible();
     await page.getByLabel("Period from").fill(monthFrom);
     await page.getByLabel("Period to").fill(monthTo);
     await confirmOp(page, "Run payroll");
-    await expect(page.getByText(`Payroll run · ${month}`)).toBeVisible();
+    // Once run, the panel leaves preview and the Run-payroll launcher is gone.
+    await expect(
+      page.getByRole("button", { name: "Run payroll", exact: true }),
+    ).toHaveCount(0);
   }
 }
 
@@ -228,14 +232,18 @@ test("an un-run month previews the employed engineers as not-yet-run rather than
 }) => {
   // STATE 1 (NOT YET RUN): the Payroll tab reads a materialized run, written only
   // by RunPayroll. October 2026 is never run in any test, so its panel must read
-  // as an honest live PREVIEW — the "<n> employed · not yet run" pill and a
-  // "<total> to pay" note — listing the three currently-employed engineers, NEVER
-  // "0 employed".
+  // as an honest live PREVIEW — the Run-payroll launcher present, a "<total> to
+  // pay" note, and a positive "<n> employed" count — listing the three known
+  // currently-employed engineers, NEVER "0 employed". (The shared append-only DB
+  // may also carry engineers onboarded by other specs, so the count is asserted as
+  // non-zero, not a fixed three; the three named rows are checked explicitly.)
   await openPayrollTab(page);
   await scrubTo(page, "2026-10-15");
 
-  await expect(page.getByText("not yet run", { exact: false })).toBeVisible();
-  await expect(page.getByText("3 employed", { exact: false })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Run payroll", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/[1-9]\d* employed/)).toBeVisible();
   await expect(page.getByText("to pay", { exact: false })).toBeVisible();
   await expect(page.getByText("0 employed")).toHaveCount(0);
   for (const name of EMPLOYED) {
@@ -247,19 +255,23 @@ test("running payroll materializes the run and shows each engineer's paid amount
   page,
 }) => {
   // STATE 2 (RUN): scrub to a future month (August 2026), run its payroll once, and
-  // the panel flips from the live PREVIEW to a MATERIALIZED run — title "Payroll run
-  // · Aug 2026", the "Run payroll" button gone, the "not yet run" framing gone, and
-  // each employed engineer showing a PAID dollar amount. We assert the run/material-
-  // isation transition, not reconciled-vs-variance: on the shared append-only DB a
-  // concurrent spec's open-ended promotion (e.g. Priya → L6 from Jun 1) can back-date
-  // a variance over any later month after its run, so "reconciled" is not stable here
-  // — Beat 3 exercises the variance path deterministically instead.
+  // the panel flips from the live PREVIEW to a MATERIALIZED run — heading "Payroll ·
+  // Aug 2026", the Run-payroll launcher gone, the preview "to pay" note replaced by
+  // a "<total> paid" note, and each employed engineer showing a PAID dollar amount.
+  // We assert the run/materialisation transition, not reconciled-vs-variance: on the
+  // shared append-only DB a concurrent spec's open-ended promotion (e.g. Priya → L6
+  // from Jun 1) can back-date a variance over any later month after its run, so
+  // "reconciled" is not stable here — Beat 3 exercises the variance path
+  // deterministically instead.
   await openPayrollTab(page);
   await scrubTo(page, "2026-08-15");
   await ensurePayrollRun(page, "Aug 2026", "2026-08-01", "2026-08-31");
 
-  await expect(page.getByText("Payroll run · Aug 2026", { exact: false })).toBeVisible();
-  await expect(page.getByText("not yet run")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Payroll · Aug 2026" }),
+  ).toBeVisible();
+  await expect(page.getByText(/\$[\d,]+ paid/)).toBeVisible();
+  await expect(page.getByText(/to pay/)).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Run payroll", exact: true }),
   ).toHaveCount(0);
@@ -344,13 +356,19 @@ test("a mid-month promotion discloses the per-level pay breakdown in the payroll
   await navigateTo(page, "Finance");
   await openPayrollTab(page);
   await scrubTo(page, "2026-12-15");
-  await expect(page.getByText("Payroll preview · Dec 2026")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Payroll · Dec 2026" }),
+  ).toBeVisible();
 
   // Collapsed: the per-level bands are hidden until the row is disclosed.
   await expect(page.getByText("L6 · Distinguished")).toHaveCount(0);
 
-  // Expanding Marcus's line reveals the two salary-level sub-rows.
-  await page.getByRole("button", { name: /Marcus Chen/ }).click();
+  // Expanding Marcus's line — via the disclosure toggle in his row — reveals the two
+  // salary-level sub-rows.
+  await page
+    .getByRole("row", { name: /Marcus Chen/ })
+    .getByRole("button", { name: "▸" })
+    .click();
   await expect(page.getByText("L5 · Principal")).toBeVisible();
   await expect(page.getByText("L6 · Distinguished")).toBeVisible();
 });
@@ -424,14 +442,13 @@ test("the P&L recognizes a worked month's revenue from capacity, with no invoice
 
 test("a drafted invoice is journalled in the Activity log", async ({ page }) => {
   // Drafting posts an operation that the append-only journal records. Switch to
-  // Activity, show "All time" (a fresh write is recorded on system time, today,
-  // outside the default recent window), and the draft's summary is listed — matched
-  // by its distinctive invoice id substring so repeated runs stay green.
+  // Activity, whose journal lists every event newest-first by default, and the
+  // draft's summary is listed — matched by its distinctive invoice id substring so
+  // repeated runs stay green.
   const id = await draftJuneInvoice(page);
 
   await navigateTo(page, "Activity");
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
-  await page.getByLabel("Quick range").selectOption({ label: "All time" });
   await expect(
     page
       .getByText(
@@ -463,7 +480,12 @@ test("the Forecast tab projects committed demand month-by-month to the cliff", a
   // allocation-side revenue.
   await openForecastTab(page);
 
-  for (const header of ["Month", "Revenue", "Cost", "Profit", "Margin"]) {
+  // Month is the default-sorted column, so its header carries a sort glyph in the
+  // accessible name ("Month ▲") — match by substring. The other axes are unsorted.
+  await expect(
+    page.getByRole("columnheader", { name: /Month/ }),
+  ).toBeVisible();
+  for (const header of ["Revenue", "Cost", "Profit", "Margin"]) {
     await expect(
       page.getByRole("columnheader", { name: header, exact: true }),
     ).toBeVisible();

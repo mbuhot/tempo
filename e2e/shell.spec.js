@@ -79,11 +79,11 @@ test("a cold deep link opens the engineer detail, not the roster", async ({
 
 test("a contextual write appears in the Activity log", async ({ page }) => {
   // A contextual operation (Promote on a People detail) is journalled append-only.
-  // After applying it, switch to Activity, show "All time" (a fresh write is
-  // recorded on system time, today, outside the default recent window), and the
-  // operation's summary is listed. Matched by a distinctive substring (≥1) so
-  // repeated runs — which append another identical entry — stay green. Promoting
-  // Priya to L6 from a fixed past date is idempotent, so re-runs do not conflict.
+  // After applying it, switch to Activity, whose journal lists every event newest-
+  // first by default, and the operation's summary is listed. Matched by a
+  // distinctive substring (≥1) so repeated runs — which append another identical
+  // entry — stay green. Promoting Priya to L6 from a fixed past date is idempotent,
+  // so re-runs do not conflict.
   await signInAs(page, "Admin");
   await navigateTo(page, "People");
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
@@ -99,7 +99,6 @@ test("a contextual write appears in the Activity log", async ({ page }) => {
 
   await navigateTo(page, "Activity");
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
-  await page.getByLabel("Quick range").selectOption({ label: "All time" });
   await expect(
     page.getByText("Promote engineer 1 to L6 from 2026-06-01").first(),
   ).toBeVisible();

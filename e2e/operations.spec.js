@@ -65,12 +65,11 @@ test("promoting an engineer re-renders their level and charge rate and is journa
     page.getByText(/Priya Sharma[\s\S]*?\$1,800\/d/).first(),
   ).toBeVisible();
 
-  // The journal records it on system time (recorded now). Showing "All time"
-  // surfaces it regardless of when it was recorded; match the human summary as a
-  // distinctive substring (≥1) rather than a count or position, so repeated runs
-  // (which append another identical entry) still pass.
+  // The journal lists every event newest-first by default, so the just-recorded
+  // promotion is shown; match the human summary as a distinctive substring (≥1)
+  // rather than a count or position, so repeated runs (which append another
+  // identical entry) still pass.
   await navigateTo(page, "Activity");
-  await page.getByLabel("Quick range").selectOption({ label: "All time" });
   await expect(
     page.getByText("Promote engineer 1 to L6 from 2026-06-01").first(),
   ).toBeVisible();

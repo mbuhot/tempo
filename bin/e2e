@@ -7,7 +7,8 @@
 #   1. ensure the tempo_e2e database exists
 #   2. migrate the schema + apply the base cast
 #   3. layer the financials demo (timesheets, invoices, payroll) the specs need
-#   4. run Playwright — extra args are forwarded, e.g. `bin/e2e timesheet.spec.js`
+#   4. rebuild the Lustre client bundle so Playwright runs against fresh UI
+#   5. run Playwright — extra args are forwarded, e.g. `bin/e2e timesheet.spec.js`
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,5 +18,6 @@ bin/ensure-db "$TEMPO_DB_NAME"
 bin/migrate
 bin/seed
 bin/seed-invoices
+bin/build
 
 cd e2e && npx playwright test "$@"
