@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Idempotently create a named database inside the tempo-db container. Postgres has
+# no CREATE DATABASE IF NOT EXISTS, so this checks pg_database first and only runs
+# createdb when the database is absent. Runs psql/createdb INSIDE the container, so
+# it needs no host Postgres client and ignores the host port mapping.
+#
+#   bin/ensure-db tempo_test
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+name="${1:?usage: bin/ensure-db <database-name>}"
+user="${POSTGRES_USER:-tempo}"
+
+if docker compose exec -T db psql -U "$user" -d postgres -tc \
+  "SELECT 1 FROM pg_database WHERE datname='$name'" | grep -q 1; then
+  echo "ensure-db: $name already exists."
+else
+  docker compose exec -T db createdb -U "$user" "$name"
+  echo "ensure-db: created $name."
+fi

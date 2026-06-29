@@ -17,7 +17,7 @@ pub fn main() -> Nil {
 
   let assert Ok(ctx) = context.start()
   let secret_key_base = secret_key_base()
-  let port = 8000
+  let port = context.env_int("TEMPO_PORT", 8000)
 
   let handler = fn(request) { router.handle_request(request, ctx) }
 

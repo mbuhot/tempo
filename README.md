@@ -120,6 +120,26 @@ the variance: "paid $10,000, should now be $14,000."
 - The demo data is a **seed** applied separately, so a freshly-migrated database is empty until
   you seed it.
 
+### One database per workflow
+
+`TEMPO_DB_NAME` selects which database inside the single `tempo-db` container the app and
+tooling connect to. Each workflow owns its own database, so the suites never clobber each other
+and no reseed is needed between them:
+
+| Database | Used by | Server port | Seeded with | Pinned via |
+|---|---|---|---|---|
+| `tempo` | interactive dev (`bin/up`, `bin/serve`, `bin/db`) | 8000 | base cast (`bin/seed`) | default — no env var |
+| `tempo_test` | gleam suite (`bin/test`) | — | base cast | `bin/test` exports `TEMPO_DB_NAME=tempo_test` |
+| `tempo_e2e` | Playwright suite (`bin/e2e`) | 8001 | base cast + financials demo | `bin/e2e` exports `TEMPO_DB_NAME=tempo_e2e`; `e2e/playwright.config.js` launches the server with `TEMPO_DB_NAME=tempo_e2e` + `TEMPO_PORT=8001` |
+
+- `TEMPO_PORT` chooses the HTTP listen port (default 8000). The e2e server runs on 8001, so the
+  Playwright suite runs alongside a dev server still serving 8000.
+- `bin/ensure-db <name>` idempotently creates a database (it checks `pg_database` first), running
+  `psql`/`createdb` inside the container so it needs no host Postgres client.
+- `bin/test` and `bin/e2e` each ensure, migrate, and seed their own database on every run; the
+  gleam suite is read-only (tx-fixture rollbacks), so its setup is a one-time no-op thereafter.
+- Dev keeps using plain `tempo` on 8000 and is left untouched by either suite.
+
 ### Writing SQL with Squirrel
 
 - SQL lives as plain `.sql` files under `<concept>/sql/` (one statement per file).
@@ -339,11 +359,14 @@ password `tempo-dev-password`).
 | `bin/reseed` | destructive: drop, recreate, base seed **and** financials demo |
 | `bin/build` | compile the Lustre bundle + Sass into `server/priv/static` |
 | `bin/serve` | run the Wisp server |
-| `bin/test` | Gleam tests + `gleam format --check` + `bin/lint-css` |
-| `bin/e2e` | run the Playwright suite (args forwarded, e.g. `bin/e2e timesheet.spec.js`) |
+| `bin/test` | ensure/migrate/seed `tempo_test`, then Gleam tests + `gleam format --check` + `bin/lint-css` |
+| `bin/e2e` | ensure/migrate/seed `tempo_e2e` (base + financials), then run Playwright (args forwarded, e.g. `bin/e2e timesheet.spec.js`) |
+| `bin/ensure-db` | idempotently create a named database in the `tempo-db` container |
 | `bin/squirrel` | regenerate `sql.gleam` from the `.sql` sources |
 | `bin/lint-css` | require every `var(--token)` to resolve in `theme.css` |
 | `bin/erd` | regenerate the schema map in `docs/SCHEMA.md` |
 
 Connection settings come from the environment, defaulting to `docker-compose.yml`
-(`TEMPO_DB_HOST` 127.0.0.1, `TEMPO_DB_PORT` 5434, name/user/password `tempo`).
+(`TEMPO_DB_HOST` 127.0.0.1, `TEMPO_DB_PORT` 5434, name/user/password `tempo`). `TEMPO_DB_NAME`
+selects the database and `TEMPO_PORT` the HTTP listen port (default 8000) — the test and e2e
+suites point these at their own (see **One database per workflow**).

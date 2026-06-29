@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 # Run the Gleam test suite (layers 1-4), check formatting, and lint the stylesheet
 # design tokens (#26).
+#
+# Targets its OWN database (tempo_test) so the gleam suite never clobbers — and is
+# never clobbered by — interactive dev (tempo) or the Playwright e2e suite (tempo_e2e).
+# The suite is effectively read-only (tx-fixture rollbacks), so ensure + migrate +
+# base-seed is a one-time idempotent setup; later runs are no-ops.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+export TEMPO_DB_NAME=tempo_test
+
+bin/ensure-db "$TEMPO_DB_NAME"
+bin/migrate
+bin/seed
 
 ( cd server && gleam test && gleam format --check src test )
 bin/lint-css

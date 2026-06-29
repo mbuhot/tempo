@@ -145,7 +145,9 @@ pub fn env_string(name: String, default: String) -> String {
   }
 }
 
-fn env_int(name: String, default: Int) -> Int {
+/// Read an environment variable as an integer, falling back to `default` when it is
+/// unset or unparseable.
+pub fn env_int(name: String, default: Int) -> Int {
   case envoy.get(name) {
     Ok(value) ->
       case int.parse(value) {
