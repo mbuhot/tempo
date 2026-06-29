@@ -176,7 +176,7 @@ pub fn avatar(
   class class: String,
 ) -> Element(msg) {
   html.div(
-    [attribute.class(class), attribute.style("background", cat_var(category))],
+    [attribute.class(class), attribute.style("background", cat_color(category))],
     [html.text(initials(name))],
   )
 }
@@ -189,7 +189,7 @@ pub fn swatch(category category: Int, inline inline: Bool) -> Element(msg) {
     False -> "swatch"
   }
   html.span(
-    [attribute.class(class), attribute.style("background", cat_var(category))],
+    [attribute.class(class), attribute.style("background", cat_color(category))],
     [],
   )
 }
@@ -294,9 +294,14 @@ pub fn empty_state(message message: String) -> Element(msg) {
 
 /// The `var(--cat-N)` token for a categorical index, wrapped to 1..7 exactly as
 /// the prototype's `catVar`. Returned as a CSS value string for an inline `style`.
-fn cat_var(category: Int) -> String {
+pub fn cat_color(category: Int) -> String {
   let index = { int.modulo(category, 7) |> result.unwrap(0) } + 1
   "var(--cat-" <> int.to_string(index) <> ")"
+}
+
+/// The `var(--lvl-N)` seniority-ramp token for a level (1..7 lightest to deepest).
+pub fn lvl_color(level: Int) -> String {
+  "var(--lvl-" <> int.to_string(level) <> ")"
 }
 
 /// A name's initials (up to two upper-case letters), mirroring the prototype's

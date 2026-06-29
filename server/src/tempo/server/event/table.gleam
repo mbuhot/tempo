@@ -277,7 +277,7 @@ fn actor_cell(actor: String) -> Cell {
     name: actor,
     sub: None,
     initials: initials(actor),
-    color: actor_color(actor),
+    category: actor_category(actor),
   )
 }
 
@@ -289,16 +289,14 @@ fn initials(name: String) -> String {
   |> string.uppercase
 }
 
-/// A stable category tint for an actor's avatar, derived from the name so the same
-/// person always gets the same colour (mirrors the prototype's `actor_category`).
-fn actor_color(actor: String) -> String {
-  let sum =
-    string.to_utf_codepoints(actor)
-    |> list.fold(0, fn(acc, codepoint) {
-      acc + string.utf_codepoint_to_int(codepoint)
-    })
-  let bucket = result.unwrap(int.modulo(sum, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
+/// A stable category source for an actor's avatar, derived from the name so the
+/// same person always buckets to the same colour client-side (mirrors the
+/// prototype's `actor_category`).
+fn actor_category(actor: String) -> Int {
+  string.to_utf_codepoints(actor)
+  |> list.fold(0, fn(acc, codepoint) {
+    acc + string.utf_codepoint_to_int(codepoint)
+  })
 }
 
 /// Pretty-print the compact JSON payload string for the row's detail panel by

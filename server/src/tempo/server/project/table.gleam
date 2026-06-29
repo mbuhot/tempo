@@ -25,7 +25,7 @@ import pog
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
-  type Cell, DateCell, EntityCell, EnumCell, MoneyCell, NumberCell,
+  type Cell, Category, DateCell, EntityCell, EnumCell, MoneyCell, NumberCell,
 }
 import shared/table/column.{
   type Schema, Column, DateType, EntityType, EnumType, MoneyType, Neutral,
@@ -192,7 +192,7 @@ fn draft_row_to_table_row(row: DraftRow) -> Row {
         EntityCell(
           label: display_title,
           sub: Some("Draft"),
-          color: "var(--color-accent)",
+          swatch: Category(0),
         ),
       ),
       #("state", draft_state_cell(row.status)),
@@ -359,7 +359,7 @@ fn row_to_table_row(row: ListRow) -> Row {
         EntityCell(
           label: row.title,
           sub: Some(row.client),
-          color: swatch_color(row.project_id),
+          swatch: Category(row.project_id),
         ),
       ),
       #("state", state_cell(row.state)),
@@ -378,11 +378,6 @@ fn state_cell(state: String) -> Cell {
     "active" -> EnumCell(label: "Active", tone: Positive)
     _ -> EnumCell(label: "Ended", tone: Neutral)
   }
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }
 
 fn parse_money(text: String) -> Money {

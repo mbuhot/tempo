@@ -21,8 +21,8 @@ import pog
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
-  type Chip, Chip, ChipsCell, DateCell, EntityCell, EnumCell, MoneyCell,
-  TextCell,
+  type Chip, Category, Chip, ChipsCell, DateCell, EntityCell, EnumCell,
+  MoneyCell, TextCell,
 }
 import shared/table/column.{
   type Schema, type Tone, ChipsType, Column, DateType, EntityType, EnumType,
@@ -419,7 +419,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("id", TextCell("#" <> int.to_string(row.id))),
       #(
         "project",
-        EntityCell(label: row.project, sub: None, color: swatch_color(row.id)),
+        EntityCell(label: row.project, sub: None, swatch: Category(row.id)),
       ),
       #("client", TextCell(row.client)),
       #("engineers", ChipsCell(list.map(row.engineers, to_chip))),
@@ -436,7 +436,7 @@ fn row_to_table_row(row: ListRow) -> Row {
 }
 
 fn to_chip(name: String) -> Chip {
-  Chip(label: name, initials: Some(initials(name)), color: None)
+  Chip(label: name, initials: Some(initials(name)))
 }
 
 fn initials(name: String) -> String {
@@ -445,11 +445,6 @@ fn initials(name: String) -> String {
   |> list.take(2)
   |> string.concat
   |> string.uppercase
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }
 
 fn status_tone(status: String) -> Tone {

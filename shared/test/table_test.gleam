@@ -9,10 +9,13 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
 import shared/money
-import shared/table/cell.{Chip, ChipsCell, EnumCell, MoneyCell, TextCell}
+import shared/table/cell.{
+  Category, Chip, ChipsCell, EntityCell, EnumCell, Level, MoneyCell, Placeholder,
+  TextCell,
+}
 import shared/table/column.{
-  ChipsType, Column, EnumType, MoneyType, NumericEnd, Positive, Schema,
-  StandaloneFilter, Start, TextType,
+  ChipsType, Column, EntityType, EnumType, MoneyType, NumericEnd, Positive,
+  Schema, StandaloneFilter, Start, TextType,
 }
 import shared/table/filter.{
   DateRangeFilter, FilterOption, NumberRangeFilter, SelectFilter,
@@ -154,14 +157,29 @@ pub fn enum_cell_carries_tone_test() {
 }
 
 pub fn chips_cell_round_trips_test() {
-  let value =
-    ChipsCell([Chip(label: "Ana Ortiz", initials: Some("AO"), color: None)])
+  let value = ChipsCell([Chip(label: "Ana Ortiz", initials: Some("AO"))])
   let assert Ok(decoded) =
     parse_with(
       render(cell.encode_cell(value)),
       cell.cell_decoder(of: ChipsType),
     )
   assert decoded == value
+}
+
+pub fn entity_cell_swatch_round_trips_test() {
+  let cases = [
+    EntityCell(label: "Atlas", sub: Some("Northwind"), swatch: Category(3)),
+    EntityCell(label: "L5 · Principal", sub: None, swatch: Level(5)),
+    EntityCell(label: "—", sub: None, swatch: Placeholder),
+  ]
+  list.each(cases, fn(value) {
+    let assert Ok(decoded) =
+      parse_with(
+        render(cell.encode_cell(value)),
+        cell.cell_decoder(of: EntityType),
+      )
+    assert decoded == value
+  })
 }
 
 pub fn response_round_trips_via_schema_test() {

@@ -334,7 +334,7 @@ fn engineer_cell(line: PayrollLine) -> Cell {
     name: line.engineer,
     sub: None,
     initials: initials(line.engineer),
-    color: swatch_color(line.engineer_id),
+    category: line.engineer_id,
   )
 }
 
@@ -533,9 +533,4 @@ fn initials(name: String) -> String {
   |> list.take(2)
   |> string.concat
   |> string.uppercase
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }

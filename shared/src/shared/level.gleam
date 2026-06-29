@@ -1,6 +1,6 @@
 import gleam/int
 import gleam/option.{None}
-import shared/table/cell.{type Cell, EntityCell}
+import shared/table/cell.{type Cell, EntityCell, Level}
 
 /// The level's band label, e.g. "L5 · Principal". The one definition of the band names.
 pub fn band(level: Int) -> String {
@@ -17,13 +17,8 @@ pub fn band(level: Int) -> String {
   "L" <> int.to_string(level) <> " · " <> name
 }
 
-/// The level's swatch colour token (the sequential ramp lives in theme.css).
-pub fn color(level: Int) -> String {
-  "var(--lvl-" <> int.to_string(level) <> ")"
-}
-
 /// The level rendered as a data-table cell: a gradient swatch + the band label.
 /// THE single definition of a level pill in the generic table.
 pub fn cell(level: Int) -> Cell {
-  EntityCell(label: band(level), sub: None, color: color(level))
+  EntityCell(label: band(level), sub: None, swatch: Level(level))
 }

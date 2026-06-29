@@ -394,7 +394,7 @@ fn row_to_table_row(row: ListRow) -> Row {
           name: row.engineer,
           sub: None,
           initials: initials(row.engineer),
-          color: swatch_color(row.engineer_id),
+          category: row.engineer_id,
         ),
       ),
       #("revenue", MoneyCell(parse_money(row.revenue))),
@@ -447,9 +447,4 @@ fn first_of_next_month(date: Date) -> Date {
 fn parse_money(text: String) -> Money {
   let assert Ok(amount) = money.from_string(text)
   amount
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }

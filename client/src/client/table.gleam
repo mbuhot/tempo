@@ -28,9 +28,9 @@ import lustre/element/svg
 import lustre/event
 import shared/money
 import shared/table/cell.{
-  type Action, type Cell, type Chip, ActionsCell, BoolCell, ChipsCell, DateCell,
-  EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell, PersonCell,
-  SignedMoneyCell, TextCell,
+  type Action, type Cell, type Chip, type Swatch, ActionsCell, BoolCell,
+  Category, ChipsCell, DateCell, EntityCell, EnumCell, Level, MoneyCell,
+  NumberCell, PercentCell, PersonCell, Placeholder, SignedMoneyCell, TextCell,
 }
 import shared/table/column.{
   type Column, type Schema, type Tone, Accent, Critical, Neutral, NumericEnd,
@@ -432,13 +432,6 @@ fn month_start(month: String) -> String {
   case string.length(month) {
     7 -> month <> "-01"
     _ -> month
-  }
-}
-
-fn result_or(result: Result(a, b), fallback: a) -> a {
-  case result {
-    Ok(value) -> value
-    Error(_) -> fallback
   }
 }
 
@@ -1153,12 +1146,12 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
       html.span([attribute.class("pill pill--" <> tone_class(tone))], [
         html.text(label),
       ])
-    EntityCell(label:, sub:, color:) ->
+    EntityCell(label:, sub:, swatch:) ->
       html.span([attribute.class("cell-name")], [
         html.span(
           [
             attribute.class("swatch swatch--inline"),
-            attribute.style("background", color),
+            attribute.style("background", swatch_color(swatch)),
           ],
           [],
         ),
@@ -1167,10 +1160,13 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
           person_sub(sub),
         ]),
       ])
-    PersonCell(name:, sub:, initials:, color:) ->
+    PersonCell(name:, sub:, initials:, category:) ->
       html.span([attribute.class("cell-name")], [
         html.span(
-          [attribute.class("avatar"), attribute.style("background", color)],
+          [
+            attribute.class("avatar"),
+            attribute.style("background", ui.cat_color(category)),
+          ],
           [html.text(initials)],
         ),
         html.span([attribute.class("cell-name__text")], [
@@ -1224,22 +1220,28 @@ fn person_sub(sub: Option(String)) -> Element(msg) {
 }
 
 fn render_chip(chip: Chip, index: Int) -> Element(msg) {
-  let bucket = result_or(int.modulo(index, 7), 0) + 1
-  let color = case chip.color {
-    Some(value) -> value
-    None -> "var(--cat-" <> int.to_string(bucket) <> ")"
-  }
   case chip.initials {
     Some(initials) ->
       html.span(
         [
           attribute.class("avatar avatar--chip"),
-          attribute.style("background", color),
+          attribute.style("background", ui.cat_color(index)),
         ],
         [html.text(initials)],
       )
     None ->
       html.span([attribute.class("chip chip--neutral")], [html.text(chip.label)])
+  }
+}
+
+/// The CSS token a swatch resolves to: a categorical id buckets to the `--cat-N`
+/// ramp, a level indexes the `--lvl-N` seniority ramp, a placeholder takes the
+/// neutral border token. Exhaustive on `Swatch`.
+fn swatch_color(swatch: Swatch) -> String {
+  case swatch {
+    Category(id) -> ui.cat_color(id)
+    Level(level) -> ui.lvl_color(level)
+    Placeholder -> "var(--color-border)"
   }
 }
 

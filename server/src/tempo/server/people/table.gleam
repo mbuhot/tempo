@@ -29,7 +29,7 @@ import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
   type Cell, EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell,
-  PersonCell,
+  PersonCell, Placeholder,
 }
 import shared/table/column.{
   type Schema, Accent, Column, EntityType, EnumType, MoneyType, Neutral,
@@ -132,13 +132,10 @@ fn draft_row_to_table_row(row: DraftRow) -> Row {
           name: display_name,
           sub: Some("Onboarding"),
           initials: initials(display_name),
-          color: "var(--color-accent)",
+          category: 0,
         ),
       ),
-      #(
-        "level",
-        EntityCell(label: "—", sub: None, color: "var(--color-border)"),
-      ),
+      #("level", EntityCell(label: "—", sub: None, swatch: Placeholder)),
       #("status", draft_status_cell(row.status)),
       #("allocated", PercentCell(0.0)),
       #("annual_leave", NumberCell(0.0)),
@@ -453,7 +450,7 @@ fn row_to_table_row(row: ListRow) -> Row {
           name: row.name,
           sub: sub_email(row.email),
           initials: initials(row.name),
-          color: swatch_color(row.engineer_id),
+          category: row.engineer_id,
         ),
       ),
       #("level", level.cell(row.level)),
@@ -489,11 +486,6 @@ fn initials(name: String) -> String {
   |> list.take(2)
   |> string.concat
   |> string.uppercase
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }
 
 fn parse_money(text: String) -> Money {

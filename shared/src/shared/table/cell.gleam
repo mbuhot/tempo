@@ -24,15 +24,25 @@ pub type Cell {
   SignedMoneyCell(amount: Money, tone: Tone)
   DateCell(Date)
   EnumCell(label: String, tone: Tone)
-  EntityCell(label: String, sub: Option(String), color: String)
-  PersonCell(name: String, sub: Option(String), initials: String, color: String)
+  EntityCell(label: String, sub: Option(String), swatch: Swatch)
+  PersonCell(name: String, sub: Option(String), initials: String, category: Int)
   ChipsCell(List(Chip))
   BoolCell(Bool)
   ActionsCell(List(Action))
 }
 
+/// The value a swatch's colour is derived from. The server sends this source; the
+/// client owns the mapping to a CSS token — `Category` bucketing to the `--cat-N`
+/// ramp, `Level` indexing the `--lvl-N` seniority ramp, and `Placeholder` the
+/// no-value-yet marker the client renders in its neutral border token.
+pub type Swatch {
+  Category(Int)
+  Level(Int)
+  Placeholder
+}
+
 pub type Chip {
-  Chip(label: String, initials: Option(String), color: Option(String))
+  Chip(label: String, initials: Option(String))
 }
 
 /// A server-advertised per-row action: its `id` is the op the host page maps it
@@ -59,18 +69,18 @@ pub fn encode_cell(cell: Cell) -> Json {
         #("label", json.string(label)),
         #("tone", json.string(column.tone_to_string(tone))),
       ])
-    EntityCell(label:, sub:, color:) ->
+    EntityCell(label:, sub:, swatch:) ->
       json.object([
         #("label", json.string(label)),
         #("sub", json.nullable(sub, json.string)),
-        #("color", json.string(color)),
+        #("swatch", encode_swatch(swatch)),
       ])
-    PersonCell(name:, sub:, initials:, color:) ->
+    PersonCell(name:, sub:, initials:, category:) ->
       json.object([
         #("name", json.string(name)),
         #("sub", json.nullable(sub, json.string)),
         #("initials", json.string(initials)),
-        #("color", json.string(color)),
+        #("category", json.int(category)),
       ])
     ChipsCell(chips) -> json.array(chips, encode_chip)
     BoolCell(value) -> json.bool(value)
@@ -89,8 +99,17 @@ fn encode_chip(chip: Chip) -> Json {
   json.object([
     #("label", json.string(chip.label)),
     #("initials", json.nullable(chip.initials, json.string)),
-    #("color", json.nullable(chip.color, json.string)),
   ])
+}
+
+fn encode_swatch(swatch: Swatch) -> Json {
+  case swatch {
+    Category(id) ->
+      json.object([#("kind", json.string("category")), #("value", json.int(id))])
+    Level(level) ->
+      json.object([#("kind", json.string("level")), #("value", json.int(level))])
+    Placeholder -> json.object([#("kind", json.string("placeholder"))])
+  }
 }
 
 pub fn cell_decoder(of column_type: ColumnType) -> Decoder(Cell) {
@@ -139,21 +158,35 @@ fn signed_money_decoder() -> Decoder(Cell) {
 fn entity_decoder() -> Decoder(Cell) {
   use label <- decode.field("label", decode.string)
   use sub <- decode.field("sub", decode.optional(decode.string))
-  use color <- decode.field("color", decode.string)
-  decode.success(EntityCell(label:, sub:, color:))
+  use swatch <- decode.field("swatch", swatch_decoder())
+  decode.success(EntityCell(label:, sub:, swatch:))
 }
 
 fn person_decoder() -> Decoder(Cell) {
   use name <- decode.field("name", decode.string)
   use sub <- decode.field("sub", decode.optional(decode.string))
   use initials <- decode.field("initials", decode.string)
-  use color <- decode.field("color", decode.string)
-  decode.success(PersonCell(name:, sub:, initials:, color:))
+  use category <- decode.field("category", decode.int)
+  decode.success(PersonCell(name:, sub:, initials:, category:))
 }
 
 fn chip_decoder() -> Decoder(Chip) {
   use label <- decode.field("label", decode.string)
   use initials <- decode.field("initials", decode.optional(decode.string))
-  use color <- decode.field("color", decode.optional(decode.string))
-  decode.success(Chip(label:, initials:, color:))
+  decode.success(Chip(label:, initials:))
+}
+
+fn swatch_decoder() -> Decoder(Swatch) {
+  use kind <- decode.field("kind", decode.string)
+  case kind {
+    "placeholder" -> decode.success(Placeholder)
+    "level" -> {
+      use value <- decode.field("value", decode.int)
+      decode.success(Level(value))
+    }
+    _ -> {
+      use value <- decode.field("value", decode.int)
+      decode.success(Category(value))
+    }
+  }
 }

@@ -23,7 +23,9 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/pagination
-import shared/table/cell.{type Cell, DateCell, EntityCell, EnumCell, NumberCell}
+import shared/table/cell.{
+  type Cell, Category, DateCell, EntityCell, EnumCell, NumberCell,
+}
 import shared/table/column.{
   type Schema, Column, DateType, EntityType, EnumType, Neutral, NumberType,
   NumericEnd, Positive, Schema, Start,
@@ -255,11 +257,7 @@ fn row_to_table_row(row: ListRow) -> Row {
     cells: dict.from_list([
       #(
         "name",
-        EntityCell(
-          label: row.name,
-          sub: None,
-          color: swatch_color(row.client_id),
-        ),
+        EntityCell(label: row.name, sub: None, swatch: Category(row.client_id)),
       ),
       #("since", since_cell(row.since)),
       #("projects", NumberCell(int.to_float(row.projects))),
@@ -283,9 +281,4 @@ fn since_cell(since: Option(Date)) -> Cell {
     Some(date) -> DateCell(date)
     None -> EnumCell(label: "—", tone: Neutral)
   }
-}
-
-fn swatch_color(id: Int) -> String {
-  let bucket = result.unwrap(int.modulo(id, 7), 0) + 1
-  "var(--cat-" <> int.to_string(bucket) <> ")"
 }
