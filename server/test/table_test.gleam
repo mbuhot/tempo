@@ -265,7 +265,7 @@ pub fn default_sort_is_billing_month_descending_test() {
       invoice_table.invoice_table(ctx(conn), as_of(), scoped([], None))
     let months =
       list.map(response.rows, fn(row) {
-        let assert cell.DateCell(date) = cell_of(row, "billing_month")
+        let assert cell.DateCell(Some(date)) = cell_of(row, "billing_month")
         date
       })
     assert months == [Date(2026, June, 1), Date(2026, May, 1)]
@@ -322,7 +322,8 @@ pub fn date_range_filter_keeps_only_that_month_test() {
       )
     assert list.length(response.rows) == 1
     let assert [row] = response.rows
-    assert cell_of(row, "billing_month") == cell.DateCell(Date(2026, June, 1))
+    assert cell_of(row, "billing_month")
+      == cell.DateCell(Some(Date(2026, June, 1)))
   })
 }
 

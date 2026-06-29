@@ -22,6 +22,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
+import shared/access
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
@@ -37,6 +38,7 @@ import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
 }
 import shared/table/sort.{Asc, Sort}
+import tempo/server/auth
 import tempo/server/context.{type Context}
 import tempo/server/table/builder
 
@@ -153,6 +155,7 @@ type DraftRow {
 fn project_draft_rows(
   context: Context,
 ) -> Result(List(DraftRow), pog.QueryError) {
+  let #(account_id, can_commit) = draft_scope(context)
   let row_decoder = {
     use instance_id <- decode.field(0, decode.string)
     use title <- decode.field(1, decode.string)
@@ -161,10 +164,26 @@ fn project_draft_rows(
   }
   use returned <- result.map(
     pog.query(project_drafts_sql)
+    |> pog.parameter(pog.int(account_id))
+    |> pog.parameter(pog.bool(can_commit))
     |> pog.returning(row_decoder)
     |> pog.execute(on: context.db),
   )
   returned.rows
+}
+
+/// The draft-prepend scope for the viewer: their account id, and whether they hold the
+/// create-project commit permission (so they may also see the shared awaiting-Finance
+/// queue). Mirrors `workflow/instance.list_for`. No principal (the route guard makes
+/// this unreachable in production) sees no drafts.
+fn draft_scope(context: Context) -> #(Int, Bool) {
+  case context.principal {
+    Some(principal) -> #(
+      principal.account_id,
+      auth.can(principal, access.project_create_confirm),
+    )
+    None -> #(-1, False)
+  }
 }
 
 const project_drafts_sql = "
@@ -175,7 +194,9 @@ SELECT i.id,
   LEFT JOIN workflow_step_value v
     ON v.instance_id = i.id AND v.step_id = 'description'
        AND upper_inf(v.recorded_during)
- WHERE i.kind = 'create_project' AND i.status IN ('draft', 'awaiting_finance')
+ WHERE i.kind = 'create_project'
+   AND i.status IN ('draft', 'awaiting_finance')
+   AND (i.owner_id = $1 OR ($2 AND i.status = 'awaiting_finance'))
  ORDER BY i.created_at
 "
 
@@ -198,7 +219,7 @@ fn draft_row_to_table_row(row: DraftRow) -> Row {
       #("state", draft_state_cell(row.status)),
       #("team_size", NumberCell(0.0)),
       #("budget", MoneyCell(money.zero())),
-      #("target_completion", DateCell(calendar.Date(2000, calendar.January, 1))),
+      #("target_completion", DateCell(None)),
     ]),
     children: [],
     detail: None,
@@ -365,7 +386,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("state", state_cell(row.state)),
       #("team_size", NumberCell(int.to_float(row.team_size))),
       #("budget", MoneyCell(parse_money(row.budget))),
-      #("target_completion", DateCell(row.target_completion)),
+      #("target_completion", DateCell(Some(row.target_completion))),
     ]),
     children: [],
     detail: None,

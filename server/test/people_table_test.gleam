@@ -10,8 +10,10 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/set
 import gleam/time/calendar.{type Date, Date, June}
 import pog
+import shared/access
 import shared/table/cell.{
   EntityCell, EnumCell, MoneyCell, PercentCell, PersonCell,
 }
@@ -21,8 +23,11 @@ import shared/table/query.{
 }
 import shared/table/response.{type Row}
 import shared/table/sort.{type Sort, Asc, Desc, Sort}
+import tempo/server/auth.{Principal}
 import tempo/server/context.{type Context, Context}
 import tempo/server/people/table as people_table
+import tempo/server/workflow/instance
+import tempo/server/workflow/schema as flow
 import test_pool
 
 // --- harness ----------------------------------------------------------------
@@ -42,6 +47,42 @@ fn exec(conn: pog.Connection, sql: String) -> Nil {
 
 fn ctx(conn: pog.Connection) -> Context {
   Context(db: conn, principal: None)
+}
+
+/// A context whose viewer is `account_id`, holding `permissions` — for the draft-
+/// prepend scoping tests, which read `context.principal` to scope visible drafts.
+fn viewer_ctx(
+  conn: pog.Connection,
+  account_id: Int,
+  permissions: List(String),
+) -> Context {
+  Context(
+    db: conn,
+    principal: Some(Principal(
+      account_id:,
+      actor: "Tester",
+      engineer_id: None,
+      permissions: set.from_list(permissions),
+    )),
+  )
+}
+
+/// Two distinct existing account ids, for a draft owner and another viewer.
+fn two_account_ids(conn: pog.Connection) -> #(Int, Int) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(id)
+  }
+  let assert Ok(returned) =
+    pog.query("SELECT id FROM account ORDER BY id LIMIT 2")
+    |> pog.returning(decoder)
+    |> pog.execute(conn)
+  let assert [owner, other] = returned.rows
+  #(owner, other)
+}
+
+fn row_ids(rows: List(Row)) -> List(String) {
+  list.map(rows, fn(row) { row.id })
 }
 
 fn applied(
@@ -282,5 +323,56 @@ pub fn allocated_range_filter_keeps_only_in_band_test() {
     let assert [row] = response.rows
     let assert PersonCell(name:, ..) = cell_of(row, "name")
     assert name == "Ada Lovelace"
+  })
+}
+
+/// Security (issue #32): a draft prepended into the roster is scoped to its owner —
+/// the owner sees their in-progress onboarding draft, another viewer does not.
+pub fn own_onboarding_draft_is_hidden_from_other_viewers_test() {
+  rolling_back(fn(conn) {
+    let #(owner, other) = two_account_ids(conn)
+    let assert Ok(draft_id) =
+      instance.start(conn, flow.kind, owner, flow.first_step)
+
+    let assert Ok(for_owner) =
+      people_table.people_table(
+        viewer_ctx(conn, owner, []),
+        as_of(),
+        applied([], None),
+      )
+    assert list.contains(row_ids(for_owner.rows), draft_id) == True
+
+    let assert Ok(for_other) =
+      people_table.people_table(
+        viewer_ctx(conn, other, []),
+        as_of(),
+        applied([], None),
+      )
+    assert list.contains(row_ids(for_other.rows), draft_id) == False
+  })
+}
+
+/// Security (issue #32): once a draft is awaiting Finance it joins the shared queue —
+/// visible to a viewer holding the onboarding commit permission, hidden from one who
+/// neither owns it nor can commit.
+pub fn awaiting_finance_draft_is_visible_only_to_committers_test() {
+  rolling_back(fn(conn) {
+    let #(owner, other) = two_account_ids(conn)
+    let assert Ok(draft_id) =
+      instance.start(conn, flow.kind, owner, flow.first_step)
+    let assert Ok(_) = instance.hand_off(conn, draft_id, "payroll")
+
+    let committer = viewer_ctx(conn, other, [access.engineer_onboard_commit])
+    let assert Ok(for_committer) =
+      people_table.people_table(committer, as_of(), applied([], None))
+    assert list.contains(row_ids(for_committer.rows), draft_id) == True
+
+    let assert Ok(for_other) =
+      people_table.people_table(
+        viewer_ctx(conn, other, []),
+        as_of(),
+        applied([], None),
+      )
+    assert list.contains(row_ids(for_other.rows), draft_id) == False
   })
 }

@@ -58,7 +58,7 @@ fn cell_of(row: Row, key: String) -> cell.Cell {
 
 fn months_in_order(rows: List(Row)) -> List(Date) {
   list.map(rows, fn(row) {
-    let assert DateCell(month) = cell_of(row, "month")
+    let assert DateCell(Some(month)) = cell_of(row, "month")
     month
   })
 }
@@ -106,7 +106,7 @@ pub fn june_row_has_rich_cells_with_positive_profit_test() {
         month.month == Date(2026, June, 1)
       })
     let assert [first, ..] = response.rows
-    assert cell_of(first, "month") == DateCell(Date(2026, June, 1))
+    assert cell_of(first, "month") == DateCell(Some(Date(2026, June, 1)))
     assert cell_of(first, "revenue") == MoneyCell(june.revenue)
     assert cell_of(first, "cost") == MoneyCell(june.cost)
     assert cell_of(first, "profit")
@@ -142,8 +142,8 @@ pub fn default_sort_is_month_ascending_test() {
       forecast_table.forecast_table(ctx(conn), as_of(), applied([], None))
     let assert [first, ..] = response.rows
     let assert Ok(last) = list.last(response.rows)
-    assert cell_of(first, "month") == DateCell(Date(2026, June, 1))
-    assert cell_of(last, "month") == DateCell(Date(2026, December, 1))
+    assert cell_of(first, "month") == DateCell(Some(Date(2026, June, 1)))
+    assert cell_of(last, "month") == DateCell(Some(Date(2026, December, 1)))
   })
 }
 
@@ -156,7 +156,7 @@ pub fn month_sort_descending_puts_december_first_test() {
         applied([], Some(Sort(key: "month", dir: Desc))),
       )
     let assert [first, ..] = response.rows
-    assert cell_of(first, "month") == DateCell(Date(2026, December, 1))
+    assert cell_of(first, "month") == DateCell(Some(Date(2026, December, 1)))
   })
 }
 

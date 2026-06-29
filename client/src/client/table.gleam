@@ -1136,7 +1136,12 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
         ],
       )
     DateCell(value) ->
-      html.span([attribute.class("mono")], [html.text(time.format_month(value))])
+      html.span([attribute.class("mono")], [
+        html.text(case value {
+          Some(date) -> time.format_month(date)
+          None -> "—"
+        }),
+      ])
     BoolCell(value) ->
       html.text(case value {
         True -> "Yes"

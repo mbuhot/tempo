@@ -379,7 +379,7 @@ fn row_to_table_row(row: ListRow) -> Row {
   Row(
     id: iso_date(row.month),
     cells: dict.from_list([
-      #("month", DateCell(row.month)),
+      #("month", DateCell(Some(row.month))),
       #("revenue", MoneyCell(parse_money(row.revenue))),
       #("cost", MoneyCell(parse_money(row.cost))),
       #("profit", SignedMoneyCell(amount: profit, tone: profit_tone(profit))),

@@ -210,7 +210,7 @@ pub fn unfiltered_returns_both_projects_with_rich_cells_test() {
       == EnumCell(label: "Active", tone: column.Positive)
     assert cell_of(first, "team_size") == NumberCell(0.0)
     assert cell_of(first, "target_completion")
-      == DateCell(Date(2026, January, 1))
+      == DateCell(Some(Date(2026, January, 1)))
     let assert MoneyCell(_) = cell_of(first, "budget")
   })
 }

@@ -277,8 +277,5 @@ fn status_cell(status: String) -> Cell {
 }
 
 fn since_cell(since: Option(Date)) -> Cell {
-  case since {
-    Some(date) -> DateCell(date)
-    None -> EnumCell(label: "—", tone: Neutral)
-  }
+  DateCell(since)
 }

@@ -423,7 +423,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       ),
       #("client", TextCell(row.client)),
       #("engineers", ChipsCell(list.map(row.engineers, to_chip))),
-      #("billing_month", DateCell(row.billing_from)),
+      #("billing_month", DateCell(Some(row.billing_from))),
       #("total", MoneyCell(parse_money(row.total))),
       #(
         "status",

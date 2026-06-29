@@ -22,7 +22,7 @@ pub type Cell {
   PercentCell(Float)
   MoneyCell(Money)
   SignedMoneyCell(amount: Money, tone: Tone)
-  DateCell(Date)
+  DateCell(Option(Date))
   EnumCell(label: String, tone: Tone)
   EntityCell(label: String, sub: Option(String), swatch: Swatch)
   PersonCell(name: String, sub: Option(String), initials: String, category: Int)
@@ -63,7 +63,7 @@ pub fn encode_cell(cell: Cell) -> Json {
         #("amount", money.encode(amount)),
         #("tone", json.string(column.tone_to_string(tone))),
       ])
-    DateCell(value) -> wire.encode_date(value)
+    DateCell(value) -> wire.encode_option_date(value)
     EnumCell(label:, tone:) ->
       json.object([
         #("label", json.string(label)),
@@ -119,7 +119,7 @@ pub fn cell_decoder(of column_type: ColumnType) -> Decoder(Cell) {
     PercentType -> decode.map(decode.float, PercentCell)
     MoneyType -> decode.map(money.decoder(), MoneyCell)
     SignedMoneyType -> signed_money_decoder()
-    DateType -> decode.map(wire.date_decoder(), DateCell)
+    DateType -> decode.map(wire.option_date_decoder(), DateCell)
     BoolType -> decode.map(decode.bool, BoolCell)
     EnumType -> enum_decoder()
     EntityType -> entity_decoder()

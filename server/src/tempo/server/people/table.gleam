@@ -24,6 +24,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/access
 import shared/level
 import shared/money.{type Money}
 import shared/pagination
@@ -42,6 +43,7 @@ import shared/table/response.{
   type Row, type TableResponse, Page, Row, TableResponse,
 }
 import shared/table/sort.{Asc, Sort}
+import tempo/server/auth
 import tempo/server/context.{type Context}
 import tempo/server/table/builder
 
@@ -92,6 +94,7 @@ type DraftRow {
 fn onboarding_draft_rows(
   context: Context,
 ) -> Result(List(DraftRow), pog.QueryError) {
+  let #(account_id, can_commit) = draft_scope(context)
   let row_decoder = {
     use instance_id <- decode.field(0, decode.string)
     use name <- decode.field(1, decode.string)
@@ -100,10 +103,26 @@ fn onboarding_draft_rows(
   }
   use returned <- result.map(
     pog.query(onboarding_drafts_sql)
+    |> pog.parameter(pog.int(account_id))
+    |> pog.parameter(pog.bool(can_commit))
     |> pog.returning(row_decoder)
     |> pog.execute(on: context.db),
   )
   returned.rows
+}
+
+/// The draft-prepend scope for the viewer: their account id, and whether they hold the
+/// onboarding commit permission (so they may also see the shared awaiting-Finance
+/// queue). Mirrors `workflow/instance.list_for`. No principal (the route guard makes
+/// this unreachable in production) sees no drafts.
+fn draft_scope(context: Context) -> #(Int, Bool) {
+  case context.principal {
+    Some(principal) -> #(
+      principal.account_id,
+      auth.can(principal, access.engineer_onboard_commit),
+    )
+    None -> #(-1, False)
+  }
 }
 
 const onboarding_drafts_sql = "
@@ -114,7 +133,9 @@ SELECT i.id,
   LEFT JOIN workflow_step_value v
     ON v.instance_id = i.id AND v.step_id = 'identity'
        AND upper_inf(v.recorded_during)
- WHERE i.kind = 'onboard_engineer' AND i.status IN ('draft', 'awaiting_finance')
+ WHERE i.kind = 'onboard_engineer'
+   AND i.status IN ('draft', 'awaiting_finance')
+   AND (i.owner_id = $1 OR ($2 AND i.status = 'awaiting_finance'))
  ORDER BY i.created_at
 "
 

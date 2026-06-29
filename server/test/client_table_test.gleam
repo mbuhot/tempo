@@ -163,7 +163,7 @@ pub fn unfiltered_returns_both_clients_with_rich_cells_test() {
     let assert [first, ..] = response.rows
     let assert EntityCell(label:, ..) = cell_of(first, "name")
     assert label == "Apex Holdings"
-    assert cell_of(first, "since") == DateCell(Date(2026, January, 1))
+    assert cell_of(first, "since") == DateCell(Some(Date(2026, January, 1)))
     assert cell_of(first, "projects") == NumberCell(0.0)
     assert cell_of(first, "status")
       == EnumCell(label: "Active", tone: column.Positive)
