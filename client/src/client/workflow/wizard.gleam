@@ -46,8 +46,8 @@ pub type Model {
     // clickable even after stepping Back.
     furthest: String,
     edits: Dict(String, edit.EditValue),
-    undo: List(#(String, String)),
-    redo: List(#(String, String)),
+    undo: List(Dict(String, value.FieldValue)),
+    redo: List(Dict(String, value.FieldValue)),
     error: String,
   )
 }
@@ -227,24 +227,18 @@ fn commit_field(
       case value.parse(kind, raw), saved_field_value(model, step, field) {
         Ok(field_value), saved if Some(field_value) == saved -> working(model)
         Ok(field_value), _ -> {
-          let prev = saved_value(model, step, field)
-          let new_step_values =
-            step_values_for(model, step)
-            |> dict.insert(field, field_value)
+          let prev_doc = step_values_for(model, step)
+          let new_doc = dict.insert(prev_doc, field, field_value)
           let model =
             Model(
               ..model,
-              draft: set_value(model.draft, step, new_step_values),
+              draft: set_value(model.draft, step, new_doc),
               edits: edit.set_scalar(model.edits, field, raw),
-              undo: [#(field, prev), ..model.undo],
+              undo: [prev_doc, ..model.undo],
               redo: [],
               error: "",
             )
-          #(
-            model,
-            wapi.save_step(model.instance_id, step, new_step_values, Saved),
-            Working,
-          )
+          #(model, wapi.save_step(model.instance_id, step, new_doc, Saved), Working)
         }
         Error(_), _ ->
           working(
@@ -261,56 +255,40 @@ fn commit_field(
 
 fn step_undo(model: Model) -> #(Model, Effect(Msg), Outcome) {
   case model.undo {
-    [#(field, prev), ..rest] ->
-      apply_restore(model, field, prev, fn(current) {
-        Model(..model, undo: rest, redo: [#(field, current), ..model.redo])
-      })
+    [prev_doc, ..rest] -> {
+      let current_doc = step_values_for(model, model.step)
+      restore_doc(model, prev_doc, undo: rest, redo: [current_doc, ..model.redo])
+    }
     [] -> working(model)
   }
 }
 
 fn step_redo(model: Model) -> #(Model, Effect(Msg), Outcome) {
   case model.redo {
-    [#(field, next), ..rest] ->
-      apply_restore(model, field, next, fn(current) {
-        Model(..model, redo: rest, undo: [#(field, current), ..model.undo])
-      })
+    [next_doc, ..rest] -> {
+      let current_doc = step_values_for(model, model.step)
+      restore_doc(model, next_doc, undo: [current_doc, ..model.undo], redo: rest)
+    }
     [] -> working(model)
   }
 }
 
-fn apply_restore(
+fn restore_doc(
   model: Model,
-  field: String,
-  raw: String,
-  bookkeep: fn(String) -> Model,
+  doc: Dict(String, value.FieldValue),
+  undo undo: List(Dict(String, value.FieldValue)),
+  redo redo: List(Dict(String, value.FieldValue)),
 ) -> #(Model, Effect(Msg), Outcome) {
-  let step = model.step
-  case field_type(model, step, field) {
-    Some(kind) ->
-      case value.parse(kind, raw) {
-        Ok(field_value) -> {
-          let current = saved_value(model, step, field)
-          let model = bookkeep(current)
-          let new_step_values =
-            step_values_for(model, step)
-            |> dict.insert(field, field_value)
-          let model =
-            Model(
-              ..model,
-              draft: set_value(model.draft, step, new_step_values),
-              edits: edit.set_scalar(model.edits, field, raw),
-            )
-          #(
-            model,
-            wapi.save_step(model.instance_id, step, new_step_values, Saved),
-            Working,
-          )
-        }
-        Error(_) -> working(model)
-      }
-    None -> working(model)
-  }
+  let model =
+    Model(
+      ..model,
+      draft: set_value(model.draft, model.step, doc),
+      edits: edit.seed(doc),
+      undo:,
+      redo:,
+      error: "",
+    )
+  #(model, wapi.save_step(model.instance_id, model.step, doc, Saved), Working)
 }
 
 /// The current step id.
@@ -624,13 +602,6 @@ fn saved_field_value(
   option.from_result(dict.get(step_values_for(model, step_id), field_key))
 }
 
-fn saved_value(model: Model, step_id: String, field_key: String) -> String {
-  case dict.get(step_values_for(model, step_id), field_key) {
-    Ok(field_value) -> value.to_input(field_value)
-    Error(_) -> ""
-  }
-}
-
 fn display_map(model: Model, step: Step) -> Dict(String, String) {
   let fields = list.flat_map(step.sections, fn(section) { section.fields })
   list.fold(fields, dict.new(), fn(acc, field) {
@@ -670,17 +641,19 @@ fn save_group(
   step_id: String,
   field_key: String,
   new_rows: List(Dict(String, value.FieldValue)),
+  edits: Dict(String, edit.EditValue),
 ) -> #(Model, Effect(Msg), Outcome) {
-  let new_step_values =
-    step_values_for(model, step_id)
-    |> dict.insert(field_key, value.RowsValue(new_rows))
-  let updated_model =
-    Model(..model, draft: set_value(model.draft, step_id, new_step_values))
-  #(
-    updated_model,
-    wapi.save_step(updated_model.instance_id, step_id, new_step_values, Saved),
-    Working,
-  )
+  let prev_doc = step_values_for(model, step_id)
+  let new_doc = dict.insert(prev_doc, field_key, value.RowsValue(new_rows))
+  let model =
+    Model(
+      ..model,
+      draft: set_value(model.draft, step_id, new_doc),
+      edits:,
+      undo: [prev_doc, ..model.undo],
+      redo: [],
+    )
+  #(model, wapi.save_step(model.instance_id, step_id, new_doc, Saved), Working)
 }
 
 fn add_group_row(
@@ -689,7 +662,13 @@ fn add_group_row(
   field_key: String,
 ) -> #(Model, Effect(Msg), Outcome) {
   let rows = current_rows(model, step_id, field_key)
-  save_group(model, step_id, field_key, list.append(rows, [dict.new()]))
+  save_group(
+    model,
+    step_id,
+    field_key,
+    list.append(rows, [dict.new()]),
+    edit.add_row(model.edits, field_key),
+  )
 }
 
 fn remove_group_row(
@@ -703,7 +682,13 @@ fn remove_group_row(
     list.index_map(rows, fn(row, i) { #(i, row) })
     |> list.filter(fn(pair) { pair.0 != index })
     |> list.map(fn(pair) { pair.1 })
-  save_group(model, step_id, field_key, new_rows)
+  save_group(
+    model,
+    step_id,
+    field_key,
+    new_rows,
+    edit.remove_row(model.edits, field_key, index),
+  )
 }
 
 fn edit_group_row(
@@ -726,7 +711,13 @@ fn edit_group_row(
                 False -> row
               }
             })
-          save_group(model, step_id, field_key, new_rows)
+          save_group(
+            model,
+            step_id,
+            field_key,
+            new_rows,
+            edit.set_cell(model.edits, field_key, index, item_key, raw),
+          )
         }
         Error(_) -> working(model)
       }
