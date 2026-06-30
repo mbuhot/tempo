@@ -11,9 +11,10 @@ import client/api
 import client/focus
 import client/icons
 import client/workflow/api as wapi
+import client/workflow/edit
 import client/workflow/render.{
-  type FieldEvent, Committed as FieldCommitted, Edited, RowAdded, RowFieldEdited,
-  RowRemoved,
+  type FieldEvent, Committed as FieldCommitted, Edited, RowAdded, RowFieldChanged,
+  RowFieldEdited, RowRemoved,
 }
 import gleam/dict.{type Dict}
 import gleam/int
@@ -44,7 +45,7 @@ pub type Model {
     // The furthest step reached, so the rail can mark earlier steps done +
     // clickable even after stepping Back.
     furthest: String,
-    edits: Dict(String, String),
+    edits: Dict(String, edit.EditValue),
     undo: List(#(String, String)),
     redo: List(#(String, String)),
     error: String,
@@ -125,7 +126,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       working(Model(..model, error: api.describe_error(error)))
 
     FieldChanged(Edited(field:, raw:, ..)) ->
-      working(Model(..model, edits: dict.insert(model.edits, field, raw)))
+      working(Model(..model, edits: edit.set_scalar(model.edits, field, raw)))
     FieldChanged(FieldCommitted(step:, field:, raw:)) ->
       commit_field(model, step, field, raw)
     FieldChanged(RowAdded(step:, field:)) -> add_group_row(model, step, field)
@@ -133,6 +134,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       remove_group_row(model, step, field, index)
     FieldChanged(RowFieldEdited(step:, field:, index:, item_key:, raw:)) ->
       edit_group_row(model, step, field, index, item_key, raw)
+    FieldChanged(RowFieldChanged(field:, index:, item_key:, raw:, ..)) ->
+      working(Model(
+        ..model,
+        edits: edit.set_cell(model.edits, field, index, item_key, raw),
+      ))
 
     Saved(Ok(_)) -> working(model)
     Saved(Error(error)) ->
@@ -199,9 +205,15 @@ fn entered(model: Model) -> #(Model, Effect(Msg), Outcome) {
   #(model, focus.first_field(".wizard__content"), Working)
 }
 
-/// Move to `step`, clearing the per-step edit buffer and undo/redo stacks.
+/// Move to `step`, seeding the edit buffer from saved values and clearing undo/redo.
 fn enter_step(model: Model, step: String) -> Model {
-  Model(..model, step:, edits: dict.new(), undo: [], redo: [])
+  Model(
+    ..model,
+    step:,
+    edits: edit.seed(step_values_for(model, step)),
+    undo: [],
+    redo: [],
+  )
 }
 
 fn commit_field(
@@ -223,7 +235,7 @@ fn commit_field(
             Model(
               ..model,
               draft: set_value(model.draft, step, new_step_values),
-              edits: dict.insert(model.edits, field, raw),
+              edits: edit.set_scalar(model.edits, field, raw),
               undo: [#(field, prev), ..model.undo],
               redo: [],
               error: "",
@@ -238,7 +250,7 @@ fn commit_field(
           working(
             Model(
               ..model,
-              edits: dict.insert(model.edits, field, raw),
+              edits: edit.set_scalar(model.edits, field, raw),
               error: "That value isn't valid for this field.",
             ),
           )
@@ -287,7 +299,7 @@ fn apply_restore(
             Model(
               ..model,
               draft: set_value(model.draft, step, new_step_values),
-              edits: dict.insert(model.edits, field, raw),
+              edits: edit.set_scalar(model.edits, field, raw),
             )
           #(
             model,
@@ -306,13 +318,9 @@ pub fn current_step(model: Model) -> String {
   model.step
 }
 
-/// The displayed value for `step.key` — the edit buffer when the field has been
-/// touched, otherwise the persisted saved value.
-pub fn field_value(model: Model, step: String, key: String) -> String {
-  case dict.get(model.edits, key) {
-    Ok(value) -> value
-    Error(_) -> saved_value(model, step, key)
-  }
+/// The displayed value for a scalar field — the raw working text.
+pub fn field_value(model: Model, _step: String, key: String) -> String {
+  edit.scalar(model.edits, key)
 }
 
 // --- view -------------------------------------------------------------------
@@ -628,13 +636,7 @@ fn display_map(model: Model, step: Step) -> Dict(String, String) {
   list.fold(fields, dict.new(), fn(acc, field) {
     case field.kind {
       GroupField(..) -> acc
-      _ -> {
-        let shown = case dict.get(model.edits, field.key) {
-          Ok(v) -> v
-          Error(_) -> saved_value(model, step.id, field.key)
-        }
-        dict.insert(acc, field.key, shown)
-      }
+      _ -> dict.insert(acc, field.key, edit.scalar(model.edits, field.key))
     }
   })
 }
@@ -646,16 +648,7 @@ fn groups_map(
   let fields = list.flat_map(step.sections, fn(section) { section.fields })
   list.fold(fields, dict.new(), fn(acc, field) {
     case field.kind {
-      GroupField(..) -> {
-        let rows = current_rows(model, step.id, field.key)
-        let display_rows =
-          list.map(rows, fn(row) {
-            dict.map_values(row, fn(_key, field_value) {
-              value.to_input(field_value)
-            })
-          })
-        dict.insert(acc, field.key, display_rows)
-      }
+      GroupField(..) -> dict.insert(acc, field.key, edit.rows(model.edits, field.key))
       _ -> acc
     }
   })

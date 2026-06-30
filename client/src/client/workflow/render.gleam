@@ -34,6 +34,13 @@ pub type FieldEvent {
     item_key: String,
     raw: String,
   )
+  RowFieldChanged(
+    step: String,
+    field: String,
+    index: Int,
+    item_key: String,
+    raw: String,
+  )
 }
 
 /// Render one step: its sections as cards. `display` maps each field key to the string
@@ -387,6 +394,9 @@ fn group_text_input(
     attribute.type_(input_type),
     attribute.attribute("aria-label", item_field.label),
     attribute.value(current),
+    event.on_input(fn(raw) {
+      on_event(RowFieldChanged(step_id, field_key, index, item_field.key, raw))
+    }),
     event.on(
       "blur",
       decode.at(["target", "value"], decode.string)
