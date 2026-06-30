@@ -72,12 +72,22 @@ composite key and no index re-keying.
 Model(
   draft: Option(DraftView),                       // saved parsed values, all steps (unchanged)
   step: String,
-  working: Dict(String, EditValue),               // current step's raw working document (replaces `edits`)
+  edits: Dict(String, EditValue),                 // current step's raw working document
   undo: List(Dict(String, value.FieldValue)),     // whole-step parsed-document snapshots
   redo: List(Dict(String, value.FieldValue)),
   ...
 )
 ```
+
+> Implementation note: the working-document field keeps its existing name `edits`
+> (retyped from `Dict(String, String)`). A helper function named `working` already
+> exists in `wizard.gleam`, so naming the field `working` would collide. The pure
+> module lives at `client/src/client/workflow/edit.gleam` with its tests in
+> `client/test/edit_test.gleam` (the first client unit tests; gleeunit was added to
+> `client/` and wired into `bin/test`). One follow-up the final review noted: the
+> "a keystroke survives a re-render" check lives only in the e2e suite
+> (`project-creation.spec.js`) — a `wizard.update`-level test would lock the fix in
+> at the unit level.
 
 `working` is seeded on `enter_step` from `draft.values[step]` via `to_input`, so
 every input — scalar or group cell — binds to one slot in `working`, and the view
