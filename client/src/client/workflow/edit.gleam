@@ -6,7 +6,16 @@
 
 import gleam/dict.{type Dict}
 import gleam/list
-import shared/workflow/value.{type FieldValue, RowsValue}
+import shared/workflow/value.{
+  type FieldValue,
+  BoolValue,
+  DateValue,
+  IntValue,
+  MoneyValue,
+  PersonValue,
+  RowsValue,
+  TextValue,
+}
 
 /// A field's raw working state: a scalar's text, or a group's per-row raw cells
 /// (positionally aligned with the saved `RowsValue`).
@@ -25,7 +34,12 @@ pub fn seed(step_values: Dict(String, FieldValue)) -> Dict(String, EditValue) {
             dict.map_values(row, fn(_key, cell) { value.to_input(cell) })
           }),
         )
-      scalar_value -> Scalar(value.to_input(scalar_value))
+      TextValue(_)
+      | IntValue(_)
+      | MoneyValue(_)
+      | DateValue(_)
+      | BoolValue(_)
+      | PersonValue(_) -> Scalar(value.to_input(field_value))
     }
   })
 }
