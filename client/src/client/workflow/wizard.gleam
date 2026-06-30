@@ -119,8 +119,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         "" -> draft.current_step
         furthest -> furthest
       }
-      // The fields render now — focus the first one.
-      entered(Model(..model, draft: Some(draft), step:, furthest:))
+      let loaded = Model(..model, draft: Some(draft), step:, furthest:)
+      entered(enter_step(loaded, step))
     }
     DraftFetched(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -623,7 +623,9 @@ fn display_map(model: Model, step: Step) -> Dict(String, String) {
   })
 }
 
-fn groups_map(
+/// Each group field's list of row display maps for a step — the raw working rows
+/// the renderer draws.
+pub fn groups_map(
   model: Model,
   step: Step,
 ) -> Dict(String, List(Dict(String, String))) {
