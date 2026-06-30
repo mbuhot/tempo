@@ -3,7 +3,8 @@ import gleam/dict
 import shared/workflow/value.{IntValue, RowsValue, TextValue}
 
 pub fn seed_renders_scalars_as_input_strings_test() {
-  let saved = dict.from_list([#("full_name", TextValue("Ada")), #("level", IntValue(5))])
+  let saved =
+    dict.from_list([#("full_name", TextValue("Ada")), #("level", IntValue(5))])
   let edits = edit.seed(saved)
   assert edit.scalar(edits, "full_name") == "Ada"
   assert edit.scalar(edits, "level") == "5"
@@ -26,11 +27,14 @@ pub fn set_scalar_buffers_raw_text_test() {
 
 pub fn set_cell_updates_one_row_cell_test() {
   let edits =
-    edit.seed(dict.from_list([
-      #("team", RowsValue([dict.from_list([#("role", TextValue("Eng"))])])),
-    ]))
+    edit.seed(
+      dict.from_list([
+        #("team", RowsValue([dict.from_list([#("role", TextValue("Eng"))])])),
+      ]),
+    )
   let edits = edit.set_cell(edits, "team", 0, "role", "Engineering")
-  assert edit.rows(edits, "team") == [dict.from_list([#("role", "Engineering")])]
+  assert edit.rows(edits, "team")
+    == [dict.from_list([#("role", "Engineering")])]
 }
 
 pub fn add_row_appends_an_empty_row_test() {

@@ -13,8 +13,8 @@ import client/icons
 import client/workflow/api as wapi
 import client/workflow/edit
 import client/workflow/render.{
-  type FieldEvent, Committed as FieldCommitted, Edited, RowAdded, RowFieldChanged,
-  RowFieldEdited, RowRemoved,
+  type FieldEvent, Committed as FieldCommitted, Edited, RowAdded,
+  RowFieldChanged, RowFieldEdited, RowRemoved,
 }
 import gleam/dict.{type Dict}
 import gleam/int
@@ -135,10 +135,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
     FieldChanged(RowFieldEdited(step:, field:, index:, item_key:, raw:)) ->
       edit_group_row(model, step, field, index, item_key, raw)
     FieldChanged(RowFieldChanged(field:, index:, item_key:, raw:, ..)) ->
-      working(Model(
-        ..model,
-        edits: edit.set_cell(model.edits, field, index, item_key, raw),
-      ))
+      working(
+        Model(
+          ..model,
+          edits: edit.set_cell(model.edits, field, index, item_key, raw),
+        ),
+      )
 
     Saved(Ok(_)) -> working(model)
     Saved(Error(error)) ->
@@ -238,7 +240,11 @@ fn commit_field(
               redo: [],
               error: "",
             )
-          #(model, wapi.save_step(model.instance_id, step, new_doc, Saved), Working)
+          #(
+            model,
+            wapi.save_step(model.instance_id, step, new_doc, Saved),
+            Working,
+          )
         }
         Error(_), _ ->
           working(
@@ -267,7 +273,12 @@ fn step_redo(model: Model) -> #(Model, Effect(Msg), Outcome) {
   case model.redo {
     [next_doc, ..rest] -> {
       let current_doc = step_values_for(model, model.step)
-      restore_doc(model, next_doc, undo: [current_doc, ..model.undo], redo: rest)
+      restore_doc(
+        model,
+        next_doc,
+        undo: [current_doc, ..model.undo],
+        redo: rest,
+      )
     }
     [] -> working(model)
   }
@@ -619,7 +630,8 @@ fn groups_map(
   let fields = list.flat_map(step.sections, fn(section) { section.fields })
   list.fold(fields, dict.new(), fn(acc, field) {
     case field.kind {
-      GroupField(..) -> dict.insert(acc, field.key, edit.rows(model.edits, field.key))
+      GroupField(..) ->
+        dict.insert(acc, field.key, edit.rows(model.edits, field.key))
       _ -> acc
     }
   })

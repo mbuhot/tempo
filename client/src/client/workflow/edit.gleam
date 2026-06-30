@@ -7,14 +7,8 @@
 import gleam/dict.{type Dict}
 import gleam/list
 import shared/workflow/value.{
-  type FieldValue,
-  BoolValue,
-  DateValue,
-  IntValue,
-  MoneyValue,
-  PersonValue,
-  RowsValue,
-  TextValue,
+  type FieldValue, BoolValue, DateValue, IntValue, MoneyValue, PersonValue,
+  RowsValue, TextValue,
 }
 
 /// A field's raw working state: a scalar's text, or a group's per-row raw cells
