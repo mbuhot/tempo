@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tempo · Capability &amp; Skills — design prototype (#24)</title>
+<style>
+/* ===========================================================================
+   Tempo design tokens — copied VERBATIM from client/styles/theme.scss (ADR-038).
+   Token-only: no rule below carries a literal colour/size/weight/radius. New
+   capability/skill rules at the bottom are written so they lift straight into a
+   client/styles/capabilities.scss partial (ADR-040 prototype-first).
+   =========================================================================== */
+:root {
+  --space-2xs: 0.125rem; --space-xs: 0.25rem; --space-sm: 0.5rem;
+  --space-md: 0.75rem; --space-lg: 1.25rem; --space-xl: 2rem;
+
+  --text-xs: 0.75rem; --text-sm: 0.8125rem; --text-base: 0.875rem;
+  --text-lg: 1rem; --text-xl: 1.3125rem; --text-2xl: 1.5625rem;
+
+  --weight-normal: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 650;
+
+  --leading: 1.5; --leading-tight: 1;
+  --tracking-tight: -0.02em; --tracking-normal: 0; --tracking-wide: 0.1em;
+
+  --color-bg: #f7f7fb; --color-surface: #ffffff; --color-surface-sunken: #f2f2f7;
+  --color-border: #e6e6ee; --color-text: #1a1b2a; --color-muted: #5a5b72; --color-faint: #8a8ba0;
+  --color-accent: #5b5bd6; --color-accent-hover: #4a4ac4; --color-accent-soft: #ececfb;
+  --color-on-accent: #ffffff;
+  --gradient-brand: linear-gradient(to right, #5b5bd6, #8b7ff0);
+
+  --cat-1: #5b5bd6; --cat-2: #2e9e6b; --cat-3: #c7841c; --cat-4: #c2566f;
+  --cat-5: #3e8fd0; --cat-6: #7a5bd6; --cat-7: #1aa0a0;
+
+  --lvl-1: #c7d2fe; --lvl-2: #a5b4fc; --lvl-3: #818cf8; --lvl-4: #6366f1;
+  --lvl-5: #4f46e5; --lvl-6: #4338ca; --lvl-7: #3730a3;
+
+  --color-ok: #2e9e6b; --color-ok-soft: #e4f4ec;
+  --color-warn: #c7841c; --color-warn-soft: #fbf0dc;
+  --color-danger: #d23b3b; --color-danger-soft: #fbe4e4; --color-danger-border: #f1c4c4;
+
+  --color-leave: #c2566f; --color-leave-soft: #fbe7ec; --color-leave-border: #f3d2da;
+  --color-payload-bg: #14152099; --color-payload-text: #c9c9e6;
+
+  --radius-sm: 0.4375rem; --radius: 0.625rem; --radius-lg: 1rem; --radius-pill: 1.25rem; --radius-circle: 50%;
+  --border-thin: 1px; --border: 2px; --border-thick: 2.5px;
+
+  --size-sidebar: clamp(12rem, 18vw, 14.5rem); --size-aside: clamp(16rem, 26vw, 20rem);
+  --size-content-max: 73.75rem; --size-login-max: 26.25rem;
+
+  --size-icon: 1rem; --size-control: 1.875rem; --size-mark: 1.75rem; --size-avatar: 1.875rem;
+  --size-dot: 0.4375rem; --size-swatch: 0.5625rem; --size-thumb: 1.125rem; --size-track: 0.375rem;
+  --size-spark: 0.1875rem; --size-spark-lg: 0.4375rem; --size-ts-input: 2.875rem; --size-field: 12rem;
+  --size-modal: 30rem; --size-control-h: 2.25rem; --size-card-min: 22rem; --size-table-scroll: 34rem;
+  --measure: 60ch;
+
+  --color-scrim: rgba(26, 27, 42, 0.45);
+  --shadow: 0 1px 2px rgba(26, 27, 42, 0.04), 0 4px 16px rgba(26, 27, 42, 0.05);
+  --shadow-accent: 0 2px 8px rgba(91, 91, 214, 0.4);
+  --shadow-lg: 0 12px 40px rgba(26, 27, 42, 0.16);
+  --z-popover: 40; --z-modal: 100;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --ease: 0.12s ease; --ease-slow: 0.2s ease;
+}
+
+/* ---------- base.scss ---------- */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; font-family: var(--sans); background: var(--color-bg); color: var(--color-text);
+  font-size: var(--text-base); line-height: var(--leading); -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+::selection { background: var(--color-accent-soft); }
+:focus-visible { outline: var(--border) solid var(--color-accent); outline-offset: var(--border); }
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+.muted { color: var(--color-faint); }
+.eyebrow {
+  font-family: var(--mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+  text-transform: uppercase; color: var(--color-faint); font-weight: var(--weight-semibold);
+}
+
+/* ---------- app-shell.scss ---------- */
+.app { display: grid; grid-template-columns: var(--size-sidebar) 1fr; height: 100vh; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+
+/* ---------- sidebar.scss ---------- */
+.sidebar { background: var(--color-surface); border-right: var(--border-thin) solid var(--color-border); display: flex; flex-direction: column; padding: var(--space-lg) var(--space-md); }
+.brand { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-sm) var(--space-md); }
+.brand__mark { width: var(--size-mark); height: var(--size-mark); border-radius: var(--radius-sm); background: var(--gradient-brand); color: var(--color-on-accent); flex: none; display: grid; place-items: center; box-shadow: var(--shadow-accent); font-weight: var(--weight-bold); }
+.brand__name { font-weight: var(--weight-bold); font-size: var(--text-lg); letter-spacing: var(--tracking-tight); }
+.brand__name span { color: var(--color-faint); font-weight: var(--weight-medium); }
+.sidebar__nav { display: flex; flex-direction: column; gap: var(--space-xs); }
+.sidebar__nav-group { padding: var(--space-md) var(--space-sm) var(--space-xs); }
+.sidebar__nav-link { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm); border-radius: var(--radius-sm); color: var(--color-muted); font-weight: var(--weight-medium); transition: background var(--ease), color var(--ease); cursor: pointer; }
+.sidebar__nav-link:hover { background: var(--color-surface-sunken); color: var(--color-text); }
+.sidebar__nav-link--active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
+.sidebar__nav-icon { display: inline-flex; align-items: center; justify-content: center; width: var(--size-icon); height: var(--size-icon); flex: none; opacity: 0.9; }
+.sidebar__nav-badge { margin-left: auto; font-family: var(--mono); font-size: var(--text-xs); background: var(--color-surface-sunken); color: var(--color-faint); padding: 0 var(--space-xs); border-radius: var(--radius-pill); }
+.sidebar__nav-link--active .sidebar__nav-badge { background: var(--color-surface); color: var(--color-accent); }
+.sidebar__user { margin-top: auto; border-top: var(--border-thin) solid var(--color-border); padding-top: var(--space-md); display: flex; align-items: center; gap: var(--space-sm); }
+.sidebar__user-avatar { width: var(--size-control); height: var(--size-control); border-radius: var(--radius-circle); flex: none; display: grid; place-items: center; color: var(--color-on-accent); font-weight: var(--weight-bold); font-size: var(--text-xs); }
+.sidebar__user-name { font-weight: var(--weight-semibold); font-size: var(--text-sm); }
+.sidebar__user-role { color: var(--color-faint); font-size: var(--text-xs); }
+
+/* ---------- time-rail.scss (trimmed to what the prototype shows) ---------- */
+.time-rail { background: var(--color-surface); border-bottom: var(--border-thin) solid var(--color-border); padding: var(--space-md) var(--space-xl); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-xl); }
+.time-rail__asof { display: flex; flex-direction: column; gap: var(--space-xs); }
+.time-rail__asof-label { display: flex; align-items: center; gap: var(--space-xs); }
+.time-rail__dot { width: var(--size-dot); height: var(--size-dot); border-radius: var(--radius-circle); background: var(--color-accent); box-shadow: 0 0 0 var(--space-xs) var(--color-accent-soft); }
+.time-rail__date { font-family: var(--mono); font-size: var(--text-2xl); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); line-height: var(--leading-tight); margin-top: var(--space-xs); }
+.time-rail__rel { font-size: var(--text-xs); color: var(--color-faint); }
+.time-rail__track { position: relative; height: var(--space-lg); display: flex; align-items: center; }
+.time-rail__rail-bg { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: var(--size-track); border-radius: var(--radius); background: var(--color-surface-sunken); border: var(--border-thin) solid var(--color-border); }
+.time-rail__rail-fill { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: var(--size-track); border-radius: var(--radius); background: var(--gradient-brand); width: 62%; }
+.time-rail__thumb { position: absolute; left: 62%; top: 50%; transform: translate(-50%, -50%); width: var(--size-thumb); height: var(--size-thumb); border-radius: var(--radius-circle); background: var(--color-surface); border: var(--border-thick) solid var(--color-accent); box-shadow: var(--shadow-accent); }
+.time-rail__controls { display: flex; align-items: center; gap: var(--space-sm); }
+.time-rail__step { width: var(--size-control); height: var(--size-control); border-radius: var(--radius-sm); border: var(--border-thin) solid var(--color-border); background: var(--color-surface); color: var(--color-muted); display: grid; place-items: center; font-size: var(--text-base); }
+.time-rail__today { border: var(--border-thin) solid var(--color-border); background: var(--color-surface); color: var(--color-muted); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-md); font-weight: var(--weight-semibold); font-size: var(--text-xs); }
+
+/* ---------- components.scss ---------- */
+.content { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-lg) var(--space-xl) var(--space-xl); }
+.page { display: none; max-width: var(--size-content-max); }
+.page--active { display: block; animation: fade 0.22s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(var(--space-xs)); } to { opacity: 1; transform: none; } }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: var(--space-lg); gap: var(--space-md); }
+.page-head h1 { margin: var(--space-xs) 0 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); }
+.page-head p { margin: var(--space-xs) 0 0; color: var(--color-muted); max-width: var(--measure); }
+.action-row { display: flex; gap: var(--space-sm); }
+
+.btn { border: var(--border-thin) solid var(--color-accent); background: var(--color-accent); color: var(--color-on-accent); border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md); font-weight: var(--weight-semibold); font-size: var(--text-sm); box-shadow: var(--shadow-accent); white-space: nowrap; flex: none; }
+.btn:hover { background: var(--color-accent-hover); }
+.btn--ghost { background: var(--color-surface); color: var(--color-muted); border-color: var(--color-border); box-shadow: none; }
+.btn--ghost:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); color: var(--color-on-accent); }
+.btn--sm { padding: var(--space-xs) var(--space-sm); font-size: var(--text-xs); }
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-md); margin-bottom: var(--space-lg); }
+.stats--cols-3 { grid-template-columns: repeat(3, 1fr); }
+.stat { background: var(--color-surface); border: var(--border-thin) solid var(--color-border); border-radius: var(--radius); padding: var(--space-md) var(--space-lg); box-shadow: var(--shadow); position: relative; overflow: hidden; }
+.stat__head { display: flex; align-items: baseline; gap: var(--space-sm); }
+.stat__value { font-family: var(--mono); font-size: var(--text-2xl); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); }
+.stat__unit { font-family: var(--mono); font-size: var(--text-sm); color: var(--color-faint); }
+.stat__label { margin-top: var(--space-xs); }
+.spark { height: var(--size-spark); border-radius: var(--radius); background: var(--color-surface-sunken); overflow: hidden; }
+.spark i { display: block; height: 100%; background: var(--gradient-brand); }
+.stat .spark { margin-top: var(--space-sm); }
+.spark--lg { height: var(--size-spark-lg); }
+
+.panel { background: var(--color-surface); border: var(--border-thin) solid var(--color-border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: var(--space-lg); overflow: hidden; }
+.panel__head { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); }
+.panel__head h2 { margin: 0; font-size: var(--text-base); font-weight: var(--weight-bold); }
+.panel__count { font-family: var(--mono); font-size: var(--text-xs); color: var(--color-faint); background: var(--color-surface-sunken); padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-pill); }
+.panel__actions { margin-left: auto; display: flex; gap: var(--space-sm); align-items: center; }
+.panel__body { padding: var(--space-sm); }
+
+table { width: 100%; border-collapse: collapse; }
+thead th { text-align: left; font-family: var(--mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--color-faint); font-weight: var(--weight-semibold); padding: var(--space-sm) var(--space-md); border-bottom: var(--border-thin) solid var(--color-border); white-space: nowrap; }
+tbody td { padding: var(--space-md); border-bottom: var(--border-thin) solid var(--color-border); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.clickable:hover { background: var(--color-surface-sunken); cursor: pointer; }
+td.num, th.num { text-align: right; font-family: var(--mono); font-feature-settings: "tnum" 1; }
+.cell-name { display: flex; align-items: center; gap: var(--space-sm); }
+.cell-name__text { display: flex; flex-direction: column; line-height: 1.25; }
+.cell-name__name { font-weight: var(--weight-semibold); }
+.cell-sub { color: var(--color-faint); font-size: var(--text-xs); }
+
+.pill { display: inline-flex; align-items: center; gap: var(--space-xs); font-size: var(--text-xs); font-weight: var(--weight-semibold); padding: var(--space-xs) var(--space-md); border-radius: var(--radius-pill); font-family: var(--mono); white-space: nowrap; }
+.pill::before { content: ""; width: var(--space-sm); height: var(--space-sm); border-radius: var(--radius-circle); }
+.pill--active { background: var(--color-accent-soft); color: var(--color-accent); }
+.pill--active::before { background: var(--color-accent); }
+.pill--paid { background: var(--color-ok-soft); color: var(--color-ok); }
+.pill--paid::before { background: var(--color-ok); }
+.pill--issued { background: var(--color-warn-soft); color: var(--color-warn); }
+.pill--issued::before { background: var(--color-warn); }
+.pill--ended { background: var(--color-surface-sunken); color: var(--color-faint); }
+.pill--ended::before { background: var(--color-faint); }
+
+.chip { display: inline-flex; align-items: center; white-space: nowrap; flex: none; font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-semibold); padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-sm); border: var(--border-thin) solid transparent; }
+.chip--neutral { background: var(--color-surface-sunken); color: var(--color-muted); border-color: var(--color-border); }
+.chip--accent { background: var(--color-accent-soft); color: var(--color-accent); }
+
+.tabs { display: flex; gap: var(--space-xs); border-bottom: var(--border-thin) solid var(--color-border); margin-bottom: var(--space-lg); }
+.tabs__tab { border: none; background: none; padding: var(--space-sm) var(--space-md); font-weight: var(--weight-semibold); font-size: var(--text-sm); color: var(--color-muted); border-bottom: var(--border) solid transparent; margin-bottom: calc(-1 * var(--border-thin)); }
+.tabs__tab:hover { color: var(--color-text); }
+.tabs__tab--active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+.detail-grid { display: grid; grid-template-columns: 1fr var(--size-aside); gap: var(--space-lg); align-items: start; }
+.back-link { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-faint); font-weight: var(--weight-semibold); font-size: var(--text-xs); margin-bottom: var(--space-md); cursor: pointer; }
+.back-link:hover { color: var(--color-accent); }
+.detail__title { display: flex; align-items: center; gap: var(--space-md); }
+.detail__subtitle { display: flex; align-items: center; gap: var(--space-xs); margin-top: var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); }
+.kv { display: grid; grid-template-columns: 1fr; gap: 0; }
+.kv__row { display: flex; justify-content: space-between; gap: var(--space-md); padding: var(--space-sm) 0; border-bottom: var(--border-thin) solid var(--color-border); }
+.kv__row:last-child { border-bottom: none; }
+.kv__key { color: var(--color-faint); font-size: var(--text-xs); }
+.kv__value { font-weight: var(--weight-medium); text-align: right; }
+.pad-detail { padding: var(--space-sm) var(--space-lg) var(--space-md); }
+.pad-block { padding: var(--space-md) var(--space-lg); }
+.note { font-family: var(--mono); font-size: var(--text-xs); color: var(--color-faint); margin-top: var(--space-xs); }
+.empty { padding: var(--space-xl); text-align: center; color: var(--color-faint); }
+
+.avatar { width: var(--size-avatar); height: var(--size-avatar); border-radius: var(--radius-circle); flex: none; display: grid; place-items: center; color: var(--color-on-accent); font-weight: var(--weight-bold); font-size: var(--text-xs); }
+.avatar--lg { width: calc(var(--size-avatar) * 1.6); height: calc(var(--size-avatar) * 1.6); font-size: var(--text-sm); }
+.swatch { width: var(--size-swatch); height: var(--size-swatch); border-radius: var(--radius-sm); flex: none; }
+.swatch--inline { display: inline-block; margin-right: var(--space-xs); }
+.level-pill { font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-semibold); padding: var(--space-xs); border-radius: var(--radius-sm); background: var(--color-surface-sunken); color: var(--color-muted); border: var(--border-thin) solid var(--color-border); white-space: nowrap; flex: none; }
+
+/* ---------- access.scss (taxonomy mapping matrix reuses this) ---------- */
+.access__section { margin-bottom: var(--space-xl); }
+.access__section .eyebrow { margin-bottom: var(--space-sm); }
+.access__matrix-scroll { overflow-x: auto; }
+.access__matrix { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.access__matrix th, .access__matrix td { border: var(--border-thin) solid var(--color-border); padding: var(--space-xs) var(--space-sm); text-align: center; }
+.access__matrix thead th { background: var(--color-surface-sunken); font-weight: var(--weight-semibold); }
+.access__matrix .access__perm { text-align: left; font-family: var(--mono); font-size: var(--text-xs); color: var(--color-muted); white-space: nowrap; }
+.access__cell { color: var(--color-faint); }
+.access__cell--on { color: var(--color-accent); font-weight: var(--weight-bold); background: var(--color-accent-soft); }
+
+/* ---------- Modal ---------- */
+.modal-backdrop { position: fixed; inset: 0; z-index: var(--z-modal); display: none; place-items: center; padding: var(--space-lg); background: var(--color-scrim); }
+.modal-backdrop--open { display: grid; animation: scrim-in var(--ease-slow); }
+.modal { width: min(100%, var(--size-modal)); background: var(--color-surface); border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; animation: modal-in var(--ease-slow); }
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+.modal__header { padding: var(--space-md) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); font-size: var(--text-base); font-weight: var(--weight-bold); }
+.modal__body { padding: var(--space-lg); }
+.modal__footer { display: flex; justify-content: flex-end; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); border-top: var(--border-thin) solid var(--color-border); }
+.op-form { display: flex; flex-direction: column; gap: var(--space-md); }
+.op-form__field { display: flex; flex-direction: column; gap: var(--space-xs); }
+.op-form__field > span { font-family: var(--mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--color-faint); font-weight: var(--weight-semibold); }
+.op-form__field select, .op-form__field input { appearance: none; -webkit-appearance: none; width: 100%; height: var(--size-control-h); padding: 0 var(--space-md); border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.op-form__field select:focus, .op-form__field input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 var(--space-xs) var(--color-accent-soft); }
+
+/* ===========================================================================
+   NEW — capabilities.scss (this prototype's contribution; lifts into a partial)
+   The capability/skill surfaces: the engineer skill matrix, the project
+   capability-coverage bars, the recommender cards, and the level legend.
+   Skill level 0-4 reads off the seniority ramp (--lvl-*) so it shares the app's
+   sequential shading.
+   =========================================================================== */
+
+/* Level dots — the 0-4 experience scale rendered as five filled/empty pips. */
+.lvl-dots { display: inline-flex; gap: var(--space-2xs); align-items: center; }
+.lvl-dots i { width: var(--size-dot); height: var(--size-dot); border-radius: var(--radius-circle); background: var(--color-surface-sunken); border: var(--border-thin) solid var(--color-border); }
+.lvl-dots i.on { border-color: transparent; }
+.lvl-badge { font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-on-accent); border-radius: var(--radius-sm); padding: var(--space-2xs) var(--space-sm); min-width: var(--size-control); text-align: center; }
+.lvl-badge--0 { background: var(--color-surface-sunken); color: var(--color-faint); border: var(--border-thin) solid var(--color-border); }
+
+/* Skill matrix — the engineer's per-skill experience, grouped or flat. */
+.skill-matrix { display: flex; flex-direction: column; }
+.skill-matrix__row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: var(--space-md); padding: var(--space-sm) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); }
+.skill-matrix__row:last-child { border-bottom: none; }
+.skill-matrix__name { font-weight: var(--weight-medium); }
+.skill-matrix__caps { display: flex; gap: var(--space-xs); flex-wrap: wrap; margin-top: var(--space-2xs); }
+.skill-matrix__meaning { font-size: var(--text-xs); color: var(--color-faint); text-align: right; min-width: 9rem; }
+
+/* Rollup readout — an engineer's weighted capability proficiency. */
+.rollup { display: grid; grid-template-columns: 1fr auto; gap: var(--space-sm) var(--space-md); align-items: center; padding: var(--space-sm) var(--space-lg); }
+.rollup__name { font-weight: var(--weight-medium); }
+.rollup__track { grid-column: 1 / -1; height: var(--size-spark-lg); border-radius: var(--radius); background: var(--color-surface-sunken); overflow: hidden; margin-bottom: var(--space-sm); }
+.rollup__fill { height: 100%; border-radius: var(--radius); }
+
+/* Coverage bars — required quantity at >= target vs the team's current cover. */
+.coverage { display: flex; flex-direction: column; gap: var(--space-sm); }
+.coverage__row { padding: var(--space-md) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); }
+.coverage__row:last-child { border-bottom: none; }
+.coverage__head { display: flex; align-items: baseline; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.coverage__cap { font-weight: var(--weight-semibold); }
+.coverage__target { font-family: var(--mono); font-size: var(--text-xs); color: var(--color-muted); }
+.coverage__count { margin-left: auto; font-family: var(--mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.coverage__count--gap { color: var(--color-danger); }
+.coverage__count--ok { color: var(--color-ok); }
+/* The bar: a sunken track segmented into `need` slots; `have` slots fill from
+   the left; the slot at the target line carries a marker tick. */
+.coverage__bar { display: flex; gap: var(--space-2xs); height: var(--size-spark-lg); }
+.coverage__slot { flex: 1; border-radius: var(--radius-sm); background: var(--color-surface-sunken); border: var(--border-thin) solid var(--color-border); }
+.coverage__slot--have { background: var(--color-ok); border-color: transparent; }
+.coverage__slot--gap { background: var(--color-danger-soft); border-color: var(--color-danger-border); }
+.coverage__who { display: flex; gap: var(--space-xs); flex-wrap: wrap; margin-top: var(--space-sm); align-items: center; }
+
+/* Recommender — ranked fit cards with a human-readable rationale. */
+.rec { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); }
+.rec:last-child { border-bottom: none; }
+.rec__rank { font-family: var(--mono); font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--color-faint); width: var(--size-control); text-align: center; flex: none; }
+.rec__info { min-width: 0; flex: 1; }
+.rec__name { font-weight: var(--weight-semibold); }
+.rec__rationale { font-size: var(--text-sm); color: var(--color-muted); margin-top: var(--space-2xs); }
+.rec__pair { display: inline-flex; align-items: center; gap: var(--space-xs); }
+.rec__fit { font-family: var(--mono); font-weight: var(--weight-semibold); flex: none; text-align: right; }
+.rec__fit small { display: block; font-size: var(--text-xs); color: var(--color-faint); font-weight: var(--weight-normal); }
+.rec--mentor { background: var(--color-accent-soft); }
+.tag-mentor { font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-accent); background: var(--color-surface); border: var(--border-thin) solid var(--color-accent); border-radius: var(--radius-pill); padding: var(--space-2xs) var(--space-sm); }
+
+/* Legend — the experience rubric, shown beside the matrix. */
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-lg); padding: var(--space-md) var(--space-lg); }
+.legend__item { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-xs); color: var(--color-muted); }
+
+/* Two-column taxonomy admin layout. */
+.tax-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); align-items: start; }
+.list-row { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-lg); border-bottom: var(--border-thin) solid var(--color-border); }
+.list-row:last-child { border-bottom: none; }
+.list-row__name { font-weight: var(--weight-medium); }
+.list-row__sub { font-size: var(--text-xs); color: var(--color-faint); }
+.list-row__meta { margin-left: auto; font-family: var(--mono); font-size: var(--text-xs); color: var(--color-faint); }
+.list-row__edit { border: var(--border-thin) solid var(--color-border); background: var(--color-surface); color: var(--color-muted); border-radius: var(--radius-sm); padding: var(--space-2xs) var(--space-sm); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.list-row__edit:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* Editable composition matrix — a weight input sits in each mapped cell; an
+   empty cell offers a faint add affordance. Mirrors the Access page's inline
+   grant/revoke (writes happen in place, not behind a modal). */
+.weight-input { width: var(--size-control); height: var(--size-control); text-align: center; font-family: var(--mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--color-accent); background: transparent; border: var(--border-thin) solid transparent; border-radius: var(--radius-sm); appearance: textfield; -moz-appearance: textfield; }
+.weight-input:hover { border-color: var(--color-border); }
+.weight-input:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); box-shadow: 0 0 0 var(--space-2xs) var(--color-accent-soft); }
+.cap-add { width: var(--size-control); height: var(--size-control); border-radius: var(--radius-sm); border: var(--border-thin) dashed var(--color-border); background: transparent; color: var(--color-faint); font-size: var(--text-base); line-height: 1; }
+.cap-add:hover { border-color: var(--color-accent); color: var(--color-accent); border-style: solid; }
+
+/* Composition editor (modal body) — the constituent skills of one capability,
+   each with a weight stepper and a remove, plus an add-skill row. */
+.weight-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: var(--space-md); padding: var(--space-sm) 0; border-bottom: var(--border-thin) solid var(--color-border); }
+.weight-row:last-of-type { border-bottom: none; }
+.weight-row__name { font-weight: var(--weight-medium); }
+.stepper { display: inline-flex; align-items: center; border: var(--border-thin) solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
+.stepper button { width: var(--size-control); height: var(--size-control-h); border: none; background: var(--color-surface); color: var(--color-muted); font-size: var(--text-base); }
+.stepper button:hover { background: var(--color-surface-sunken); color: var(--color-accent); }
+.stepper span { width: var(--size-control); text-align: center; font-family: var(--mono); font-weight: var(--weight-semibold); border-left: var(--border-thin) solid var(--color-border); border-right: var(--border-thin) solid var(--color-border); }
+.weight-row__remove { border: none; background: transparent; color: var(--color-faint); font-size: var(--text-base); }
+.weight-row__remove:hover { color: var(--color-danger); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand__mark">T</div>
+      <div class="brand__name">Tempo<span> ·hq</span></div>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__nav-group eyebrow">Plan</div>
+      <a class="sidebar__nav-link" data-nav="board"><span class="sidebar__nav-icon">▦</span> Board</a>
+      <a class="sidebar__nav-link" data-nav="project"><span class="sidebar__nav-icon">◇</span> Projects <span class="sidebar__nav-badge">5</span></a>
+      <a class="sidebar__nav-link" data-nav="people"><span class="sidebar__nav-icon">◉</span> People <span class="sidebar__nav-badge">11</span></a>
+      <div class="sidebar__nav-group eyebrow">Manage</div>
+      <a class="sidebar__nav-link sidebar__nav-link--active" data-nav="taxonomy"><span class="sidebar__nav-icon">✦</span> Skills</a>
+      <a class="sidebar__nav-link" data-nav="settings"><span class="sidebar__nav-icon">⚙</span> Settings</a>
+    </nav>
+    <div class="sidebar__user">
+      <div class="sidebar__user-avatar" style="background: var(--cat-1)">AO</div>
+      <div>
+        <div class="sidebar__user-name">Aisha Okafor</div>
+        <div class="sidebar__user-role">Owner</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <div class="main">
+    <!-- shared as-of rail (shown on the coverage + assessment screens) -->
+    <div class="time-rail">
+      <div class="time-rail__asof">
+        <div class="time-rail__asof-label eyebrow"><span class="time-rail__dot"></span> Viewing as of</div>
+        <div class="time-rail__date">30 Jun 2026</div>
+        <div class="time-rail__rel">today</div>
+      </div>
+      <div class="time-rail__track">
+        <div class="time-rail__rail-bg"></div>
+        <div class="time-rail__rail-fill"></div>
+        <div class="time-rail__thumb"></div>
+      </div>
+      <div class="time-rail__controls">
+        <button class="time-rail__step">‹</button>
+        <button class="time-rail__today">Today</button>
+        <button class="time-rail__step">›</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ============================================================
+           SCREEN 1 — SKILLS TAXONOMY ADMIN  (Phase 1, skills.manage)
+           ============================================================ -->
+      <section class="page page--active" data-page="taxonomy">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Manage · Skills</div>
+            <h1>Capabilities &amp; skills</h1>
+            <p>The service taxonomy: what we deliver (capabilities), what consultants know (skills), and how skills compose into a capability.</p>
+          </div>
+          <div class="action-row">
+            <button class="btn--ghost btn" onclick="openModal('m-skill')">+ Skill</button>
+            <button class="btn" onclick="openModal('m-cap')">+ Capability</button>
+          </div>
+        </div>
+
+        <div class="stats stats--cols-3">
+          <div class="stat"><div class="stat__head"><span class="stat__value">4</span></div><div class="stat__label muted">Capabilities</div></div>
+          <div class="stat"><div class="stat__head"><span class="stat__value">14</span></div><div class="stat__label muted">Skills</div></div>
+          <div class="stat"><div class="stat__head"><span class="stat__value">22</span></div><div class="stat__label muted">Mappings</div></div>
+        </div>
+
+        <div class="tax-grid">
+          <div class="panel">
+            <div class="panel__head"><h2>Capabilities</h2><span class="panel__count">4</span></div>
+            <div>
+              <div class="list-row"><span class="swatch" style="background: var(--cat-1)"></span><div><div class="list-row__name">Cloud Platform Engineering</div><div class="list-row__sub">Provisioning &amp; running customer cloud platforms</div></div><span class="list-row__meta">4 skills</span><button class="list-row__edit" onclick="openModal('m-compose')">Edit</button></div>
+              <div class="list-row"><span class="swatch" style="background: var(--cat-2)"></span><div><div class="list-row__name">Data Pipeline Delivery</div><div class="list-row__sub">Ingest, transform, and serve data at scale</div></div><span class="list-row__meta">5 skills</span><button class="list-row__edit" onclick="openModal('m-compose')">Edit</button></div>
+              <div class="list-row"><span class="swatch" style="background: var(--cat-4)"></span><div><div class="list-row__name">Payments Integration</div><div class="list-row__sub">PCI-aware payment flows &amp; reconciliation</div></div><span class="list-row__meta">4 skills</span><button class="list-row__edit" onclick="openModal('m-compose')">Edit</button></div>
+              <div class="list-row"><span class="swatch" style="background: var(--cat-7)"></span><div><div class="list-row__name">Observability &amp; Telemetry</div><div class="list-row__sub">Metrics, tracing, and SLO tooling</div></div><span class="list-row__meta">4 skills</span><button class="list-row__edit" onclick="openModal('m-compose')">Edit</button></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel__head"><h2>Skills</h2><span class="panel__count">14</span></div>
+            <div>
+              <div class="list-row"><div class="list-row__name">Kubernetes</div><span class="list-row__meta">in 2 caps</span></div>
+              <div class="list-row"><div class="list-row__name">Terraform</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">AWS</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">PostgreSQL</div><span class="list-row__meta">in 2 caps</span></div>
+              <div class="list-row"><div class="list-row__name">Kafka</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">Airflow</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">dbt</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">Python</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">Stripe API</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">PCI-DSS</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">API Design</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">Prometheus</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">Grafana</div><span class="list-row__meta">in 1 cap</span></div>
+              <div class="list-row"><div class="list-row__name">OpenTelemetry</div><span class="list-row__meta">in 1 cap</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h2>Composition</h2><span class="panel__count">capability × skill · weight</span><div class="panel__actions"><span class="note">type a weight (1–3) in a cell, or ＋ to add a skill — feeds the weighted-average rollup</span></div></div>
+          <div class="panel__body access__matrix-scroll">
+            <table class="access__matrix">
+              <thead>
+                <tr>
+                  <th class="access__perm">skill ↓ · capability →</th>
+                  <th>Cloud Platform</th><th>Data Pipeline</th><th>Payments</th><th>Observability</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class="access__perm">Kubernetes</td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td></tr>
+                <tr><td class="access__perm">Terraform</td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">AWS</td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">PostgreSQL</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">Kafka</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">Airflow</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">dbt</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">Python</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">Stripe API</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="3"></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">PCI-DSS</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">API Design</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="1"></td><td class="access__cell"><button class="cap-add">＋</button></td></tr>
+                <tr><td class="access__perm">Prometheus</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td></tr>
+                <tr><td class="access__perm">Grafana</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td></tr>
+                <tr><td class="access__perm">OpenTelemetry</td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell"><button class="cap-add">＋</button></td><td class="access__cell access__cell--on"><input class="weight-input" type="number" min="1" max="3" value="2"></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SCREEN 2 — ENGINEER SKILL PROFILE  (Phase 1, People detail)
+           ============================================================ -->
+      <section class="page" data-page="people">
+        <div class="back-link">‹ People</div>
+        <div class="page-head">
+          <div>
+            <div class="detail__title">
+              <div class="avatar avatar--lg" style="background: var(--cat-1)">PS</div>
+              <div>
+                <h1>Priya Sharma</h1>
+                <div class="detail__subtitle"><span class="level-pill">L5</span> Staff Engineer · Payments</div>
+              </div>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="btn" onclick="openModal('m-assess')">Assess skill</button>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tabs__tab">Overview</button>
+          <button class="tabs__tab">Allocations</button>
+          <button class="tabs__tab tabs__tab--active">Skills</button>
+          <button class="tabs__tab">Timesheet</button>
+        </div>
+
+        <div class="detail-grid">
+          <div>
+            <div class="panel">
+              <div class="panel__head"><h2>Skill matrix</h2><span class="panel__count">14 skills</span><div class="panel__actions"><span class="note">as of 30 Jun 2026</span></div></div>
+              <div class="skill-matrix">
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Stripe API</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Payments</span></div></div><span class="lvl-badge" style="background: var(--lvl-7)">L4</span><div class="skill-matrix__meaning">expert · can teach</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">PCI-DSS</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Payments</span></div></div><span class="lvl-badge" style="background: var(--lvl-7)">L4</span><div class="skill-matrix__meaning">expert · can teach</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">API Design</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Payments</span></div></div><span class="lvl-badge" style="background: var(--lvl-7)">L4</span><div class="skill-matrix__meaning">expert · can teach</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">PostgreSQL</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Data Pipeline</span><span class="chip chip--neutral">Payments</span></div></div><span class="lvl-badge" style="background: var(--lvl-7)">L4</span><div class="skill-matrix__meaning">expert · can teach</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Python</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Data Pipeline</span></div></div><span class="lvl-badge" style="background: var(--lvl-5)">L3</span><div class="skill-matrix__meaning">independently capable</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Kubernetes</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Cloud Platform</span><span class="chip chip--neutral">Observability</span></div></div><span class="lvl-badge" style="background: var(--lvl-3)">L2</span><div class="skill-matrix__meaning">with supervision</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Terraform</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Cloud Platform</span></div></div><span class="lvl-badge" style="background: var(--lvl-3)">L2</span><div class="skill-matrix__meaning">with supervision</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Prometheus</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Observability</span></div></div><span class="lvl-badge" style="background: var(--lvl-2)">L1</span><div class="skill-matrix__meaning">learning</div></div>
+                <div class="skill-matrix__row"><div><div class="skill-matrix__name">Kafka</div><div class="skill-matrix__caps"><span class="chip chip--neutral">Data Pipeline</span></div></div><span class="lvl-badge lvl-badge--0">0</span><div class="skill-matrix__meaning">none</div></div>
+              </div>
+              <div class="legend" style="border-top: var(--border-thin) solid var(--color-border)">
+                <span class="eyebrow">Scale</span>
+                <span class="legend__item"><span class="lvl-badge lvl-badge--0">0</span> none</span>
+                <span class="legend__item"><span class="lvl-badge" style="background: var(--lvl-2)">1</span> learning</span>
+                <span class="legend__item"><span class="lvl-badge" style="background: var(--lvl-3)">2</span> with supervision</span>
+                <span class="legend__item"><span class="lvl-badge" style="background: var(--lvl-5)">3</span> independent</span>
+                <span class="legend__item"><span class="lvl-badge" style="background: var(--lvl-7)">4</span> expert · can teach</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="panel">
+              <div class="panel__head"><h2>Capability rollup</h2></div>
+              <div class="pad-detail note" style="margin:0">weighted average of constituent skills</div>
+              <div class="rollup"><div class="rollup__name">Payments Integration</div><div class="rec__fit">3.8</div><div class="rollup__track"><div class="rollup__fill" style="width: 95%; background: var(--lvl-7)"></div></div></div>
+              <div class="rollup"><div class="rollup__name">Data Pipeline Delivery</div><div class="rec__fit">2.1</div><div class="rollup__track"><div class="rollup__fill" style="width: 53%; background: var(--lvl-4)"></div></div></div>
+              <div class="rollup"><div class="rollup__name">Cloud Platform Eng.</div><div class="rec__fit">1.8</div><div class="rollup__track"><div class="rollup__fill" style="width: 45%; background: var(--lvl-3)"></div></div></div>
+              <div class="rollup"><div class="rollup__name">Observability</div><div class="rec__fit">1.2</div><div class="rollup__track"><div class="rollup__fill" style="width: 30%; background: var(--lvl-2)"></div></div></div>
+            </div>
+            <div class="panel">
+              <div class="panel__head"><h2>Recent assessments</h2></div>
+              <div class="pad-block kv">
+                <div class="kv__row"><span class="kv__key">Stripe API → L4</span><span class="kv__value mono">15 Mar 2026</span></div>
+                <div class="kv__row"><span class="kv__key">PCI-DSS → L4</span><span class="kv__value mono">15 Mar 2026</span></div>
+                <div class="kv__row"><span class="kv__key">Python → L3</span><span class="kv__value mono">02 Jan 2026</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SCREEN 3 — PROJECT CAPABILITY COVERAGE  (Phase 2 + 3)
+           ============================================================ -->
+      <section class="page" data-page="project">
+        <div class="back-link">‹ Projects</div>
+        <div class="page-head">
+          <div>
+            <div class="detail__title">
+              <span class="swatch" style="background: var(--cat-4); width: calc(var(--size-avatar) * 1.6); height: calc(var(--size-avatar) * 1.6); border-radius: var(--radius)"></span>
+              <div>
+                <h1>Ledger Migration</h1>
+                <div class="detail__subtitle">Big Bank · <span class="pill pill--active">active</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tabs__tab">Overview</button>
+          <button class="tabs__tab">Team</button>
+          <button class="tabs__tab tabs__tab--active">Capability coverage</button>
+          <button class="tabs__tab">Plan</button>
+        </div>
+
+        <div class="stats stats--cols-3">
+          <div class="stat"><div class="stat__head"><span class="stat__value">3</span></div><div class="stat__label muted">Required capabilities</div></div>
+          <div class="stat"><div class="stat__head"><span class="stat__value" style="color: var(--color-ok)">2</span><span class="stat__unit">/ 3</span></div><div class="stat__label muted">Covered</div></div>
+          <div class="stat"><div class="stat__head"><span class="stat__value" style="color: var(--color-danger)">1</span></div><div class="stat__label muted">Gap</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h2>Capability coverage</h2><div class="panel__actions"><span class="note">have N at ≥ target · vs need M · across the 11-person bench · as of 30 Jun 2026</span></div></div>
+          <div class="coverage">
+            <div class="coverage__row">
+              <div class="coverage__head"><span class="coverage__cap"><span class="swatch swatch--inline" style="background: var(--cat-4)"></span>Payments Integration</span><span class="coverage__target">target L3 · need 2</span><span class="coverage__count coverage__count--gap">1 / 2 · gap 1</span></div>
+              <div class="coverage__bar"><div class="coverage__slot coverage__slot--have"></div><div class="coverage__slot coverage__slot--gap"></div></div>
+              <div class="coverage__who"><span class="chip chip--accent">Priya Sharma · 3.8</span><span class="note">nearest below target: Marcus Chen 2.8 · Omar Haddad 2.6 — see recommendations</span></div>
+            </div>
+            <div class="coverage__row">
+              <div class="coverage__head"><span class="coverage__cap"><span class="swatch swatch--inline" style="background: var(--cat-2)"></span>Data Pipeline Delivery</span><span class="coverage__target">target L3 · need 1</span><span class="coverage__count coverage__count--ok">3 / 1 · covered</span></div>
+              <div class="coverage__bar"><div class="coverage__slot coverage__slot--have"></div></div>
+              <div class="coverage__who"><span class="chip chip--accent">Marcus Chen · 3.6</span><span class="chip chip--accent">Daniel Kim · 3.2</span><span class="chip chip--accent">Linda Chen · 3.0</span></div>
+            </div>
+            <div class="coverage__row">
+              <div class="coverage__head"><span class="coverage__cap"><span class="swatch swatch--inline" style="background: var(--cat-1)"></span>Cloud Platform Engineering</span><span class="coverage__target">target L3 · need 1</span><span class="coverage__count coverage__count--ok">3 / 1 · covered</span></div>
+              <div class="coverage__bar"><div class="coverage__slot coverage__slot--have"></div></div>
+              <div class="coverage__who"><span class="chip chip--accent">Aisha Okafor · 4.0</span><span class="chip chip--accent">Sofia Almeida · 3.4</span><span class="chip chip--accent">Wei Zhang · 3.0</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h2>Recommended assignments</h2><span class="panel__count">Payments gap</span><div class="panel__actions"><span class="note">ranked across 11 engineers by fit × availability</span><button class="btn--ghost btn btn--sm" onclick="openModal('m-assign')">Assign…</button></div></div>
+          <div>
+            <div class="rec">
+              <div class="rec__rank">1</div>
+              <div class="avatar" style="background: var(--cat-3)">MC</div>
+              <div class="rec__info"><div class="rec__name">Marcus Chen <span class="chip chip--neutral">L4</span></div><div class="rec__rationale">Closest ready-now: Payments rollup 2.8 (API Design L3, PostgreSQL L4); light on Stripe. 60% available from Aug.</div></div>
+              <div class="rec__fit">78%<small>ready-now fit</small></div>
+            </div>
+            <div class="rec">
+              <div class="rec__rank">2</div>
+              <div class="avatar" style="background: var(--cat-2)">OH</div>
+              <div class="rec__info"><div class="rec__name">Omar Haddad <span class="chip chip--neutral">L5</span></div><div class="rec__rationale">Payments rollup 2.6 (PostgreSQL L4, API Design L3); no PCI-DSS yet. 40% available.</div></div>
+              <div class="rec__fit">71%<small>ready-now fit</small></div>
+            </div>
+            <div class="rec rec--mentor">
+              <div class="rec__rank">3</div>
+              <div class="avatar" style="background: var(--cat-6)">RS</div>
+              <div class="rec__info">
+                <div class="rec__name"><span class="rec__pair">Rohan Sharma <span class="chip chip--neutral">L2</span> <span class="tag-mentor">↑ pair with Priya Sharma (L4)</span></span></div>
+                <div class="rec__rationale">Growth assignment: Rohan learns Stripe API / PCI-DSS under Priya, the team's expert, filling the second seat by Q4. 50% available now.</div>
+              </div>
+              <div class="rec__fit">growth<small>mentorship</small></div>
+            </div>
+            <div class="rec">
+              <div class="rec__rank">4</div>
+              <div class="avatar" style="background: var(--cat-5)">TO</div>
+              <div class="rec__info"><div class="rec__name">Tunde Okafor <span class="chip chip--neutral">L3</span></div><div class="rec__rationale">Partial fit (API Design L2); strongest on Observability. 30% available.</div></div>
+              <div class="rec__fit">41%<small>ready-now fit</small></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- placeholder pages so the nav has somewhere to land -->
+      <section class="page" data-page="board"><div class="page-head"><div><h1>Board</h1><p>Existing screen — unchanged by #24.</p></div></div><div class="empty">The allocation board lives here.</div></section>
+      <section class="page" data-page="settings"><div class="page-head"><div><h1>Settings</h1><p>Existing screen.</p></div></div><div class="empty">App settings live here.</div></section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODALS ===================== -->
+<div class="modal-backdrop" id="m-assess" onclick="if(event.target===this)closeModal('m-assess')">
+  <div class="modal">
+    <div class="modal__header">Assess skill — Priya Sharma</div>
+    <div class="modal__body">
+      <div class="op-form">
+        <label class="op-form__field"><span>Skill</span><select><option>Stripe API</option><option>Kubernetes</option><option>Kafka</option></select></label>
+        <label class="op-form__field"><span>Experience level</span><select><option>0 — none</option><option>1 — learning</option><option>2 — with supervision</option><option selected>3 — independently capable</option><option>4 — expert · can teach</option></select></label>
+        <label class="op-form__field"><span>Assessed from</span><input type="date" value="2026-06-30" /></label>
+      </div>
+    </div>
+    <div class="modal__footer"><button class="btn--ghost btn" onclick="closeModal('m-assess')">Cancel</button><button class="btn">Record assessment</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="m-cap" onclick="if(event.target===this)closeModal('m-cap')">
+  <div class="modal">
+    <div class="modal__header">New capability</div>
+    <div class="modal__body"><div class="op-form">
+      <label class="op-form__field"><span>Name</span><input type="text" placeholder="e.g. Cloud Platform Engineering" /></label>
+      <label class="op-form__field"><span>Summary</span><input type="text" placeholder="What we deliver" /></label>
+    </div></div>
+    <div class="modal__footer"><button class="btn--ghost btn" onclick="closeModal('m-cap')">Cancel</button><button class="btn">Create</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="m-skill" onclick="if(event.target===this)closeModal('m-skill')">
+  <div class="modal">
+    <div class="modal__header">New skill</div>
+    <div class="modal__body"><div class="op-form">
+      <label class="op-form__field"><span>Name</span><input type="text" placeholder="e.g. Kubernetes" /></label>
+      <label class="op-form__field"><span>Summary</span><input type="text" placeholder="What a consultant knows" /></label>
+    </div></div>
+    <div class="modal__footer"><button class="btn--ghost btn" onclick="closeModal('m-skill')">Cancel</button><button class="btn">Create</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="m-compose" onclick="if(event.target===this)closeModal('m-compose')">
+  <div class="modal">
+    <div class="modal__header">Composition — Payments Integration</div>
+    <div class="modal__body">
+      <p class="note" style="margin-top:0">Which skills make up this capability, and how heavily each weighs in an engineer's rolled-up proficiency.</p>
+      <div class="weight-row"><span class="weight-row__name">Stripe API</span><span class="stepper"><button>−</button><span>3</span><button>+</button></span><button class="weight-row__remove" title="remove">✕</button></div>
+      <div class="weight-row"><span class="weight-row__name">PCI-DSS</span><span class="stepper"><button>−</button><span>2</span><button>+</button></span><button class="weight-row__remove" title="remove">✕</button></div>
+      <div class="weight-row"><span class="weight-row__name">PostgreSQL</span><span class="stepper"><button>−</button><span>1</span><button>+</button></span><button class="weight-row__remove" title="remove">✕</button></div>
+      <div class="weight-row"><span class="weight-row__name">API Design</span><span class="stepper"><button>−</button><span>1</span><button>+</button></span><button class="weight-row__remove" title="remove">✕</button></div>
+      <div class="op-form" style="margin-top: var(--space-md)">
+        <label class="op-form__field"><span>Add a skill</span><select><option value="">Choose a skill…</option><option>Kubernetes</option><option>Python</option><option>Kafka</option></select></label>
+      </div>
+    </div>
+    <div class="modal__footer"><button class="btn--ghost btn" onclick="closeModal('m-compose')">Cancel</button><button class="btn">Save composition</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="m-assign" onclick="if(event.target===this)closeModal('m-assign')">
+  <div class="modal">
+    <div class="modal__header">Assign to Ledger Migration — Payments gap</div>
+    <div class="modal__body"><div class="op-form">
+      <label class="op-form__field"><span>Engineer</span><select><option selected>Marcus Chen — 78% fit</option><option>Omar Haddad — 71% fit</option><option>Rohan Sharma — growth (pair w/ Priya)</option><option>Tunde Okafor — 41% fit</option></select></label>
+      <label class="op-form__field"><span>Allocation</span><input type="text" value="0.6 FTE" /></label>
+      <label class="op-form__field"><span>From</span><input type="date" value="2026-08-01" /></label>
+    </div></div>
+    <div class="modal__footer"><button class="btn--ghost btn" onclick="closeModal('m-assign')">Cancel</button><button class="btn">Assign</button></div>
+  </div>
+</div>
+
+<script>
+  const pages = document.querySelectorAll('.page');
+  const links = document.querySelectorAll('[data-nav]');
+  function show(name) {
+    pages.forEach(p => p.classList.toggle('page--active', p.dataset.page === name));
+    links.forEach(l => l.classList.toggle('sidebar__nav-link--active', l.dataset.nav === name));
+    document.querySelector('.content').scrollTop = 0;
+  }
+  links.forEach(l => l.addEventListener('click', () => show(l.dataset.nav)));
+  function openModal(id) { document.getElementById(id).classList.add('modal-backdrop--open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('modal-backdrop--open'); }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-backdrop--open').forEach(m => m.classList.remove('modal-backdrop--open')); });
+</script>
+</body>
+</html>
