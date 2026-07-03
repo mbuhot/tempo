@@ -22,7 +22,11 @@ pub fn set(key: String, value: String) -> Effect(msg) {
 }
 
 @external(javascript, "./storage_ffi.mjs", "read")
-fn read(key: String) -> String
+fn read(_key: String) -> String {
+  panic as "JavaScript only"
+}
 
 @external(javascript, "./storage_ffi.mjs", "write")
-fn write(key: String, value: String) -> Nil
+fn write(_key: String, _value: String) -> Nil {
+  panic as "JavaScript only"
+}

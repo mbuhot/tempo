@@ -13,4 +13,6 @@ pub fn after(delay_ms: Int, msg: msg) -> Effect(msg) {
 }
 
 @external(javascript, "./scheduler_ffi.mjs", "schedule")
-fn schedule(delay_ms: Int, callback: fn() -> Nil) -> Nil
+fn schedule(_delay_ms: Int, _callback: fn() -> Nil) -> Nil {
+  panic as "JavaScript only"
+}
