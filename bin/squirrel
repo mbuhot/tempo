@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Regenerate typed sql.gleam from the .sql sources by introspecting the live DB.
+# Builds DATABASE_URL from the same TEMPO_DB_* variables the server reads
+# (context.settings_from_env), so `TEMPO_DB_PORT=5435 bin/squirrel` hits the same DB
+# as bin/migrate/bin/test/bin/serve. An explicit DATABASE_URL overrides all of them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-cd server && DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5434/tempo gleam run -m squirrel
+host="${TEMPO_DB_HOST:-127.0.0.1}"
+port="${TEMPO_DB_PORT:-5434}"
+name="${TEMPO_DB_NAME:-tempo}"
+user="${TEMPO_DB_USER:-tempo}"
+password="${TEMPO_DB_PASSWORD:-tempo}"
+: "${DATABASE_URL:=postgres://${user}:${password}@${host}:${port}/${name}}"
+
+cd server && DATABASE_URL="$DATABASE_URL" gleam run -m squirrel
