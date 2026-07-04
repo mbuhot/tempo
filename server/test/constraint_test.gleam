@@ -658,6 +658,97 @@ pub fn capability_skill_no_overlap_is_rejected_test() {
   assert constraint_name(error) == "capability_skill_no_overlap"
 }
 
+// --- project_capability (coverage demand; #39 Phase 2) -----------------------
+
+// A project_capability target_level outside 0-4 is rejected by the CHECK
+// constraint `project_capability_target_check`.
+pub fn project_capability_target_check_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Stark Industries")
+        insert_contract(conn, 9009, client_id, "2026-01-01", "2027-01-01")
+        insert_project(
+          conn,
+          8009,
+          9009,
+          "Arc Reactor",
+          "2026-01-01",
+          "2027-01-01",
+        )
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70010)")
+        Nil
+      },
+      fn(conn) {
+        exec(
+          conn,
+          "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) "
+            <> "VALUES (8009, 70010, 5, 2.00, daterange('2026-01-01', NULL, '[)'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "project_capability_target_check"
+}
+
+// A project_capability quantity of 0 (or below) is rejected by the CHECK
+// constraint `project_capability_quantity_check`.
+pub fn project_capability_quantity_check_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Stark Industries")
+        insert_contract(conn, 9010, client_id, "2026-01-01", "2027-01-01")
+        insert_project(conn, 8010, 9010, "Mark II", "2026-01-01", "2027-01-01")
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70011)")
+        Nil
+      },
+      fn(conn) {
+        exec(
+          conn,
+          "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) "
+            <> "VALUES (8010, 70011, 3, 0, daterange('2026-01-01', NULL, '[)'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "project_capability_quantity_check"
+}
+
+// A second project_capability row overlapping an existing one for the same
+// (project, capability) is rejected by the gist exclusion PK
+// `project_capability_no_overlap`.
+pub fn project_capability_no_overlap_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let client_id = insert_client(conn, "Stark Industries")
+        insert_contract(conn, 9011, client_id, "2026-01-01", "2027-01-01")
+        insert_project(conn, 8011, 9011, "Mark III", "2026-01-01", "2027-01-01")
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70012)")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) "
+              <> "VALUES (8011, 70012, 3, 2.00, daterange('2026-01-01','2026-06-01'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        exec(
+          conn,
+          "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) "
+            <> "VALUES (8011, 70012, 4, 1.00, daterange('2026-05-01','2026-08-01'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "project_capability_no_overlap"
+}
+
 // --- Financial cross-references (013) ---------------------------------------
 
 // An invoice whose billing month falls outside the project's active period is

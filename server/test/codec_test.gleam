@@ -39,6 +39,7 @@ import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as payroll_view
 import shared/pnl/view.{Pnl, PnlRow} as pnl_view
 import shared/project/view.{ProjectRequirement} as project_view
+import shared/project_capability/command as project_capability_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/roster/view.{Ref, Roster} as roster_view
@@ -1312,6 +1313,29 @@ pub fn command_set_project_requirement_round_trips_test() {
       project_requirement_command.SetProjectRequirement(
         project_id: 500,
         level: 3,
+        quantity: 2.0,
+        valid_from: Date(2026, August, 1),
+        valid_to: Date(2027, January, 1),
+      ),
+    )
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+// --- SetProjectCapability (Command) ------------------------------------------
+// The Phase 2 coverage-demand write (design §coverage): a FOR-PORTION-OF set of
+// a project's capability requirement at a target level over a bounded window,
+// the same shape as SetProjectRequirement but keyed by capability rather than
+// role level.
+
+pub fn command_set_project_capability_round_trips_test() {
+  let original =
+    gateway.ProjectCapabilityCommand(
+      project_capability_command.SetProjectCapability(
+        project_id: 100,
+        capability_id: 1,
+        target_level: 3,
         quantity: 2.0,
         valid_from: Date(2026, August, 1),
         valid_to: Date(2027, January, 1),

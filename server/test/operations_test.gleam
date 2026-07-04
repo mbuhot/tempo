@@ -36,6 +36,7 @@ import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/money.{type Money}
+import shared/project_capability/command as project_capability_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
@@ -1262,6 +1263,194 @@ pub fn set_project_requirement_for_portion_splits_three_ways_test() {
       Period("1.00", "2026-04-01", "2026-07-01"),
       Period("2.00", "2026-07-01", ""),
     ]
+}
+
+// --- project_capability aggregate (Surgical, the coverage-demand side; #39) -
+
+// set_project_capability sets a project's capability demand for a BOUNDED
+// window, contained by the project's run — the same FOR-PORTION-OF surgical
+// write as set_project_requirement, scoped by (project_id, capability_id)
+// instead of (project_id, level).
+pub fn set_project_capability_over_a_fresh_window_opens_the_requirement_test() {
+  let #(requirements, journal) =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90030)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90030, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80030)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80030, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80030, 90030, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO capability (id) VALUES (70030)")
+      apply(
+        conn,
+        gateway.ProjectCapabilityCommand(
+          project_capability_command.SetProjectCapability(
+            80_030,
+            70_030,
+            3,
+            2.0,
+            Date(2026, April, 1),
+            Date(2026, July, 1),
+          ),
+        ),
+      )
+      #(
+        read_periods(
+          conn,
+          "project_capability",
+          "quantity::text",
+          "required_during",
+          "project_id = 80030 AND capability_id = 70030",
+        ),
+        read_journal(conn),
+      )
+    })
+
+  assert requirements == [Period("2.00", "2026-04-01", "2026-07-01")]
+  let assert [row] = journal
+  assert row.actor == "tester"
+  assert row.operation == "set_project_capability"
+  assert row.summary
+    == "Set capability demand: 2.0x L3 capability 70030 on project 80030 over 2026-04-01..2026-07-01"
+  assert json.parse(row.payload, gateway.command_decoder())
+    == Ok(
+      gateway.ProjectCapabilityCommand(
+        project_capability_command.SetProjectCapability(
+          80_030,
+          70_030,
+          3,
+          2.0,
+          Date(2026, April, 1),
+          Date(2026, July, 1),
+        ),
+      ),
+    )
+}
+
+// A second set_project_capability over the SAME window covers the first row
+// entirely, so FOR PORTION OF leaves no leftover: the clear-then-set REPLACES
+// the target level and quantity rather than splitting into before/after
+// remainders, mirroring retroactive_promote_covering_whole_fact_leaves_no_leftover.
+pub fn set_project_capability_over_the_same_window_replaces_test() {
+  let requirements =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90031)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90031, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80031)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80031, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80031, 90031, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO capability (id) VALUES (70031)")
+      apply(
+        conn,
+        gateway.ProjectCapabilityCommand(
+          project_capability_command.SetProjectCapability(
+            80_031,
+            70_031,
+            3,
+            2.0,
+            Date(2026, April, 1),
+            Date(2026, July, 1),
+          ),
+        ),
+      )
+      apply(
+        conn,
+        gateway.ProjectCapabilityCommand(
+          project_capability_command.SetProjectCapability(
+            80_031,
+            70_031,
+            4,
+            1.0,
+            Date(2026, April, 1),
+            Date(2026, July, 1),
+          ),
+        ),
+      )
+      read_periods(
+        conn,
+        "project_capability",
+        "target_level::text || 'x' || quantity::text",
+        "required_during",
+        "project_id = 80031 AND capability_id = 70031",
+      )
+    })
+
+  assert requirements == [Period("4x1.00", "2026-04-01", "2026-07-01")]
+}
+
+// set_project_capability is REJECTED (ContainmentViolated) when the window
+// extends past the project's run: the project_capability_within_run PERIOD FK
+// rejects a requirement not fully contained by the project, undoing the
+// transaction — the coverage-demand analogue of
+// start_project_outside_contract_term_is_containment_violated_test.
+pub fn set_project_capability_outside_project_run_is_containment_violated_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90032)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90032, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80032)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80032, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80032, 90032, daterange('2026-01-01', '2026-06-01'))",
+      )
+      exec(conn, "INSERT INTO capability (id) VALUES (70032)")
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.ProjectCapabilityCommand(
+          project_capability_command.SetProjectCapability(
+            80_032,
+            70_032,
+            3,
+            2.0,
+            Date(2026, April, 1),
+            Date(2026, August, 1),
+          ),
+        ),
+      )
+    })
+
+  assert outcome
+    == Error(operation.ContainmentViolated("project_capability_within_run"))
 }
 
 // --- engagement aggregate (Assert × 2; PERIOD-FK containment) ---------------

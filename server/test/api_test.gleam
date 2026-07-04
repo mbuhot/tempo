@@ -31,6 +31,9 @@ import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
 import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
+import shared/project_capability/view.{
+  type CoverageSnapshot, CapabilityChoice, CoverageEngineer, CoverageRequirement,
+} as project_capability_view
 import shared/settings/view.{type Settings} as settings_view
 import shared/skill/view.{
   type EngineerSkills, type TaxonomySnapshot, CapabilityInfo, CapabilityRollup,
@@ -1337,6 +1340,97 @@ pub fn project_detail_unknown_is_not_found_test() {
   assert response.status == 404
 }
 
+// --- GET /api/projects/:id/coverage ------------------------------------------
+
+// Ledger Migration (project 100)'s seeded capability demand (#39): the
+// Payments Platform requirement needs 2 engineers at L3, but Priya, the
+// project's only allocated engineer, rolls up to ~3.56 there (Payment
+// Gateways(3)=4, PCI Compliance(3)=3, Ledger Accounting Systems(2)=4, API
+// Design(1)=3) — she covers alone, leaving a visible gap of one against the
+// quantity. The Frontend Delivery requirement needs only 1 and Priya's ~1.5
+// rollup clears it, so it is fully covered. The catalog carries the full
+// seeded capability taxonomy, ordered by name.
+pub fn project_capability_coverage_now_returns_the_seeded_gap_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/100/coverage?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 200
+
+  let snapshot = decode_coverage_snapshot(response)
+  assert snapshot.catalog
+    == [
+      CapabilityChoice(2, "Data Engineering"),
+      CapabilityChoice(3, "Frontend Delivery"),
+      CapabilityChoice(1, "Payments Platform"),
+      CapabilityChoice(4, "Platform Infrastructure"),
+    ]
+  assert snapshot.requirements
+    == [
+      CoverageRequirement(
+        capability_id: 3,
+        capability_name: "Frontend Delivery",
+        target_level: 1,
+        quantity: 1.0,
+        valid_from: calendar.Date(2026, calendar.January, 10),
+        valid_to: calendar.Date(2027, calendar.January, 1),
+        covering: [
+          CoverageEngineer(
+            engineer_id: 1,
+            name: "Priya Sharma",
+            proficiency: 1.5,
+            allocation: 0.5,
+          ),
+        ],
+        others: [],
+      ),
+      CoverageRequirement(
+        capability_id: 1,
+        capability_name: "Payments Platform",
+        target_level: 3,
+        quantity: 2.0,
+        valid_from: calendar.Date(2026, calendar.January, 10),
+        valid_to: calendar.Date(2027, calendar.January, 1),
+        covering: [
+          CoverageEngineer(
+            engineer_id: 1,
+            name: "Priya Sharma",
+            proficiency: 3.5555555555555556,
+            allocation: 0.5,
+          ),
+        ],
+        others: [],
+      ),
+    ]
+}
+
+// A non-integer project id is a 400.
+pub fn project_capability_coverage_bad_id_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/abc/coverage?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 400
+}
+
+// An unknown project is a 404 (mirrors project_detail_unknown_is_not_found_test).
+pub fn project_capability_coverage_unknown_project_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/999/coverage?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 404
+}
+
+// A missing as_of is a 400 (mirrors settings_without_as_of_is_bad_request_test).
+pub fn project_capability_coverage_without_as_of_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/100/coverage")
+    |> read()
+
+  assert response.status == 400
+}
+
 // --- GET /api/settings ------------------------------------------------------
 
 // The settings read as of "now" carries the rate card, salaries, and leave policy.
@@ -1453,6 +1547,13 @@ fn decode_project_detail(response) -> ProjectDetail {
     simulate.read_body(response)
     |> json.parse(project_view.project_detail_decoder())
   detail
+}
+
+fn decode_coverage_snapshot(response) -> CoverageSnapshot {
+  let assert Ok(snapshot) =
+    simulate.read_body(response)
+    |> json.parse(project_capability_view.coverage_snapshot_decoder())
+  snapshot
 }
 
 fn decode_settings(response) -> Settings {
