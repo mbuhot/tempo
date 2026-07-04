@@ -21,18 +21,22 @@
 import gleam/result
 import pog
 import shared/command.{
-  type Command, type Event, AllocationCommand, ClientDetailsCommand,
-  EngagementCommand, EngineerCommand, EngineerDetailsCommand, InvoiceCommand,
-  LeaveCommand, PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
+  type Command, type Event, AllocationCommand, CapabilityCommand,
+  ClientDetailsCommand, EngagementCommand, EngineerCommand,
+  EngineerDetailsCommand, EngineerSkillCommand, InvoiceCommand, LeaveCommand,
+  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
+  WorkflowCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
+import tempo/server/capability/command as capability
 import tempo/server/client_details/command as client_details
 import tempo/server/context.{type Context}
 import tempo/server/engagement/command as engagement
 import tempo/server/engineer/command as engineer
 import tempo/server/engineer_details/command as engineer_details
+import tempo/server/engineer_skill/command as engineer_skill
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
@@ -44,6 +48,7 @@ import tempo/server/rate_card/command as rate_card
 import tempo/server/repository
 import tempo/server/role/command as role
 import tempo/server/salary/command as salary
+import tempo/server/skill/command as skill
 import tempo/server/timesheet/command as timesheet
 import tempo/server/workflow/commit as workflow_commit
 
@@ -127,5 +132,8 @@ fn route(
     ProjectRequirementCommand(command) -> project_requirement.route(command)
     RoleCommand(command) -> role.route(command)
     WorkflowCommand(command) -> workflow_commit.route(conn, command)
+    CapabilityCommand(command) -> capability.route(conn, command)
+    SkillCommand(command) -> skill.route(conn, command)
+    EngineerSkillCommand(command) -> engineer_skill.route(command)
   }
 }

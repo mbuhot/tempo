@@ -65,6 +65,14 @@ pub type ClientId {
   ClientId(Int)
 }
 
+pub type CapabilityId {
+  CapabilityId(Int)
+}
+
+pub type SkillId {
+  SkillId(Int)
+}
+
 pub type Fact {
   // --- engineer ---------------------------------------------------------------
   /// The engineer is employed from `from` onward (open-ended). Ended by
@@ -222,4 +230,43 @@ pub type Fact {
   UserRoleGranted(account_id: Int, role: String, from: Date)
   /// An account's `role` is revoked from `from`: the held period is capped there.
   UserRoleRevoked(account_id: Int, role: String, from: Date)
+
+  // --- skills taxonomy ---------------------------------------------------------
+  /// A capability's profile (name/summary) in force from `from` onward.
+  CapabilityProfile(
+    capability_id: CapabilityId,
+    name: String,
+    summary: String,
+    from: Date,
+  )
+  /// A capability is retired from `from`: its profile and its skill mappings are
+  /// capped there.
+  CapabilityRetired(capability_id: CapabilityId, from: Date)
+  /// A skill contributes `weight` to a capability's composition from `from` onward.
+  CapabilitySkillSet(
+    capability_id: CapabilityId,
+    skill_id: SkillId,
+    weight: Int,
+    from: Date,
+  )
+  /// A skill is removed from a capability's composition from `from`: that one
+  /// mapping is capped.
+  CapabilitySkillRemoved(
+    capability_id: CapabilityId,
+    skill_id: SkillId,
+    from: Date,
+  )
+  /// A skill's profile (name/summary) in force from `from` onward.
+  SkillProfile(skill_id: SkillId, name: String, summary: String, from: Date)
+  /// A skill is retired from `from`: its profile and every capability's mapping to
+  /// it are capped there.
+  SkillRetired(skill_id: SkillId, from: Date)
+  /// An engineer is assessed at `level` on a skill from `from` onward (open-ended;
+  /// a re-assessment re-opens it).
+  EngineerSkillAssessed(
+    engineer_id: EngineerId,
+    skill_id: SkillId,
+    level: Int,
+    from: Date,
+  )
 }

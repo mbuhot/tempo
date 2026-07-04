@@ -16,14 +16,18 @@ import gleam/option.{type Option, Some}
 import gleam/set.{type Set}
 import shared/access
 import shared/access/policy
+import shared/capability/command as capability_command
 import shared/command.{
-  type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
-  EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
-  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
+  type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
+  EngagementCommand, EngineerCommand, EngineerDetailsCommand,
+  EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
+  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
+  SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
+import shared/engineer_skill/command as engineer_skill_command
 import shared/role/command as role_command
+import shared/skill/command as skill_command
 import shared/workflow/command as workflow_command
 
 /// An authenticated identity: the `account_id` (carried in the signed cookie), the
@@ -120,5 +124,20 @@ fn command_tag(command: Command) -> String {
     WorkflowCommand(workflow_command.CommitOnboarding(..)) ->
       "commit_onboarding"
     WorkflowCommand(workflow_command.CreateProject(..)) -> "create_project"
+    CapabilityCommand(capability_command.CreateCapability(..)) ->
+      "create_capability"
+    CapabilityCommand(capability_command.DefineCapability(..)) ->
+      "define_capability"
+    CapabilityCommand(capability_command.RetireCapability(..)) ->
+      "retire_capability"
+    CapabilityCommand(capability_command.SetCapabilitySkill(..)) ->
+      "set_capability_skill"
+    CapabilityCommand(capability_command.RemoveCapabilitySkill(..)) ->
+      "remove_capability_skill"
+    SkillCommand(skill_command.CreateSkill(..)) -> "create_skill"
+    SkillCommand(skill_command.DefineSkill(..)) -> "define_skill"
+    SkillCommand(skill_command.RetireSkill(..)) -> "retire_skill"
+    EngineerSkillCommand(engineer_skill_command.AssessSkill(..)) ->
+      "assess_skill"
   }
 }

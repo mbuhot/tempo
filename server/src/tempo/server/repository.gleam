@@ -18,8 +18,10 @@
 ////   - an invoice status is a cap-then-open (the prior status ends where the next
 ////     begins);
 ////   - worked hours is a delete-then-insert upsert (0 clears the day);
-////   - a retraction (`EngineerOffProject`, `EngineerDeparted`) caps the span — and
-////     departure cascades the cap to allocations, leave, and role.
+////   - a retraction (`EngineerOffProject`, `EngineerDeparted`) caps the span —
+////     departure cascades the cap to allocations, leave, role, and skill; retiring
+////     a capability or skill cascades the cap to the capability_skill mappings it
+////     owns, leaving engineer_skill assessments open.
 ////
 //// `record_facts` first appends the command's journal `entry` to `event_log`, then
 //// writes each fact, passing the appended entry's id as the `audit_id` every fact
@@ -36,19 +38,24 @@ import pog
 import shared/command.{type Event}
 import shared/money
 import tempo/server/allocation/sql as allocation_sql
+import tempo/server/capability/sql as capability_sql
 import tempo/server/client/sql as client_sql
 import tempo/server/engineer/sql as engineer_sql
+import tempo/server/engineer_skill/sql as engineer_skill_sql
 import tempo/server/event
 import tempo/server/fact.{
-  type ClientId, type ContractId, type EngineerId, type Fact, type InvoiceId,
-  type PayrollRunId, type ProjectId, ClientId, ClientProfile, ContractId,
-  ContractTerms, EngineerAllocatedToProject, EngineerAtLevel,
-  EngineerBankingDetails, EngineerContactDetails, EngineerDeparted,
-  EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerOffProject,
-  EngineerOnLeave, EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine,
-  InvoiceSubject, PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId,
-  ProjectId, ProjectPlan, ProjectProfile, ProjectRequirement, ProjectRun,
-  RateCard, Salary, UserRoleGranted, UserRoleRevoked,
+  type CapabilityId, type ClientId, type ContractId, type EngineerId, type Fact,
+  type InvoiceId, type PayrollRunId, type ProjectId, type SkillId, CapabilityId,
+  CapabilityProfile, CapabilityRetired, CapabilitySkillRemoved,
+  CapabilitySkillSet, ClientId, ClientProfile, ContractId, ContractTerms,
+  EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
+  EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
+  EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
+  EngineerSkillAssessed, EngineerWorkedHours, InvoiceId, InvoiceInStatus,
+  InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment, PayrollPeriod,
+  PayrollRunId, ProjectId, ProjectPlan, ProjectProfile, ProjectRequirement,
+  ProjectRun, RateCard, Salary, SkillId, SkillProfile, SkillRetired,
+  UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -58,6 +65,7 @@ import tempo/server/project/sql as project_sql
 import tempo/server/rate_card/sql as rate_card_sql
 import tempo/server/role/sql as role_sql
 import tempo/server/salary/sql as salary_sql
+import tempo/server/skill/sql as skill_sql
 import tempo/server/timesheet/sql as timesheet_sql
 
 /// Mint an engineer anchor: reserve its id (`nextval`), insert the id-only row, and
@@ -112,6 +120,27 @@ pub fn create_invoice(
   let assert [row] = returned.rows
   use _ <- result.try(invoice_sql.invoice_create(conn, row.id) |> operation.run)
   Ok(InvoiceId(row.id))
+}
+
+/// Mint a capability anchor (reserve id, insert the id-only row), returning its typed
+/// id.
+pub fn create_capability(
+  conn: pog.Connection,
+) -> Result(CapabilityId, OperationError) {
+  use returned <- operation.try(capability_sql.capability_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(
+    capability_sql.capability_create(conn, row.id) |> operation.run,
+  )
+  Ok(CapabilityId(row.id))
+}
+
+/// Mint a skill anchor (reserve id, insert the id-only row), returning its typed id.
+pub fn create_skill(conn: pog.Connection) -> Result(SkillId, OperationError) {
+  use returned <- operation.try(skill_sql.skill_next_id(conn))
+  let assert [row] = returned.rows
+  use _ <- result.try(skill_sql.skill_create(conn, row.id) |> operation.run)
+  Ok(SkillId(row.id))
 }
 
 /// Mint a payroll-run anchor (reserve id, insert the id-only row), returning its typed
@@ -488,6 +517,85 @@ fn write(
     UserRoleRevoked(account_id:, role:, from:) ->
       role_sql.user_role_revoke(conn, account_id, role, from)
       |> operation.run
+
+    // --- skills taxonomy --------------------------------------------------------
+    CapabilityProfile(
+      capability_id: CapabilityId(capability_id),
+      name:,
+      summary:,
+      from:,
+    ) ->
+      capability_sql.capability_profile_upsert(
+        conn,
+        capability_id,
+        from,
+        name,
+        summary,
+        audit_id,
+      )
+      |> operation.run
+
+    CapabilityRetired(capability_id: CapabilityId(capability_id), from:) ->
+      record_capability_retirement(conn, capability_id, from)
+
+    CapabilitySkillSet(
+      capability_id: CapabilityId(capability_id),
+      skill_id: SkillId(skill_id),
+      weight:,
+      from:,
+    ) ->
+      capability_sql.capability_skill_upsert(
+        conn,
+        capability_id,
+        skill_id,
+        from,
+        weight,
+        audit_id,
+      )
+      |> operation.run
+
+    CapabilitySkillRemoved(
+      capability_id: CapabilityId(capability_id),
+      skill_id: SkillId(skill_id),
+      from:,
+    ) ->
+      capability_sql.capability_skill_remove(
+        conn,
+        capability_id,
+        skill_id,
+        from,
+      )
+      |> operation.run
+
+    SkillProfile(skill_id: SkillId(skill_id), name:, summary:, from:) ->
+      skill_sql.skill_profile_upsert(
+        conn,
+        skill_id,
+        from,
+        name,
+        summary,
+        audit_id,
+      )
+      |> operation.run
+
+    SkillRetired(skill_id: SkillId(skill_id), from:) ->
+      record_skill_retirement(conn, skill_id, from)
+
+    EngineerSkillAssessed(
+      engineer_id: EngineerId(engineer_id),
+      skill_id: SkillId(skill_id),
+      level:,
+      from:,
+    ) ->
+      engineer_skill_sql.engineer_skill_upsert(
+        conn,
+        engineer_id,
+        skill_id,
+        from,
+        level,
+        audit_id,
+      )
+      |> operation.run
   }
 }
 
@@ -576,10 +684,10 @@ fn record_requirement(
 }
 
 /// Record an engineer's departure from `from`: cap every fact contained by the
-/// employment FIRST — allocation → leave → role — then the employment itself. The
-/// PERIOD FKs both force that order and verify completeness: a child left dangling
-/// past `from` rejects the whole transaction. These are deletes, so they carry no
-/// audit_id (a retraction's provenance lives only in event_log).
+/// employment FIRST — allocation → leave → role → skill — then the employment
+/// itself. The PERIOD FKs both force that order and verify completeness: a child
+/// left dangling past `from` rejects the whole transaction. These are deletes, so
+/// they carry no audit_id (a retraction's provenance lives only in event_log).
 fn record_departure(
   conn: pog.Connection,
   engineer_id: Int,
@@ -596,5 +704,43 @@ fn record_departure(
     engineer_id,
     from,
   ))
+  use _ <- operation.try(engineer_skill_sql.engineer_skill_close_all(
+    conn,
+    engineer_id,
+    from,
+  ))
   engineer_sql.employment_close(conn, engineer_id, from) |> operation.run
+}
+
+/// Record a capability's retirement from `from`: cap its skill mappings first,
+/// then its profile. `engineer_skill` rows stay open — the rollup reads join
+/// through the taxonomy as-of, so a retired capability's mappings simply drop out.
+fn record_capability_retirement(
+  conn: pog.Connection,
+  capability_id: Int,
+  from: Date,
+) -> Result(Nil, OperationError) {
+  use _ <- operation.try(capability_sql.capability_skill_close_for_capability(
+    conn,
+    capability_id,
+    from,
+  ))
+  capability_sql.capability_profile_close(conn, capability_id, from)
+  |> operation.run
+}
+
+/// Record a skill's retirement from `from`: cap every capability's mapping to it
+/// first, then its profile. `engineer_skill` rows stay open — the rollup reads
+/// join through the taxonomy as-of, so a retired skill simply drops out.
+fn record_skill_retirement(
+  conn: pog.Connection,
+  skill_id: Int,
+  from: Date,
+) -> Result(Nil, OperationError) {
+  use _ <- operation.try(skill_sql.capability_skill_close_for_skill(
+    conn,
+    skill_id,
+    from,
+  ))
+  skill_sql.skill_profile_close(conn, skill_id, from) |> operation.run
 }

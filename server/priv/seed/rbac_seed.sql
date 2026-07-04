@@ -30,7 +30,9 @@ INSERT INTO permission (key, description) VALUES
   ('ratecard.manage',     'Revise the rate card'),
   ('invoice.manage',      'Draft, issue, and pay invoices'),
   ('payroll.run',         'Run payroll'),
-  ('roles.manage',        'Grant and revoke user roles');
+  ('roles.manage',        'Grant and revoke user roles'),
+  ('skills.manage',       'Edit the capability and skill taxonomy'),
+  ('skills.assess',       'Record engineer skill assessments');
 
 INSERT INTO role (name, description) VALUES
   ('engineer', 'Submit timesheets and manage your own profile'),
@@ -60,6 +62,8 @@ FROM (VALUES
   ('manager', 'engagement.manage'),
   ('manager', 'project.manage'),
   ('manager', 'client.manage'),
+  ('manager', 'skills.manage'),
+  ('manager', 'skills.assess'),
 
   ('finance', 'read.projects'),
   ('finance', 'read.engineers'),
@@ -92,7 +96,9 @@ FROM (VALUES
   ('owner', 'payroll.run'),
   ('owner', 'engineer.onboard.commit'),
   ('owner', 'project.create.confirm'),
-  ('owner', 'roles.manage')
+  ('owner', 'roles.manage'),
+  ('owner', 'skills.manage'),
+  ('owner', 'skills.assess')
 ) AS m(role, permission);
 
 INSERT INTO user_role (account_id, role, held_during, audit_id)
