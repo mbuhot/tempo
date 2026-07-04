@@ -20,58 +20,80 @@ missing relationship map. (See `ARCHITECTURE.md` §4/§7 for the why.)
 <!-- BEGIN GENERATED ERD (bin/erd) -->
 ```mermaid
 erDiagram
+  account ||--o{ user_role : "FK"
+  account ||--o{ workflow_instance : "FK"
+  account ||--o{ workflow_instance : "FK"
   allocation ||--o{ timesheet : "PERIOD FK"
+  capability ||--o{ capability_profile : "FK"
+  capability ||--o{ capability_skill : "FK"
   client ||--o{ client_profile : "FK"
   client ||--o{ contract_terms : "FK"
   contract_terms ||--o{ project_run : "PERIOD FK"
   contract ||--o{ contract_terms : "FK"
   employment ||--o{ allocation : "PERIOD FK"
   employment ||--o{ engineer_role : "PERIOD FK"
+  employment ||--o{ engineer_skill : "PERIOD FK"
   employment ||--o{ leave : "PERIOD FK"
+  engineer ||--o{ account : "FK"
   engineer ||--o{ employment : "FK"
   engineer ||--o{ engineer_banking : "FK"
   engineer ||--o{ engineer_contact : "FK"
   engineer ||--o{ engineer_emergency : "FK"
   engineer ||--o{ invoice_line : "FK"
   engineer ||--o{ payroll_line : "FK"
-  event_log ||--o{ allocation : "FK"
-  event_log ||--o{ client_profile : "FK"
-  event_log ||--o{ contract_terms : "FK"
-  event_log ||--o{ employment : "FK"
-  event_log ||--o{ engineer_banking : "FK"
-  event_log ||--o{ engineer_contact : "FK"
-  event_log ||--o{ engineer_emergency : "FK"
-  event_log ||--o{ engineer_role : "FK"
-  event_log ||--o{ invoice_line : "FK"
-  event_log ||--o{ invoice_status : "FK"
-  event_log ||--o{ invoice_subject : "FK"
-  event_log ||--o{ leave : "FK"
-  event_log ||--o{ leave_policy : "FK"
-  event_log ||--o{ payroll_line : "FK"
-  event_log ||--o{ payroll_period : "FK"
-  event_log ||--o{ project_plan : "FK"
-  event_log ||--o{ project_profile : "FK"
-  event_log ||--o{ project_run : "FK"
-  event_log ||--o{ rate_card : "FK"
-  event_log ||--o{ salary : "FK"
-  event_log ||--o{ timesheet : "FK"
+  engineer ||--o{ payroll_line_segment : "FK"
   invoice ||--o{ invoice_line : "FK"
   invoice ||--o{ invoice_status : "FK"
   invoice ||--o{ invoice_subject : "FK"
   payroll_run ||--o{ payroll_line : "FK"
+  payroll_run ||--o{ payroll_line_segment : "FK"
   payroll_run ||--o{ payroll_period : "FK"
+  permission ||--o{ role_permission : "FK"
   project_run ||--o{ allocation : "PERIOD FK"
   project_run ||--o{ invoice_subject : "PERIOD FK"
+  project_run ||--o{ project_requirement : "PERIOD FK"
   project ||--o{ allocation : "FK"
   project ||--o{ invoice_subject : "FK"
   project ||--o{ project_plan : "FK"
   project ||--o{ project_profile : "FK"
+  project ||--o{ project_requirement : "FK"
   project ||--o{ project_run : "FK"
+  role ||--o{ role_permission : "FK"
+  role ||--o{ user_role : "FK"
+  skill ||--o{ capability_skill : "FK"
+  skill ||--o{ engineer_skill : "FK"
+  skill ||--o{ skill_profile : "FK"
+  workflow_instance ||--o{ workflow_step_value : "FK"
+  account {
+    integer id PK
+    text username
+    text display_name
+    text password_hash
+    timestamp created_at
+    integer engineer_id FK
+  }
   allocation {
     integer engineer_id PK,FK
     integer project_id PK,FK
     numeric fraction
     daterange allocated_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  capability {
+    integer id PK
+  }
+  capability_profile {
+    integer capability_id PK,FK
+    text name
+    text summary
+    daterange defined_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  capability_skill {
+    integer capability_id PK,FK
+    integer skill_id PK,FK
+    integer weight
+    daterange mapped_during PK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
   client {
@@ -133,13 +155,12 @@ erDiagram
     daterange held_during PK,FK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
-  event_log {
-    bigint id PK
-    timestamp occurred_at
-    text actor
-    text operation
-    text summary
-    jsonb payload
+  engineer_skill {
+    integer engineer_id PK,FK
+    integer skill_id PK,FK
+    integer level
+    daterange assessed_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   invoice {
     integer id PK
@@ -152,6 +173,7 @@ erDiagram
     numeric days
     numeric amount
     bigint audit_id FK
+    bigint id PK
   }
   invoice_status {
     integer invoice_id PK,FK
@@ -184,6 +206,16 @@ erDiagram
     numeric amount
     numeric days
     bigint audit_id FK
+    bigint id PK
+  }
+  payroll_line_segment {
+    integer run_id FK
+    integer engineer_id FK
+    integer level
+    numeric monthly_salary
+    numeric days
+    numeric amount
+    bigint audit_id FK
   }
   payroll_period {
     integer run_id PK,FK
@@ -192,6 +224,10 @@ erDiagram
   }
   payroll_run {
     integer id PK
+  }
+  permission {
+    text key PK
+    text description
   }
   project {
     integer id PK
@@ -210,6 +246,13 @@ erDiagram
     daterange recorded_during PK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
+  project_requirement {
+    integer project_id PK,FK
+    integer level PK
+    numeric quantity
+    daterange required_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id
+  }
   project_run {
     integer project_id PK,FK
     integer contract_id FK
@@ -222,10 +265,30 @@ erDiagram
     daterange effective_during PK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
+  role {
+    text name PK
+    text description
+  }
+  role_permission {
+    text role PK,FK
+    text permission PK,FK
+    daterange granted_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
   salary {
     integer level PK
     numeric monthly_salary
     daterange effective_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  skill {
+    integer id PK
+  }
+  skill_profile {
+    integer skill_id PK,FK
+    text name
+    text summary
+    daterange defined_during PK "WITHOUT OVERLAPS"
     bigint audit_id FK
   }
   timesheet {
@@ -234,6 +297,28 @@ erDiagram
     daterange work_day PK,FK "WITHOUT OVERLAPS"
     numeric hours
     bigint audit_id FK
+  }
+  user_role {
+    integer account_id PK,FK
+    text role PK,FK
+    daterange held_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  workflow_instance {
+    text id PK
+    text kind
+    text status
+    integer owner_id FK
+    integer assignee_id FK
+    text current_step
+    timestamp created_at
+    timestamp updated_at
+  }
+  workflow_step_value {
+    text instance_id PK,FK
+    text step_id PK
+    jsonb value
+    tstzrange recorded_during PK
   }
 ```
 <!-- END GENERATED ERD -->

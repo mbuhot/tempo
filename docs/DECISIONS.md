@@ -1277,6 +1277,38 @@ for the first cut; the offset cursor is wire-compatible with a later swap).
 
 ---
 
+## ADR-049 — Capability & skill taxonomy with a weighted-average rollup
+**Status:** Accepted
+
+**Context.** Staffing decisions need a shared vocabulary for what engineers can do, coarser than a raw
+skill list but finer than a level number. There was no model for grouping related skills into a named
+capability, weighting how much each skill matters to that capability, or scoring an engineer's overall
+strength in it.
+
+**Decision.** Two new anchors, `capability` and `skill`, each carrying a temporal profile
+(`capability_profile`, `skill_profile`) for name and summary. `capability_skill` is a weighted many-to-many
+mapping a capability to its constituent skills, weight 1–3, temporal but with plain foreign keys to the
+anchors rather than a PERIOD containment — the taxonomy is not nested inside any other temporal fact.
+`engineer_skill` records a per-engineer, per-skill assessed level 0–4, temporal and contained within the
+engineer's `employment` span via a PERIOD foreign key, the same containment `engineer_role` already uses.
+An engineer's proficiency in a capability, as of a date, is the weighted average of their levels across
+that capability's skills: level times weight summed, divided by the weight sum, with a missing assessment
+coalescing to 0. The weights live in SQL and the computation runs there too, joining `engineer_skill` and
+`capability_skill` as-of the same date so a capability's composition and an engineer's levels are read
+period-correct together. Retiring a capability or skill closes its profile and closes `capability_skill`
+rows scoped to it, so retired entries drop out of every rollup and matrix read; `engineer_skill` rows stay
+open on a taxonomy retirement, closing only when the engineer's employment itself closes. Two permissions
+gate the surface: `skills.manage` for taxonomy edits (create/define/retire capabilities and skills, compose
+weights), `skills.assess` for recording engineer assessments — both granted to owner and manager.
+
+**Alternatives.** Per-skill minimum thresholds alongside weights (deferred — weights alone answer the
+Phase 1 coverage and recommendation questions). A materialized rollup table refreshed on write (rejected —
+the weighted average is cheap to compute on read and stays trivially consistent with the as-of date).
+Nesting the taxonomy under a PERIOD containment of its own (rejected — capabilities and skills are a
+standing vocabulary, not scoped to any other temporal fact).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

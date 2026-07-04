@@ -18,7 +18,10 @@
 --
 -- Demo beats (PRD §7): Marcus L4->L5 at 2026-07-01 (future-dated promotion); Aisha
 -- annual leave 2026-06-08..22 (overlaps her live allocation); L5 rate 1200->1400 at
--- 2026-07-01 (rate-card change); Priya 0.5 + 0.5 fractional split.
+-- 2026-07-01 (rate-card change); Priya 0.5 + 0.5 fractional split. Capability/skill
+-- taxonomy (4 capabilities, 12 skills): Priya assessed strong on Payments Platform,
+-- Marcus growing into Data Engineering (with a mid-2026 reassessment bump), Aisha
+-- broad across Data Engineering and Platform Infrastructure but light on Payments.
 
 -- Identity anchors (BY DEFAULT identity; explicit ids allowed) -----------------
 INSERT INTO client (id) VALUES (1), (2), (3);
@@ -369,3 +372,128 @@ WITH e AS (
   RETURNING id)
 INSERT INTO timesheet (engineer_id, project_id, work_day, hours, audit_id)
 SELECT 1, 200, daterange('2026-06-09','2026-06-10'), 4.00, e.id FROM e;
+
+-- Capability & skill taxonomy (#38): 4 capabilities over 12 skills, so the three
+-- engineers show an interesting, non-uniform proficiency picture — Priya strong on
+-- Payments, Marcus growing into Data Engineering, Aisha broad across Data/Platform
+-- Infrastructure with a Payments gap. ---------------------------------------------
+INSERT INTO capability (id) VALUES (1), (2), (3), (4);
+INSERT INTO skill (id) VALUES (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12);
+
+SELECT setval(pg_get_serial_sequence('capability', 'id'), 4);
+SELECT setval(pg_get_serial_sequence('skill',       'id'), 12);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-05', 'seed', 'define_capability', 'Define capability taxonomy: Payments Platform, Data Engineering, Frontend Delivery, Platform Infrastructure',
+     '{"capabilities":[{"id":1,"name":"Payments Platform"},{"id":2,"name":"Data Engineering"},{"id":3,"name":"Frontend Delivery"},{"id":4,"name":"Platform Infrastructure"}],"effective":"2026-01-05"}')
+  RETURNING id)
+INSERT INTO capability_profile (capability_id, name, summary, defined_during, audit_id)
+SELECT v.capability_id, v.name, v.summary, daterange('2026-01-05', NULL, '[)'), e.id FROM e,
+  (VALUES
+    (1, 'Payments Platform', 'Billing, ledger, and payment-gateway integrations'),
+    (2, 'Data Engineering', 'Pipelines, warehousing, and distributed data systems'),
+    (3, 'Frontend Delivery', 'Client applications and the interfaces engineers ship them through'),
+    (4, 'Platform Infrastructure', 'Cloud infrastructure, deployment, and operability')
+  ) AS v(capability_id, name, summary);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-05', 'seed', 'define_skill', 'Define skill taxonomy: 12 skills across payments, data, frontend, and platform infrastructure',
+     '{"skills":[{"id":1,"name":"Payment Gateways"},{"id":2,"name":"PCI Compliance"},{"id":3,"name":"Ledger Accounting Systems"},{"id":4,"name":"API Design"},{"id":5,"name":"SQL & Database Design"},{"id":6,"name":"Data Pipelines"},{"id":7,"name":"Distributed Systems"},{"id":8,"name":"Frontend Development"},{"id":9,"name":"UI/UX Design"},{"id":10,"name":"Kubernetes"},{"id":11,"name":"CI/CD"},{"id":12,"name":"Cloud Infrastructure"}],"effective":"2026-01-05"}')
+  RETURNING id)
+INSERT INTO skill_profile (skill_id, name, summary, defined_during, audit_id)
+SELECT v.skill_id, v.name, v.summary, daterange('2026-01-05', NULL, '[)'), e.id FROM e,
+  (VALUES
+    (1, 'Payment Gateways', 'Integrating and operating third-party payment gateways'),
+    (2, 'PCI Compliance', 'Handling cardholder data within PCI-DSS controls'),
+    (3, 'Ledger Accounting Systems', 'Double-entry ledgers and reconciliation'),
+    (4, 'API Design', 'Designing stable, versioned service interfaces'),
+    (5, 'SQL & Database Design', 'Relational schema design and query optimisation'),
+    (6, 'Data Pipelines', 'Building and operating ETL/ELT pipelines'),
+    (7, 'Distributed Systems', 'Consistency, partitioning, and failure handling at scale'),
+    (8, 'Frontend Development', 'Building client applications'),
+    (9, 'UI/UX Design', 'Interaction and visual design for user-facing products'),
+    (10, 'Kubernetes', 'Operating containerised workloads on Kubernetes'),
+    (11, 'CI/CD', 'Build, test, and deployment pipelines'),
+    (12, 'Cloud Infrastructure', 'Provisioning and operating cloud infrastructure')
+  ) AS v(skill_id, name, summary);
+
+-- Compose each capability from its weighted skills (weight 1-3: how much that
+-- skill counts toward the capability's rollup). ------------------------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-06', 'seed', 'set_capability_skill', 'Compose Payments Platform from Payment Gateways(3), PCI Compliance(3), Ledger Accounting Systems(2), API Design(1)',
+     '{"capability_id":1,"weights":{"1":3,"2":3,"3":2,"4":1},"effective":"2026-01-06"}')
+  RETURNING id)
+INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during, audit_id)
+SELECT 1, v.skill_id, v.weight, daterange('2026-01-06', NULL, '[)'), e.id
+FROM e, (VALUES (1, 3), (2, 3), (3, 2), (4, 1)) AS v(skill_id, weight);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-06', 'seed', 'set_capability_skill', 'Compose Data Engineering from SQL & Database Design(3), Data Pipelines(3), Distributed Systems(2)',
+     '{"capability_id":2,"weights":{"5":3,"6":3,"7":2},"effective":"2026-01-06"}')
+  RETURNING id)
+INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during, audit_id)
+SELECT 2, v.skill_id, v.weight, daterange('2026-01-06', NULL, '[)'), e.id
+FROM e, (VALUES (5, 3), (6, 3), (7, 2)) AS v(skill_id, weight);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-06', 'seed', 'set_capability_skill', 'Compose Frontend Delivery from Frontend Development(3), UI/UX Design(2), API Design(1)',
+     '{"capability_id":3,"weights":{"8":3,"9":2,"4":1},"effective":"2026-01-06"}')
+  RETURNING id)
+INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during, audit_id)
+SELECT 3, v.skill_id, v.weight, daterange('2026-01-06', NULL, '[)'), e.id
+FROM e, (VALUES (8, 3), (9, 2), (4, 1)) AS v(skill_id, weight);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-06', 'seed', 'set_capability_skill', 'Compose Platform Infrastructure from Kubernetes(3), CI/CD(2), Cloud Infrastructure(3), Distributed Systems(1)',
+     '{"capability_id":4,"weights":{"10":3,"11":2,"12":3,"7":1}}')
+  RETURNING id)
+INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during, audit_id)
+SELECT 4, v.skill_id, v.weight, daterange('2026-01-06', NULL, '[)'), e.id
+FROM e, (VALUES (10, 3), (11, 2), (12, 3), (7, 1)) AS v(skill_id, weight);
+
+-- Assess the three engineers against the skill catalog. Ranges are bounded to
+-- each engineer's employment upper (2027-01-01) to satisfy the PERIOD FK — open-
+-- ended uppers would violate engineer_skill_within_employment. -----------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 1 (Priya): strong across Payments, developing on Data',
+     '{"engineer_id":1,"levels":{"1":4,"2":3,"3":4,"4":3,"5":2,"8":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 1, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 4), (2, 3), (3, 4), (4, 3), (5, 2), (8, 2)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 2 (Marcus): growing into Data Engineering',
+     '{"engineer_id":2,"levels":{"5":4,"6":3,"7":3,"4":2,"11":2,"12":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 2, v.skill_id, v.level, daterange('2026-01-12', v.valid_to, '[)'), e.id
+FROM e, (VALUES (5, 4, '2027-01-01'::date), (6, 3, '2026-05-01'::date), (7, 3, '2027-01-01'::date), (4, 2, '2027-01-01'::date), (11, 2, '2027-01-01'::date), (12, 2, '2027-01-01'::date)) AS v(skill_id, level, valid_to);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 3 (Aisha): broad senior coverage across Data and Platform Infrastructure, light on Payments',
+     '{"engineer_id":3,"levels":{"7":4,"10":4,"11":3,"12":4,"6":3,"5":3,"1":1},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 3, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (7, 4), (10, 4), (11, 3), (12, 4), (6, 3), (5, 3), (1, 1)) AS v(skill_id, level);
+
+-- Re-assess Marcus on Data Pipelines from 2026-05-01: 3 -> 4, closing his first
+-- assessed span and opening a new one to the employment upper (the same
+-- delete-then-insert shape the runtime upsert applies, written out by hand). ----
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-05-01', 'seed', 'assess_skill', 'Reassess engineer 2 (Marcus) on Data Pipelines: 3 -> 4 from 2026-05-01',
+     '{"engineer_id":2,"skill_id":6,"level":4,"effective":"2026-05-01"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 2, 6, 4, daterange('2026-05-01', '2027-01-01', '[)'), e.id FROM e;
