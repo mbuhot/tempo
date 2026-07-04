@@ -1994,7 +1994,7 @@ selection state; /schedule route and sidebar entry."
 - Consumes: `api.post`, `shared_schedule.preview_result_decoder()`, `candidate_decoder()`, `policy`/`access` permission constants (`access.allocation_manage`, `access.engagement_manage`) for gating controls, `AssignToProject`/`ChangeAllocationFraction`/`RescheduleProject` command constructors.
 - Produces: the complete interaction: select project → inspector (run dates, Team seats, Capabilities bars) → nominate from candidates → drafts accumulate → debounced preview re-render → Apply changes / clearing.
 
-- [ ] **Step 1: Extend Model/Msg**
+- [x] **Step 1: Extend Model/Msg**
 
 ```gleam
 pub type Inspector {
@@ -2038,7 +2038,7 @@ pub type RunBound {
 }
 ```
 
-- [ ] **Step 2: Scenario mechanics in `update`**
+- [x] **Step 2: Scenario mechanics in `update`**
 
 - `ProjectSelected` now also seeds `inspector: Some(Inspector(run_from: time.iso_date(project.run_from), run_to: time.iso_date(project.run_to), picker: None))` from the loaded schedule.
 - `NominateOpened(level:, fraction:)`: store the picker, fire `api.get("/api/schedule/candidates?as_of=" <> time.iso_date(model.as_of) <> "&project=" <> int.to_string(project_id) <> "&level=" <> int.to_string(level) <> "&from=" <> from <> "&to=" <> to, decode.list(schedule_view.candidate_decoder()), CandidatesFetched)` where `from`/`to` are the selected project's run bounds (ISO strings from the inspector) clamped: `from = max(as_of, run_from)` — compute by string comparison of ISO dates (lexicographic order is date order for ISO-8601; a one-line `fn max_iso(a, b)`).
@@ -2071,7 +2071,7 @@ fn preview(model: Model) -> Effect(Msg) {
 - `Applied(result:)`: on Ok — clear `scenario`, `outcomes`, `applying`, keep `preview_on: False`, `fetch(model.as_of)`, emit `[page.OperationCommitted]`; on Error — `applying: False` and surface the error detail in the inspector (store in a `Model.apply_error: Option(String)` field shown beside the Apply button).
 - `refetch` (as-of scrub): when the scenario is non-empty and `preview_on`, re-POST the preview at the new date instead of the plain GET.
 
-- [ ] **Step 3: Inspector view**
+- [x] **Step 3: Inspector view**
 
 Aside layout: wrap the Task 7 project column and a new aside in the existing `.detail-grid` convention (`components.scss`). The aside (`.schedule-inspector`) renders for `model.selected`:
 
@@ -2082,12 +2082,12 @@ Aside layout: wrap the Task 7 project column and a new aside in the existing `.d
 - **Drafted seats**: while `preview_on` and the scenario contains an `AssignToProject` for the selected project, render that seat row with the accent "draft" treatment and a remove `✕` (`DraftRemoved(index)`).
 - Stats-strip actions (from Task 7's placeholder): the Preview toggle (checkbox bound to `preview_on` → `PreviewToggled`) and `Apply changes` button (`ApplyRequested`, disabled when `model.scenario == []` or `model.applying`), gated on `access.allocation_manage`.
 
-- [ ] **Step 4: Gates + visual check**
+- [x] **Step 4: Gates + visual check**
 
 Run: `bin/build > /tmp/build.log 2>&1; tail -3 /tmp/build.log && TEMPO_DB_PORT=5435 bin/test > /tmp/t8.log 2>&1; tail -5 /tmp/t8.log`
 Expected: green. Manual check on `bin/serve`: select Edge Analytics → four open seats → Nominate on an L3 seat → candidates listed (Aisha, Priya, Marcus, all 0% free with ▲) → pick Marcus → preview flips on, his lane appears with accent cells from Aug 03, the L3 gap row drops 2.0 → 1.5, his over-allocation ▲ shows (he's 1.0 on Data Platform); edit Edge Analytics' start date to 2026-05-01 → annotation pill "outside the containing period..." appears on the project header; Apply changes with only the nomination drafted → gap stays at 1.5 after reload.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/src/client/page/schedule.gleam client/styles/schedule.scss

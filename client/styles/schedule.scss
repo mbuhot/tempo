@@ -41,6 +41,18 @@
     align-items: center;
     gap: var(--space-sm);
 }
+.schedule-stats__preview {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    cursor: pointer;
+}
+.schedule-stats__error {
+    font-size: var(--text-xs);
+    color: var(--color-danger);
+}
 
 .schedule-projects {
     display: flex;
@@ -166,4 +178,180 @@
 .schedule-cell--gap {
     color: var(--color-danger);
     font-weight: var(--weight-medium);
+}
+
+// --- Inspector ---------------------------------------------------------------
+
+.schedule-inspector {
+    @include hairline;
+    background: var(--color-surface);
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.schedule-inspector__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+.schedule-inspector__title {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-base);
+}
+.schedule-inspector__client {
+    color: var(--color-faint);
+    font-size: var(--text-xs);
+}
+.schedule-inspector__tag {
+    margin-left: auto;
+    @include mono-xs;
+    color: var(--color-accent);
+}
+.schedule-inspector__dates {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.schedule-inspector__arrow {
+    color: var(--color-faint);
+}
+.schedule-inspector__error {
+    margin-top: var(--space-xs);
+    font-size: var(--text-xs);
+    color: var(--color-warn);
+}
+
+.schedule-seats__title,
+.schedule-caps__title {
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-xs);
+}
+.schedule-seats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.schedule-seat {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-sunken);
+    font-size: var(--text-sm);
+}
+.schedule-seat--open {
+    border: var(--border-thin) dashed var(--color-border);
+    background: transparent;
+}
+.schedule-seat--draft {
+    border: var(--border-thin) solid var(--color-accent);
+    background: var(--color-accent-soft);
+}
+.schedule-seat__level {
+    @include mono-xs;
+    color: var(--color-muted);
+}
+.schedule-seat__name {
+    font-weight: var(--weight-medium);
+}
+.schedule-seat__fraction {
+    color: var(--color-muted);
+}
+.schedule-seat__nominate {
+    margin-left: auto;
+}
+.schedule-seat__remove {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--color-danger);
+    cursor: pointer;
+}
+
+.schedule-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm) var(--space-sm);
+}
+.schedule-candidates__status {
+    font-size: var(--text-xs);
+    color: var(--color-faint);
+}
+.schedule-candidates__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+.schedule-candidates__candidate {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    text-align: left;
+}
+.schedule-candidates__name {
+    font-weight: var(--weight-medium);
+}
+.schedule-candidates__level {
+    @include mono-xs;
+    color: var(--color-muted);
+}
+.schedule-candidates__free {
+    margin-left: auto;
+    color: var(--color-muted);
+}
+.schedule-candidates__warn {
+    color: var(--color-warn);
+}
+
+.schedule-caps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.schedule-caps__row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+}
+.schedule-caps__label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+}
+.schedule-caps__bar {
+    position: relative;
+    height: var(--space-sm);
+    background: var(--color-surface-sunken);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+.schedule-caps__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    border-radius: var(--radius-pill);
+}
+.schedule-caps__fill--ok {
+    background: var(--color-ok);
+}
+.schedule-caps__fill--danger {
+    background: var(--color-danger);
+}
+.schedule-caps__tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: var(--border-thin);
+    background: var(--color-text);
 }
