@@ -50,15 +50,16 @@ import tempo/server/fact.{
   CapabilitySkillSet, ClientId, ClientProfile, ContractId, ContractTerms,
   EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
   EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
-  EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
-  EngineerSkillAssessed, EngineerWorkedHours, InvoiceId, InvoiceInStatus,
-  InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment, PayrollPeriod,
-  PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
+  EngineerEmployed, EngineerId, EngineerLocated, EngineerOffProject,
+  EngineerOnLeave, EngineerSkillAssessed, EngineerWorkedHours, InvoiceId,
+  InvoiceInStatus, InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment,
+  PayrollPeriod, PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
   ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary, SkillId,
   SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
+import tempo/server/location/sql as location_sql
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/payroll/sql as payroll_sql
 import tempo/server/project/sql as project_sql
@@ -616,6 +617,24 @@ fn write(
         audit_id,
       )
       |> require_covering_version
+
+    EngineerLocated(
+      engineer_id: EngineerId(engineer_id),
+      country:,
+      region:,
+      timezone:,
+      from:,
+    ) ->
+      location_sql.engineer_location_upsert(
+        conn,
+        engineer_id,
+        from,
+        country,
+        option.unwrap(region, ""),
+        timezone,
+        audit_id,
+      )
+      |> operation.run
   }
 }
 

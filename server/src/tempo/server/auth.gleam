@@ -20,10 +20,10 @@ import shared/capability/command as capability_command
 import shared/command.{
   type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
-  ProjectCapabilityCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
-  WorkflowCommand,
+  EngineerSkillCommand, InvoiceCommand, LeaveCommand, LocationCommand,
+  PayrollCommand, ProjectCapabilityCommand, ProjectDetailsCommand,
+  ProjectRequirementCommand, RateCardCommand, RoleCommand, SalaryCommand,
+  SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
@@ -141,5 +141,6 @@ fn command_tag(command: Command) -> String {
     SkillCommand(skill_command.RetireSkill(..)) -> "retire_skill"
     EngineerSkillCommand(engineer_skill_command.AssessSkill(..)) ->
       "assess_skill"
+    LocationCommand(_) -> "set_engineer_location"
   }
 }

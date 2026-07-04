@@ -280,4 +280,15 @@ pub type Fact {
     level: Int,
     from: Date,
   )
+
+  // --- scheduling ---------------------------------------------------------------
+  /// The engineer is located in `country`/`region` on IANA TZID `timezone` from
+  /// `from` onward (change from a date onward; a relocation re-opens it).
+  EngineerLocated(
+    engineer_id: EngineerId,
+    country: String,
+    region: Option(String),
+    timezone: String,
+    from: Date,
+  )
 }
