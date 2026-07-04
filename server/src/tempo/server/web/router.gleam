@@ -31,6 +31,7 @@ import tempo/server/payroll/http as payroll
 import tempo/server/people/http as people
 import tempo/server/pnl/http as pnl
 import tempo/server/project/http as projects
+import tempo/server/project_capability/http as project_capability_http
 import tempo/server/roster/http as roster
 import tempo/server/settings/http as settings
 import tempo/server/timesheet/http as timesheet
@@ -209,6 +210,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "projects", id] -> {
       use _principal <- guard.require(context, access.read_projects)
       projects.handle_detail(request, context, id)
+    }
+    ["api", "projects", id, "coverage"] -> {
+      use _principal <- guard.require(context, access.read_projects)
+      project_capability_http.handle(request, context, id)
     }
     ["api", "settings"] -> {
       use _principal <- guard.require(context, access.read_finances)
