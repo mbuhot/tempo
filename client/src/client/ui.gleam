@@ -45,6 +45,7 @@ import shared/leave/command as leave_command
 import shared/level
 import shared/money
 import shared/payroll/command as payroll_command
+import shared/project_capability/command as project_capability_command
 import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
@@ -422,6 +423,7 @@ pub type OpKind {
   OpSetSalary
   OpSetProjectRequirement
   OpAssessSkill
+  OpSetProjectCapability
 }
 
 // --- Op authorization (client-side launcher gating) -------------------------
@@ -450,6 +452,7 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
     OpUpdateProjectProfile -> policy.ManageProject
     OpUpdateProjectPlan -> policy.ManageProject
     OpSetProjectRequirement -> policy.ManageProject
+    OpSetProjectCapability -> policy.ManageProject
     OpDraftInvoice -> policy.ManageInvoice
     OpIssueInvoice -> policy.ManageInvoice
     OpPayInvoice -> policy.ManageInvoice
@@ -549,6 +552,7 @@ pub type OpField {
   FClient
   FClientId
   FSkillId
+  FCapabilityId
   FLevel
   FFraction
   FDayRate
@@ -588,6 +592,7 @@ pub type OpForm {
     client: String,
     client_id: String,
     skill_id: String,
+    capability_id: String,
     level: String,
     fraction: String,
     day_rate: String,
@@ -642,6 +647,7 @@ pub fn blank_op_form(
     client: "",
     client_id: "",
     skill_id: "",
+    capability_id: "",
     level: "",
     fraction: "",
     day_rate: "",
@@ -680,6 +686,7 @@ pub fn update_op_form(form: OpForm, field: OpField, value: String) -> OpForm {
     FClient -> OpForm(..form, client: value)
     FClientId -> OpForm(..form, client_id: value)
     FSkillId -> OpForm(..form, skill_id: value)
+    FCapabilityId -> OpForm(..form, capability_id: value)
     FLevel -> OpForm(..form, level: value)
     FFraction -> OpForm(..form, fraction: value)
     FDayRate -> OpForm(..form, day_rate: value)
@@ -1037,6 +1044,29 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
           project_requirement_command.SetProjectRequirement(
             project_id:,
             level:,
+            quantity:,
+            valid_from:,
+            valid_to:,
+          ),
+        ),
+      )
+    }
+    OpSetProjectCapability -> {
+      use project_id <- result.try(require_int(form.project_id, "project id"))
+      use capability_id <- result.try(require_int(
+        form.capability_id,
+        "capability",
+      ))
+      use target_level <- result.try(require_int(form.level, "target level"))
+      use quantity <- result.try(require_float(form.fraction, "quantity"))
+      use valid_from <- result.try(require_date(form.valid_from, "valid from"))
+      use valid_to <- result.try(require_date(form.valid_to, "valid to"))
+      Ok(
+        gateway.ProjectCapabilityCommand(
+          project_capability_command.SetProjectCapability(
+            project_id:,
+            capability_id:,
+            target_level:,
             quantity:,
             valid_from:,
             valid_to:,

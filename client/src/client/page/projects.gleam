@@ -1,10 +1,19 @@
 //// The Projects page (FR-CP5..): the project list as of the global rail date and
-//// a single project's detail with its team and invoices. Writes: StartProject,
-//// AssignToProject, ChangeAllocationFraction, UpdateProjectProfile,
-//// UpdateProjectPlan, DraftInvoice. Invoice drill-in navigates via
-//// OutMsg Navigate(route.Finance(Invoices, Some(invoice_id))); a team card via
+//// a single project's detail with its team, invoices, and capability coverage.
+//// Writes: StartProject, AssignToProject, ChangeAllocationFraction,
+//// UpdateProjectProfile, UpdateProjectPlan, DraftInvoice, SetProjectRequirement,
+//// SetProjectCapability. Invoice drill-in navigates via OutMsg
+//// Navigate(route.Finance(Invoices, Some(invoice_id))); a team card via
 //// Navigate(route.People(Some(engineer_id))) — the id rides in the route, so no
 //// shell edit is needed.
+////
+//// The detail view is Overview/Capability-coverage tabbed (mirroring the People
+//// detail's Overview/Skills split): the Overview tab holds the existing
+//// team/capacity/invoices/plan panels, the Coverage tab renders the project's
+//// capability requirements as coverage bars — target level, have-N-of-M, gap
+//// highlight, covering engineers with proficiency and allocation share — fetched
+//// from `GET /api/projects/:id/coverage?as_of=` alongside the detail and roster,
+//// with the same as-of/project-id staleness guard.
 ////
 //// Each view fetches its read model AND the as-of `Roster` (the directory of
 //// employed engineers, active projects, and clients as `Ref`s — id + name) so the
@@ -40,6 +49,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
+import gleam/string
 import gleam/time/calendar
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -52,7 +62,11 @@ import shared/money
 import shared/project/view.{
   type ProjectDetail, type ProjectRequirement, type TeamMember,
 } as project_view
-import shared/roster/view.{type Ref, type Roster} as roster_view
+import shared/project_capability/view.{
+  type CapabilityChoice, type CoverageEngineer, type CoverageRequirement,
+  type CoverageSnapshot, CoverageEngineer, CoverageRequirement, CoverageSnapshot,
+} as coverage_view
+import shared/roster/view.{type Ref, type Roster, Ref} as roster_view
 import shared/settings/view.{type RateCardRow} as settings_view
 import shared/workflow/kind as wkind
 
@@ -82,7 +96,17 @@ pub type Model {
     detail: Load(ProjectDetail),
     roster: Load(Roster),
     op: Option(ui.OpState),
+    tab: Tab,
+    coverage: Load(CoverageSnapshot),
   )
+}
+
+/// The project-detail mode's tabs: `Overview` holds the existing team / capacity /
+/// invoices panels, `Coverage` the capability-coverage read (demand vs. the
+/// current team, per requirement).
+pub type Tab {
+  Overview
+  Coverage
 }
 
 /// A loadable region: still fetching, loaded with the data and the as_of it
@@ -108,6 +132,11 @@ pub type Msg {
     result: Result(ProjectDetail, rsvp.Error(String)),
     as_of: calendar.Date,
   )
+  CoverageFetched(
+    project_id: Int,
+    result: Result(CoverageSnapshot, rsvp.Error(String)),
+    as_of: calendar.Date,
+  )
   RosterFetched(
     result: Result(Roster, rsvp.Error(String)),
     as_of: calendar.Date,
@@ -117,6 +146,7 @@ pub type Msg {
     result: Result(List(RateCardRow), rsvp.Error(String)),
   )
   BackToListClicked
+  TabClicked(tab: Tab)
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
   OpStarted(permit: ui.Permit)
@@ -147,8 +177,14 @@ pub fn init(
         detail: Loading,
         roster: Loading,
         op: None,
+        tab: Overview,
+        coverage: Loading,
       ),
-      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
+      effect.batch([
+        fetch_detail(project_id, as_of),
+        fetch_roster(as_of),
+        fetch_coverage(project_id, as_of),
+      ]),
     )
     _ -> {
       let #(host, host_effect) = table_host.init("/api/projects/table", as_of)
@@ -201,7 +237,7 @@ pub fn refetch(
         ]),
       )
     }
-    DetailView(project_id:, op:, ..) -> #(
+    DetailView(project_id:, op:, tab:, ..) -> #(
       DetailView(
         actor:,
         as_of:,
@@ -209,8 +245,14 @@ pub fn refetch(
         detail: Loading,
         roster: Loading,
         op:,
+        tab:,
+        coverage: Loading,
       ),
-      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
+      effect.batch([
+        fetch_detail(project_id, as_of),
+        fetch_roster(as_of),
+        fetch_coverage(project_id, as_of),
+      ]),
     )
   }
 }
@@ -223,6 +265,17 @@ fn fetch_detail(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
       <> iso_date(as_of),
     project_view.project_detail_decoder(),
     fn(result) { DetailFetched(project_id:, result:, as_of:) },
+  )
+}
+
+fn fetch_coverage(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/projects/"
+      <> int.to_string(project_id)
+      <> "/coverage?as_of="
+      <> iso_date(as_of),
+    coverage_view.coverage_snapshot_decoder(),
+    fn(result) { CoverageFetched(project_id:, result:, as_of:) },
   )
 }
 
@@ -348,6 +401,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
+    CoverageFetched(project_id:, result:, as_of:) ->
+      case model {
+        DetailView(project_id: current, as_of: current_as_of, ..)
+          if current == project_id && current_as_of == as_of
+        -> {
+          let coverage = load_result(result)
+          let updated = set_coverage(model, coverage)
+          let op = reprefill_capability_id(current_op(updated), coverage)
+          #(set_op(updated, op), effect.none(), [])
+        }
+        _ -> #(model, effect.none(), [])
+      }
+
     RosterFetched(result:, as_of:) ->
       case as_of == view_as_of(model) {
         True -> #(set_roster(model, load_result(result)), effect.none(), [])
@@ -357,6 +423,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     BackToListClicked -> #(model, effect.none(), [
       Navigate(route.Projects(id: None)),
     ])
+
+    TabClicked(tab:) ->
+      case model {
+        DetailView(..) -> #(DetailView(..model, tab:), effect.none(), [])
+        _ -> #(model, effect.none(), [])
+      }
 
     TeamCardClicked(engineer_id:) -> #(model, effect.none(), [
       Navigate(route.People(id: Some(engineer_id))),
@@ -471,7 +543,7 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
         ]),
       )
     }
-    DetailView(actor:, as_of:, project_id:, op:, ..) -> #(
+    DetailView(actor:, as_of:, project_id:, op:, tab:, ..) -> #(
       DetailView(
         actor:,
         as_of:,
@@ -479,8 +551,14 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
         detail: Loading,
         roster: Loading,
         op:,
+        tab:,
+        coverage: Loading,
       ),
-      effect.batch([fetch_detail(project_id, as_of), fetch_roster(as_of)]),
+      effect.batch([
+        fetch_detail(project_id, as_of),
+        fetch_roster(as_of),
+        fetch_coverage(project_id, as_of),
+      ]),
     )
   }
 }
@@ -520,6 +598,13 @@ fn set_roster(model: Model, roster: Load(Roster)) -> Model {
   }
 }
 
+fn set_coverage(model: Model, coverage: Load(CoverageSnapshot)) -> Model {
+  case model {
+    DetailView(..) -> DetailView(..model, coverage:)
+    _ -> model
+  }
+}
+
 // --- Op-form launch ----------------------------------------------------------
 
 /// A fresh op form for `kind`. The project select is pre-filled and locked from
@@ -535,6 +620,7 @@ fn open_op(
   let form = ui.blank_op_form(kind, view_as_of(model))
   let form = seed_project(model, form)
   let form = seed_detail_fields(model, kind, form)
+  let form = prefill_capability_id(form, kind, coverage_of(model))
   let form = case engineer_id {
     Some(id) -> ui.update_op_form(form, ui.FEngineerId, int.to_string(id))
     None -> form
@@ -582,9 +668,65 @@ fn seed_detail_fields(
           form
           |> ui.update_op_form(ui.FLevel, "3")
           |> ui.update_op_form(ui.FFraction, "1")
+        ui.OpSetProjectCapability ->
+          form
+          |> ui.update_op_form(ui.FLevel, "3")
+          |> ui.update_op_form(ui.FFraction, "1")
         _ -> form
       }
     _ -> form
+  }
+}
+
+/// Pre-select the first cataloged capability for `OpSetProjectCapability` so the
+/// `<select>` opens on a valid capability id rather than blank. Other kinds (and an
+/// unloaded coverage snapshot) leave the form untouched.
+fn prefill_capability_id(
+  form: ui.OpForm,
+  kind: ui.OpKind,
+  coverage: Load(CoverageSnapshot),
+) -> ui.OpForm {
+  case kind, coverage {
+    ui.OpSetProjectCapability,
+      Loaded(value: CoverageSnapshot(catalog: [first, ..], ..))
+    ->
+      ui.update_op_form(
+        form,
+        ui.FCapabilityId,
+        int.to_string(first.capability_id),
+      )
+    _, _ -> form
+  }
+}
+
+/// Re-run the capability prefill on an already-open op modal once the coverage
+/// snapshot finishes loading after the modal opened: an `OpSetProjectCapability`
+/// form whose `capability_id` is still unset (the catalog was `Loading` at open
+/// time) gets seeded with the newly-loaded first capability. Any other modal (or an
+/// already-seeded one) is left untouched.
+fn reprefill_capability_id(
+  op: Option(ui.OpState),
+  coverage: Load(CoverageSnapshot),
+) -> Option(ui.OpState) {
+  case op {
+    Some(ui.OpState(kind: ui.OpSetProjectCapability, form:, error:))
+      if form.capability_id == ""
+    ->
+      Some(ui.OpState(
+        kind: ui.OpSetProjectCapability,
+        form: prefill_capability_id(form, ui.OpSetProjectCapability, coverage),
+        error:,
+      ))
+    _ -> op
+  }
+}
+
+/// The coverage snapshot load state for the open model, `Loading` on the list page
+/// (which never composes `OpSetProjectCapability`).
+fn coverage_of(model: Model) -> Load(CoverageSnapshot) {
+  case model {
+    DetailView(coverage:, ..) -> coverage
+    ListView(..) -> Loading
   }
 }
 
@@ -630,8 +772,8 @@ pub fn view(
   case model {
     ListView(host:, roster:, op:, wizard:, rates:, ..) ->
       view_list(host, roster, op, wizard, rates, as_of, permissions)
-    DetailView(detail:, roster:, op:, ..) ->
-      view_detail(detail, roster, op, as_of, permissions)
+    DetailView(detail:, roster:, op:, tab:, coverage:, ..) ->
+      view_detail(detail, roster, op, tab, coverage, as_of, permissions)
   }
 }
 
@@ -679,7 +821,7 @@ fn view_list(
   html.div([], [
     view_wizard(wizard_open, rates, permissions),
     page,
-    op_modal(op, roster, None),
+    op_modal(op, roster, Loading, None),
   ])
 }
 
@@ -730,6 +872,8 @@ fn view_detail(
   detail: Load(ProjectDetail),
   roster: Load(Roster),
   op: Option(ui.OpState),
+  tab: Tab,
+  coverage: Load(CoverageSnapshot),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -741,7 +885,8 @@ fn view_detail(
     Loading -> ui.empty_state(message: "Loading project…")
     Failed(message:) ->
       ui.empty_state(message: "Could not load project: " <> message)
-    Loaded(value:) -> view_project_detail(value, roster, op, as_of, permissions)
+    Loaded(value:) ->
+      view_project_detail(value, roster, op, tab, coverage, as_of, permissions)
   }
   html.div([], [back, body])
 }
@@ -750,6 +895,8 @@ fn view_project_detail(
   detail: ProjectDetail,
   roster: Load(Roster),
   op: Option(ui.OpState),
+  tab: Tab,
+  coverage: Load(CoverageSnapshot),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -851,9 +998,36 @@ fn view_project_detail(
   html.div([], [
     head,
     stats,
-    grid,
-    op_modal(op, roster, Some(detail.profile.project_id)),
+    view_tabs(tab),
+    subpage(tab == Overview, grid),
+    subpage(tab == Coverage, coverage_panel(coverage, permissions, as_of)),
+    op_modal(op, roster, coverage, Some(detail.profile.project_id)),
   ])
+}
+
+fn view_tabs(active: Tab) -> Element(Msg) {
+  html.div([attribute.class("tabs")], [
+    tab_button("Overview", Overview, active),
+    tab_button("Capability coverage", Coverage, active),
+  ])
+}
+
+fn tab_button(label: String, tab: Tab, active: Tab) -> Element(Msg) {
+  let class = case tab == active {
+    True -> "tabs__tab tabs__tab--active"
+    False -> "tabs__tab"
+  }
+  html.button([attribute.class(class), event.on_click(TabClicked(tab))], [
+    html.text(label),
+  ])
+}
+
+fn subpage(active: Bool, body: Element(Msg)) -> Element(Msg) {
+  let class = case active {
+    True -> "subpage subpage--active"
+    False -> "subpage"
+  }
+  html.div([attribute.class(class)], [body])
 }
 
 fn team_panel(
@@ -971,6 +1145,161 @@ fn requirement_row(requirement: ProjectRequirement) -> Element(Msg) {
   ])
 }
 
+/// The Capability coverage tab's panel: per required capability, a coverage bar
+/// (have N of M engineers at ≥ target), the covering engineers with their
+/// proficiency and allocation share, and the below-target engineers, gated behind
+/// the "Set requirement" launcher (`project.manage`).
+fn coverage_panel(
+  coverage: Load(CoverageSnapshot),
+  permissions: Set(String),
+  as_of: calendar.Date,
+) -> Element(Msg) {
+  case coverage {
+    Loading ->
+      ui.panel(title: "Capability coverage", count: "", right: [], body: [
+        ui.empty_state(message: "Loading coverage…"),
+      ])
+    Failed(message:) ->
+      ui.panel(title: "Capability coverage", count: "", right: [], body: [
+        ui.empty_state(message: "Could not load coverage: " <> message),
+      ])
+    Loaded(value: CoverageSnapshot(requirements:, ..)) -> {
+      let launcher =
+        ui.launch(
+          ui.permit(permissions, own: False, kind: ui.OpSetProjectCapability),
+          to_msg: OpStarted,
+          label: "Set requirement",
+          kind: ui.Ghost,
+          size: ui.Small,
+        )
+      let note =
+        html.span([attribute.class("note")], [
+          html.text("as of " <> time.format_date(as_of)),
+        ])
+      let body = case requirements {
+        [] -> [ui.empty_state(message: "No capability requirements.")]
+        rows -> [
+          html.div(
+            [attribute.class("coverage")],
+            list.index_map(rows, coverage_row),
+          ),
+        ]
+      }
+      ui.panel(
+        title: "Capability coverage",
+        count: int.to_string(list.length(requirements)),
+        right: [note, launcher],
+        body:,
+      )
+    }
+  }
+}
+
+fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
+  let CoverageRequirement(
+    capability_name:,
+    target_level:,
+    quantity:,
+    covering:,
+    others:,
+    ..,
+  ) = requirement
+  let covering_count = list.length(covering)
+  let slots = capability_quantity_slots(quantity)
+  let have_count = int.min(covering_count, slots)
+  let gap = int.max(slots - covering_count, 0)
+  let count_class = case gap {
+    0 -> "coverage__count coverage__count--ok"
+    _ -> "coverage__count coverage__count--gap"
+  }
+  let count_text = case gap {
+    0 ->
+      int.to_string(covering_count)
+      <> " / "
+      <> ui.days(quantity)
+      <> " · covered"
+    _ ->
+      int.to_string(covering_count)
+      <> " / "
+      <> ui.days(quantity)
+      <> " · gap "
+      <> int.to_string(gap)
+  }
+  let bar =
+    list.append(
+      list.repeat(coverage_slot(True), have_count),
+      list.repeat(coverage_slot(False), gap),
+    )
+  let covering_chips =
+    list.map(covering, fn(engineer) { coverage_engineer_chip(engineer) })
+  let below_note = case others {
+    [] -> element.none()
+    engineers ->
+      html.span([attribute.class("note")], [
+        html.text(
+          "below target: "
+          <> string.join(list.map(engineers, engineer_summary), " · "),
+        ),
+      ])
+  }
+  html.div([attribute.class("coverage__row")], [
+    html.div([attribute.class("coverage__head")], [
+      html.span([attribute.class("coverage__cap")], [
+        ui.swatch(category: index, inline: True),
+        html.text(capability_name),
+      ]),
+      html.span([attribute.class("coverage__target")], [
+        html.text(
+          "target L"
+          <> int.to_string(target_level)
+          <> " · need "
+          <> ui.days(quantity),
+        ),
+      ]),
+      html.span([attribute.class(count_class)], [html.text(count_text)]),
+    ]),
+    html.div([attribute.class("coverage__bar")], bar),
+    html.div(
+      [attribute.class("coverage__who")],
+      list.append(covering_chips, [
+        below_note,
+      ]),
+    ),
+  ])
+}
+
+/// The number of bar slots a requirement's `quantity` renders as: the fractional
+/// count of engineers needed, rounded to a whole slot (P2-D3 counts whole
+/// engineers), never fewer than one.
+fn capability_quantity_slots(quantity: Float) -> Int {
+  int.max(float.round(quantity), 1)
+}
+
+fn coverage_slot(have: Bool) -> Element(Msg) {
+  let class = case have {
+    True -> "coverage__slot coverage__slot--have"
+    False -> "coverage__slot coverage__slot--gap"
+  }
+  html.div([attribute.class(class)], [])
+}
+
+fn coverage_engineer_chip(engineer: CoverageEngineer) -> Element(Msg) {
+  let CoverageEngineer(name:, proficiency:, allocation:, ..) = engineer
+  ui.chip(
+    label: name
+      <> " · "
+      <> ui.days(proficiency)
+      <> " · "
+      <> ui.fraction(allocation),
+    tone: ui.Accent,
+  )
+}
+
+fn engineer_summary(engineer: CoverageEngineer) -> String {
+  let CoverageEngineer(name:, proficiency:, ..) = engineer
+  name <> " " <> ui.days(proficiency)
+}
+
 fn invoices_panel(invoices: List(Invoice)) -> Element(Msg) {
   let body = case invoices {
     [] -> ui.empty_state(message: "No invoices.")
@@ -1048,6 +1377,7 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
 fn op_modal(
   op: Option(ui.OpState),
   roster: Load(Roster),
+  coverage: Load(CoverageSnapshot),
   locked_project_id: Option(Int),
 ) -> Element(Msg) {
   case op {
@@ -1056,7 +1386,7 @@ fn op_modal(
       ui.modal(
         title: op_title(kind),
         error: error_text(error),
-        body: op_fields(kind, form, roster, locked_project_id),
+        body: op_fields(kind, form, roster, coverage, locked_project_id),
         on_cancel: OpCancelled,
         on_confirm: OpSubmitted,
         confirm_label: op_verb(kind),
@@ -1080,6 +1410,7 @@ fn op_fields(
   kind: ui.OpKind,
   form: ui.OpForm,
   roster: Load(Roster),
+  coverage: Load(CoverageSnapshot),
   locked_project_id: Option(Int),
 ) -> List(Element(Msg)) {
   let engineers = roster_engineers(roster)
@@ -1141,6 +1472,14 @@ fn op_fields(
       date_field("Valid from", ui.FValidFrom, form.valid_from),
       date_field("Valid to", ui.FValidTo, form.valid_to),
     ]
+    ui.OpSetProjectCapability -> [
+      project_select,
+      capability_select(form.capability_id, coverage),
+      target_level_select(form.level),
+      number_field("Quantity", ui.FFraction, form.fraction),
+      date_field("Valid from", ui.FValidFrom, form.valid_from),
+      date_field("Valid to", ui.FValidTo, form.valid_to),
+    ]
     _ -> []
   }
 }
@@ -1168,6 +1507,71 @@ fn level_select(selected: String) -> Element(Msg) {
       options,
     ),
   ])
+}
+
+/// A labelled `<select>` over the coverage snapshot's capability catalog, bound to
+/// the `FCapabilityId` slot. Sourced from the read-side catalog rather than the
+/// `skills.manage`-gated taxonomy, so a `project.manage`-only presenter can still
+/// set a requirement.
+fn capability_select(
+  selected: String,
+  coverage: Load(CoverageSnapshot),
+) -> Element(Msg) {
+  ui.ref_select(
+    label: "Capability",
+    field: ui.FCapabilityId,
+    refs: capability_refs(coverage),
+    selected:,
+    to_msg: edit,
+  )
+}
+
+fn capability_refs(coverage: Load(CoverageSnapshot)) -> List(Ref) {
+  case coverage {
+    Loaded(value:) -> list.map(value.catalog, capability_ref)
+    _ -> []
+  }
+}
+
+fn capability_ref(choice: CapabilityChoice) -> Ref {
+  Ref(id: choice.capability_id, name: choice.name)
+}
+
+/// A labelled `<select>` over target levels 0–4, bound to the `FLevel` slot. Built
+/// locally (rather than in `ui.gleam`) because the option labels are the
+/// capability-proficiency scale, distinct from the engineer seniority `level_band`
+/// levels 1–7 the requirement form's `level_select` renders.
+fn target_level_select(selected: String) -> Element(Msg) {
+  let options =
+    [0, 1, 2, 3, 4]
+    |> list.map(fn(level) {
+      let value = int.to_string(level)
+      html.option(
+        [attribute.value(value), attribute.selected(value == selected)],
+        int.to_string(level) <> " · " <> capability_level_label(level),
+      )
+    })
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Target level")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Target level"),
+        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+      ],
+      options,
+    ),
+  ])
+}
+
+fn capability_level_label(level: Int) -> String {
+  case level {
+    0 -> "none"
+    1 -> "learning"
+    2 -> "with supervision"
+    3 -> "independent"
+    4 -> "expert · can teach"
+    _ -> ""
+  }
 }
 
 /// The project select: a free `<select>` over the roster on the list page, or a
@@ -1277,6 +1681,7 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpUpdateProjectPlan -> "Edit project plan"
     ui.OpDraftInvoice -> "Draft an invoice"
     ui.OpSetProjectRequirement -> "Set capacity requirement"
+    ui.OpSetProjectCapability -> "Set capability requirement"
     _ -> "Operation"
   }
 }
@@ -1290,6 +1695,7 @@ fn op_verb(kind: ui.OpKind) -> String {
     ui.OpUpdateProjectPlan -> "Save plan"
     ui.OpDraftInvoice -> "Draft invoice"
     ui.OpSetProjectRequirement -> "Set requirement"
+    ui.OpSetProjectCapability -> "Set requirement"
     _ -> "Confirm"
   }
 }
