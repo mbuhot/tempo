@@ -173,6 +173,47 @@
   body[data-scenario="on"] .b { display: none; }
   body:not([data-scenario="on"]) .p { display: none; }
 
+  /* project inspector */
+  .panel__head[data-proj] { cursor: pointer; }
+  .panel__head[data-proj]:hover { background: var(--surface-2); }
+  .chev { color: var(--ink-faint); font-size: 12px; transition: transform .15s ease; }
+  .panel.sel { border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow); }
+  .panel.sel .chev { color: var(--accent); transform: rotate(90deg); }
+  .insp { display: none; }
+  .insp.show { display: block; }
+  .insp .client { color: var(--ink-faint); font-size: 12px; }
+  .insp-tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 1px 6px; margin-left: auto; }
+  .win { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--ink-muted); flex-wrap: wrap; }
+  .win input[type=date] { font-family: var(--mono); font-size: 11.5px; color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--border-strong); border-radius: 5px; padding: 3px 6px; }
+  .win .arrow { color: var(--ink-faint); }
+  .win-note { flex-basis: 100%; font-size: 11px; color: var(--ink-faint); }
+  .win-err { flex-basis: 100%; font-size: 11.5px; color: var(--busy); font-weight: 500; }
+  .rcards { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; }
+  .rcard { border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); padding: 11px 12px; }
+  .rcard__top { display: flex; align-items: baseline; gap: 8px; }
+  .rcard__top b { font-size: 12.5px; }
+  .rcard__top .tf { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+  .meter { height: 6px; border-radius: 4px; background: var(--busy-soft); margin: 8px 0 4px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; border-radius: 4px; background: var(--ok); }
+  .meter-lbl { font-size: 11px; color: var(--ink-muted); display: flex; justify-content: space-between; gap: 8px; }
+  .meter-lbl .mono { color: var(--ink); }
+  .rcard .note-p { font-size: 11.5px; color: var(--warn); font-weight: 500; margin-top: 6px; }
+  .cands { margin-top: 9px; border-top: 1px dashed var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .cands-t { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
+  .cand { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 7px; border-radius: 6px; border: 1px solid transparent; }
+  .cand:hover { background: var(--surface); }
+  .cand .av { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
+  .cand .meta { color: var(--ink-faint); font-size: 10.5px; margin-left: auto; text-align: right; }
+  .cand .go { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 5px;
+    font-size: 11px; padding: 2px 8px; cursor: pointer; color: var(--accent); flex: none; }
+  .cand.on { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--accent-soft); }
+  .cand.on .go { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cand.dim { opacity: .55; }
+
   /* scenario aside */
   .aside { position: sticky; top: 74px; display: flex; flex-direction: column; gap: 12px; }
   .sc-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
@@ -286,14 +327,13 @@
         <div class="col">
 
           <!-- ============ MERIDIAN ============ -->
-          <section class="panel">
-            <div class="panel__head">
-              <h3>Meridian</h3><span class="client">Acme Corp</span>
+          <section class="panel sel" id="proj-meridian">
+            <div class="panel__head" data-proj="meridian" tabindex="0" role="button" aria-label="Inspect Meridian">
+              <h3>Meridian</h3><span class="chev">▸</span><span class="client">Acme Corp</span>
               <span class="run">Jul 06 → Dec 18</span>
               <div class="reqs">
                 <span class="req req--gap b"><span class="d"></span>Data Platform ×1 @L4 · uncovered 9 wks</span>
                 <span class="req req--warn p"><span class="d"></span>Data Platform ×1 @L4 · 0.5 short 9 wks</span>
-                <span class="req req--ok"><span class="d"></span>L5 ×1 · covered</span>
               </div>
             </div>
             <div class="scroll"><div class="tgrid">
@@ -342,12 +382,11 @@
           </section>
 
           <!-- ============ ATLAS ============ -->
-          <section class="panel">
-            <div class="panel__head">
-              <h3>Atlas</h3><span class="client">Globex</span>
+          <section class="panel" id="proj-atlas">
+            <div class="panel__head" data-proj="atlas" tabindex="0" role="button" aria-label="Inspect Atlas">
+              <h3>Atlas</h3><span class="chev">▸</span><span class="client">Globex</span>
               <span class="run">May 04 → Oct 30</span>
               <div class="reqs">
-                <span class="req req--ok b"><span class="d"></span>L5 ×1 · covered</span>
                 <span class="req req--gap p"><span class="d"></span>L5 ×1 · 0.5 short from Jul 06</span>
                 <span class="req req--warn"><span class="d"></span>Frontend ×1 @L3 · 1 wk gap (leave)</span>
               </div>
@@ -400,9 +439,9 @@
           </section>
 
           <!-- ============ KEPLER ============ -->
-          <section class="panel">
-            <div class="panel__head">
-              <h3>Kepler</h3><span class="client">Initech</span>
+          <section class="panel" id="proj-kepler">
+            <div class="panel__head" data-proj="kepler" tabindex="0" role="button" aria-label="Inspect Kepler">
+              <h3>Kepler</h3><span class="chev">▸</span><span class="client">Initech</span>
               <span class="run">Jun 01 → Aug 28</span>
               <div class="reqs">
                 <span class="req req--warn"><span class="d"></span>Delivery ×1 @L2 · 0.2 short</span>
@@ -443,8 +482,83 @@
           </section>
         </div>
 
-        <!-- ============ SCENARIO BUILDER ============ -->
+        <!-- ============ INSPECTOR + SCENARIO ============ -->
         <div class="aside">
+
+          <section class="panel insp show" id="insp-meridian">
+            <div class="sc-head"><h3>Meridian</h3><span class="client">Acme Corp</span><span class="insp-tag">inspecting</span></div>
+            <div class="win">Run
+              <input type="date" value="2026-07-06" aria-label="run start"> <span class="arrow">→</span>
+              <input type="date" value="2026-12-18" aria-label="run end">
+              <span class="win-note">Client's ideal start. Changing dates drafts a reschedule — requirements and allocations shift with the run.</span>
+            </div>
+            <div class="rcards">
+              <div class="rcard">
+                <div class="rcard__top"><b>Data Platform ×1 @L4</b><span class="tf">Jul 06 → Dec 18</span></div>
+                <div class="meter"><i class="b" style="width:0%"></i><i class="p" style="width:50%"></i></div>
+                <div class="meter-lbl"><span>covered</span>
+                  <span class="mono"><span class="b">0.0</span><span class="p">0.5</span> / 1.0</span></div>
+                <div class="cands">
+                  <div class="cands-t">Qualifying engineers</div>
+                  <div class="cand on"><span class="av" style="background:#2e9e6b;">JH</span>James Holt
+                    <span class="meta">L5 · prof 4.6 · Atlas 100%</span><button class="go">Drafted ✓</button></div>
+                  <div class="cand"><span class="av" style="background:#7a5bd6;">DF</span>Dana Fox
+                    <span class="meta">L4 · prof 4.2 · leave → Aug 03</span><button class="go">Nominate</button></div>
+                  <div class="cand dim"><span class="av" style="background:#1aa0a0;">WZ</span>Wei Zhang
+                    <span class="meta">L3 · prof 2.8 · below target</span></div>
+                </div>
+              </div>
+              <div class="rcard">
+                <div class="rcard__top"><b>Level 5 ×1</b><span class="tf">Jul 06 → Dec 18</span></div>
+                <div class="meter"><i style="width:100%"></i></div>
+                <div class="meter-lbl"><span>covered by Priya Raman</span><span class="mono">1.0 / 1.0</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel insp" id="insp-atlas">
+            <div class="sc-head"><h3>Atlas</h3><span class="client">Globex</span><span class="insp-tag">inspecting</span></div>
+            <div class="win">Run
+              <input type="date" value="2026-05-04" aria-label="run start"> <span class="arrow">→</span>
+              <input type="date" value="2026-10-30" aria-label="run end">
+            </div>
+            <div class="rcards">
+              <div class="rcard">
+                <div class="rcard__top"><b>Level 5 ×1</b><span class="tf">May 04 → Oct 30</span></div>
+                <div class="meter"><i class="b" style="width:100%"></i><i class="p" style="width:50%"></i></div>
+                <div class="meter-lbl"><span>covered by James Holt</span>
+                  <span class="mono"><span class="b">1.0</span><span class="p">0.5</span> / 1.0</span></div>
+                <div class="note-p p">Scenario halves James from Jul 06 — nominate cover here or accept the shortfall.</div>
+              </div>
+              <div class="rcard">
+                <div class="rcard__top"><b>Frontend ×1 @L3</b><span class="tf">May 04 → Oct 30</span></div>
+                <div class="meter"><i style="width:92%"></i></div>
+                <div class="meter-lbl"><span>covered by Jill Moreno · 1 wk gap Jun 22 (leave)</span><span class="mono">1.0 / 1.0</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel insp" id="insp-kepler">
+            <div class="sc-head"><h3>Kepler</h3><span class="client">Initech</span><span class="insp-tag">inspecting</span></div>
+            <div class="win">Run
+              <input type="date" value="2026-05-18" aria-label="run start"> <span class="arrow">→</span>
+              <input type="date" value="2026-08-14" aria-label="run end">
+              <span class="win-err">Rejected: run falls outside the Initech contract term (Jun 01 → Dec 31). Timeline still shows Jun 01 → Aug 28.</span>
+            </div>
+            <div class="rcards">
+              <div class="rcard">
+                <div class="rcard__top"><b>Delivery ×1 @L2</b><span class="tf">Jun 01 → Aug 28</span></div>
+                <div class="meter"><i style="width:80%"></i></div>
+                <div class="meter-lbl"><span>covered by Joe Barnes</span><span class="mono">0.8 / 1.0</span></div>
+                <div class="cands">
+                  <div class="cands-t">Qualifying engineers</div>
+                  <div class="cand"><span class="av" style="background:#3e8fd0;">AS</span>Amir Shah
+                    <span class="meta">L2 · prof 2.3 · 20% free</span><button class="go">Nominate</button></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="panel">
             <div class="sc-head">
               <h3>Scenario</h3><span class="sc-count">3 drafts</span>
@@ -506,4 +620,15 @@
   const sync = () => { document.body.dataset.scenario = scen.checked ? "on" : "off"; };
   scen.addEventListener("change", sync);
   sync();
+  const projects = ["meridian", "atlas", "kepler"];
+  const select = (p) => projects.forEach((x) => {
+    document.getElementById("insp-" + x).classList.toggle("show", x === p);
+    document.getElementById("proj-" + x).classList.toggle("sel", x === p);
+  });
+  document.querySelectorAll(".panel__head[data-proj]").forEach((h) => {
+    h.addEventListener("click", () => select(h.dataset.proj));
+    h.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(h.dataset.proj); }
+    });
+  });
 </script>

@@ -29,6 +29,8 @@ New server concept `schedule` (`view.gleam` + `sql/` + `http.gleam`), shared typ
 
 The capability qualifying test reuses the Phase 2 rollup definition: `Σ(skill level × weight) / Σ(weight)` over the capability's mapped skills, unassessed skills counting 0.
 
+**Candidates read**: for one requirement line, the engineers who qualify under the same rule, each with level, rollup proficiency, and free fraction (`1 − Σ allocations` over the line's window, floored at 0) plus a short commitment summary (current projects, leave). Served as `GET /api/schedule/candidates?project=…&line=…&as_of=…`; feeds the inspector's nomination list.
+
 ## Endpoints
 
 | Endpoint | Body | Transaction outcome |
@@ -63,10 +65,11 @@ Wiring follows the standard exhaustive sites: shared `Command`/codec, `CommandKe
 
 ## Client
 
-- New route `/schedule`, sidebar entry, page module `client/src/client/page/schedule.gleam` with the frozen MVU interface; `refetch` takes the shell's global as-of date.
-- Scenario = list of draft operations in page state, built with the `ui.gleam` op-form engine (allocation assign / re-fraction / off-project, and reschedule-project). Permission-gated per op via `shared/access/policy`.
-- Empty scenario → `GET /api/schedule`. Non-empty → debounced `POST /preview` on every edit (token/timer debounce, the rail-scrub pattern). **Apply** posts the list to `/apply` and clears the scenario; **Discard** clears it. A preview error pins to the offending draft row.
-- Gap cells > 0 and over-allocation flags are visually highlighted. A requirement line renders a gap row only when it has a positive gap in some week of the window; fully covered lines surface as a status chip in the project header. Each project block shows a `Gap:` summary chip per uncovered requirement, as in the sketch.
+- New route `/schedule`, sidebar entry, page module `client/src/client/page/schedule.gleam` with the frozen MVU interface; `refetch` takes the shell's global as-of date. UI reference: `docs/prototypes/2026-07-05-allocation-timeline.html`.
+- The timeline grid is read-only; edits flow through the aside **inspector**. Selecting a project block focuses it: run-window date controls (a change drafts `RescheduleProject`), and one card per requirement line showing its window, a coverage meter, and the qualifying-candidates list — nominating a candidate drafts an allocation assign with editable fraction and window, with a companion re-fraction draft on the candidate's other projects when needed.
+- Scenario = the list of draft operations those controls produce, held in page state, permission-gated per op via `shared/access/policy`.
+- Empty scenario → `GET /api/schedule`. Non-empty → debounced `POST /preview` on every edit (token/timer debounce, the rail-scrub pattern). **Apply** posts the list to `/apply` and clears the scenario; **Discard** clears it. A preview error pins to the offending draft and to the inspector control that produced it.
+- Gap cells > 0 and over-allocation flags are visually highlighted. A requirement line renders a gap row only when it has a positive gap in some week of the window; covered state lives in the inspector's requirement card, and header chips flag gaps only.
 - Scenarios live in page state only; navigation or refresh discards them.
 
 ## Permissions
