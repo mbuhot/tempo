@@ -22,18 +22,20 @@ pub type EngineerLocationHistoryRow {
     timezone: String,
     valid_from: Date,
     valid_to: Date,
+    ongoing: Bool,
   )
 }
 
 /// engineer_location_history.sql — all location spans for one engineer, oldest first.
-/// $1 = engineer_id.
+/// Coalesced upper + upper_inf flag keep an open-ended span's NULL upper bound from
+/// decoding as a non-null Date. $1 = engineer_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn engineer_location_history(
   db: pog.Connection,
-  engineer_location_engineer_id: Int,
+  engineer_id: Int,
 ) -> Result(pog.Returned(EngineerLocationHistoryRow), pog.QueryError) {
   let decoder = {
     use country <- decode.field(0, decode.string)
@@ -41,29 +43,33 @@ pub fn engineer_location_history(
     use timezone <- decode.field(2, decode.string)
     use valid_from <- decode.field(3, pog.calendar_date_decoder())
     use valid_to <- decode.field(4, pog.calendar_date_decoder())
+    use ongoing <- decode.field(5, decode.bool)
     decode.success(EngineerLocationHistoryRow(
       country:,
       region:,
       timezone:,
       valid_from:,
       valid_to:,
+      ongoing:,
     ))
   }
 
   "-- engineer_location_history.sql — all location spans for one engineer, oldest first.
--- $1 = engineer_id.
+-- Coalesced upper + upper_inf flag keep an open-ended span's NULL upper bound from
+-- decoding as a non-null Date. $1 = engineer_id.
 SELECT
-  engineer_location.country  AS country,
-  engineer_location.region   AS region,
-  engineer_location.timezone AS timezone,
-  lower(engineer_location.located_during) AS valid_from,
-  upper(engineer_location.located_during) AS valid_to
+  country,
+  region,
+  timezone,
+  lower(located_during) AS valid_from,
+  coalesce(upper(located_during), lower(located_during)) AS valid_to,
+  upper_inf(located_during) AS ongoing
 FROM engineer_location
-WHERE engineer_location.engineer_id = $1
-ORDER BY lower(engineer_location.located_during);
+WHERE engineer_id = $1
+ORDER BY lower(located_during);
 "
   |> pog.query
-  |> pog.parameter(pog.int(engineer_location_engineer_id))
+  |> pog.parameter(pog.int(engineer_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -71,7 +77,9 @@ ORDER BY lower(engineer_location.located_during);
 /// engineer_location_upsert.sql — set an engineer's location from $2 onward. The temporal
 /// DELETE clips the row covering $2 to [start, $2) and removes rows starting at/after $2,
 /// then inserts [$2, NULL) with the new values, superseding scheduled future versions.
-/// $1 engineer_id, $2 effective, $3 country, $4 region (nullable), $5 timezone, $6 audit_id.
+/// $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored NULL),
+/// $5 timezone, $6 audit_id. `nullif` maps an absent region to NULL since Squirrel types the
+/// INSERT value param as non-null text.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -90,7 +98,9 @@ pub fn engineer_location_upsert(
   "-- engineer_location_upsert.sql — set an engineer's location from $2 onward. The temporal
 -- DELETE clips the row covering $2 to [start, $2) and removes rows starting at/after $2,
 -- then inserts [$2, NULL) with the new values, superseding scheduled future versions.
--- $1 engineer_id, $2 effective, $3 country, $4 region (nullable), $5 timezone, $6 audit_id.
+-- $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored NULL),
+-- $5 timezone, $6 audit_id. `nullif` maps an absent region to NULL since Squirrel types the
+-- INSERT value param as non-null text.
 WITH deleted AS (
   DELETE FROM engineer_location
      FOR PORTION OF located_during FROM $2::date TO NULL
@@ -98,7 +108,7 @@ WITH deleted AS (
 )
 INSERT INTO engineer_location
   (engineer_id, located_during, country, region, timezone, audit_id)
-VALUES ($1, daterange($2::date, NULL, '[)'), $3, $4, $5, $6);
+VALUES ($1, daterange($2::date, NULL, '[)'), $3, nullif($4, ''), $5, $6);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -111,71 +121,108 @@ VALUES ($1, daterange($2::date, NULL, '[)'), $3, $4, $5, $6);
   |> pog.execute(db)
 }
 
-/// A row you get from running the `engineer_locations` query
-/// defined in `./src/tempo/server/location/sql/engineer_locations.sql`.
+/// A row you get from running the `engineer_locations_asof` query
+/// defined in `./src/tempo/server/location/sql/engineer_locations_asof.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type EngineerLocationsRow {
-  EngineerLocationsRow(
-    engineer_id: Option(Int),
-    name: Option(String),
-    country: Option(String),
+pub type EngineerLocationsAsofRow {
+  EngineerLocationsAsofRow(
+    engineer_id: Int,
+    country: String,
     region: Option(String),
-    timezone: Option(String),
+    timezone: String,
     valid_from: Date,
     valid_to: Date,
+    ongoing: Bool,
   )
 }
 
-/// engineer_locations.sql — every engineer and their location as-of $1, or NULLs when none
-/// is set on that date. $1 = as-of date.
+/// engineer_locations_asof.sql — the location in force on $1 for every engineer that has
+/// one. Engineers without a location on that date are absent; the caller attaches them in
+/// Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag) so an
+/// open-ended span decodes cleanly. $1 = as-of date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn engineer_locations(
+pub fn engineer_locations_asof(
   db: pog.Connection,
   arg_1: Date,
-) -> Result(pog.Returned(EngineerLocationsRow), pog.QueryError) {
+) -> Result(pog.Returned(EngineerLocationsAsofRow), pog.QueryError) {
   let decoder = {
-    use engineer_id <- decode.field(0, decode.optional(decode.int))
-    use name <- decode.field(1, decode.optional(decode.string))
-    use country <- decode.field(2, decode.optional(decode.string))
-    use region <- decode.field(3, decode.optional(decode.string))
-    use timezone <- decode.field(4, decode.optional(decode.string))
-    use valid_from <- decode.field(5, pog.calendar_date_decoder())
-    use valid_to <- decode.field(6, pog.calendar_date_decoder())
-    decode.success(EngineerLocationsRow(
+    use engineer_id <- decode.field(0, decode.int)
+    use country <- decode.field(1, decode.string)
+    use region <- decode.field(2, decode.optional(decode.string))
+    use timezone <- decode.field(3, decode.string)
+    use valid_from <- decode.field(4, pog.calendar_date_decoder())
+    use valid_to <- decode.field(5, pog.calendar_date_decoder())
+    use ongoing <- decode.field(6, decode.bool)
+    decode.success(EngineerLocationsAsofRow(
       engineer_id:,
-      name:,
       country:,
       region:,
       timezone:,
       valid_from:,
       valid_to:,
+      ongoing:,
     ))
   }
 
-  "-- engineer_locations.sql — every engineer and their location as-of $1, or NULLs when none
--- is set on that date. $1 = as-of date.
+  "-- engineer_locations_asof.sql — the location in force on $1 for every engineer that has
+-- one. Engineers without a location on that date are absent; the caller attaches them in
+-- Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag) so an
+-- open-ended span decodes cleanly. $1 = as-of date.
 SELECT
-  engineer_current.id   AS engineer_id,
-  engineer_current.name AS name,
-  loc.country           AS country,
-  loc.region            AS region,
-  loc.timezone          AS timezone,
-  lower(loc.located_during) AS valid_from,
-  upper(loc.located_during) AS valid_to
-FROM engineer_current
-LEFT JOIN engineer_location loc
-  ON loc.engineer_id = engineer_current.id
- AND loc.located_during @> $1::date
-ORDER BY engineer_current.name;
+  engineer_id,
+  country,
+  region,
+  timezone,
+  lower(located_during) AS valid_from,
+  coalesce(upper(located_during), lower(located_during)) AS valid_to,
+  upper_inf(located_during) AS ongoing
+FROM engineer_location
+WHERE located_during @> $1::date;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_roster` query
+/// defined in `./src/tempo/server/location/sql/engineer_roster.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerRosterRow {
+  EngineerRosterRow(engineer_id: Option(Int), name: Option(String))
+}
+
+/// engineer_roster.sql — every current engineer (id + name), for listing pages that
+/// attach as-of data (e.g. location) in the application layer.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_roster(
+  db: pog.Connection,
+) -> Result(pog.Returned(EngineerRosterRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.optional(decode.int))
+    use name <- decode.field(1, decode.optional(decode.string))
+    decode.success(EngineerRosterRow(engineer_id:, name:))
+  }
+
+  "-- engineer_roster.sql — every current engineer (id + name), for listing pages that
+-- attach as-of data (e.g. location) in the application layer.
+SELECT id AS engineer_id, name
+FROM engineer_current
+ORDER BY name;
+"
+  |> pog.query
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

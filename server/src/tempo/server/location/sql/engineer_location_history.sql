@@ -1,11 +1,13 @@
 -- engineer_location_history.sql — all location spans for one engineer, oldest first.
--- $1 = engineer_id.
+-- Coalesced upper + upper_inf flag keep an open-ended span's NULL upper bound from
+-- decoding as a non-null Date. $1 = engineer_id.
 SELECT
-  engineer_location.country  AS country,
-  engineer_location.region   AS region,
-  engineer_location.timezone AS timezone,
-  lower(engineer_location.located_during) AS valid_from,
-  upper(engineer_location.located_during) AS valid_to
+  country,
+  region,
+  timezone,
+  lower(located_during) AS valid_from,
+  coalesce(upper(located_during), lower(located_during)) AS valid_to,
+  upper_inf(located_during) AS ongoing
 FROM engineer_location
-WHERE engineer_location.engineer_id = $1
-ORDER BY lower(engineer_location.located_during);
+WHERE engineer_id = $1
+ORDER BY lower(located_during);

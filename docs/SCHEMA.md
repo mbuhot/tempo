@@ -40,6 +40,7 @@ erDiagram
   engineer ||--o{ engineer_banking : "FK"
   engineer ||--o{ engineer_contact : "FK"
   engineer ||--o{ engineer_emergency : "FK"
+  engineer ||--o{ engineer_location : "FK"
   engineer ||--o{ invoice_line : "FK"
   engineer ||--o{ payroll_line : "FK"
   engineer ||--o{ payroll_line_segment : "FK"
@@ -150,6 +151,14 @@ erDiagram
     text phone
     text email
     daterange recorded_during PK "WITHOUT OVERLAPS"
+    bigint audit_id FK
+  }
+  engineer_location {
+    bigint engineer_id PK,FK
+    daterange located_during PK "WITHOUT OVERLAPS"
+    text country
+    text region
+    text timezone
     bigint audit_id FK
   }
   engineer_role {
