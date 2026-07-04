@@ -1,0 +1,11 @@
+// Locations — the engineer roster with country/region/IANA timezone as of the
+// rail date (Scheduling Phase A). Token-only per ADR-038; the table itself
+// reuses the shared table/cell-name primitives, so only the "no location set"
+// row tint is page-specific.
+
+.loc-row--empty td {
+    color: var(--color-warn);
+}
+.loc-row--empty .cell-name__name {
+    color: var(--color-warn);
+}

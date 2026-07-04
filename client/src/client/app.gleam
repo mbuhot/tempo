@@ -1,6 +1,6 @@
 //// The Tempo client SHELL: the login gate, the sidebar, the one global as-of
 //// rail (ADR-036), the URL/route wiring (modem), and the active page sum. It
-//// composes seven disjoint page modules (`client/page/*`), each implementing the
+//// composes eight disjoint page modules (`client/page/*`), each implementing the
 //// same frozen interface (Model/Msg/OutMsg/init/update/view/refetch), so the
 //// per-page work never touches this file.
 ////
@@ -35,6 +35,7 @@ import client/page/activity
 import client/page/board
 import client/page/clients
 import client/page/finance
+import client/page/locations
 import client/page/people
 import client/page/projects
 import client/page/settings
@@ -70,6 +71,7 @@ pub type Page {
   SettingsPage(settings.Model)
   AccessPage(access.Model)
   SkillsPage(skills.Model)
+  LocationsPage(locations.Model)
 }
 
 /// Who is signed in, as one of three states: `Verifying` while the boot `GET /api/me`
@@ -184,6 +186,7 @@ pub type Msg {
   SettingsMsg(settings.Msg)
   AccessMsg(access.Msg)
   SkillsMsg(skills.Msg)
+  LocationsMsg(locations.Msg)
 }
 
 /// Client entrypoint: start the Lustre application mounted on `#app`.
@@ -513,6 +516,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
+
+    LocationsMsg(page_msg) ->
+      case model.page {
+        LocationsPage(page_model) -> {
+          let #(next, page_effect, outs) =
+            locations.update(page_model, page_msg)
+          handle_page(
+            model,
+            LocationsPage(next),
+            effect.map(page_effect, LocationsMsg),
+            page_outs(outs),
+          )
+        }
+        _ -> #(model, effect.none())
+      }
   }
 }
 
@@ -646,6 +664,10 @@ fn init_page(
       let #(page, eff) = skills.init(route, as_of, actor)
       #(SkillsPage(page), effect.map(eff, SkillsMsg))
     }
+    route.Locations -> {
+      let #(page, eff) = locations.init(route, as_of, actor)
+      #(LocationsPage(page), effect.map(eff, LocationsMsg))
+    }
     route.NotFound -> {
       let #(page, eff) = board.init(route, as_of, actor)
       #(BoardPage(page), effect.map(eff, BoardMsg))
@@ -697,6 +719,10 @@ fn refetch_page(
     SkillsPage(model) -> {
       let #(next, eff) = skills.refetch(model, as_of, actor)
       #(SkillsPage(next), effect.map(eff, SkillsMsg))
+    }
+    LocationsPage(model) -> {
+      let #(next, eff) = locations.refetch(model, as_of, actor)
+      #(LocationsPage(next), effect.map(eff, LocationsMsg))
     }
   }
 }
@@ -951,6 +977,15 @@ fn view_sidebar(
         icons.activity(),
         "Activity",
       ),
+      nav_link_if(
+        permissions,
+        perm.read_engineers,
+        active,
+        as_of,
+        route.Locations,
+        icons.locations(),
+        "Locations",
+      ),
       admin_header(permissions),
       nav_link_if(
         permissions,
@@ -1059,6 +1094,7 @@ fn same_page(a: Route, b: Route) -> Bool {
     route.Settings, route.Settings -> True
     route.Access, route.Access -> True
     route.Skills, route.Skills -> True
+    route.Locations, route.Locations -> True
     route.NotFound, route.NotFound -> True
     _, _ -> False
   }
@@ -1131,6 +1167,8 @@ fn view_page(model: Model) -> Element(Msg) {
     AccessPage(page) -> element.map(access.view(page, model.as_of), AccessMsg)
     SkillsPage(page) ->
       element.map(skills.view(page, model.as_of, permissions), SkillsMsg)
+    LocationsPage(page) ->
+      element.map(locations.view(page, model.as_of, permissions), LocationsMsg)
   }
 }
 

@@ -40,6 +40,7 @@ pub type Route {
   Settings
   Access
   Skills
+  Locations
   NotFound
 }
 
@@ -69,6 +70,7 @@ pub fn parse(uri: Uri) -> Route {
     ["settings"] -> Settings
     ["access"] -> Access
     ["skills"] -> Skills
+    ["locations"] -> Locations
     _ -> NotFound
   }
 }
@@ -91,6 +93,7 @@ pub fn to_path(route: Route) -> String {
     Settings -> "/settings"
     Access -> "/access"
     Skills -> "/skills"
+    Locations -> "/locations"
     NotFound -> "/"
   }
 }
