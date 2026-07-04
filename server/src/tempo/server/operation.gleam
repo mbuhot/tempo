@@ -12,6 +12,7 @@
 //// `OverlappingFact`; a `CHECK` (`*_check`, on fraction/level/hours) is
 //// `InvalidValue`; anything else is an opaque `DatabaseError`.
 
+import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -144,6 +145,51 @@ pub fn run(result: Result(a, pog.QueryError)) -> Result(Nil, OperationError) {
   result
   |> result.replace(Nil)
   |> result.map_error(classify)
+}
+
+// --- description --------------------------------------------------------
+
+/// One user-facing sentence per rejection, for a scenario's preview outcome rows
+/// (`schedule/executor`) where there is no HTTP status to carry the meaning.
+pub fn describe(error: OperationError) -> String {
+  case error {
+    ContainmentViolated(which:) ->
+      "outside the containing period (" <> which <> ")"
+    OverlappingFact -> "overlaps an existing fact"
+    InvalidValue -> "a value is out of range (fraction, level, or hours)"
+    InsufficientLeaveBalance(kind:, available:, requested:) ->
+      "insufficient "
+      <> kind
+      <> " leave balance: "
+      <> float_to_string(available)
+      <> " available, "
+      <> float_to_string(requested)
+      <> " requested"
+    EngineerNotEmployed(engineer_id:, valid_from:, valid_to:) ->
+      "engineer "
+      <> int.to_string(engineer_id)
+      <> " is not employed for the whole period ("
+      <> span(valid_from, valid_to)
+      <> ")"
+    ProjectNotRunning(project_id:, valid_from:, valid_to:) ->
+      "project "
+      <> int.to_string(project_id)
+      <> " is not running for the whole period ("
+      <> span(valid_from, valid_to)
+      <> ")"
+    NoSuchVersion -> "no covering version exists at that date"
+    ProjectPinned -> "the project has logged time or invoices"
+    Unauthorized(actor:, command:) ->
+      actor <> " is not permitted to run " <> command
+    DatabaseError(_) -> "database error"
+  }
+}
+
+/// Render a float to one decimal place for a `describe` message.
+fn float_to_string(value: Float) -> String {
+  value
+  |> float.to_precision(1)
+  |> float.to_string
 }
 
 // --- date rendering ---------------------------------------------------------

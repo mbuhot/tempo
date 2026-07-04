@@ -119,6 +119,12 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_projects)
       schedule_http.handle_candidates(request, context)
     }
+    // Scenario preview/apply: no route-level permission guard — each drafted
+    // command is authorized on its own inside the executor, exactly like
+    // POST /api/operations.
+    ["api", "schedule", "preview"] ->
+      schedule_http.handle_preview(request, context)
+    ["api", "schedule", "apply"] -> schedule_http.handle_apply(request, context)
     ["api", "schedule"] -> {
       use _principal <- guard.require(context, access.read_projects)
       schedule_http.handle(request, context)

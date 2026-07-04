@@ -1413,7 +1413,7 @@ pub fn operation.describe(error: OperationError) -> String
 
 `POST /api/schedule/preview` and `POST /api/schedule/apply`, body `{"as_of": "2026-06-15", "operations": [<command json>...]}`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 `server/test/schedule_executor_test.gleam` (same `rolling_back` harness as Task 2; import `shared/allocation/command as allocation_command`, `shared/schedule/view as shared_schedule`, `tempo/server/schedule/executor`, `tempo/server/schedule/view as schedule_view`):
 
@@ -1514,7 +1514,7 @@ Notes for the implementer:
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t6.log 2>&1; tail -5 /tmp/t6.log` — FAIL: `executor` module missing.
 
-- [ ] **Step 2: Add `operation.describe`**
+- [x] **Step 2: Add `operation.describe`**
 
 In `server/src/tempo/server/operation.gleam`:
 
@@ -1533,7 +1533,7 @@ pub fn describe(error: OperationError) -> String {
 
 Write an arm for EVERY variant — the compiler enumerates them; phrase each as a short lowercase clause. `Unauthorized(actor:, command:)` → `"not permitted"`. `DatabaseError(_)` → `"database error"`.
 
-- [ ] **Step 3: Implement the executor**
+- [x] **Step 3: Implement the executor**
 
 `server/src/tempo/server/schedule/executor.gleam`:
 
@@ -1735,7 +1735,7 @@ fn command_project(command: Command) -> option.Option(Int) {
 
 (Check `auth.gleam` for the exact `authorize`/`Forbidden` shapes — Task 2's `command.gleam` reading shows `auth.authorize(principal, command)` → `Ok(actor)` / `Error(Forbidden(actor:, command:))`. If pog's `execute` on a `Query(Nil)` needs no `returning`, the `run_sql` above is exact.)
 
-- [ ] **Step 4: HTTP endpoints**
+- [x] **Step 4: HTTP endpoints**
 
 In `schedule/http.gleam` add a body decoder + two handlers (mirror `web/operations.gleam`'s body-reading and error mapping — reuse its exported helpers if any; otherwise copy its `wisp.require_json` + decode idiom):
 
@@ -1787,7 +1787,7 @@ Adaptation notes (read the real modules, keep the intent): how a handler obtains
 
 (No route-level permission guard — authorization is per-operation inside the executor, exactly like `POST /api/operations`.)
 
-- [ ] **Step 5: Clean-build, run tests, commit**
+- [x] **Step 5: Clean-build, run tests, commit**
 
 Run: `cd server && gleam clean && TEMPO_DB_PORT=5435 ../bin/test > /tmp/t6.log 2>&1; tail -10 /tmp/t6.log`
 Expected: PASS.

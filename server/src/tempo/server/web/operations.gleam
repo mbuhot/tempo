@@ -80,8 +80,9 @@ fn created_event_response(event: Event) -> wisp.Response {
 
 /// Map a typed `OperationError` to its HTTP status and a small JSON error body
 /// (ARCHITECTURE §5a): a containment PERIOD-FK or `WITHOUT OVERLAPS` violation is
-/// a 409 conflict, a `CHECK` violation is a 422, anything else is a 500.
-fn error_response(error: OperationError) -> wisp.Response {
+/// a 409 conflict, a `CHECK` violation is a 422, anything else is a 500. Public so
+/// the schedule scenario endpoints (`schedule/http`) share the same mapping.
+pub fn error_response(error: OperationError) -> wisp.Response {
   case error {
     Unauthorized(actor:, command:) ->
       response.error_response(
