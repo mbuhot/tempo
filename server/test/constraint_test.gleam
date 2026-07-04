@@ -452,6 +452,94 @@ pub fn timesheet_without_allocation_is_rejected_test() {
   assert constraint_name(error) == "timesheet_within_allocation"
 }
 
+// --- skills taxonomy: engineer_skill -----------------------------------------
+
+// An engineer_skill level outside 0-4 is rejected by the CHECK constraint
+// `engineer_skill_level_check`.
+pub fn engineer_skill_level_check_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let engineer_id = insert_engineer(conn, "Barbara Liskov")
+        insert_employment(conn, engineer_id, "2026-01-01", "2026-06-01")
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70001)")
+        Nil
+      },
+      fn(conn) {
+        // Level 5 is out of the 0-4 range.
+        exec(
+          conn,
+          "INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during) "
+            <> "SELECT employment.engineer_id, 70001, 5, daterange('2026-01-01','2026-06-01') "
+            <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
+            <> "WHERE engineer.name = 'Barbara Liskov'",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "engineer_skill_level_check"
+}
+
+// A second engineer_skill row overlapping an existing one for the same
+// (engineer, skill) is rejected by the gist exclusion PK `engineer_skill_no_overlap`.
+pub fn engineer_skill_no_overlap_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let engineer_id = insert_engineer(conn, "Barbara Liskov")
+        insert_employment(conn, engineer_id, "2026-01-01", "2027-01-01")
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70002)")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during) "
+              <> "SELECT employment.engineer_id, 70002, 2, daterange('2026-01-01','2026-06-01') "
+              <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
+              <> "WHERE engineer.name = 'Barbara Liskov'",
+          )
+        Nil
+      },
+      fn(conn) {
+        // Overlaps [2026-01-01,2026-06-01) on 2026-05.
+        exec(
+          conn,
+          "INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during) "
+            <> "SELECT engineer_id, skill_id, 3, daterange('2026-05-01','2026-08-01') "
+            <> "FROM engineer_skill WHERE skill_id = 70002",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "engineer_skill_no_overlap"
+}
+
+// An engineer_skill period extending past employment is rejected by the PERIOD
+// FK `engineer_skill_within_employment`, the assessment analogue of
+// `engineer_role_within_employment`.
+pub fn engineer_skill_past_employment_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let engineer_id = insert_engineer(conn, "Barbara Liskov")
+        insert_employment(conn, engineer_id, "2026-01-01", "2026-06-01")
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70003)")
+        Nil
+      },
+      fn(conn) {
+        // Assessment runs to 2026-08-01, past employment's 2026-06-01 end.
+        exec(
+          conn,
+          "INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during) "
+            <> "SELECT employment.engineer_id, 70003, 3, daterange('2026-01-01','2026-08-01') "
+            <> "FROM employment JOIN engineer_current engineer ON engineer.id = employment.engineer_id "
+            <> "WHERE engineer.name = 'Barbara Liskov'",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "engineer_skill_within_employment"
+}
+
 // --- Financial cross-references (013) ---------------------------------------
 
 // An invoice whose billing month falls outside the project's active period is

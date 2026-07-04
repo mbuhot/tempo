@@ -25,12 +25,17 @@ import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
 import shared/engineer/command as engineer_command
 import shared/engineer/view.{type EngineerDetail} as engineer_view
+import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/view.{type InvoicePage} as invoice_view
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
 import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
 import shared/settings/view.{type Settings} as settings_view
+import shared/skill/view.{
+  type EngineerSkills, type TaxonomySnapshot, CapabilityInfo, CapabilityRollup,
+  CapabilitySkillMapping, SkillAssessment, SkillInfo,
+} as skill_view
 import shared/table/response as table_response
 import shared/timesheet/command as timesheet_command
 import shared/timesheet/view.{
@@ -591,6 +596,52 @@ pub fn operation_forbidden_for_unauthorized_role_is_403_test() {
   assert event_count(context) == before
 }
 
+// A principal without skills.manage is refused the taxonomy read with 403:
+// Finance manages money, not the capability/skill taxonomy.
+pub fn skills_taxonomy_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+
+  let #(login_request, login_response) = sign_in(context, "Finance")
+  let response =
+    simulate.request(http.Get, "/api/skills?as_of=2026-06-15")
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "forbidden"
+}
+
+// A principal without skills.assess is refused an assessment write with 403,
+// before any transaction opens: Finance may not assess engineer skills.
+pub fn assess_skill_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+  let before = event_count(context)
+
+  let #(login_request, login_response) = sign_in(context, "Finance")
+  let response =
+    simulate.request(http.Post, "/api/operations")
+    |> simulate.json_body(
+      gateway.encode_operation_request(
+        gateway.OperationRequest(
+          command: gateway.EngineerSkillCommand(
+            engineer_skill_command.AssessSkill(
+              engineer_id: 2,
+              skill_id: 5,
+              level: 4,
+              effective: calendar.Date(2026, calendar.September, 1),
+            ),
+          ),
+        ),
+      ),
+    )
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "unauthorized"
+  assert event_count(context) == before
+}
+
 // Correct credentials succeed (200) and issue a session; a wrong password and an
 // unknown username are both refused with the SAME uniform 401, so login leaks no
 // oracle for which accounts exist and the journal can never be stamped with a junk
@@ -864,6 +915,176 @@ pub fn engineer_detail_unknown_is_not_found_test() {
 pub fn engineer_detail_bad_id_is_bad_request_test() {
   let response =
     simulate.request(http.Get, "/api/engineers/abc?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 400
+}
+
+// --- GET /api/skills ---------------------------------------------------------
+
+// The taxonomy snapshot as-of 2026-06-15: the seed's 4 capabilities, 12 skills,
+// and their weighted composition matrix, each read back in the exact order and
+// values base_seed.sql wrote (server/priv/seed/base_seed.sql:380-458).
+pub fn skills_taxonomy_now_returns_capabilities_skills_and_mappings_test() {
+  let response =
+    simulate.request(http.Get, "/api/skills?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 200
+
+  let snapshot = decode_taxonomy_snapshot(response)
+  assert snapshot.capabilities
+    == [
+      CapabilityInfo(
+        2,
+        "Data Engineering",
+        "Pipelines, warehousing, and distributed data systems",
+      ),
+      CapabilityInfo(
+        3,
+        "Frontend Delivery",
+        "Client applications and the interfaces engineers ship them through",
+      ),
+      CapabilityInfo(
+        1,
+        "Payments Platform",
+        "Billing, ledger, and payment-gateway integrations",
+      ),
+      CapabilityInfo(
+        4,
+        "Platform Infrastructure",
+        "Cloud infrastructure, deployment, and operability",
+      ),
+    ]
+  assert snapshot.skills
+    == [
+      SkillInfo(
+        4,
+        "API Design",
+        "Designing stable, versioned service interfaces",
+      ),
+      SkillInfo(11, "CI/CD", "Build, test, and deployment pipelines"),
+      SkillInfo(
+        12,
+        "Cloud Infrastructure",
+        "Provisioning and operating cloud infrastructure",
+      ),
+      SkillInfo(6, "Data Pipelines", "Building and operating ETL/ELT pipelines"),
+      SkillInfo(
+        7,
+        "Distributed Systems",
+        "Consistency, partitioning, and failure handling at scale",
+      ),
+      SkillInfo(8, "Frontend Development", "Building client applications"),
+      SkillInfo(
+        10,
+        "Kubernetes",
+        "Operating containerised workloads on Kubernetes",
+      ),
+      SkillInfo(
+        3,
+        "Ledger Accounting Systems",
+        "Double-entry ledgers and reconciliation",
+      ),
+      SkillInfo(
+        1,
+        "Payment Gateways",
+        "Integrating and operating third-party payment gateways",
+      ),
+      SkillInfo(
+        2,
+        "PCI Compliance",
+        "Handling cardholder data within PCI-DSS controls",
+      ),
+      SkillInfo(
+        5,
+        "SQL & Database Design",
+        "Relational schema design and query optimisation",
+      ),
+      SkillInfo(
+        9,
+        "UI/UX Design",
+        "Interaction and visual design for user-facing products",
+      ),
+    ]
+  assert snapshot.mappings
+    == [
+      CapabilitySkillMapping(1, 1, 3),
+      CapabilitySkillMapping(1, 2, 3),
+      CapabilitySkillMapping(1, 3, 2),
+      CapabilitySkillMapping(1, 4, 1),
+      CapabilitySkillMapping(2, 5, 3),
+      CapabilitySkillMapping(2, 6, 3),
+      CapabilitySkillMapping(2, 7, 2),
+      CapabilitySkillMapping(3, 4, 1),
+      CapabilitySkillMapping(3, 8, 3),
+      CapabilitySkillMapping(3, 9, 2),
+      CapabilitySkillMapping(4, 7, 1),
+      CapabilitySkillMapping(4, 10, 3),
+      CapabilitySkillMapping(4, 11, 2),
+      CapabilitySkillMapping(4, 12, 3),
+    ]
+}
+
+// --- GET /api/engineers/:id/skills --------------------------------------------
+
+// Marcus's (engineer 2) skill matrix and capability rollups as-of 2026-06-15: he
+// was reassessed on Data Pipelines from 2026-05-01 (3 -> 4), so both the matrix
+// and the weighted rollups reflect the reassessed level
+// (server/priv/seed/base_seed.sql:472-499).
+pub fn engineer_skills_now_returns_matrix_and_rollups_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/2/skills?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 200
+
+  let skills = decode_engineer_skills(response)
+  assert skills.matrix
+    == [
+      SkillAssessment(4, "API Design", 2, [
+        "Payments Platform", "Frontend Delivery",
+      ]),
+      SkillAssessment(11, "CI/CD", 2, ["Platform Infrastructure"]),
+      SkillAssessment(12, "Cloud Infrastructure", 2, [
+        "Platform Infrastructure",
+      ]),
+      SkillAssessment(6, "Data Pipelines", 4, ["Data Engineering"]),
+      SkillAssessment(7, "Distributed Systems", 3, [
+        "Data Engineering", "Platform Infrastructure",
+      ]),
+      SkillAssessment(8, "Frontend Development", 0, ["Frontend Delivery"]),
+      SkillAssessment(10, "Kubernetes", 0, ["Platform Infrastructure"]),
+      SkillAssessment(3, "Ledger Accounting Systems", 0, [
+        "Payments Platform",
+      ]),
+      SkillAssessment(1, "Payment Gateways", 0, ["Payments Platform"]),
+      SkillAssessment(2, "PCI Compliance", 0, ["Payments Platform"]),
+      SkillAssessment(5, "SQL & Database Design", 4, ["Data Engineering"]),
+      SkillAssessment(9, "UI/UX Design", 0, ["Frontend Delivery"]),
+    ]
+  assert skills.rollups
+    == [
+      CapabilityRollup(2, "Data Engineering", 3.75),
+      CapabilityRollup(3, "Frontend Delivery", 0.3333333333333333),
+      CapabilityRollup(1, "Payments Platform", 0.2222222222222222),
+      CapabilityRollup(4, "Platform Infrastructure", 1.4444444444444444),
+    ]
+}
+
+// An unknown engineer id is a 404.
+pub fn engineer_skills_unknown_is_not_found_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/999/skills?as_of=2026-06-15")
+    |> read()
+
+  assert response.status == 404
+}
+
+// A non-integer engineer id is a 400.
+pub fn engineer_skills_bad_id_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/abc/skills?as_of=2026-06-15")
     |> read()
 
   assert response.status == 400
@@ -1239,6 +1460,20 @@ fn decode_settings(response) -> Settings {
     simulate.read_body(response)
     |> json.parse(settings_view.settings_decoder())
   settings
+}
+
+fn decode_taxonomy_snapshot(response) -> TaxonomySnapshot {
+  let assert Ok(snapshot) =
+    simulate.read_body(response)
+    |> json.parse(skill_view.taxonomy_snapshot_decoder())
+  snapshot
+}
+
+fn decode_engineer_skills(response) -> EngineerSkills {
+  let assert Ok(skills) =
+    simulate.read_body(response)
+    |> json.parse(skill_view.engineer_skills_decoder())
+  skills
 }
 
 fn decode_error_code(response) -> String {

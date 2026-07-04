@@ -87,6 +87,31 @@ pub fn as_of_range_columns_have_gist_indexes_test() {
   assert has_index("project_run_active_during_gist") == True
 }
 
+// The capability & skill taxonomy migration (#38) gives each of its four
+// temporal tables a named WITHOUT OVERLAPS primary key — an explicitly named
+// constraint's underlying index takes the constraint's own name, so a fully
+// migrated DB has each `*_no_overlap` name on disk as that table's PK index.
+pub fn capabilities_skills_tables_have_named_no_overlap_primary_keys_test() {
+  let assert Ok(_) = migrate.run(test_pool.ctx())
+
+  assert primary_key_index("capability_profile")
+    == "capability_profile_no_overlap"
+  assert primary_key_index("skill_profile") == "skill_profile_no_overlap"
+  assert primary_key_index("capability_skill") == "capability_skill_no_overlap"
+  assert primary_key_index("engineer_skill") == "engineer_skill_no_overlap"
+}
+
+// The same migration adds an audit_id index on each new temporal table, mirroring
+// every other fact table's provenance lookup.
+pub fn capabilities_skills_tables_have_audit_id_indexes_test() {
+  let assert Ok(_) = migrate.run(test_pool.ctx())
+
+  assert has_index("capability_profile_audit_id_idx") == True
+  assert has_index("skill_profile_audit_id_idx") == True
+  assert has_index("capability_skill_audit_id_idx") == True
+  assert has_index("engineer_skill_audit_id_idx") == True
+}
+
 /// The name of the PRIMARY KEY index on `table`, read from the catalog.
 fn primary_key_index(table: String) -> String {
   let row_decoder = {

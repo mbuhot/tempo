@@ -29,14 +29,17 @@ import gleam/time/calendar.{
 }
 import pog
 import shared/allocation/command as allocation_command
+import shared/capability/command as capability_command
 import shared/client_details/command as client_details_command
 import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
+import shared/engineer_skill/command as engineer_skill_command
 import shared/money.{type Money}
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
+import shared/skill/command as skill_command
 import shared/timesheet/command as timesheet_command
 import tempo/server/command
 import tempo/server/operation
@@ -1397,6 +1400,599 @@ pub fn update_client_profile_changes_name_and_journals_test() {
   assert journal_ops == ["update_client_profile"]
 }
 
+// --- capability aggregate (Assert then Change; taxonomy identity) -----------
+
+// create_capability mints the identity and opens the founding profile from the
+// effective date; define_capability re-states it from a later date through the
+// SAME upsert, splitting the founding version — the [lower, effective) leftover
+// keeps the OLD name/summary while [effective, ∞) takes the new ones. Each
+// command appends its own journal row, checked verbatim down to the payload.
+pub fn create_then_define_capability_opens_and_splits_profile_test() {
+  let #(capability_id, profiles, journal) =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Backend Engineering",
+          "Server-side systems",
+          Date(2026, January, 1),
+        )),
+      )
+      let capability_id = capability_id_named(conn, "Backend Engineering")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.DefineCapability(
+          capability_id,
+          "Backend Systems",
+          "Server-side and data systems",
+          Date(2026, April, 1),
+        )),
+      )
+      #(
+        capability_id,
+        read_periods(
+          conn,
+          "capability_profile",
+          "name",
+          "defined_during",
+          "capability_id = " <> int.to_string(capability_id),
+        ),
+        read_journal(conn),
+      )
+    })
+
+  assert profiles
+    == [
+      Period("Backend Engineering", "2026-01-01", "2026-04-01"),
+      Period("Backend Systems", "2026-04-01", ""),
+    ]
+  let assert [defined, created] = journal
+  assert created.actor == "tester"
+  assert created.operation == "create_capability"
+  assert created.summary
+    == "Create capability Backend Engineering (capability "
+    <> int.to_string(capability_id)
+    <> ") from 2026-01-01"
+  assert json.parse(created.payload, gateway.command_decoder())
+    == Ok(
+      gateway.CapabilityCommand(capability_command.CreateCapability(
+        "Backend Engineering",
+        "Server-side systems",
+        Date(2026, January, 1),
+      )),
+    )
+  assert defined.actor == "tester"
+  assert defined.operation == "define_capability"
+  assert defined.summary
+    == "Define capability "
+    <> int.to_string(capability_id)
+    <> " as Backend Systems from 2026-04-01"
+  assert json.parse(defined.payload, gateway.command_decoder())
+    == Ok(
+      gateway.CapabilityCommand(capability_command.DefineCapability(
+        capability_id,
+        "Backend Systems",
+        "Server-side and data systems",
+        Date(2026, April, 1),
+      )),
+    )
+}
+
+// --- skill aggregate (Assert then Change; taxonomy identity) ----------------
+
+// create_skill mints the identity and opens the founding profile from the
+// effective date; define_skill re-states it from a later date through the SAME
+// upsert, splitting the founding version exactly like define_capability.
+pub fn create_then_define_skill_opens_and_splits_profile_test() {
+  let #(skill_id, profiles, journal) =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Chaos Engineering",
+          "Consensus and replication",
+          Date(2026, January, 1),
+        )),
+      )
+      let skill_id = skill_id_named(conn, "Chaos Engineering")
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.DefineSkill(
+          skill_id,
+          "Distributed Consensus",
+          "Consensus, replication, and partitioning",
+          Date(2026, April, 1),
+        )),
+      )
+      #(
+        skill_id,
+        read_periods(
+          conn,
+          "skill_profile",
+          "name",
+          "defined_during",
+          "skill_id = " <> int.to_string(skill_id),
+        ),
+        read_journal(conn),
+      )
+    })
+
+  assert profiles
+    == [
+      Period("Chaos Engineering", "2026-01-01", "2026-04-01"),
+      Period("Distributed Consensus", "2026-04-01", ""),
+    ]
+  let assert [defined, created] = journal
+  assert created.operation == "create_skill"
+  assert created.summary
+    == "Create skill Chaos Engineering (skill "
+    <> int.to_string(skill_id)
+    <> ") from 2026-01-01"
+  assert json.parse(created.payload, gateway.command_decoder())
+    == Ok(
+      gateway.SkillCommand(skill_command.CreateSkill(
+        "Chaos Engineering",
+        "Consensus and replication",
+        Date(2026, January, 1),
+      )),
+    )
+  assert defined.operation == "define_skill"
+  assert defined.summary
+    == "Define skill "
+    <> int.to_string(skill_id)
+    <> " as Distributed Consensus from 2026-04-01"
+  assert json.parse(defined.payload, gateway.command_decoder())
+    == Ok(
+      gateway.SkillCommand(skill_command.DefineSkill(
+        skill_id,
+        "Distributed Consensus",
+        "Consensus, replication, and partitioning",
+        Date(2026, April, 1),
+      )),
+    )
+}
+
+// --- capability_skill composition (Change over an open span; D1 deferrable) -
+
+// set_capability_skill re-weights a skill's contribution to a capability from a
+// date onward: the delete-then-insert upsert caps the open [Jan, ∞) row at the
+// re-weight date and opens a fresh open tail at the new weight — the SAME
+// close-then-open shape as define_capability, requiring the WITHOUT OVERLAPS PK
+// to be DEFERRABLE INITIALLY IMMEDIATE (D1) so the cap and the reopen commit as
+// one statement.
+pub fn set_capability_skill_reweights_over_the_open_span_test() {
+  let mappings =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Backend Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let capability_id = capability_id_named(conn, "Backend Engineering")
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Chaos Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let skill_id = skill_id_named(conn, "Chaos Engineering")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          capability_id,
+          skill_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          capability_id,
+          skill_id,
+          3,
+          Date(2026, July, 1),
+        )),
+      )
+      read_periods(
+        conn,
+        "capability_skill",
+        "weight::text",
+        "mapped_during",
+        "capability_id = " <> int.to_string(capability_id),
+      )
+    })
+
+  assert mappings
+    == [
+      Period("2", "2026-01-01", "2026-07-01"),
+      Period("3", "2026-07-01", ""),
+    ]
+}
+
+// remove_capability_skill caps the mapping at the effective date, leaving the
+// history [start, effective) intact for audit and no open tail afterward.
+pub fn remove_capability_skill_caps_the_mapping_test() {
+  let mappings =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Backend Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let capability_id = capability_id_named(conn, "Backend Engineering")
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Chaos Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let skill_id = skill_id_named(conn, "Chaos Engineering")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          capability_id,
+          skill_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.RemoveCapabilitySkill(
+          capability_id,
+          skill_id,
+          Date(2026, April, 1),
+        )),
+      )
+      read_periods(
+        conn,
+        "capability_skill",
+        "weight::text",
+        "mapped_during",
+        "capability_id = " <> int.to_string(capability_id),
+      )
+    })
+
+  assert mappings == [Period("2", "2026-01-01", "2026-04-01")]
+}
+
+// --- capability/skill retirement cascade (D4) -------------------------------
+
+// retire_capability caps the profile at the effective date AND caps every one of
+// the capability's skill mappings at the same date, so a retired capability's
+// composition cannot straddle the retirement (engineer_skill rows are untouched
+// — they stay open; the rollup read joins through the taxonomy as-of, so the
+// retired capability's mappings simply drop out).
+pub fn retire_capability_caps_profile_and_its_skill_mappings_test() {
+  let #(profiles, mappings) =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Backend Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let capability_id = capability_id_named(conn, "Backend Engineering")
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Chaos Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let systems_id = skill_id_named(conn, "Chaos Engineering")
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Technical Writing",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let api_id = skill_id_named(conn, "Technical Writing")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          capability_id,
+          systems_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          capability_id,
+          api_id,
+          3,
+          Date(2026, March, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.RetireCapability(
+          capability_id,
+          Date(2026, July, 1),
+        )),
+      )
+      #(
+        read_periods(
+          conn,
+          "capability_profile",
+          "name",
+          "defined_during",
+          "capability_id = " <> int.to_string(capability_id),
+        ),
+        read_periods(
+          conn,
+          "capability_skill",
+          "weight::text",
+          "mapped_during",
+          "capability_id = " <> int.to_string(capability_id),
+        ),
+      )
+    })
+
+  assert profiles == [Period("Backend Engineering", "2026-01-01", "2026-07-01")]
+  assert mappings
+    == [
+      Period("2", "2026-01-01", "2026-07-01"),
+      Period("3", "2026-03-01", "2026-07-01"),
+    ]
+}
+
+// retire_skill caps the profile at the effective date AND caps every capability's
+// mapping to it at the same date, symmetric to retire_capability.
+pub fn retire_skill_caps_profile_and_capability_mappings_test() {
+  let #(profiles, mappings) =
+    rolling_back(fn(conn) {
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.CreateSkill(
+          "Chaos Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let skill_id = skill_id_named(conn, "Chaos Engineering")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Backend Engineering",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let backend_id = capability_id_named(conn, "Backend Engineering")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.CreateCapability(
+          "Platform Reliability",
+          "",
+          Date(2026, January, 1),
+        )),
+      )
+      let platform_id = capability_id_named(conn, "Platform Reliability")
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          backend_id,
+          skill_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+          platform_id,
+          skill_id,
+          3,
+          Date(2026, March, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.SkillCommand(skill_command.RetireSkill(
+          skill_id,
+          Date(2026, July, 1),
+        )),
+      )
+      #(
+        read_periods(
+          conn,
+          "skill_profile",
+          "name",
+          "defined_during",
+          "skill_id = " <> int.to_string(skill_id),
+        ),
+        read_periods(
+          conn,
+          "capability_skill",
+          "weight::text",
+          "mapped_during",
+          "skill_id = " <> int.to_string(skill_id),
+        ),
+      )
+    })
+
+  assert profiles == [Period("Chaos Engineering", "2026-01-01", "2026-07-01")]
+  assert mappings
+    == [
+      Period("2", "2026-01-01", "2026-07-01"),
+      Period("3", "2026-03-01", "2026-07-01"),
+    ]
+}
+
+// --- engineer_skill aggregate (Change; the assessment split & retroactive) --
+
+/// Set up an employed engineer (open-ended employment, no role needed) and a
+/// skill anchor, returning both minted ids.
+fn employed_engineer_with_skill(
+  conn: pog.Connection,
+  name: String,
+  skill_name: String,
+) -> #(Int, Int) {
+  let engineer_id = insert_engineer(conn, name)
+  exec(
+    conn,
+    "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+      <> int.to_string(engineer_id)
+      <> ", daterange('2026-01-01', NULL, '[)'))",
+  )
+  apply(
+    conn,
+    gateway.SkillCommand(skill_command.CreateSkill(
+      skill_name,
+      "",
+      Date(2026, January, 1),
+    )),
+  )
+  #(engineer_id, skill_id_named(conn, skill_name))
+}
+
+// assess_skill re-assesses an engineer's level on a skill from a date onward:
+// the delete-then-insert upsert splits the open [Jan, ∞) assessment at the
+// re-assess date — the [Jan, Jul) leftover keeps the OLD level, [Jul, ∞) takes
+// the new one — mirroring promote_splits_covering_version.
+pub fn assess_skill_splits_the_covering_assessment_test() {
+  let levels =
+    rolling_back(fn(conn) {
+      let #(engineer_id, skill_id) =
+        employed_engineer_with_skill(conn, "Ada Lovelace", "Chaos Engineering")
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          4,
+          Date(2026, July, 1),
+        )),
+      )
+      read_periods(
+        conn,
+        "engineer_skill",
+        "level::text",
+        "assessed_during",
+        "engineer_id = " <> int.to_string(engineer_id),
+      )
+    })
+
+  assert levels
+    == [
+      Period("2", "2026-01-01", "2026-07-01"),
+      Period("4", "2026-07-01", ""),
+    ]
+}
+
+// A re-assessment effective from the SAME start date covers the whole prior
+// assessment, so FOR PORTION OF yields ZERO leftovers and the prior level is
+// erased — a correction IS a retroactive change (ADR-021), mirroring
+// retroactive_promote_covering_whole_fact_leaves_no_leftover.
+pub fn retroactive_assess_skill_covering_whole_fact_leaves_no_leftover_test() {
+  let levels =
+    rolling_back(fn(conn) {
+      let #(engineer_id, skill_id) =
+        employed_engineer_with_skill(conn, "Grace Hopper", "Chaos Engineering")
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          2,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          3,
+          Date(2026, January, 1),
+        )),
+      )
+      read_periods(
+        conn,
+        "engineer_skill",
+        "level::text",
+        "assessed_during",
+        "engineer_id = " <> int.to_string(engineer_id),
+      )
+    })
+
+  assert levels == [Period("3", "2026-01-01", "")]
+}
+
+// terminate_employment caps engineer_skill too (the newest departure-cascade
+// child, added ahead of employment_close in record_departure): an assessed
+// skill left dangling past the termination date would violate
+// engineer_skill_within_employment, so the cascade caps it alongside employment.
+pub fn terminate_employment_caps_engineer_skill_test() {
+  let #(employment, levels) =
+    rolling_back(fn(conn) {
+      let #(engineer_id, skill_id) =
+        employed_engineer_with_skill(
+          conn,
+          "Katherine Johnson",
+          "Technical Writing",
+        )
+      let where_eng = "engineer_id = " <> int.to_string(engineer_id)
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          3,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id,
+          Date(2026, September, 1),
+        )),
+      )
+      #(
+        read_periods(conn, "employment", "''", "employed_during", where_eng),
+        read_periods(
+          conn,
+          "engineer_skill",
+          "level::text",
+          "assessed_during",
+          where_eng,
+        ),
+      )
+    })
+
+  assert employment == [Period("", "2026-01-01", "2026-09-01")]
+  assert levels == [Period("3", "2026-01-01", "2026-09-01")]
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /// The id of the contract minted for `client_id` (used after sign_contract mints
@@ -1423,6 +2019,36 @@ fn engineer_id_named(conn: pog.Connection, name: String) -> Int {
   }
   let assert Ok(returned) =
     pog.query("SELECT id FROM engineer_current WHERE name = $1")
+    |> pog.parameter(pog.text(name))
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: conn)
+  let assert [id, ..] = returned.rows
+  id
+}
+
+/// The id of the capability with `name` (used after create_capability mints it).
+fn capability_id_named(conn: pog.Connection, name: String) -> Int {
+  let row_decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(id)
+  }
+  let assert Ok(returned) =
+    pog.query("SELECT id FROM capability_current WHERE name = $1")
+    |> pog.parameter(pog.text(name))
+    |> pog.returning(row_decoder)
+    |> pog.execute(on: conn)
+  let assert [id, ..] = returned.rows
+  id
+}
+
+/// The id of the skill with `name` (used after create_skill mints it).
+fn skill_id_named(conn: pog.Connection, name: String) -> Int {
+  let row_decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(id)
+  }
+  let assert Ok(returned) =
+    pog.query("SELECT id FROM skill_current WHERE name = $1")
     |> pog.parameter(pog.text(name))
     |> pog.returning(row_decoder)
     |> pog.execute(on: conn)
