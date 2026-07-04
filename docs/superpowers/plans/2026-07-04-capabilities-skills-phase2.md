@@ -6,15 +6,15 @@ Phase 1 shipped (`docs/superpowers/plans/2026-07-04-capabilities-skills-phase1.m
 
 ## Resume tracker
 
-- [ ] 1. Migration (`project_capability`)
-- [ ] 2. SQL query files + squirrel
-- [ ] 3. Shared command + envelope + coverage view types
-- [ ] 4. Server fact / repository / handler / policy arm
-- [ ] 5. Server coverage read model / http / router
-- [ ] 6. Client project-detail Capability coverage tab + Set-requirement modal
-- [ ] 7. Seed (Payments gap on Ledger Migration)
-- [ ] 8. Tests (codec, operations clear-then-set + containment, api coverage read, e2e)
-- [ ] 9. Gates green
+- [x] 1. Migration (`project_capability`)
+- [x] 2. SQL query files + squirrel
+- [x] 3. Shared command + envelope + coverage view types
+- [x] 4. Server fact / repository / handler / policy arm
+- [x] 5. Server coverage read model / http / router
+- [x] 6. Client project-detail Capability coverage tab + Set-requirement modal
+- [x] 7. Seed (Payments gap on Ledger Migration)
+- [x] 8. Tests (codec, operations clear-then-set + containment, api coverage read, e2e)
+- [x] 9. Gates green
 
 ## Decisions
 
