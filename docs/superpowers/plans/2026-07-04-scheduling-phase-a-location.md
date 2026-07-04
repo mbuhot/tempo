@@ -145,8 +145,13 @@ git commit -m "Seed engineer locations (incl. a relocation) and grant location.m
 - Create: `server/src/tempo/server/location/sql/timezone_valid.sql`
 - Create (generated): `server/src/tempo/server/location/sql.gleam`
 
-**Interfaces:**
-- Produces (generated fns): `engineer_location_upsert(db, engineer_id: Int, effective: Date, country: String, region: Option(String), timezone: String, audit_id: Int)`; `engineer_locations(db, as_of: Date) -> EngineerLocationsRow`; `engineer_location_history(db, engineer_id: Int) -> EngineerLocationHistoryRow`; `timezone_valid(db, timezone: String) -> TimezoneValidRow(valid: Bool)`. Exact generated names/param order come from Squirrel — read `sql.gleam` after Step 5 and use them verbatim downstream.
+**Interfaces (as actually generated — Squirrel cannot infer nullability for `upper()`-derived bounds or INSERT-value params, so the queries are shaped to avoid both):**
+- `engineer_location_upsert(db, engineer_id: Int, effective: Date, country: String, region: String, timezone: String, audit_id: Int)` — **`region` is `String`, not `Option`**; the SQL `nullif($4, '')`s it, so the caller passes `""` for none.
+- `engineer_roster(db) -> EngineerRosterRow(engineer_id: Int, name: String)` — all engineers.
+- `engineer_locations_asof(db, as_of: Date) -> EngineerLocationsAsofRow(engineer_id: Int, country: String, region: Option(String), timezone: String, valid_from: Date, valid_to: Date, ongoing: Bool)` — only engineers with a location on the date.
+- `engineer_location_history(db, engineer_id: Int) -> EngineerLocationHistoryRow(country: String, region: Option(String), timezone: String, valid_from: Date, valid_to: Date, ongoing: Bool)`.
+- `timezone_valid(db, timezone: String) -> TimezoneValidRow(valid: Bool)`.
+- The listing is a **roster + as-of-locations pair joined in Gleam** (Task 8), not a LEFT JOIN — that is what keeps `valid_from`/`valid_to`/`country` from decoding NULLs on location-less engineers or open-ended spans. `valid_to` is `coalesce(upper, lower)`; map it to `Option(Date)` with `ongoing` via the existing `open_end` helper pattern.
 
 - [ ] **Step 1: Write `engineer_location_upsert.sql`** (delete-then-insert, the `engineer_contact_upsert` idiom)
 
@@ -578,11 +583,13 @@ EngineerLocated(
 
 ```gleam
 EngineerLocated(engineer_id: EngineerId(engineer_id), country:, region:, timezone:, from:) ->
-  location_sql.engineer_location_upsert(conn, engineer_id, from, country, region, timezone, audit_id)
+  location_sql.engineer_location_upsert(
+    conn, engineer_id, from, country, option.unwrap(region, ""), timezone, audit_id,
+  )
   |> operation.run
 ```
 
-Match the surrounding arms' error-mapping (`operation.run` / `operation.try`) exactly.
+`region` is `Option(String)` on the fact but `String` on the generated fn (the SQL `nullif`s `""` to NULL), so pass `option.unwrap(region, "")` (import `gleam/option`). Match the surrounding arms' error-mapping (`operation.run` / `operation.try`) exactly.
 
 - [ ] **Step 5: Write `server/src/tempo/server/location/command.gleam`** (mirror `leave/command.gleam`'s guard shape)
 
@@ -666,7 +673,7 @@ git commit -m "Record engineer location through the dispatch/audit seam with TZI
 - Test: `server/test/location_test.gleam` (add read cases)
 
 **Interfaces:**
-- Consumes: `location_sql.engineer_locations(db, as_of)`, `location_sql.engineer_location_history(db, engineer_id)`; shared `location/view` types.
+- Consumes: `location_sql.engineer_roster(db)`, `location_sql.engineer_locations_asof(db, as_of)`, `location_sql.engineer_location_history(db, engineer_id)`; shared `location/view` types; the `open_end(ongoing, valid_to) -> Option(Date)` mapping (copy the small helper from `engineer_skill/view.gleam`).
 - Produces: `location.view.listing(context, as_of) -> Result(List(EngineerLocation), pog.QueryError)`; `location.view.history(context, engineer_id) -> Result(List(LocationRecord), pog.QueryError)`; routes `GET /api/locations?as_of=` and `GET /api/engineers/:id/location`.
 
 - [ ] **Step 1: Write a failing read test** (against the seed; Priya relocated 2026-07-01, so her as-of timezone flips across that date)
@@ -700,41 +707,57 @@ pub fn listing_resolves_timezone_as_of_the_date_test() {
 //// Reads for engineer location: the as-of listing (every engineer + their location on a
 //// date, or none) and one engineer's full history.
 
+import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import pog
 import shared/location/view.{type EngineerLocation, type LocationRecord, EngineerLocation, LocationRecord}
 import tempo/server/context.{type Context}
 import tempo/server/location/sql
 
 pub fn listing(context: Context, as_of) -> Result(List(EngineerLocation), pog.QueryError) {
-  use returned <- result_map(sql.engineer_locations(context.db, as_of))
-  list.map(returned.rows, listing_row_to_shared)
+  use roster <- result.try(sql.engineer_roster(context.db))
+  use located <- result.map(sql.engineer_locations_asof(context.db, as_of))
+  let by_engineer =
+    located.rows
+    |> list.map(fn(row) { #(row.engineer_id, asof_row_to_record(row)) })
+    |> dict.from_list
+  list.map(roster.rows, fn(engineer) {
+    EngineerLocation(
+      engineer_id: engineer.engineer_id,
+      name: engineer.name,
+      location: dict.get(by_engineer, engineer.engineer_id) |> option.from_result,
+    )
+  })
 }
 
 pub fn history(context: Context, engineer_id: Int) -> Result(List(LocationRecord), pog.QueryError) {
-  use returned <- result_map(sql.engineer_location_history(context.db, engineer_id))
-  list.map(returned.rows, history_row_to_shared)
+  use returned <- result.map(sql.engineer_location_history(context.db, engineer_id))
+  list.map(returned.rows, history_row_to_record)
+}
+
+fn asof_row_to_record(row: sql.EngineerLocationsAsofRow) -> LocationRecord {
+  LocationRecord(
+    country: row.country, region: row.region, timezone: row.timezone,
+    valid_from: row.valid_from, valid_to: open_end(row.ongoing, row.valid_to),
+  )
+}
+
+fn history_row_to_record(row: sql.EngineerLocationHistoryRow) -> LocationRecord {
+  LocationRecord(
+    country: row.country, region: row.region, timezone: row.timezone,
+    valid_from: row.valid_from, valid_to: open_end(row.ongoing, row.valid_to),
+  )
+}
+
+/// An open (`ongoing`) span has no end date; otherwise its coalesced upper bound.
+fn open_end(ongoing: Bool, valid_to) -> Option(calendar.Date) {
+  case ongoing { True -> None  False -> Some(valid_to) }
 }
 ```
 
-Add the row-mapping helpers. For the listing row, the location cols are `Option`al (LEFT JOIN); build the record only when `country` is `Some`:
-
-```gleam
-fn listing_row_to_shared(row: sql.EngineerLocationsRow) -> EngineerLocation {
-  let location = case row.country {
-    Some(country) ->
-      Some(LocationRecord(
-        country:, region: row.region, timezone: unwrap_string(row.timezone),
-        valid_from: unwrap_date(row.valid_from), valid_to: row.valid_to,
-      ))
-    None -> None
-  }
-  EngineerLocation(engineer_id: row.engineer_id, name: row.name, location:)
-}
-```
-
-Use whatever the generated `EngineerLocationsRow` field types are (Squirrel makes LEFT-JOIN cols `Option`). Prefer restructuring so no unwrap is needed — e.g. decode all location cols together — but if Squirrel types them individually `Option`, gate on `row.country` and pull the rest with matching `Some` patterns rather than partial unwraps. Read the generated row type and adapt. Provide `result_map` as a thin `result.map` alias or just use `result.map` inline.
+Roster and as-of-locations are two separate queries joined here (no LEFT-JOIN nullability). `open_end` mirrors the helper in `engineer_skill/view.gleam`; add `import gleam/time/calendar` for its signature (or reuse the row's `Date` type). All row fields are non-null except `region: Option(String)`, which flows straight through.
 
 - [ ] **Step 4: Write `server/src/tempo/server/location/http.gleam`** (mirror `engineer_skill/http.gleam`; the listing needs `read.engineers`, gated in the router; parse `as_of` from query)
 
