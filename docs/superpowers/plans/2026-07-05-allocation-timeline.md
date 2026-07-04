@@ -2110,7 +2110,7 @@ the rollback endpoint, stats-strip preview toggle and batch apply."
 
 The e2e DB is append-only across runs, so the applied write must be idempotent: the apply test uses `RescheduleProject` on **Platform Telemetry** (project 400 — zero allocations, zero timesheets, zero requirement rows, so the cascade is trivially repeatable) to the SAME fixed window every run. The nomination flow is exercised in preview only (an allocation apply would violate the overlap constraint on re-run).
 
-- [ ] **Step 1: Write the spec**
+- [x] **Step 1: Write the spec**
 
 `e2e/schedule.spec.js`:
 
@@ -2176,17 +2176,17 @@ test("applying a reschedule persists the new run window", async ({ page }) => {
 
 Adaptation notes: locator specifics (roles, labels) must match the markup Tasks 7–8 actually produced — give the run inputs `aria-label="Run start"` / `"Run end"` and the aside `role="complementary"` (`html.aside`) in Task 8 if not already; add "Schedule" to `helpers.js`' nav map if it keys labels. Assertions stay on visible text and roles, never classes. All three tests are idempotent: the first two never apply; the third applies the same window every run (a second run's reschedule to identical dates is a clean delete-and-reinsert of the same rows — note the demo seed's financials must not have invoiced project 400; if `bin/seed-invoices` did, switch the target to another allocation-free, invoice-free project and fix the dates accordingly).
 
-- [ ] **Step 2: Run e2e**
+- [x] **Step 2: Run e2e**
 
 Run: `TEMPO_DB_PORT=5435 bin/e2e e2e/schedule.spec.js > /tmp/e2e.log 2>&1; tail -20 /tmp/e2e.log`
 Expected: 3 passed. (bin/e2e rebuilds the client bundle first — never skip it; stale bundles produce false failures.)
 
-- [ ] **Step 3: Full gates**
+- [x] **Step 3: Full gates**
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/gate.log 2>&1; tail -5 /tmp/gate.log && TEMPO_DB_PORT=5435 bin/e2e > /tmp/e2e-full.log 2>&1; tail -10 /tmp/e2e-full.log`
 Expected: everything green, including the pre-existing suites.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add e2e/schedule.spec.js

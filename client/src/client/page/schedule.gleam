@@ -689,10 +689,11 @@ fn view_project(
     True -> "schedule-project schedule-project--selected"
     False -> "schedule-project"
   }
-  html.div([attribute.class(class)], [
+  html.section([attribute.class(class)], [
     html.div(
       [
         attribute.class("schedule-project__header"),
+        attribute.role("button"),
         event.on_click(ProjectSelected(project_id:)),
       ],
       [
