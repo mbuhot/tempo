@@ -38,6 +38,7 @@ import client/page/finance
 import client/page/people
 import client/page/projects
 import client/page/settings
+import client/page/skills
 import client/route.{type Route}
 import client/scheduler
 import client/storage
@@ -68,6 +69,7 @@ pub type Page {
   ActivityPage(activity.Model)
   SettingsPage(settings.Model)
   AccessPage(access.Model)
+  SkillsPage(skills.Model)
 }
 
 /// Who is signed in, as one of three states: `Verifying` while the boot `GET /api/me`
@@ -181,6 +183,7 @@ pub type Msg {
   ActivityMsg(activity.Msg)
   SettingsMsg(settings.Msg)
   AccessMsg(access.Msg)
+  SkillsMsg(skills.Msg)
 }
 
 /// Client entrypoint: start the Lustre application mounted on `#app`.
@@ -496,6 +499,20 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
+
+    SkillsMsg(page_msg) ->
+      case model.page {
+        SkillsPage(page_model) -> {
+          let #(next, page_effect, outs) = skills.update(page_model, page_msg)
+          handle_page(
+            model,
+            SkillsPage(next),
+            effect.map(page_effect, SkillsMsg),
+            page_outs(outs),
+          )
+        }
+        _ -> #(model, effect.none())
+      }
   }
 }
 
@@ -625,6 +642,10 @@ fn init_page(
       let #(page, eff) = access.init(route, as_of, actor)
       #(AccessPage(page), effect.map(eff, AccessMsg))
     }
+    route.Skills -> {
+      let #(page, eff) = skills.init(route, as_of, actor)
+      #(SkillsPage(page), effect.map(eff, SkillsMsg))
+    }
     route.NotFound -> {
       let #(page, eff) = board.init(route, as_of, actor)
       #(BoardPage(page), effect.map(eff, BoardMsg))
@@ -672,6 +693,10 @@ fn refetch_page(
     AccessPage(model) -> {
       let #(next, eff) = access.refetch(model, as_of, actor)
       #(AccessPage(next), effect.map(eff, AccessMsg))
+    }
+    SkillsPage(model) -> {
+      let #(next, eff) = skills.refetch(model, as_of, actor)
+      #(SkillsPage(next), effect.map(eff, SkillsMsg))
     }
   }
 }
@@ -929,6 +954,15 @@ fn view_sidebar(
       admin_header(permissions),
       nav_link_if(
         permissions,
+        perm.skills_manage,
+        active,
+        as_of,
+        route.Skills,
+        icons.skills(),
+        "Skills",
+      ),
+      nav_link_if(
+        permissions,
         perm.read_finances,
         active,
         as_of,
@@ -973,6 +1007,7 @@ fn admin_header(permissions: Set(String)) -> Element(Msg) {
   case
     set.contains(permissions, perm.read_finances)
     || set.contains(permissions, perm.roles_manage)
+    || set.contains(permissions, perm.skills_manage)
   {
     True ->
       html.div([attribute.class("sidebar__nav-group eyebrow")], [
@@ -1023,6 +1058,7 @@ fn same_page(a: Route, b: Route) -> Bool {
     route.Activity, route.Activity -> True
     route.Settings, route.Settings -> True
     route.Access, route.Access -> True
+    route.Skills, route.Skills -> True
     route.NotFound, route.NotFound -> True
     _, _ -> False
   }
@@ -1093,6 +1129,8 @@ fn view_page(model: Model) -> Element(Msg) {
     SettingsPage(page) ->
       element.map(settings.view(page, model.as_of, permissions), SettingsMsg)
     AccessPage(page) -> element.map(access.view(page, model.as_of), AccessMsg)
+    SkillsPage(page) ->
+      element.map(skills.view(page, model.as_of, permissions), SkillsMsg)
   }
 }
 
