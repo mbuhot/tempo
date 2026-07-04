@@ -497,3 +497,28 @@ WITH e AS (
   RETURNING id)
 INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
 SELECT 2, 6, 4, daterange('2026-05-01', '2027-01-01', '[)'), e.id FROM e;
+
+-- Record Ledger Migration's capability demand (#39): Payments Platform target L3
+-- x2.00. Priya, the only engineer allocated to project 100, rolls up to ~3.56 on
+-- Payments Platform (Payment Gateways(3)=4, PCI Compliance(3)=3, Ledger Accounting
+-- Systems(2)=4, API Design(1)=3 -> 32/9), so she covers the requirement alone --
+-- one engineer against a quantity of two, a visible gap of one. -----------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-10', 'seed', 'set_project_capability', 'Set Ledger Migration capability: Payments Platform target L3 x2.00 over 2026-01-10..2027-01-01',
+     '{"project_id":100,"capability_id":1,"target_level":3,"quantity":2.00,"valid_from":"2026-01-10","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
+SELECT 100, 1, 3, 2.00, daterange('2026-01-10','2027-01-01'), e.id FROM e;
+
+-- Record a second Ledger Migration capability demand for contrast: Frontend
+-- Delivery target L1 x1.00. Priya rolls up to 1.5 on Frontend Delivery (Frontend
+-- Development(3)=2, UI/UX Design(2)=0, API Design(1)=3 -> 9/6), clearing the
+-- target -- fully covered against the required quantity of one. ----------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-10', 'seed', 'set_project_capability', 'Set Ledger Migration capability: Frontend Delivery target L1 x1.00 over 2026-01-10..2027-01-01',
+     '{"project_id":100,"capability_id":3,"target_level":1,"quantity":1.00,"valid_from":"2026-01-10","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
+SELECT 100, 3, 1, 1.00, daterange('2026-01-10','2027-01-01'), e.id FROM e;

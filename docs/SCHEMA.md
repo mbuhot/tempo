@@ -26,6 +26,7 @@ erDiagram
   allocation ||--o{ timesheet : "PERIOD FK"
   capability ||--o{ capability_profile : "FK"
   capability ||--o{ capability_skill : "FK"
+  capability ||--o{ project_capability : "FK"
   client ||--o{ client_profile : "FK"
   client ||--o{ contract_terms : "FK"
   contract_terms ||--o{ project_run : "PERIOD FK"
@@ -51,9 +52,11 @@ erDiagram
   permission ||--o{ role_permission : "FK"
   project_run ||--o{ allocation : "PERIOD FK"
   project_run ||--o{ invoice_subject : "PERIOD FK"
+  project_run ||--o{ project_capability : "PERIOD FK"
   project_run ||--o{ project_requirement : "PERIOD FK"
   project ||--o{ allocation : "FK"
   project ||--o{ invoice_subject : "FK"
+  project ||--o{ project_capability : "FK"
   project ||--o{ project_plan : "FK"
   project ||--o{ project_profile : "FK"
   project ||--o{ project_requirement : "FK"
@@ -231,6 +234,14 @@ erDiagram
   }
   project {
     integer id PK
+  }
+  project_capability {
+    integer project_id PK,FK
+    integer capability_id PK,FK
+    integer target_level
+    numeric quantity
+    daterange required_during PK,FK "WITHOUT OVERLAPS"
+    bigint audit_id FK
   }
   project_plan {
     integer project_id PK,FK
