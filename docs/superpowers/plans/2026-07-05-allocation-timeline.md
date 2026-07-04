@@ -601,7 +601,7 @@ pub fn candidate_decoder() -> Decoder(Candidate)
 pub fn encode_candidate(candidate: Candidate) -> Json
 ```
 
-- [ ] **Step 1: Write the failing round-trip test**
+- [x] **Step 1: Write the failing round-trip test**
 
 `shared/test/schedule_view_test.gleam` (follow `shared/test/workflow_view_test.gleam`'s harness style — encode to string, decode with `json.parse`):
 
@@ -685,11 +685,11 @@ pub fn candidate_codec_round_trip_test() {
 }
 ```
 
-- [ ] **Step 2: Stub the module with `todo`, confirm the tests fail on `todo`**
+- [x] **Step 2: Stub the module with `todo`, confirm the tests fail on `todo`**
 
 Create `shared/src/shared/schedule/view.gleam` with all the types from the Interfaces block plus codec fns whose bodies are `todo`. Run: `cd shared && gleam test > /tmp/t3.log 2>&1; tail -5 /tmp/t3.log` — expected: FAIL on `todo`.
 
-- [ ] **Step 3: Implement the codecs**
+- [x] **Step 3: Implement the codecs**
 
 Follow `shared/src/shared/board/view.gleam`'s conventions exactly: dates via `wire.encode_date` / `wire.date_decoder()`; tagged unions via a `"status"`/`"kind"` discriminator string field. Full implementation:
 
@@ -732,12 +732,12 @@ fn cell_decoder() -> Decoder(CellState) {
 
 and analogous encode/decoder pairs for `EngineerLane`, `LineKind` (`"kind": "level" | "capability"`), `RequirementLine` (gaps as `json.array(gaps, json.float)` / `decode.list(wire.lenient_float_decoder())`), `Seat` (`"kind": "filled" | "open"`), `CapabilityCoverage`, `ProjectSchedule` (`annotation` via `json.nullable(annotation, json.string)` / `decode.optional_field`-style matching how board encodes options — copy its exact optional idiom), `Schedule`, `OperationOutcome` (`"outcome": "applied" | "rejected"`), `PreviewResult`, `Candidate`. Every float field decodes with `wire.lenient_float_decoder()` (ints arriving where floats are expected must not fail — same reason allocation commands use it).
 
-- [ ] **Step 4: Run shared tests**
+- [x] **Step 4: Run shared tests**
 
 Run: `cd shared && gleam test > /tmp/t3.log 2>&1; tail -5 /tmp/t3.log`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/shared/schedule/view.gleam shared/test/schedule_view_test.gleam
