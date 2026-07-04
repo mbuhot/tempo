@@ -10,10 +10,12 @@ import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/result
 import shared/allocation/command as allocation_command
+import shared/capability/command as capability_command
 import shared/client_details/command as client_details_command
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
+import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
 import shared/pagination
@@ -23,6 +25,7 @@ import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/role/command as role_command
 import shared/salary/command as salary_command
+import shared/skill/command as skill_command
 import shared/timesheet/command as timesheet_command
 import shared/wire
 import shared/workflow/command as workflow_command
@@ -63,6 +66,9 @@ pub type Command {
   )
   RoleCommand(role_command.RoleCommand)
   WorkflowCommand(workflow_command.WorkflowCommand)
+  CapabilityCommand(capability_command.CapabilityCommand)
+  SkillCommand(skill_command.SkillCommand)
+  EngineerSkillCommand(engineer_skill_command.EngineerSkillCommand)
 }
 
 /// Encode a `Command` as a tagged JSON object keyed by `op`, delegating to the
@@ -85,6 +91,9 @@ pub fn encode_command(command: Command) -> Json {
       project_requirement_command.encode(command)
     RoleCommand(command) -> role_command.encode(command)
     WorkflowCommand(command) -> workflow_command.encode(command)
+    CapabilityCommand(command) -> capability_command.encode(command)
+    SkillCommand(command) -> skill_command.encode(command)
+    EngineerSkillCommand(command) -> engineer_skill_command.encode(command)
   }
 }
 
@@ -111,6 +120,9 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   )
   use <- try_group(role_command.decoder(op), RoleCommand)
   use <- try_group(workflow_command.decoder(op), WorkflowCommand)
+  use <- try_group(capability_command.decoder(op), CapabilityCommand)
+  use <- try_group(skill_command.decoder(op), SkillCommand)
+  use <- try_group(engineer_skill_command.decoder(op), EngineerSkillCommand)
   Error(Nil)
 }
 

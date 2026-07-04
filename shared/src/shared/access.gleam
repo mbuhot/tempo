@@ -72,6 +72,12 @@ pub const payroll_run = "payroll.run"
 /// Grant and revoke users' roles (the Access management page).
 pub const roles_manage = "roles.manage"
 
+/// Create/edit capabilities, skills, and the composition matrix.
+pub const skills_manage = "skills.manage"
+
+/// Record engineer skill assessments.
+pub const skills_assess = "skills.assess"
+
 // --- Role names --------------------------------------------------------------
 
 pub const role_engineer = "engineer"
@@ -91,6 +97,6 @@ pub fn all() -> List(String) {
     leave_take_any, engineer_onboard, engineer_onboard_commit, engineer_promote,
     engineer_terminate, allocation_manage, engagement_manage, project_manage,
     project_create_confirm, client_manage, salary_set, ratecard_manage,
-    invoice_manage, payroll_run, roles_manage,
+    invoice_manage, payroll_run, roles_manage, skills_manage, skills_assess,
   ]
 }

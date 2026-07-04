@@ -15,10 +15,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import shared/access
 import shared/command.{
-  type Command, AllocationCommand, ClientDetailsCommand, EngagementCommand,
-  EngineerCommand, EngineerDetailsCommand, InvoiceCommand, LeaveCommand,
-  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, TimesheetCommand, WorkflowCommand,
+  type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
+  EngagementCommand, EngineerCommand, EngineerDetailsCommand,
+  EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
+  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
+  SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
@@ -49,6 +50,8 @@ pub type CommandKey {
   ManageRoles
   ConfirmOnboarding
   ConfirmProjectCreate
+  ManageSkills
+  AssessSkills
 }
 
 /// What a key requires: a single permission (`Direct`), or — for the ownership-sensitive
@@ -80,6 +83,8 @@ pub fn requirement(key: CommandKey) -> Requirement {
     ManageRoles -> Direct(access.roles_manage)
     ConfirmOnboarding -> Direct(access.engineer_onboard_commit)
     ConfirmProjectCreate -> Direct(access.project_create_confirm)
+    ManageSkills -> Direct(access.skills_manage)
+    AssessSkills -> Direct(access.skills_assess)
   }
 }
 
@@ -105,6 +110,9 @@ pub fn key(command: Command) -> CommandKey {
     RoleCommand(_) -> ManageRoles
     WorkflowCommand(workflow_command.CommitOnboarding(..)) -> ConfirmOnboarding
     WorkflowCommand(workflow_command.CreateProject(..)) -> ConfirmProjectCreate
+    CapabilityCommand(_) -> ManageSkills
+    SkillCommand(_) -> ManageSkills
+    EngineerSkillCommand(_) -> AssessSkills
   }
 }
 
