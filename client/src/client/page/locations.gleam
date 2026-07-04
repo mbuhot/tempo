@@ -243,6 +243,7 @@ fn view_located_row(
     country:,
     region:,
     timezone:,
+    utc_offset_minutes:,
     valid_from:,
     ..,
   ) = record
@@ -250,7 +251,9 @@ fn view_located_row(
     html.td([], [view_engineer_cell(engineer_id, name)]),
     html.td([], [view_location_cell(country, region)]),
     html.td([attribute.class("mono")], [html.text(timezone)]),
-    html.td([attribute.class("mono muted")], [html.text("—")]),
+    html.td([attribute.class("mono")], [
+      html.text(time.utc_offset(utc_offset_minutes)),
+    ]),
     html.td([attribute.class("mono")], [html.text(time.format_date(valid_from))]),
     html.td([], [
       set_location_launch(engineer_id, Some(record), permissions),
