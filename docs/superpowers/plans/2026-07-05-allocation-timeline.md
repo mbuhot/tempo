@@ -52,7 +52,7 @@
 **Interfaces:**
 - Produces: `shared/engagement/command.RescheduleProject(project_id: Int, valid_from: Date, valid_to: Date)`, JSON op tag `"reschedule_project"`. Later tasks build it as `command.EngagementCommand(engagement_command.RescheduleProject(...))`.
 
-- [ ] **Step 1: Write the failing round-trip test**
+- [x] **Step 1: Write the failing round-trip test**
 
 Open `server/test/codec_test.gleam`, find the existing command round-trip tests (encode → `json.to_string` → parse with `command.grouped_command_decoder()` style — copy the exact harness the neighbouring engagement test uses), and add:
 
@@ -70,7 +70,7 @@ pub fn reschedule_project_codec_round_trip_test() {
 
 (`round_trip` is whatever helper the file already uses for other commands — reuse it verbatim; if the file's helper is named differently, match it.)
 
-- [ ] **Step 2: Run to verify it fails as a compile-then-todo failure**
+- [x] **Step 2: Run to verify it fails as a compile-then-todo failure**
 
 The variant does not exist yet, so first add the variant stub so the test compiles (TDD in Gleam: the union change is the stub):
 
@@ -90,7 +90,7 @@ and add `RescheduleProject` to any `import`/re-export list in the same file if p
 Run: `cd server && gleam test > /tmp/t1.log 2>&1; tail -5 /tmp/t1.log`
 Expected: FAIL — the round-trip test panics on `todo` (a runtime todo, never a compile error).
 
-- [ ] **Step 3: Implement the codec**
+- [x] **Step 3: Implement the codec**
 
 In `encode`:
 
@@ -116,7 +116,7 @@ In `decoder(op)` add a case:
       })
 ```
 
-- [ ] **Step 4: Clean-build both packages, run tests**
+- [x] **Step 4: Clean-build both packages, run tests**
 
 Run: `cd shared && gleam clean && gleam build && cd ../server && gleam clean && TEMPO_DB_PORT=5435 ../bin/test > /tmp/t1.log 2>&1; tail -5 /tmp/t1.log`
 Expected: PASS. The compiler will name any remaining inexhaustive site (there should be none server-side — `engagement/command.gleam`'s `route` gets its arm in Task 2; if the build fails there now, add a `RescheduleProject(..) -> todo` arm and leave it red-free by keeping the arm compiling with `todo` only until Task 2).
@@ -144,7 +144,7 @@ pub fn reschedule_project(
 
 The codec test passes; the `todo` handler is exercised only in Task 2's tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/shared/engagement/command.gleam server/src/tempo/server/engagement/command.gleam server/test/codec_test.gleam

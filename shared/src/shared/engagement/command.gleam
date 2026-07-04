@@ -14,6 +14,8 @@ pub type EngagementCommand {
   SignContract(client: String, valid_from: Date, valid_to: Date)
   /// Start a project under a contract for a bounded active period.
   StartProject(name: String, contract_id: Int, valid_from: Date, valid_to: Date)
+  /// Move a project's whole plan to a new [from, to) run window.
+  RescheduleProject(project_id: Int, valid_from: Date, valid_to: Date)
 }
 
 /// Encode an `EngagementCommand` as a tagged JSON object keyed by `op`.
@@ -31,6 +33,13 @@ pub fn encode(command: EngagementCommand) -> Json {
         #("op", json.string("start_project")),
         #("name", json.string(name)),
         #("contract_id", json.int(contract_id)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
+    RescheduleProject(project_id:, valid_from:, valid_to:) ->
+      json.object([
+        #("op", json.string("reschedule_project")),
+        #("project_id", json.int(project_id)),
         #("valid_from", encode_date(valid_from)),
         #("valid_to", encode_date(valid_to)),
       ])
@@ -55,6 +64,13 @@ pub fn decoder(op: String) -> Result(Decoder(EngagementCommand), Nil) {
         use valid_from <- decode.field("valid_from", date_decoder())
         use valid_to <- decode.field("valid_to", date_decoder())
         decode.success(StartProject(name:, contract_id:, valid_from:, valid_to:))
+      })
+    "reschedule_project" ->
+      Ok({
+        use project_id <- decode.field("project_id", decode.int)
+        use valid_from <- decode.field("valid_from", date_decoder())
+        use valid_to <- decode.field("valid_to", date_decoder())
+        decode.success(RescheduleProject(project_id:, valid_from:, valid_to:))
       })
     _ -> Error(Nil)
   }

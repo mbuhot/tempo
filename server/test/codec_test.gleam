@@ -468,6 +468,18 @@ pub fn command_start_project_round_trips_test() {
     == original
 }
 
+pub fn command_reschedule_project_round_trips_test() {
+  let original =
+    gateway.EngagementCommand(engagement_command.RescheduleProject(
+      project_id: 500,
+      valid_from: Date(2026, September, 7),
+      valid_to: Date(2027, January, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
 pub fn command_assign_to_project_round_trips_test() {
   let original =
     gateway.AllocationCommand(allocation_command.AssignToProject(

@@ -20,7 +20,7 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{EngagementCommand} as gateway
 import shared/engagement/command.{
-  type EngagementCommand, SignContract, StartProject,
+  type EngagementCommand, RescheduleProject, SignContract, StartProject,
 }
 import shared/money
 import tempo/server/fact.{type Recorded, Recorded}
@@ -38,6 +38,8 @@ pub fn route(
       sign_contract(conn, command, client:, valid_from:, valid_to:)
     StartProject(name:, contract_id:, valid_from:, valid_to:) ->
       start_project(conn, command, name:, contract_id:, valid_from:, valid_to:)
+    RescheduleProject(project_id:, valid_from:, valid_to:) ->
+      reschedule_project(conn, command, project_id:, valid_from:, valid_to:)
   }
 }
 
@@ -126,4 +128,16 @@ pub fn start_project(
       ],
     ),
   )
+}
+
+/// Move a project's whole plan to a new [from, to) run window. Implemented in
+/// the reschedule write-path task; stubbed here so the command routes.
+pub fn reschedule_project(
+  conn: pog.Connection,
+  command: EngagementCommand,
+  project_id project_id: Int,
+  valid_from valid_from: Date,
+  valid_to valid_to: Date,
+) -> Result(Recorded, OperationError) {
+  todo
 }
