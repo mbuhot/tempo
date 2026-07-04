@@ -765,7 +765,7 @@ preview outcomes and candidates; round-tripped codecs."
 
 Every query starts from the same 12-week series; 2026-06-15 is a Monday so `date_trunc('week', ...)` anchors exactly on the as-of date in tests.
 
-- [ ] **Step 1: Write the failing view test**
+- [x] **Step 1: Write the failing view test**
 
 `server/test/schedule_test.gleam`:
 
@@ -851,7 +851,7 @@ pub fn level_gaps_open_when_the_requirement_window_starts_test() {
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t4.log 2>&1; tail -5 /tmp/t4.log`
 Expected: FAIL — module `tempo/server/schedule/view` does not exist.
 
-- [ ] **Step 2: Write the six SQL queries, regenerate squirrel**
+- [x] **Step 2: Write the six SQL queries, regenerate squirrel**
 
 `server/src/tempo/server/schedule/sql/schedule_weeks.sql` (the series every other query re-derives internally; `timeline` reads it once for the payload's week header):
 
@@ -1060,7 +1060,7 @@ ORDER BY demand.project_id, name, demand.week;
 Run: `DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5435/tempo bin/squirrel > /tmp/squirrel.log 2>&1; tail -5 /tmp/squirrel.log`
 Expected: `server/src/tempo/server/schedule/sql.gleam` generated with row types `ScheduleProjectsRow`, `ScheduleLanesRow`, `ScheduleTotalsRow`, `ScheduleLevelGapsRow`, `ScheduleCapabilityGapsRow` (fractions/quantities/covered/best decode as Float via `pog.numeric_decoder()`, weeks as `Date`, `on_leave` as Bool).
 
-- [ ] **Step 3: Implement the view assembly**
+- [x] **Step 3: Implement the view assembly**
 
 `server/src/tempo/server/schedule/view.gleam`:
 
@@ -1119,7 +1119,7 @@ pub fn timeline(
 
 Implement `assemble` fully now (it is ~150 lines of grouping code; keep each grouping in its own private fn: `lanes_for`, `lines_for`, `seats_for`, `coverage_for`).
 
-- [ ] **Step 4: HTTP handler + route**
+- [x] **Step 4: HTTP handler + route**
 
 `server/src/tempo/server/schedule/http.gleam` (mirror `board/http.gleam` exactly):
 
@@ -1157,12 +1157,12 @@ Router (`server/src/tempo/server/web/router.gleam`), beside the `["api", "board"
 
 with `import tempo/server/schedule/http as schedule_http`.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t4.log 2>&1; tail -10 /tmp/t4.log`
 Expected: PASS — all five schedule tests green. If a gap assertion differs, print the actual rows by asserting against a deliberately wrong value once, read the diff, and fix the QUERY (never bend the expected value to a wrong actual — the arithmetic in the test comments is the spec).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/tempo/server/schedule server/test/schedule_test.gleam server/src/tempo/server/web/router.gleam

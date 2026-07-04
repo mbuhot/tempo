@@ -34,6 +34,7 @@ import tempo/server/pnl/http as pnl
 import tempo/server/project/http as projects
 import tempo/server/project_capability/http as project_capability_http
 import tempo/server/roster/http as roster
+import tempo/server/schedule/http as schedule_http
 import tempo/server/settings/http as settings
 import tempo/server/timesheet/http as timesheet
 import tempo/server/web/access as access_admin
@@ -113,6 +114,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "board"] -> {
       use _principal <- guard.require(context, access.read_projects)
       board.handle(request, context)
+    }
+    ["api", "schedule"] -> {
+      use _principal <- guard.require(context, access.read_projects)
+      schedule_http.handle(request, context)
     }
     ["api", "timesheet"] -> {
       use principal <- guard.authenticated(context)
