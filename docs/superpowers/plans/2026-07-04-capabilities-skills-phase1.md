@@ -8,17 +8,17 @@ Produced from a full codebase mapping pass (8 readers + completeness critic). Ea
 
 Update as steps complete. A fresh session needs only this file + the design doc.
 
-- [ ] 1. Migration (`20260704090000_capabilities_skills.sql`)
-- [ ] 2. SQL query files + `bin/squirrel`
-- [ ] 3. Shared commands + envelope + read-model types
-- [ ] 4. Server facts / repository / handlers
-- [ ] 5. Permissions / policy / rbac seed
-- [ ] 6. Server read models / HTTP / router
-- [ ] 7. Client (Skills tab, taxonomy admin page, ui.OpAssessSkill, capabilities.scss)
-- [ ] 8. Seed data (base_seed.sql)
-- [ ] 9. Docs (ADR-049, SCHEMA.md via bin/erd)
-- [ ] 10. Tests (codec, operations, constraint, auth, access count 23→25, api, e2e)
-- [ ] 11. Gates green (clean build, bin/test, bin/e2e)
+- [x] 1. Migration (`20260704090000_capabilities_skills.sql`)
+- [x] 2. SQL query files + `bin/squirrel`
+- [x] 3. Shared commands + envelope + read-model types
+- [x] 4. Server facts / repository / handlers
+- [x] 5. Permissions / policy / rbac seed
+- [x] 6. Server read models / HTTP / router
+- [x] 7. Client (Skills tab, taxonomy admin page, ui.OpAssessSkill, capabilities.scss)
+- [x] 8. Seed data (base_seed.sql)
+- [x] 9. Docs (ADR-049, SCHEMA.md via bin/erd)
+- [x] 10. Tests (codec, operations, constraint, auth, access count 23→25, api, e2e)
+- [x] 11. Gates green (clean build, bin/test, bin/e2e)
 
 
 Design: `docs/2026-06-30-capabilities-skills-design.md`. All paths repo-relative to `/Users/michaelbuhot/src/mbuhot/tempo`.
