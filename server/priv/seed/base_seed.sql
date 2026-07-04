@@ -522,3 +522,38 @@ WITH e AS (
   RETURNING id)
 INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
 SELECT 100, 3, 1, 1.00, daterange('2026-01-10','2027-01-01'), e.id FROM e;
+
+-- Seed engineer locations (scheduling Phase A): Marcus in the US open-ended; Priya
+-- relocates from Sydney to London on 2026-07-01, so as-of reads either side of that
+-- date resolve a different TZID; Aisha in London throughout. ---------------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2024-03-01', 'seed', 'set_engineer_location', 'Set location of engineer 2 (Marcus) to America/Los_Angeles (US) from 2024-03-01',
+     '{"engineer_id":2,"country":"US","region":"US-CA","timezone":"America/Los_Angeles","effective":"2024-03-01"}')
+  RETURNING id)
+INSERT INTO engineer_location (engineer_id, located_during, country, region, timezone, audit_id)
+SELECT 2, daterange('2024-03-01', NULL, '[)'), 'US', 'US-CA', 'America/Los_Angeles', e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2024-03-01', 'seed', 'set_engineer_location', 'Set location of engineer 1 (Priya) to Australia/Sydney (AU) from 2024-03-01',
+     '{"engineer_id":1,"country":"AU","region":"AU-NSW","timezone":"Australia/Sydney","effective":"2024-03-01"}')
+  RETURNING id)
+INSERT INTO engineer_location (engineer_id, located_during, country, region, timezone, audit_id)
+SELECT 1, daterange('2024-03-01', '2026-07-01', '[)'), 'AU', 'AU-NSW', 'Australia/Sydney', e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-07-01', 'seed', 'set_engineer_location', 'Relocate engineer 1 (Priya) to Europe/London (GB) from 2026-07-01',
+     '{"engineer_id":1,"country":"GB","region":"GB-LND","timezone":"Europe/London","effective":"2026-07-01"}')
+  RETURNING id)
+INSERT INTO engineer_location (engineer_id, located_during, country, region, timezone, audit_id)
+SELECT 1, daterange('2026-07-01', NULL, '[)'), 'GB', 'GB-LND', 'Europe/London', e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2023-09-12', 'seed', 'set_engineer_location', 'Set location of engineer 3 (Aisha) to Europe/London (GB) from 2023-09-12',
+     '{"engineer_id":3,"country":"GB","region":"GB-LND","timezone":"Europe/London","effective":"2023-09-12"}')
+  RETURNING id)
+INSERT INTO engineer_location (engineer_id, located_during, country, region, timezone, audit_id)
+SELECT 3, daterange('2023-09-12', NULL, '[)'), 'GB', 'GB-LND', 'Europe/London', e.id FROM e;
