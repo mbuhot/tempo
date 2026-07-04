@@ -30,7 +30,10 @@ pub fn add_is_exact_where_float_drifts_test() {
 }
 
 pub fn subtract_is_exact_test() {
-  assert money.to_string(money.subtract(money_of("120000.00"), money_of("32000.00")))
+  assert money.to_string(money.subtract(
+      money_of("120000.00"),
+      money_of("32000.00"),
+    ))
     == "88000.00"
 }
 
