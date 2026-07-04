@@ -54,8 +54,8 @@ import tempo/server/fact.{
   EngineerOnLeave, EngineerSkillAssessed, EngineerWorkedHours, InvoiceId,
   InvoiceInStatus, InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment,
   PayrollPeriod, PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
-  ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary, SkillId,
-  SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
+  ProjectProfile, ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard,
+  Salary, SkillId, SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -411,6 +411,9 @@ fn write(
     ) ->
       record_requirement(conn, audit_id, project_id, level, quantity, from, to)
 
+    ProjectRescheduled(project_id: ProjectId(project_id), from:, to:) ->
+      record_reschedule(conn, audit_id, project_id, from, to)
+
     ProjectCapabilityRequired(
       project_id: ProjectId(project_id),
       capability_id: CapabilityId(capability_id),
@@ -720,6 +723,31 @@ fn record_requirement(
     quantity,
     audit_id,
   )
+  |> operation.run
+}
+
+/// Record a reschedule: guard that exactly one run exists and nothing pins the
+/// schedule (timesheets, invoices), then run the one-statement cascade that
+/// delta-shifts the run and its children, clamped to the new window.
+fn record_reschedule(
+  conn: pog.Connection,
+  audit_id: Int,
+  project_id: Int,
+  from: Date,
+  to: Date,
+) -> Result(Nil, OperationError) {
+  use pins <- operation.try(project_sql.project_reschedule_pins(
+    conn,
+    project_id,
+  ))
+  let assert [row] = pins.rows
+  use _ <- result.try(case row.runs, row.timesheets + row.invoices {
+    0, _ -> Error(operation.NoSuchVersion)
+    1, 0 -> Ok(Nil)
+    1, _ -> Error(operation.ProjectPinned)
+    _, _ -> Error(operation.InvalidValue)
+  })
+  project_sql.project_reschedule(conn, project_id, from, to, audit_id)
   |> operation.run
 }
 

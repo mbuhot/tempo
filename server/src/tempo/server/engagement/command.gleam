@@ -130,8 +130,9 @@ pub fn start_project(
   )
 }
 
-/// Move a project's whole plan to a new [from, to) run window. Implemented in
-/// the reschedule write-path task; stubbed here so the command routes.
+/// Move a project's whole plan to a new [from, to) run window: the repository
+/// resolves the delta shift and clamping in one statement, so this handler only
+/// records the intent as a fact.
 pub fn reschedule_project(
   conn: pog.Connection,
   command: EngagementCommand,
@@ -139,5 +140,24 @@ pub fn reschedule_project(
   valid_from valid_from: Date,
   valid_to valid_to: Date,
 ) -> Result(Recorded, OperationError) {
-  todo
+  let _ = conn
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "reschedule_project",
+        summary: "Reschedule project "
+          <> int.to_string(project_id)
+          <> " to "
+          <> operation.span(valid_from, valid_to),
+        payload: gateway.encode_command(EngagementCommand(command)),
+      ),
+      facts: [
+        fact.ProjectRescheduled(
+          project_id: fact.ProjectId(project_id),
+          from: valid_from,
+          to: valid_to,
+        ),
+      ],
+    ),
+  )
 }

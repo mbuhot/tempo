@@ -171,7 +171,7 @@ manage_engagement audit tag cover it; server route arm stubbed."
 
 **Semantics (from spec):** move the whole plan by `delta = new_from − old_from`: run, requirements, capabilities, allocations all shift; shifted child ranges clamp to the new window; a child whose clamped range is empty is dropped. Guards reject: no run / multiple runs (`NoSuchVersion` / `InvalidValue`), logged timesheets or invoice subjects (`ProjectPinned`). A run landing outside its contract term rejects via the existing `_within_` containment constraint → `ContainmentViolated`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `server/test/reschedule_test.gleam`. Copy the exact harness from `server/test/location_test.gleam`: the `rolling_back` helper, imports (`pog`, `gleam/dynamic/decode`, `tempo/server/command`, `tempo/server/operation`, `shared/command as gateway`, `test_pool`), and the raw-query helper style. Base-seed ids are stable (Global Constraints).
 
@@ -322,12 +322,12 @@ pub fn reschedule_rejects_an_unknown_project_test() {
 
 (Project 100 has Priya's timesheets and project 500's contract 30 starts 2026-06-01, so 2026-05-01 violates `_within_` containment. If `operation.gleam`'s existing variants differ in name — e.g. `NoSuchVersion` — match the real names; `ProjectPinned` is new in Step 3.)
 
-- [ ] **Step 2: Run to verify failures**
+- [x] **Step 2: Run to verify failures**
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t2.log 2>&1; tail -20 /tmp/t2.log`
 Expected: FAIL — first on `operation.ProjectPinned` not existing (add the variant stub, re-run) then on the `todo` in `reschedule_project`.
 
-- [ ] **Step 3: Add the `ProjectPinned` error variant**
+- [x] **Step 3: Add the `ProjectPinned` error variant**
 
 In `server/src/tempo/server/operation.gleam` add to the `OperationError` union (alongside the other domain guards like `EngineerNotEmployed`):
 
@@ -345,7 +345,7 @@ Run `cd server && gleam clean && gleam build > /tmp/build.log 2>&1; tail -20 /tm
 
 (Use the file's actual local helper for 409/conflict bodies — read the neighbouring arms and mirror them exactly.)
 
-- [ ] **Step 4: Write the two SQL files and regenerate squirrel**
+- [x] **Step 4: Write the two SQL files and regenerate squirrel**
 
 `server/src/tempo/server/project/sql/project_reschedule_pins.sql`:
 
@@ -422,7 +422,7 @@ WHERE greatest(lower(required_during) + delta, $2::date)
 Run: `DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5435/tempo bin/squirrel > /tmp/squirrel.log 2>&1; tail -5 /tmp/squirrel.log`
 Expected: regeneration succeeds; `server/src/tempo/server/project/sql.gleam` gains `project_reschedule_pins` (row type with `runs: Int, timesheets: Int, invoices: Int`) and `project_reschedule(db, arg_1: Int, arg_2: Date, arg_3: Date, arg_4: Int)`.
 
-- [ ] **Step 5: Add the fact and its repository write**
+- [x] **Step 5: Add the fact and its repository write**
 
 `server/src/tempo/server/fact.gleam`, after `ProjectRun`:
 
@@ -469,7 +469,7 @@ fn record_reschedule(
 
 (If `operation.gleam` has no `InvalidValue` variant, use the closest existing generic-rejection variant the file defines — the compiler and the file's doc comments will name it. Do not invent a second new variant.)
 
-- [ ] **Step 6: Implement the engagement handler**
+- [x] **Step 6: Implement the engagement handler**
 
 Replace the Task 1 `todo` body in `server/src/tempo/server/engagement/command.gleam` (import `RescheduleProject` in the `shared/engagement/command.{...}` list):
 
@@ -503,12 +503,12 @@ pub fn reschedule_project(
 
 (Match the file's existing `Event` construction exactly — if its `summary` style includes a date span helper, mirror the `start_project` handler's summary shape.)
 
-- [ ] **Step 7: Clean-build, run tests**
+- [x] **Step 7: Clean-build, run tests**
 
 Run: `cd server && gleam clean && TEMPO_DB_PORT=5435 ../bin/test > /tmp/t2.log 2>&1; tail -10 /tmp/t2.log`
 Expected: PASS, all reschedule tests green.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add server/src/tempo/server/project/sql/project_reschedule_pins.sql server/src/tempo/server/project/sql/project_reschedule.sql server/src/tempo/server/project/sql.gleam server/src/tempo/server/fact.gleam server/src/tempo/server/operation.gleam server/src/tempo/server/repository.gleam server/src/tempo/server/engagement/command.gleam server/src/tempo/server/web/operations.gleam server/test/reschedule_test.gleam

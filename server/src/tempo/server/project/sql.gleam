@@ -671,6 +671,133 @@ ORDER BY project_requirement.level, lower(project_requirement.required_during);
   |> pog.execute(db)
 }
 
+/// project_reschedule.sql — move a project's whole plan by delta = $2 - lower(run):
+/// delete the run and its allocation / requirement / capability children, then
+/// re-insert all of them shifted by delta and clamped to the new [$2, $3) window
+/// (a child whose clamped range is empty is dropped). One statement, so the
+/// immediate PERIOD FKs check the final state at statement end; a run landing
+/// outside its contract term rejects via project_within_contract. $1 = project_id,
+/// $2 = new from, $3 = new to, $4 = audit_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_reschedule(
+  db: pog.Connection,
+  project_id: Int,
+  arg_2: Date,
+  arg_3: Date,
+  arg_4: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- project_reschedule.sql — move a project's whole plan by delta = $2 - lower(run):
+-- delete the run and its allocation / requirement / capability children, then
+-- re-insert all of them shifted by delta and clamped to the new [$2, $3) window
+-- (a child whose clamped range is empty is dropped). One statement, so the
+-- immediate PERIOD FKs check the final state at statement end; a run landing
+-- outside its contract term rejects via project_within_contract. $1 = project_id,
+-- $2 = new from, $3 = new to, $4 = audit_id.
+WITH old_run AS (
+  DELETE FROM project_run WHERE project_id = $1
+  RETURNING contract_id, ($2::date - lower(active_during)) AS delta
+),
+old_allocation AS (
+  DELETE FROM allocation WHERE project_id = $1
+  RETURNING engineer_id, fraction, allocated_during
+),
+old_requirement AS (
+  DELETE FROM project_requirement WHERE project_id = $1
+  RETURNING level, quantity, required_during
+),
+old_capability AS (
+  DELETE FROM project_capability WHERE project_id = $1
+  RETURNING capability_id, target_level, quantity, required_during
+),
+new_run AS (
+  INSERT INTO project_run (project_id, contract_id, active_during, audit_id)
+  SELECT $1, contract_id, daterange($2::date, $3::date, '[)'), $4 FROM old_run
+),
+new_allocation AS (
+  INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+  SELECT engineer_id, $1, fraction,
+         daterange(greatest(lower(allocated_during) + delta, $2::date),
+                   least(upper(allocated_during) + delta, $3::date), '[)'),
+         $4
+  FROM old_allocation, old_run
+  WHERE greatest(lower(allocated_during) + delta, $2::date)
+      < least(upper(allocated_during) + delta, $3::date)
+),
+new_requirement AS (
+  INSERT INTO project_requirement (project_id, level, quantity, required_during, audit_id)
+  SELECT $1, level, quantity,
+         daterange(greatest(lower(required_during) + delta, $2::date),
+                   least(upper(required_during) + delta, $3::date), '[)'),
+         $4
+  FROM old_requirement, old_run
+  WHERE greatest(lower(required_during) + delta, $2::date)
+      < least(upper(required_during) + delta, $3::date)
+)
+INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
+SELECT $1, capability_id, target_level, quantity,
+       daterange(greatest(lower(required_during) + delta, $2::date),
+                 least(upper(required_during) + delta, $3::date), '[)'),
+       $4
+FROM old_capability, old_run
+WHERE greatest(lower(required_during) + delta, $2::date)
+    < least(upper(required_during) + delta, $3::date);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
+  |> pog.parameter(pog.calendar_date(arg_3))
+  |> pog.parameter(pog.int(arg_4))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_reschedule_pins` query
+/// defined in `./src/tempo/server/project/sql/project_reschedule_pins.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectReschedulePinsRow {
+  ProjectReschedulePinsRow(runs: Int, timesheets: Int, invoices: Int)
+}
+
+/// project_reschedule_pins.sql — reschedule guard counts for one project: how many
+/// run rows it has, and how many timesheet / invoice_subject rows pin its schedule.
+/// $1 = project_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_reschedule_pins(
+  db: pog.Connection,
+  arg_1: Int,
+) -> Result(pog.Returned(ProjectReschedulePinsRow), pog.QueryError) {
+  let decoder = {
+    use runs <- decode.field(0, decode.int)
+    use timesheets <- decode.field(1, decode.int)
+    use invoices <- decode.field(2, decode.int)
+    decode.success(ProjectReschedulePinsRow(runs:, timesheets:, invoices:))
+  }
+
+  "-- project_reschedule_pins.sql — reschedule guard counts for one project: how many
+-- run rows it has, and how many timesheet / invoice_subject rows pin its schedule.
+-- $1 = project_id.
+SELECT
+  (SELECT count(*) FROM project_run WHERE project_id = $1)::int AS runs,
+  (SELECT count(*) FROM timesheet WHERE project_id = $1)::int AS timesheets,
+  (SELECT count(*) FROM invoice_subject WHERE project_id = $1)::int AS invoices;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `project_run_during` query
 /// defined in `./src/tempo/server/project/sql/project_run_during.sql`.
 ///

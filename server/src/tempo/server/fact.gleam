@@ -159,6 +159,8 @@ pub type Fact {
     target_completion: Date,
     from: Date,
   )
+  /// A project's whole plan moved to a new [from, to) run window.
+  ProjectRescheduled(project_id: ProjectId, from: Date, to: Date)
   /// A project's capacity requirement (demand): `quantity` FTE at `level` over the
   /// bounded span `[from, to)`. A FOR-PORTION-OF set on `(project_id, level)`.
   ProjectRequirement(

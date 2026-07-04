@@ -28,7 +28,7 @@ import tempo/server/context.{type Context}
 import tempo/server/operation.{
   type OperationError, ContainmentViolated, DatabaseError, EngineerNotEmployed,
   InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
-  ProjectNotRunning, Unauthorized,
+  ProjectNotRunning, ProjectPinned, Unauthorized,
 }
 import tempo/server/web/guard
 import tempo/server/web/response
@@ -146,6 +146,12 @@ fn error_response(error: OperationError) -> wisp.Response {
           <> " is not running for the whole allocation period ("
           <> operation.span(valid_from, valid_to)
           <> ")",
+      )
+    ProjectPinned ->
+      response.error_response(
+        409,
+        "project_pinned",
+        "project has logged time or invoices; reschedule is pinned",
       )
     DatabaseError(error) -> response.db_error_response(error)
   }

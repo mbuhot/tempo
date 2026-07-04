@@ -60,6 +60,8 @@ pub type OperationError {
   /// to re-rate. Rejected rather than journalled as a no-op (the audit log must
   /// not record a money change that never happened).
   NoSuchVersion
+  /// The project has logged timesheets or issued invoices; its schedule is pinned.
+  ProjectPinned
   /// The authenticated principal is not permitted to run this command (issue #6):
   /// the authorization gate refused it BEFORE any transaction opened. `actor` is
   /// the principal that was refused and `command` names the command. Maps to a 403.
