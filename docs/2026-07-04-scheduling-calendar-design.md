@@ -202,9 +202,29 @@ person's leave, an optional attendee already booked, a giveable focus block). No
 constraint is imposed. Two guarantees instead:
 
 - The finder never **suggests** a slot where a required attendee is busy.
-- Booking a suggested slot **re-runs the required-attendee availability check inside the
-  booking transaction**; if someone became busy since the suggestion, it returns "slot
-  taken" and re-suggests. Manual booking may save any overlap with a UI warning.
+- Booking a suggested slot **locks the required attendees, then re-runs their availability
+  check inside the booking transaction**; if someone became busy since the suggestion, it
+  returns "slot taken" and re-suggests. Manual booking may save any overlap with a UI warning.
+
+A bare re-check is not enough: under `READ COMMITTED`, two concurrent bookings each re-check,
+neither sees the other's uncommitted insert, and both commit — a write-skew. The lock closes
+it. Acquire it **before** the re-check, over exactly the required attendees, in id order:
+
+```sql
+SELECT id FROM engineer
+WHERE id = ANY($required_attendee_ids)
+ORDER BY id
+FOR UPDATE;
+-- then re-check availability, INSERT meeting + attendees, COMMIT
+```
+
+`engineer` is a bare identity table that nothing else updates, so it serves as a purpose-built
+lock target; `ORDER BY id` gives every booking the same acquisition order, so two bookings
+sharing attendees cannot deadlock; the lock is transaction-scoped and released on commit. A
+concurrent booking sharing any required attendee blocks until the first commits, then re-checks
+against committed state. This serializes booking-vs-booking for a shared required attendee — the
+actual double-book race — and deliberately does not lock against a concurrent leave or holiday
+grant, since overlapping those is allowed.
 
 ### Search bounds and the day grid
 
@@ -261,7 +281,12 @@ attendee join via its primary key), busy is clipped to the search period, and bu
   querying; a plain mutable row with `event_log` for who/when suffices.
 - **`EXCLUDE USING gist` to prevent per-engineer overlap.** Rejected: with no RSVP/decline it
   would forbid every legitimate overlap forever, and it cannot cover leave/holiday/focus busy
-  sources anyway. In-transaction re-check covers the real concern.
+  sources anyway. A `SELECT … FOR UPDATE` lock on the required attendees plus an in-transaction
+  re-check covers the real concern.
+- **`pg_advisory_xact_lock` per attendee, or `SERIALIZABLE` isolation, for the booking race.**
+  Both work; advisory locks add a side-channel namespace to maintain, and `SERIALIZABLE` forces
+  a 40001 retry loop on the whole booking path. Row-locking the identity rows closes the same
+  race locally with no retry.
 - **Timezone as a stored UTC offset.** Rejected: an offset breaks across DST; an IANA TZID
   resolves the correct offset per day.
 - **Free-text country on the holiday join.** Rejected: `"Australia"` vs `"AU"` joins to
