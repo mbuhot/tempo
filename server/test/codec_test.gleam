@@ -20,6 +20,7 @@ import shared/allocation/command as allocation_command
 import shared/board/view.{
   BoardRow, BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as board_view
+import shared/capability/command as capability_command
 import shared/client/view.{ClientProfile} as client_view
 import shared/client_details/command as client_details_command
 import shared/command as gateway
@@ -27,6 +28,7 @@ import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer/view.{EngineerBanking, EngineerContact, EngineerEmergency} as engineer_view
 import shared/engineer_details/command as engineer_details_command
+import shared/engineer_skill/command as engineer_skill_command
 import shared/forecast/view.{Forecast, ForecastMonth} as forecast_view
 import shared/invoice/command as invoice_command
 import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
@@ -41,6 +43,7 @@ import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/roster/view.{Ref, Roster} as roster_view
 import shared/salary/command as salary_command
+import shared/skill/command as skill_command
 import shared/timesheet/command as timesheet_command
 import shared/timesheet/view.{TimesheetCell, TimesheetWeek, TimesheetWeekRow} as timesheet_view
 import shared/wire
@@ -725,6 +728,121 @@ pub fn command_run_payroll_round_trips_test() {
     gateway.PayrollCommand(payroll_command.RunPayroll(
       period_from: Date(2026, June, 1),
       period_to: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+// --- Capability/skill commands ------------------------------------------------
+// The nine writes of the capability-and-skills taxonomy (design doc §5): create
+// and define capabilities/skills, retire either, the two composition edits on the
+// capability_skill map, and the engineer assessment. Anchored to the seed frame.
+
+pub fn command_create_capability_round_trips_test() {
+  let original =
+    gateway.CapabilityCommand(capability_command.CreateCapability(
+      name: "Cloud Platforms",
+      summary: "Designs and operates cloud infrastructure.",
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_define_capability_round_trips_test() {
+  let original =
+    gateway.CapabilityCommand(capability_command.DefineCapability(
+      capability_id: 1,
+      name: "Cloud Platforms",
+      summary: "Designs, operates and secures cloud infrastructure.",
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_retire_capability_round_trips_test() {
+  let original =
+    gateway.CapabilityCommand(capability_command.RetireCapability(
+      capability_id: 1,
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_set_capability_skill_round_trips_test() {
+  let original =
+    gateway.CapabilityCommand(capability_command.SetCapabilitySkill(
+      capability_id: 1,
+      skill_id: 2,
+      weight: 3,
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_remove_capability_skill_round_trips_test() {
+  let original =
+    gateway.CapabilityCommand(capability_command.RemoveCapabilitySkill(
+      capability_id: 1,
+      skill_id: 2,
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_create_skill_round_trips_test() {
+  let original =
+    gateway.SkillCommand(skill_command.CreateSkill(
+      name: "Kubernetes",
+      summary: "Operates containerized workloads on Kubernetes.",
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_define_skill_round_trips_test() {
+  let original =
+    gateway.SkillCommand(skill_command.DefineSkill(
+      skill_id: 2,
+      name: "Kubernetes",
+      summary: "Designs and operates Kubernetes clusters at scale.",
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_retire_skill_round_trips_test() {
+  let original =
+    gateway.SkillCommand(skill_command.RetireSkill(
+      skill_id: 2,
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_assess_skill_round_trips_test() {
+  let original =
+    gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+      engineer_id: 1,
+      skill_id: 2,
+      level: 4,
+      effective: Date(2026, July, 1),
     ))
 
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
