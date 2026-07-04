@@ -22,6 +22,34 @@ import shared/schedule/view.{
 } as shared_schedule
 import tempo/server/schedule/sql
 
+pub fn candidates(
+  db: pog.Connection,
+  as_of: Date,
+  project_id: Int,
+  level: Int,
+  from: Date,
+  to: Date,
+) -> Result(List(shared_schedule.Candidate), pog.QueryError) {
+  use returned <- result.map(sql.schedule_candidates(
+    db,
+    as_of,
+    project_id,
+    level,
+    from,
+    to,
+  ))
+  list.map(returned.rows, fn(row) {
+    shared_schedule.Candidate(
+      engineer_id: row.engineer_id,
+      name: row.name,
+      level: row.level,
+      proficiency: row.proficiency,
+      free: float.max(0.0, row.free),
+      commitments: row.commitments,
+    )
+  })
+}
+
 pub fn timeline(
   db: pog.Connection,
   as_of: Date,

@@ -64,6 +64,22 @@ pub fn optional_string_from_query(
   }
 }
 
+/// Read a REQUIRED integer query parameter. Returns a detail string suitable
+/// for a 400 body when absent or non-integer.
+pub fn int_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Result(Int, String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> Error("missing query parameter '" <> name <> "'")
+    Ok(text) ->
+      int.parse(text)
+      |> result.replace_error(
+        "invalid integer '" <> text <> "' for '" <> name <> "'",
+      )
+  }
+}
+
 /// Read an OPTIONAL integer query parameter (e.g. the page `limit`). An absent or
 /// empty parameter is `Ok(None)`; a present non-integer is `Error(detail)` for a
 /// 400. So only a present-but-malformed value is rejected.

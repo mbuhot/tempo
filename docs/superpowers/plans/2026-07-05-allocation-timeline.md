@@ -1185,7 +1185,7 @@ rollup-qualified); team seats with open remainders; GET /api/schedule."
 **Interfaces:**
 - Produces: `schedule_view.candidates(db, as_of: Date, project_id: Int, level: Int, from: Date, to: Date) -> Result(List(shared_schedule.Candidate), pog.QueryError)`; `GET /api/schedule/candidates?as_of=&project=&level=&from=&to=`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 Append to `server/test/schedule_test.gleam`:
 
@@ -1217,7 +1217,7 @@ pub fn candidates_list_every_qualifier_with_free_fraction_test() {
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t5.log 2>&1; tail -5 /tmp/t5.log` — FAIL: `candidates` undefined.
 
-- [ ] **Step 2: SQL + regen**
+- [x] **Step 2: SQL + regen**
 
 `server/src/tempo/server/schedule/sql/schedule_candidates.sql`:
 
@@ -1310,7 +1310,7 @@ ORDER BY qualifier.level DESC, qualifier.name;
 
 Regen: `DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5435/tempo bin/squirrel > /tmp/squirrel.log 2>&1; tail -5 /tmp/squirrel.log`.
 
-- [ ] **Step 3: View fn + endpoint**
+- [x] **Step 3: View fn + endpoint**
 
 In `schedule/view.gleam`:
 
@@ -1377,7 +1377,7 @@ pub fn handle_candidates(req: wisp.Request, ctx: Context) -> wisp.Response {
 
 This arm must precede any `["api", "schedule"]` wildcard matching — Gleam cases match in order; place the longer path first.
 
-- [ ] **Step 4: Run, commit**
+- [x] **Step 4: Run, commit**
 
 Run: `TEMPO_DB_PORT=5435 bin/test > /tmp/t5.log 2>&1; tail -5 /tmp/t5.log` — PASS.
 

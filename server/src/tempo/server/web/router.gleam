@@ -115,6 +115,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_projects)
       board.handle(request, context)
     }
+    ["api", "schedule", "candidates"] -> {
+      use _principal <- guard.require(context, access.read_projects)
+      schedule_http.handle_candidates(request, context)
+    }
     ["api", "schedule"] -> {
       use _principal <- guard.require(context, access.read_projects)
       schedule_http.handle(request, context)

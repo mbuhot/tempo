@@ -72,3 +72,25 @@ pub fn level_gaps_open_when_the_requirement_window_starts_test() {
     ]
   assert edge.annotation == None
 }
+
+pub fn candidates_list_every_qualifier_with_free_fraction_test() {
+  let assert Ok(candidates) =
+    schedule_view.candidates(
+      test_pool.db(),
+      Date(2026, calendar.June, 15),
+      500,
+      3,
+      Date(2026, calendar.August, 1),
+      Date(2027, calendar.January, 1),
+    )
+  let names =
+    list.map(candidates, fn(candidate) {
+      #(candidate.name, candidate.level, candidate.free)
+    })
+  assert names
+    == [
+      #("Aisha Okafor", 6, 0.0),
+      #("Priya Sharma", 5, 0.0),
+      #("Marcus Chen", 4, 0.0),
+    ]
+}
