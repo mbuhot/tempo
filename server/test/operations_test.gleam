@@ -1993,6 +1993,88 @@ pub fn terminate_employment_caps_engineer_skill_test() {
   assert levels == [Period("3", "2026-01-01", "2026-09-01")]
 }
 
+// terminate_employment deletes a wholly scheduled-future engineer_skill row
+// too, not just caps a straddling one (terminate_employment_caps_engineer_skill_test):
+// a level starting AFTER the termination date is dropped entirely by
+// engineer_skill_close_all's FOR PORTION OF, mirroring
+// terminate_employment_deletes_scheduled_future_facts_test for role/allocation.
+pub fn terminate_employment_deletes_scheduled_future_engineer_skill_test() {
+  let #(employment, levels) =
+    rolling_back(fn(conn) {
+      let #(engineer_id, skill_id) =
+        employed_engineer_with_skill(conn, "Annie Easley", "Chaos Engineering")
+      let where_eng = "engineer_id = " <> int.to_string(engineer_id)
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          3,
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          4,
+          Date(2026, September, 1),
+        )),
+      )
+      // Terminate at Mar 1: clips level 3 [Jan,Sep) to [Jan,Mar), and deletes
+      // the scheduled level 4 [Sep,∞) entirely.
+      apply(
+        conn,
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id,
+          Date(2026, March, 1),
+        )),
+      )
+      #(
+        read_periods(conn, "employment", "''", "employed_during", where_eng),
+        read_periods(
+          conn,
+          "engineer_skill",
+          "level::text",
+          "assessed_during",
+          where_eng,
+        ),
+      )
+    })
+
+  assert employment == [Period("", "2026-01-01", "2026-03-01")]
+  assert levels == [Period("3", "2026-01-01", "2026-03-01")]
+}
+
+// assess_skill with an effective date the engineer is not employed for is
+// rejected (require_covering_version's NoSuchVersion), mirroring how
+// salary/rate_card revises reject a date with no covering version, rather than
+// journalling a level assessment that was never written to engineer_skill.
+pub fn assess_skill_outside_employment_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let #(engineer_id, skill_id) =
+        employed_engineer_with_skill(
+          conn,
+          "Dorothy Vaughan",
+          "Chaos Engineering",
+        )
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id,
+          skill_id,
+          3,
+          Date(2025, January, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /// The id of the contract minted for `client_id` (used after sign_contract mints

@@ -540,6 +540,124 @@ pub fn engineer_skill_past_employment_is_rejected_test() {
   assert constraint_name(error) == "engineer_skill_within_employment"
 }
 
+// --- skills taxonomy: capability & skill (#38) -------------------------------
+
+// A capability_skill weight outside 1-3 is rejected by the CHECK constraint
+// `capability_skill_weight_check`.
+pub fn capability_skill_weight_check_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70004)")
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70005)")
+        Nil
+      },
+      fn(conn) {
+        // Weight 4 is out of the 1-3 range.
+        exec(
+          conn,
+          "INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during) "
+            <> "VALUES (70004, 70005, 4, daterange('2026-01-01', NULL, '[)'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "capability_skill_weight_check"
+}
+
+// A second capability_profile row overlapping an existing one for the same
+// capability is rejected by the WITHOUT OVERLAPS PK `capability_profile_no_overlap`:
+// at most one profile fact may be in force per capability per instant.
+pub fn overlapping_capability_profile_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70006)")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO capability_profile (capability_id, name, summary, defined_during) "
+              <> "VALUES (70006, 'Backend Engineering', '', daterange('2026-01-01', NULL, '[)'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        // A second profile row for the same capability, starting inside the open
+        // [2026-01-01, NULL) span the founding row already covers.
+        exec(
+          conn,
+          "INSERT INTO capability_profile (capability_id, name, summary, defined_during) "
+            <> "VALUES (70006, 'Backend Engineering', '', daterange('2026-06-01', NULL, '[)'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "capability_profile_no_overlap"
+}
+
+// A second skill_profile row overlapping an existing one for the same skill is
+// rejected by the WITHOUT OVERLAPS PK `skill_profile_no_overlap`: at most one
+// profile fact may be in force per skill per instant.
+pub fn overlapping_skill_profile_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70007)")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO skill_profile (skill_id, name, summary, defined_during) "
+              <> "VALUES (70007, 'Chaos Engineering', '', daterange('2026-01-01', NULL, '[)'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        // A second profile row for the same skill, starting inside the open
+        // [2026-01-01, NULL) span the founding row already covers.
+        exec(
+          conn,
+          "INSERT INTO skill_profile (skill_id, name, summary, defined_during) "
+            <> "VALUES (70007, 'Chaos Engineering', '', daterange('2026-06-01', NULL, '[)'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "skill_profile_no_overlap"
+}
+
+// A second capability_skill row overlapping an existing one for the same
+// (capability, skill) is rejected by the gist exclusion PK
+// `capability_skill_no_overlap`.
+pub fn capability_skill_no_overlap_is_rejected_test() {
+  let error =
+    reject(
+      fn(conn) {
+        let assert Ok(_) =
+          exec(conn, "INSERT INTO capability (id) VALUES (70008)")
+        let assert Ok(_) = exec(conn, "INSERT INTO skill (id) VALUES (70009)")
+        let assert Ok(_) =
+          exec(
+            conn,
+            "INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during) "
+              <> "VALUES (70008, 70009, 2, daterange('2026-01-01','2026-06-01'))",
+          )
+        Nil
+      },
+      fn(conn) {
+        // Overlaps [2026-01-01,2026-06-01) on 2026-05.
+        exec(
+          conn,
+          "INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during) "
+            <> "VALUES (70008, 70009, 3, daterange('2026-05-01','2026-08-01'))",
+        )
+      },
+    )
+
+  assert constraint_name(error) == "capability_skill_no_overlap"
+}
+
 // --- Financial cross-references (013) ---------------------------------------
 
 // An invoice whose billing month falls outside the project's active period is

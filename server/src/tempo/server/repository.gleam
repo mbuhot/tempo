@@ -595,16 +595,17 @@ fn write(
         level,
         audit_id,
       )
-      |> operation.run
+      |> require_covering_version
   }
 }
 
-/// Assert a revise (`salary`/`rate_card`) actually re-rated a version: its
-/// `RETURNING` rows are empty exactly when no version covered the effective date,
-/// so the `FOR PORTION OF` UPDATE matched nothing. A bare `operation.run` discards
-/// the rows and reports `Ok` for that no-op, journalling a money change that never
-/// happened; this rejects it as a typed `NoSuchVersion` so the caller's
-/// transaction rolls the journal entry back too.
+/// Assert a temporal write (`salary`/`rate_card` revise, `engineer_skill` assess)
+/// actually matched a covering row: its `RETURNING` rows are empty exactly when
+/// no version (or, for `engineer_skill`, no employment) covered the effective
+/// date, so the write's `FOR PORTION OF` clause or `FROM employment` join matched
+/// nothing. A bare `operation.run` discards the rows and reports `Ok` for that
+/// no-op, journalling a change that never happened; this rejects it as a typed
+/// `NoSuchVersion` so the caller's transaction rolls the journal entry back too.
 fn require_covering_version(
   result: Result(pog.Returned(a), pog.QueryError),
 ) -> Result(Nil, OperationError) {

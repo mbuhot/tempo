@@ -4,6 +4,10 @@
 -- rows that start at or after $3, then inserts a new row bounded by employment's
 -- upper end, respecting the engineer_skill_within_employment PERIOD FK. $1 =
 -- engineer_id, $2 = skill_id, $3 = effective, $4 = level, $5 = audit_id.
+--
+-- With no employment row covering $3 the INSERT ... SELECT matches nothing and
+-- RETURNING yields zero rows; the repository rejects that (NoSuchVersion) rather
+-- than journalling a silent no-op.
 WITH deleted AS (
   DELETE FROM engineer_skill
      FOR PORTION OF assessed_during FROM $3::date TO NULL
@@ -13,4 +17,5 @@ INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit
 SELECT $1, $2, $4, daterange($3::date, upper(employed_during), '[)'), $5
 FROM employment
 WHERE engineer_id = $1
-  AND employed_during @> $3::date;
+  AND employed_during @> $3::date
+RETURNING 1 AS revised;

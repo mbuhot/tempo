@@ -108,12 +108,26 @@ DELETE FROM engineer_skill
   |> pog.execute(db)
 }
 
+/// A row you get from running the `engineer_skill_upsert` query
+/// defined in `./src/tempo/server/engineer_skill/sql/engineer_skill_upsert.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerSkillUpsertRow {
+  EngineerSkillUpsertRow(revised: Int)
+}
+
 /// engineer_skill_upsert.sql — record an engineer's assessed level for a skill
 /// from $3 onward (delete-then-insert semantics), mirroring engineer_role_upsert.
 /// The temporal DELETE clips the row covering $3 to [start, $3) and removes any
 /// rows that start at or after $3, then inserts a new row bounded by employment's
 /// upper end, respecting the engineer_skill_within_employment PERIOD FK. $1 =
 /// engineer_id, $2 = skill_id, $3 = effective, $4 = level, $5 = audit_id.
+///
+/// With no employment row covering $3 the INSERT ... SELECT matches nothing and
+/// RETURNING yields zero rows; the repository rejects that (NoSuchVersion) rather
+/// than journalling a silent no-op.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -125,8 +139,11 @@ pub fn engineer_skill_upsert(
   arg_3: Date,
   arg_4: Int,
   arg_5: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(EngineerSkillUpsertRow), pog.QueryError) {
+  let decoder = {
+    use revised <- decode.field(0, decode.int)
+    decode.success(EngineerSkillUpsertRow(revised:))
+  }
 
   "-- engineer_skill_upsert.sql — record an engineer's assessed level for a skill
 -- from $3 onward (delete-then-insert semantics), mirroring engineer_role_upsert.
@@ -134,6 +151,10 @@ pub fn engineer_skill_upsert(
 -- rows that start at or after $3, then inserts a new row bounded by employment's
 -- upper end, respecting the engineer_skill_within_employment PERIOD FK. $1 =
 -- engineer_id, $2 = skill_id, $3 = effective, $4 = level, $5 = audit_id.
+--
+-- With no employment row covering $3 the INSERT ... SELECT matches nothing and
+-- RETURNING yields zero rows; the repository rejects that (NoSuchVersion) rather
+-- than journalling a silent no-op.
 WITH deleted AS (
   DELETE FROM engineer_skill
      FOR PORTION OF assessed_during FROM $3::date TO NULL
@@ -143,7 +164,8 @@ INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit
 SELECT $1, $2, $4, daterange($3::date, upper(employed_during), '[)'), $5
 FROM employment
 WHERE engineer_id = $1
-  AND employed_during @> $3::date;
+  AND employed_during @> $3::date
+RETURNING 1 AS revised;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
