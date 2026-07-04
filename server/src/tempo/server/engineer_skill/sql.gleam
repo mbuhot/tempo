@@ -163,6 +163,7 @@ WHERE engineer_id = $1
 ///
 pub type RecentAssessmentsRow {
   RecentAssessmentsRow(
+    skill_id: Int,
     name: String,
     level: Int,
     valid_from: Date,
@@ -174,7 +175,7 @@ pub type RecentAssessmentsRow {
 /// recent_assessments.sql — one engineer's full skill-assessment timeline for the
 /// people-detail Skills tab's history panel. Param: $1 = engineer_id.
 ///
-/// Decomposed to plain dates at the boundary: skill name, level, lower(assessed_
+/// Decomposed to plain dates at the boundary: skill id, skill name, level, lower(assessed_
 /// during) AS valid_from. A current assessment is OPEN ([start, employment's end)
 /// for an active engineer), so upper(assessed_during) can be NULL only if
 /// employment itself is open — `ongoing` reports whether this version still
@@ -190,12 +191,14 @@ pub fn recent_assessments(
   engineer_skill_engineer_id: Int,
 ) -> Result(pog.Returned(RecentAssessmentsRow), pog.QueryError) {
   let decoder = {
-    use name <- decode.field(0, decode.string)
-    use level <- decode.field(1, decode.int)
-    use valid_from <- decode.field(2, pog.calendar_date_decoder())
-    use valid_to <- decode.field(3, pog.calendar_date_decoder())
-    use ongoing <- decode.field(4, decode.bool)
+    use skill_id <- decode.field(0, decode.int)
+    use name <- decode.field(1, decode.string)
+    use level <- decode.field(2, decode.int)
+    use valid_from <- decode.field(3, pog.calendar_date_decoder())
+    use valid_to <- decode.field(4, pog.calendar_date_decoder())
+    use ongoing <- decode.field(5, decode.bool)
     decode.success(RecentAssessmentsRow(
+      skill_id:,
       name:,
       level:,
       valid_from:,
@@ -207,7 +210,7 @@ pub fn recent_assessments(
   "-- recent_assessments.sql — one engineer's full skill-assessment timeline for the
 -- people-detail Skills tab's history panel. Param: $1 = engineer_id.
 --
--- Decomposed to plain dates at the boundary: skill name, level, lower(assessed_
+-- Decomposed to plain dates at the boundary: skill id, skill name, level, lower(assessed_
 -- during) AS valid_from. A current assessment is OPEN ([start, employment's end)
 -- for an active engineer), so upper(assessed_during) can be NULL only if
 -- employment itself is open — `ongoing` reports whether this version still
@@ -215,6 +218,7 @@ pub fn recent_assessments(
 -- date the boundary can decode (the server maps ongoing -> None). Most recent
 -- first.
 SELECT
+  engineer_skill.skill_id,
   skill_profile.name,
   engineer_skill.level,
   lower(engineer_skill.assessed_during) AS valid_from,

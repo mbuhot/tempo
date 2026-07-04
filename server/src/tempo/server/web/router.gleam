@@ -20,9 +20,11 @@ import gleam/result
 import shared/access
 import simplifile
 import tempo/server/board/http as board
+import tempo/server/capability/http as capability_http
 import tempo/server/client/http as clients
 import tempo/server/context.{type Context, Context}
 import tempo/server/engineer/http as engineers
+import tempo/server/engineer_skill/http as engineer_skill_http
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
 import tempo/server/payroll/http as payroll
@@ -102,6 +104,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.roles_manage)
       access_admin.handle(request, context)
     }
+    ["api", "skills"] -> {
+      use _principal <- guard.require(context, access.skills_manage)
+      capability_http.handle(request, context)
+    }
     ["api", "board"] -> {
       use _principal <- guard.require(context, access.read_projects)
       board.handle(request, context)
@@ -171,6 +177,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "engineers", id] -> {
       use principal <- guard.authenticated(context)
       engineers.handle_detail(request, context, id, principal)
+    }
+    ["api", "engineers", id, "skills"] -> {
+      use principal <- guard.authenticated(context)
+      engineer_skill_http.handle(request, context, id, principal)
     }
     ["api", "clients"] -> {
       use _principal <- guard.require(context, access.read_projects)

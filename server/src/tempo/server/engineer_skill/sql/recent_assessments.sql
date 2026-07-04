@@ -1,7 +1,7 @@
 -- recent_assessments.sql — one engineer's full skill-assessment timeline for the
 -- people-detail Skills tab's history panel. Param: $1 = engineer_id.
 --
--- Decomposed to plain dates at the boundary: skill name, level, lower(assessed_
+-- Decomposed to plain dates at the boundary: skill id, skill name, level, lower(assessed_
 -- during) AS valid_from. A current assessment is OPEN ([start, employment's end)
 -- for an active engineer), so upper(assessed_during) can be NULL only if
 -- employment itself is open — `ongoing` reports whether this version still
@@ -9,6 +9,7 @@
 -- date the boundary can decode (the server maps ongoing -> None). Most recent
 -- first.
 SELECT
+  engineer_skill.skill_id,
   skill_profile.name,
   engineer_skill.level,
   lower(engineer_skill.assessed_during) AS valid_from,
