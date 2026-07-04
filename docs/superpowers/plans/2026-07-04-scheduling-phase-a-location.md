@@ -8,6 +8,8 @@
 
 **Tech Stack:** Gleam 1.17 (Erlang + JS targets), PostgreSQL 19beta1, Squirrel (typed SQL), Wisp, pog, Lustre, gleeunit, Playwright.
 
+**UI reference:** `docs/prototypes/2026-07-04-scheduling.html` — the Locations listing and Set-location modal there are the visual target for Tasks 9–10 (token-only mockup; final styling lifts real tokens from `client/styles/`).
+
 ## Global Constraints
 
 - **DB port is 5435 this environment** (the 5434 Docker proxy is wedged). `bin/migrate`/`bin/test`/`bin/serve` read `TEMPO_DB_PORT` (default 5434) — export `TEMPO_DB_PORT=5435`. `bin/squirrel` hardcodes the URL — run it with `DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5435/tempo`.
@@ -818,7 +820,7 @@ git commit -m "Serve engineer-location listing (as-of) and history endpoints"
 
 - [ ] **Step 1: Add the route** in `route.gleam` — `Locations` variant; `["locations"] -> Locations` in `parse`; `Locations -> "/locations"` in `to_path`.
 
-- [ ] **Step 2: Write `client/src/client/page/locations.gleam`** — a list page modeled on the roster half of `page/people.gleam`. Model holds `as_of` and a load state `LocationsLoading | LocationsLoaded(List(EngineerLocation)) | LocationsFailed(String)`; `init`/`refetch` fetch `/api/locations?as_of=`; `view` renders a table (name, location, TZID, offset-from-record, "since"); a "no location set" row for `location: None`. Use the stale-drop guard (compare reply `as_of`). Model the fetch on `people`'s `fetch_directory`.
+- [ ] **Step 2: Write `client/src/client/page/locations.gleam`** — a list page modeled on the roster half of `page/people.gleam`, matching the Locations listing in `docs/prototypes/2026-07-04-scheduling.html` (columns Engineer / Location / Timezone / Offset / Since; a dimmed "No location set" row). Model holds `as_of` and a load state `LocationsLoading | LocationsLoaded(List(EngineerLocation)) | LocationsFailed(String)`; `init`/`refetch` fetch `/api/locations?as_of=`; use the stale-drop guard (compare reply `as_of`). Model the fetch on `people`'s `fetch_directory`.
 
 ```gleam
 fn fetch(as_of: calendar.Date) -> Effect(Msg) {

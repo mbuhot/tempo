@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-04
 **Status:** Proposed
+**UI prototype:** `docs/prototypes/2026-07-04-scheduling.html` (Calendar + find-a-time, Locations listing, engineer location panel, public-holidays calendar)
 **Depends on:** PostgreSQL 18 temporal PKs (`WITHOUT OVERLAPS`), PG14 multiranges, PG19 `range_intersect_agg`
 
 ## Summary
