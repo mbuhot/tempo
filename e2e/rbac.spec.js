@@ -137,10 +137,6 @@ test("the owner viewing an engineer sees the Assess-skill launcher", async ({
 test("finance viewing a project's coverage tab does not see the Set-requirement launcher", async ({
   page,
 }) => {
-  // Finance has read.projects (so it can open the project detail and its
-  // Capability coverage tab) but not project.manage. Scoped to the coverage
-  // panel, since the Overview tab's capacity-requirements panel shares the
-  // same launcher label and stays in the DOM behind the tab switch.
   await signInAs(page, "Finance");
   await navigateTo(page, "Projects");
   await clickContent(page.getByText("Ledger Migration").first());

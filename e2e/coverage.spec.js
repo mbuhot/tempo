@@ -14,6 +14,11 @@ const { signInAs, navigateTo, clickContent, confirmOp, opModal } = require("./he
 // project run — re-stating the identical window is an idempotent
 // FOR-PORTION-OF replace, and the journal match is a substring (≥1), never a
 // count.
+//
+// Ledger Migration's seeded demand: Payments Platform needs 2 engineers at L3,
+// but only Priya is allocated and covers it alone, leaving a visible gap of
+// one; Frontend Delivery needs 1 at L1 and Priya's rollup clears it, so it is
+// fully covered.
 
 async function openLedgerMigration(page) {
   await navigateTo(page, "Projects");
@@ -37,10 +42,6 @@ function coveragePanel(page) {
 test("the Capability coverage tab renders the seeded gap and the fully-covered contrast", async ({
   page,
 }) => {
-  // Ledger Migration's seeded demand (#39 seed): Payments Platform needs 2
-  // engineers at L3, but only Priya is allocated and covers it alone, leaving a
-  // visible gap of one; Frontend Delivery needs 1 at L1 and Priya's rollup
-  // clears it, so it is fully covered.
   await signInAs(page, "Admin");
   await openLedgerMigration(page);
   await openCoverageTab(page);
