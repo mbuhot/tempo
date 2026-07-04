@@ -24,9 +24,9 @@ import shared/command.{
   type Command, type Event, AllocationCommand, CapabilityCommand,
   ClientDetailsCommand, EngagementCommand, EngineerCommand,
   EngineerDetailsCommand, EngineerSkillCommand, InvoiceCommand, LeaveCommand,
-  PayrollCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
-  WorkflowCommand,
+  PayrollCommand, ProjectCapabilityCommand, ProjectDetailsCommand,
+  ProjectRequirementCommand, RateCardCommand, RoleCommand, SalaryCommand,
+  SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
@@ -42,6 +42,7 @@ import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll/command as payroll
+import tempo/server/project_capability/command as project_capability
 import tempo/server/project_details/command as project_details
 import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
@@ -130,6 +131,7 @@ fn route(
     InvoiceCommand(command) -> invoice.route(conn, command)
     PayrollCommand(command) -> payroll.route(conn, command)
     ProjectRequirementCommand(command) -> project_requirement.route(command)
+    ProjectCapabilityCommand(command) -> project_capability.route(command)
     RoleCommand(command) -> role.route(command)
     WorkflowCommand(command) -> workflow_commit.route(conn, command)
     CapabilityCommand(command) -> capability.route(conn, command)

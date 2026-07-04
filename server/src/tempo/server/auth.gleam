@@ -21,8 +21,9 @@ import shared/command.{
   type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand,
   EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
-  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
-  SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
+  ProjectCapabilityCommand, ProjectDetailsCommand, ProjectRequirementCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
+  WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
@@ -115,6 +116,7 @@ fn command_tag(command: Command) -> String {
     ClientDetailsCommand(_) -> "update_client"
     ProjectDetailsCommand(_) -> "manage_project"
     ProjectRequirementCommand(_) -> "set_project_requirement"
+    ProjectCapabilityCommand(_) -> "set_project_capability"
     RateCardCommand(_) -> "manage_rate_card"
     SalaryCommand(_) -> "set_salary"
     InvoiceCommand(_) -> "manage_invoice"

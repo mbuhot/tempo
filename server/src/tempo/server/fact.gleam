@@ -168,6 +168,17 @@ pub type Fact {
     from: Date,
     to: Date,
   )
+  /// A project's capability demand: `quantity` engineers at `target_level`
+  /// proficiency in a capability over the bounded span `[from, to)`. A
+  /// FOR-PORTION-OF set on `(project_id, capability_id)`.
+  ProjectCapabilityRequired(
+    project_id: ProjectId,
+    capability_id: CapabilityId,
+    target_level: Int,
+    quantity: Float,
+    from: Date,
+    to: Date,
+  )
 
   // --- client -----------------------------------------------------------------
   /// A client's profile in force from `from` onward.

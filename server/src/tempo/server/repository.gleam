@@ -53,15 +53,16 @@ import tempo/server/fact.{
   EngineerEmployed, EngineerId, EngineerOffProject, EngineerOnLeave,
   EngineerSkillAssessed, EngineerWorkedHours, InvoiceId, InvoiceInStatus,
   InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment, PayrollPeriod,
-  PayrollRunId, ProjectId, ProjectPlan, ProjectProfile, ProjectRequirement,
-  ProjectRun, RateCard, Salary, SkillId, SkillProfile, SkillRetired,
-  UserRoleGranted, UserRoleRevoked,
+  PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
+  ProjectProfile, ProjectRequirement, ProjectRun, RateCard, Salary, SkillId,
+  SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/payroll/sql as payroll_sql
 import tempo/server/project/sql as project_sql
+import tempo/server/project_capability/sql as project_capability_sql
 import tempo/server/rate_card/sql as rate_card_sql
 import tempo/server/role/sql as role_sql
 import tempo/server/salary/sql as salary_sql
@@ -409,6 +410,25 @@ fn write(
     ) ->
       record_requirement(conn, audit_id, project_id, level, quantity, from, to)
 
+    ProjectCapabilityRequired(
+      project_id: ProjectId(project_id),
+      capability_id: CapabilityId(capability_id),
+      target_level:,
+      quantity:,
+      from:,
+      to:,
+    ) ->
+      record_capability_requirement(
+        conn,
+        audit_id,
+        project_id,
+        capability_id,
+        target_level,
+        quantity,
+        from,
+        to,
+      )
+
     // --- client ---------------------------------------------------------------
     ClientProfile(client_id: ClientId(client_id), name:, from:) ->
       client_sql.client_profile_upsert(conn, client_id, from, name, audit_id)
@@ -678,6 +698,44 @@ fn record_requirement(
     from,
     to,
     level,
+    quantity,
+    audit_id,
+  )
+  |> operation.run
+}
+
+/// Record a project's capability demand as a FOR-PORTION-OF set on
+/// `(project_id, capability_id)`: carve the target window out of any covering
+/// rows (the before/after remainders re-insert at their original
+/// target_level/quantity), then insert the new demand line. The WITHOUT
+/// OVERLAPS PK is not an ON CONFLICT target, so this is a clear-then-set run in
+/// ONE transaction. The insert's PERIOD-FK (`project_capability_within_run`)
+/// classifies via `operation.run` as `ContainmentViolated` when the window is
+/// not covered by the project's run.
+fn record_capability_requirement(
+  conn: pog.Connection,
+  audit_id: Int,
+  project_id: Int,
+  capability_id: Int,
+  target_level: Int,
+  quantity: Float,
+  from: Date,
+  to: Date,
+) -> Result(Nil, OperationError) {
+  use _ <- operation.try(project_capability_sql.project_capability_clear(
+    conn,
+    project_id,
+    from,
+    to,
+    capability_id,
+  ))
+  project_capability_sql.project_capability_set(
+    conn,
+    project_id,
+    from,
+    to,
+    capability_id,
+    target_level,
     quantity,
     audit_id,
   )
