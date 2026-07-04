@@ -206,6 +206,15 @@ constraint is imposed. Two guarantees instead:
   check inside the booking transaction**; if someone became busy since the suggestion, it
   returns "slot taken" and re-suggests. Manual booking may save any overlap with a UI warning.
 
+This is a human-in-the-loop flow, and the lock and re-check play distinct roles across it. The
+finder presents options that were valid **at query time**; a human then selects one, seconds or
+minutes later. The suggestion cannot hold a lock across that think-time, so by booking time it may
+be stale. On selection, the booking transaction **locks the required attendees, re-checks their
+availability against current committed state, then writes.** The lock provides mutual exclusion
+(concurrent bookings take turns); the re-check provides knowledge (this transaction observes what
+the now-serialized predecessor committed). Both are needed — the lock alone would let a booking
+commit on knowledge from before it held the lock.
+
 A bare re-check is not enough: under `READ COMMITTED`, two concurrent bookings each re-check,
 neither sees the other's uncommitted insert, and both commit — a write-skew. The lock closes
 it. Acquire it **before** the re-check, over exactly the required attendees, in id order:
