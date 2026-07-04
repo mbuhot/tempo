@@ -24,8 +24,9 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{None}
 import gleam/time/calendar.{
-  April, August, Date, January, July, March, October, September,
+  April, August, Date, January, July, June, March, October, September,
 }
 import pog
 import shared/allocation/command as allocation_command
@@ -37,13 +38,16 @@ import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/money.{type Money}
 import shared/project_capability/command as project_capability_command
+import shared/project_capability/view.{CoverageEngineer, CoverageRequirement}
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
 import shared/skill/command as skill_command
 import shared/timesheet/command as timesheet_command
 import tempo/server/command
+import tempo/server/context
 import tempo/server/operation
+import tempo/server/project_capability/view as project_capability_view
 import test_pool
 
 // --- rollback harness -------------------------------------------------------
@@ -1451,6 +1455,176 @@ pub fn set_project_capability_outside_project_run_is_containment_violated_test()
 
   assert outcome
     == Error(operation.ContainmentViolated("project_capability_within_run"))
+}
+
+// --- capability_coverage read model (Assert × 2; the coverage-demand read) --
+
+// A required capability with no capability_skill rows mapped as-of the date
+// still lists every allocated engineer against it: rolled-up proficiency has
+// nothing to sum over, so it reads as 0 and the engineer lands in `others`
+// rather than the requirement disappearing.
+pub fn coverage_reports_zero_proficiency_for_a_capability_with_no_mapped_skills_test() {
+  let snapshot =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90033)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90033, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80033)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80033, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80033, 90033, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO capability (id) VALUES (70033)")
+      exec(
+        conn,
+        "INSERT INTO capability_profile (capability_id, name, summary, defined_during) VALUES "
+          <> "(70033, 'Unmapped Capability', '', daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) VALUES "
+          <> "(80033, 70033, 2, 1.00, daterange('2026-01-01', NULL, '[)'))",
+      )
+      let engineer_id = insert_engineer(conn, "Kim Yoon")
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", 80033, 0.40, daterange('2026-01-01', NULL, '[)'))",
+      )
+      let assert Ok(Ok(snapshot)) =
+        project_capability_view.coverage(
+          context.Context(db: conn, principal: None),
+          80_033,
+          Date(2026, June, 15),
+        )
+      #(snapshot, engineer_id)
+    })
+
+  let #(snapshot, engineer_id) = snapshot
+  assert snapshot.requirements
+    == [
+      CoverageRequirement(
+        capability_id: 70_033,
+        capability_name: "Unmapped Capability",
+        target_level: 2,
+        quantity: 1.0,
+        valid_from: Date(2026, January, 1),
+        valid_to: Date(2026, January, 1),
+        covering: [],
+        others: [
+          CoverageEngineer(
+            engineer_id: engineer_id,
+            name: "Kim Yoon",
+            proficiency: 0.0,
+            allocation: 0.4,
+          ),
+        ],
+      ),
+    ]
+}
+
+// An engineer covered by a leave fact on the as-of date is absent from the
+// coverage response entirely — allocated but on leave counts as not working
+// the project on the date, the same rule the project-detail team card and the
+// board already apply.
+pub fn coverage_excludes_an_allocated_engineer_on_leave_test() {
+  let snapshot =
+    rolling_back(fn(conn) {
+      let client_id = insert_client(conn, "Initech")
+      exec(conn, "INSERT INTO contract (id) VALUES (90034)")
+      exec(
+        conn,
+        "INSERT INTO contract_terms (contract_id, client_id, term) VALUES (90034, "
+          <> int.to_string(client_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO project (id) VALUES (80034)")
+      exec(
+        conn,
+        "INSERT INTO project_profile (project_id, title, summary, recorded_during) VALUES "
+          <> "(80034, 'Edge Analytics', '', daterange('2024-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_run (project_id, contract_id, active_during) VALUES "
+          <> "(80034, 90034, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO capability (id) VALUES (70034)")
+      exec(
+        conn,
+        "INSERT INTO capability_profile (capability_id, name, summary, defined_during) VALUES "
+          <> "(70034, 'Mapped Capability', '', daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(conn, "INSERT INTO skill (id) VALUES (60034)")
+      exec(
+        conn,
+        "INSERT INTO capability_skill (capability_id, skill_id, weight, mapped_during) VALUES "
+          <> "(70034, 60034, 1, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during) VALUES "
+          <> "(80034, 70034, 2, 1.00, daterange('2026-01-01', NULL, '[)'))",
+      )
+      let engineer_id = insert_engineer(conn, "Noor Rahman")
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", 80034, 0.40, daterange('2026-01-01', NULL, '[)'))",
+      )
+      exec(
+        conn,
+        "INSERT INTO leave (engineer_id, kind, on_leave_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", 'annual', daterange('2026-06-01', '2026-07-01'))",
+      )
+      let assert Ok(Ok(snapshot)) =
+        project_capability_view.coverage(
+          context.Context(db: conn, principal: None),
+          80_034,
+          Date(2026, June, 15),
+        )
+      snapshot
+    })
+
+  assert snapshot.requirements
+    == [
+      CoverageRequirement(
+        capability_id: 70_034,
+        capability_name: "Mapped Capability",
+        target_level: 2,
+        quantity: 1.0,
+        valid_from: Date(2026, January, 1),
+        valid_to: Date(2026, January, 1),
+        covering: [],
+        others: [],
+      ),
+    ]
 }
 
 // --- engagement aggregate (Assert × 2; PERIOD-FK containment) ---------------

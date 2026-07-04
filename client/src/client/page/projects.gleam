@@ -1269,8 +1269,9 @@ fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
 }
 
 /// The number of bar slots a requirement's `quantity` renders as: the fractional
-/// count of engineers needed, rounded to a whole slot (P2-D3 counts whole
-/// engineers), never fewer than one.
+/// count of engineers needed, rounded to a whole slot (coverage counts whole
+/// engineers against quantity, ignoring allocation fraction), never fewer than
+/// one.
 fn capability_quantity_slots(quantity: Float) -> Int {
   int.max(float.round(quantity), 1)
 }

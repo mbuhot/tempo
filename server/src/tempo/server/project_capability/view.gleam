@@ -2,8 +2,8 @@
 //// (`GET /api/projects/:id/coverage?as_of=`). Assembles the capability catalog
 //// as-of (the Set-requirement modal's select source) and the project's coverage
 //// requirements as-of: each required capability split into the engineers who
-//// cover it (rolled-up proficiency ≥ target_level, P2-D3) and the ones who
-//// don't. No HTTP — this layer never imports `wisp`.
+//// cover it (rolled-up proficiency at or above the requirement's target level)
+//// and the ones who don't. No HTTP — this layer never imports `wisp`.
 ////
 //// Returns `Result(Result(CoverageSnapshot, Nil), pog.QueryError)`: `Ok(Error(Nil))`
 //// when the project has no current profile (no such project) so the handler can
