@@ -6,14 +6,17 @@
 //// and the open op form), its own `Msg`, its `init`/`update`, and its `view`.
 ////
 //// It reads `GET /api/engineers/:id?as_of=` for the bundle, `GET /api/timesheet`
-//// for the grid, and `GET /api/roster?as_of=` for the op-form directory — all in
-//// parallel, each result carrying the `as_of` (and the timesheet its engineer id)
-//// so a stale reply is dropped. Its writes — Promote, TakeLeave, RollOff,
-//// TerminateEmployment, LogWeek, and Update{Contact,Banking,Emergency}Details —
+//// for the grid, `GET /api/engineers/:id/skills?as_of=` for the skill matrix, and
+//// `GET /api/roster?as_of=` for the op-form directory — all in parallel, each
+//// result carrying the `as_of` (and the timesheet/skills their engineer id) so a
+//// stale reply is dropped. Its writes — Promote, TakeLeave, RollOff,
+//// TerminateEmployment, LogWeek, AssessSkill, and Update{Contact,Banking,Emergency}Details —
 //// drive a shared `ui.OpForm`; submitting posts via `api.submit_operation` and, on
 //// success, raises `OperationCommitted` and refetches. `LogWeek` is assembled
-//// directly from the grid's edited cells rather than the empty-entry form. The back
-//// link raises `Navigate(People(None))` so the shell owns the URL.
+//// directly from the grid's edited cells rather than the empty-entry form. The
+//// Overview/Skills split is internal tab state (an `Overview`/`Skills` `tab` field
+//// on `Model`), not a route change. The back link raises `Navigate(People(None))`
+//// so the shell owns the URL.
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
@@ -44,6 +47,11 @@ import shared/engineer/view.{
 import shared/leave/view.{LeaveBalance} as leave_view
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
+import shared/skill/view.{
+  type AssessmentVersion, type CapabilityRollup, type EngineerSkills,
+  type SkillAssessment, AssessmentVersion, CapabilityRollup, EngineerSkills,
+  SkillAssessment,
+} as skill_view
 import shared/timesheet/command.{type TimesheetEntry, LogWeek, TimesheetEntry}
 import shared/timesheet/view.{
   type TimesheetWeek, TimesheetCell, TimesheetWeekRow,
@@ -52,18 +60,28 @@ import shared/timesheet/view.{
 // --- Model ------------------------------------------------------------------
 
 /// The detail mode's state: the as-of its data answers, the shown engineer id, the
-/// bundle / timesheet / directory load states (fetched in parallel as sibling
-/// fields so whichever arrives first never discards the others), and the open
-/// contextual op form (or `None`).
+/// bundle / timesheet / skills / directory load states (fetched in parallel as
+/// sibling fields so whichever arrives first never discards the others), the
+/// active tab, and the open contextual op form (or `None`).
 pub type Model {
   Model(
     as_of: calendar.Date,
     engineer_id: Int,
     detail: DetailData,
     timesheet: TimesheetData,
+    skills: SkillsData,
     roster: Directory,
+    tab: Tab,
     op: Option(ui.OpState),
   )
+}
+
+/// The detail mode's tabs: `Overview` holds the existing panels/timesheet grid,
+/// `Skills` the engineer's skill matrix, capability rollup, and recent
+/// assessments.
+pub type Tab {
+  Overview
+  Skills
 }
 
 /// The engineer bundle's load state.
@@ -89,12 +107,19 @@ pub type Directory {
   DirectoryFailed(message: String)
 }
 
+/// The engineer's skill matrix load state (the Skills tab's read model).
+pub type SkillsData {
+  SkillsLoading
+  SkillsLoaded(skills: EngineerSkills)
+  SkillsFailed(message: String)
+}
+
 // --- Messages ---------------------------------------------------------------
 
-/// The detail mode's messages: the bundle / timesheet / directory fetch results
-/// (each carrying the `as_of` they answer, and the timesheet its engineer id), the
-/// back-link navigation, the contextual op lifecycle, the grid's cell edit + submit,
-/// and the operation reply.
+/// The detail mode's messages: the bundle / timesheet / skills / directory fetch
+/// results (each carrying the `as_of` they answer, and the timesheet/skills their
+/// engineer id), the back-link navigation, the tab switch, the contextual op
+/// lifecycle, the grid's cell edit + submit, and the operation reply.
 pub type Msg {
   DetailFetched(
     as_of: calendar.Date,
@@ -106,11 +131,17 @@ pub type Msg {
     engineer_id: Int,
     result: Result(TimesheetWeek, rsvp.Error(String)),
   )
+  SkillsFetched(
+    as_of: calendar.Date,
+    engineer_id: Int,
+    result: Result(EngineerSkills, rsvp.Error(String)),
+  )
   DirectoryFetched(
     as_of: calendar.Date,
     result: Result(Roster, rsvp.Error(String)),
   )
   BackClicked
+  TabClicked(tab: Tab)
   OpOpened(permit: ui.Permit)
   OpCancelled
   OpFieldEdited(field: ui.OpField, value: String)
@@ -131,7 +162,9 @@ pub fn init(as_of: calendar.Date, engineer_id: Int) -> #(Model, Effect(Msg)) {
       engineer_id:,
       detail: DetailLoading,
       timesheet: TimesheetLoading,
+      skills: SkillsLoading,
       roster: DirectoryLoading,
+      tab: Overview,
       op: None,
     )
   #(
@@ -141,7 +174,8 @@ pub fn init(as_of: calendar.Date, engineer_id: Int) -> #(Model, Effect(Msg)) {
 }
 
 /// Re-fetch the detail mode for a new `as_of` (stale-while-revalidate), keeping any
-/// open op form: refetch both the bundle and the timesheet for the new instant.
+/// open op form and the active tab: refetch the bundle, the timesheet, and the
+/// skill matrix for the new instant.
 pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
   #(
     Model(
@@ -149,6 +183,7 @@ pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
       as_of:,
       detail: DetailLoading,
       timesheet: TimesheetLoading,
+      skills: SkillsLoading,
       roster: DirectoryLoading,
     ),
     effect.batch([
@@ -169,7 +204,19 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
       fn(result) { DetailFetched(as_of:, engineer_id:, result:) },
     ),
     fetch_timesheet(as_of, engineer_id),
+    fetch_skills(as_of, engineer_id),
   ])
+}
+
+fn fetch_skills(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
+  api.get(
+    "/api/engineers/"
+      <> int.to_string(engineer_id)
+      <> "/skills?as_of="
+      <> time.iso_date(as_of),
+    skill_view.engineer_skills_decoder(),
+    fn(result) { SkillsFetched(as_of:, engineer_id:, result:) },
+  )
 }
 
 fn fetch_directory(as_of: calendar.Date) -> Effect(Msg) {
@@ -220,6 +267,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         }
       }
 
+    SkillsFetched(as_of:, engineer_id:, result:) ->
+      case model.as_of == as_of && model.engineer_id == engineer_id {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let skills = case result {
+            Ok(skills) -> SkillsLoaded(skills:)
+            Error(error) -> SkillsFailed(api.describe_error(error))
+          }
+          #(Model(..model, skills:), effect.none(), [])
+        }
+      }
+
     DirectoryFetched(as_of:, result:) ->
       case model.as_of == as_of {
         False -> #(model, effect.none(), [])
@@ -233,6 +292,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     BackClicked -> #(model, effect.none(), [Navigate(route.People(id: None))])
+
+    TabClicked(tab:) -> #(Model(..model, tab:), effect.none(), [])
 
     OpOpened(permit:) -> {
       let kind = ui.permit_kind(permit)
@@ -358,7 +419,23 @@ fn blank_form(model: Model, kind: ui.OpKind) -> ui.OpForm {
   let form =
     ui.update_op_form(form, ui.FEngineerId, int.to_string(model.engineer_id))
   let form = prefill_from_detail(form, kind, model.detail)
+  let form = prefill_skill_id(form, kind, model.skills)
   ui.reconcile_form(form, [], project_refs(model))
+}
+
+/// Pre-select the first assessed skill for `OpAssessSkill` so the `<select>` opens
+/// on a valid skill id rather than blank. Other kinds (and an unloaded matrix)
+/// leave the form untouched.
+fn prefill_skill_id(
+  form: ui.OpForm,
+  kind: ui.OpKind,
+  skills: SkillsData,
+) -> ui.OpForm {
+  case kind, skills {
+    ui.OpAssessSkill, SkillsLoaded(EngineerSkills(matrix: [first, ..], ..)) ->
+      ui.update_op_form(form, ui.FSkillId, int.to_string(first.skill_id))
+    _, _ -> form
+  }
 }
 
 /// Pre-fill the form's slots from the loaded engineer bundle for the kinds that
@@ -507,7 +584,12 @@ pub fn view(
         back,
         detail_head(detail, permissions, own),
         view_op_modal(model, model.op),
-        detail_grid(detail, model.timesheet, permissions, own),
+        view_tabs(model.tab),
+        subpage(
+          model.tab == Overview,
+          detail_grid(detail, model.timesheet, permissions, own),
+        ),
+        subpage(model.tab == Skills, skills_grid(model.skills, model.as_of)),
       ])
     }
   }
@@ -535,12 +617,38 @@ fn detail_head(
       html.p([], [html.text(situation(allocations))]),
     ]),
     html.div([attribute.class("action-row")], [
+      op_launch(permissions, own, ui.OpAssessSkill, "Assess skill", False),
       op_launch(permissions, own, ui.OpTakeLeave, "Take leave", True),
       op_launch(permissions, own, ui.OpRollOff, "Roll off", True),
       op_launch(permissions, own, ui.OpTerminateEmployment, "Terminate", True),
       op_launch(permissions, own, ui.OpPromote, "Promote", False),
     ]),
   ])
+}
+
+fn view_tabs(active: Tab) -> Element(Msg) {
+  html.div([attribute.class("tabs")], [
+    tab_button("Overview", Overview, active),
+    tab_button("Skills", Skills, active),
+  ])
+}
+
+fn tab_button(label: String, tab: Tab, active: Tab) -> Element(Msg) {
+  let class = case tab == active {
+    True -> "tabs__tab tabs__tab--active"
+    False -> "tabs__tab"
+  }
+  html.button([attribute.class(class), event.on_click(TabClicked(tab))], [
+    html.text(label),
+  ])
+}
+
+fn subpage(active: Bool, body: Element(Msg)) -> Element(Msg) {
+  let class = case active {
+    True -> "subpage subpage--active"
+    False -> "subpage"
+  }
+  html.div([attribute.class(class)], [body])
 }
 
 /// A one-line situation for the detail header: allocated to the active project(s)
@@ -672,6 +780,205 @@ fn timesheet_panel(
         permit: ui.permit(permissions, own:, kind: ui.OpLogWeek),
       )
   }
+}
+
+// --- Skills tab ---------------------------------------------------------
+
+/// The Skills tab: its Loading/Failed guards, otherwise the skill-matrix panel
+/// beside the capability rollup and recent-assessments panels.
+fn skills_grid(skills: SkillsData, as_of: calendar.Date) -> Element(Msg) {
+  case skills {
+    SkillsLoading ->
+      ui.panel(title: "Skill matrix", count: "", right: [], body: [
+        ui.empty_state("Loading skills…"),
+      ])
+    SkillsFailed(message:) ->
+      ui.panel(title: "Skill matrix", count: "", right: [], body: [
+        ui.empty_state("Could not load the skill matrix: " <> message),
+      ])
+    SkillsLoaded(skills: EngineerSkills(matrix:, rollups:, recent:)) ->
+      html.div([attribute.class("detail-grid")], [
+        html.div([], [skill_matrix_panel(matrix, as_of)]),
+        html.div([], [rollup_panel(rollups), recent_panel(recent)]),
+      ])
+  }
+}
+
+fn skill_matrix_panel(
+  matrix: List(SkillAssessment),
+  as_of: calendar.Date,
+) -> Element(Msg) {
+  let note =
+    html.span([attribute.class("note")], [
+      html.text("as of " <> time.format_date(as_of)),
+    ])
+  let body = case matrix {
+    [] -> [ui.empty_state("No skills in the taxonomy yet.")]
+    rows -> [
+      html.div(
+        [attribute.class("skill-matrix")],
+        list.map(rows, skill_matrix_row),
+      ),
+      legend(),
+    ]
+  }
+  ui.panel(
+    title: "Skill matrix",
+    count: int.to_string(list.length(matrix)) <> " skills",
+    right: [note],
+    body:,
+  )
+}
+
+fn skill_matrix_row(assessment: SkillAssessment) -> Element(Msg) {
+  let SkillAssessment(name:, level:, capability_names:, ..) = assessment
+  html.div([attribute.class("skill-matrix__row")], [
+    html.div([], [
+      html.div([attribute.class("skill-matrix__name")], [html.text(name)]),
+      html.div(
+        [attribute.class("skill-matrix__caps")],
+        list.map(capability_names, fn(capability) {
+          ui.chip(label: capability, tone: ui.Neutral)
+        }),
+      ),
+    ]),
+    lvl_badge(level),
+    html.div([attribute.class("skill-matrix__meaning")], [
+      html.text(level_meaning(level)),
+    ]),
+  ])
+}
+
+/// A skill's level badge: 0 renders the muted `lvl-badge--0` variant labelled
+/// "0", levels 1..4 render "L<n>" tinted by the seniority-ramp step the design
+/// assigns that level (1→2, 2→3, 3→5, 4→7).
+fn lvl_badge(level: Int) -> Element(Msg) {
+  case level {
+    0 ->
+      html.span([attribute.class("lvl-badge lvl-badge--0")], [html.text("0")])
+    _ ->
+      html.span(
+        [
+          attribute.class("lvl-badge"),
+          attribute.style("background", ui.lvl_color(badge_step(level))),
+        ],
+        [html.text("L" <> int.to_string(level))],
+      )
+  }
+}
+
+fn badge_step(level: Int) -> Int {
+  case level {
+    1 -> 2
+    2 -> 3
+    3 -> 5
+    4 -> 7
+    _ -> 1
+  }
+}
+
+/// The human meaning of a skill level, shown beside its badge in the matrix row.
+fn level_meaning(level: Int) -> String {
+  case level {
+    0 -> "none"
+    1 -> "learning"
+    2 -> "with supervision"
+    3 -> "independently capable"
+    4 -> "expert · can teach"
+    _ -> ""
+  }
+}
+
+/// The fixed scale legend beneath the skill matrix, one entry per level 0..4.
+fn legend() -> Element(Msg) {
+  html.div([attribute.class("legend")], [
+    html.span([attribute.class("eyebrow")], [html.text("Scale")]),
+    legend_item("0", "none", None),
+    legend_item("1", "learning", Some(2)),
+    legend_item("2", "with supervision", Some(3)),
+    legend_item("3", "independent", Some(5)),
+    legend_item("4", "expert · can teach", Some(7)),
+  ])
+}
+
+fn legend_item(
+  label: String,
+  meaning: String,
+  step: Option(Int),
+) -> Element(Msg) {
+  let badge = case step {
+    None ->
+      html.span([attribute.class("lvl-badge lvl-badge--0")], [
+        html.text(label),
+      ])
+    Some(step) ->
+      html.span(
+        [
+          attribute.class("lvl-badge"),
+          attribute.style("background", ui.lvl_color(step)),
+        ],
+        [html.text(label)],
+      )
+  }
+  html.span([attribute.class("legend__item")], [
+    badge,
+    html.text(" " <> meaning),
+  ])
+}
+
+fn rollup_panel(rollups: List(CapabilityRollup)) -> Element(Msg) {
+  ui.panel(title: "Capability rollup", count: "", right: [], body: [
+    html.div([attribute.class("pad-detail note")], [
+      html.text("weighted average of constituent skills"),
+    ]),
+    ..list.map(rollups, rollup_row)
+  ])
+}
+
+fn rollup_row(rollup: CapabilityRollup) -> Element(Msg) {
+  let CapabilityRollup(name:, proficiency:, ..) = rollup
+  let fill_pct =
+    int.clamp(float_round(proficiency /. 4.0 *. 100.0), min: 0, max: 100)
+  let ramp_step =
+    int.clamp(float_round(proficiency /. 4.0 *. 7.0), min: 1, max: 7)
+  html.div([attribute.class("rollup")], [
+    html.div([attribute.class("rollup__name")], [html.text(name)]),
+    html.div([attribute.class("rec__fit")], [
+      html.text(one_decimal(proficiency)),
+    ]),
+    html.div([attribute.class("rollup__track")], [
+      html.div(
+        [
+          attribute.class("rollup__fill"),
+          attribute.style("width", int.to_string(fill_pct) <> "%"),
+          attribute.style("background", ui.lvl_color(ramp_step)),
+        ],
+        [],
+      ),
+    ]),
+  ])
+}
+
+fn recent_panel(recent: List(AssessmentVersion)) -> Element(Msg) {
+  let body = case recent {
+    [] -> [ui.empty_state("No assessments on record.")]
+    versions -> [
+      html.div(
+        [attribute.class("pad-block kv")],
+        list.map(versions, recent_row),
+      ),
+    ]
+  }
+  ui.panel(title: "Recent assessments", count: "", right: [], body:)
+}
+
+fn recent_row(version: AssessmentVersion) -> Element(Msg) {
+  let AssessmentVersion(skill_name:, level:, valid_from:, ..) = version
+  ui.kv(
+    key: skill_name <> " → L" <> int.to_string(level),
+    value: time.format_date(valid_from),
+    mono: True,
+  )
 }
 
 // --- Side panels ------------------------------------------------------------
@@ -880,6 +1187,11 @@ fn op_fields(
       text_field("Email", ui.FEmergencyEmail, form.emergency_email),
       date_field("Effective", ui.FEffective, form.effective),
     ]
+    ui.OpAssessSkill -> [
+      skill_select_field(model.skills, form.skill_id),
+      level_select_field(form.level),
+      date_field("Assessed from", ui.FEffective, form.effective),
+    ]
     _ -> [number_field("Engineer id", ui.FEngineerId, form.engineer_id)]
   }
 }
@@ -905,6 +1217,70 @@ fn leave_kind_field(selected: String) -> Element(Msg) {
       [
         attribute.attribute("aria-label", "Kind"),
         event.on_change(fn(value) { OpFieldEdited(field: ui.FKind, value:) }),
+      ],
+      options,
+    ),
+  ])
+}
+
+/// The skill `<select>` for AssessSkill: options are the engineer's loaded skill
+/// matrix (skill_id/name), so the wire value is always a skill the taxonomy
+/// knows. Shows a disabled placeholder while the matrix is still loading.
+fn skill_select_field(skills: SkillsData, selected: String) -> Element(Msg) {
+  let options = case skills {
+    SkillsLoaded(EngineerSkills(matrix:, ..)) ->
+      list.map(matrix, fn(assessment) {
+        let SkillAssessment(skill_id:, name:, ..) = assessment
+        let id = int.to_string(skill_id)
+        html.option(
+          [attribute.value(id), attribute.selected(id == selected)],
+          name,
+        )
+      })
+    _ -> [
+      html.option([attribute.value(""), attribute.disabled(True)], "Loading…"),
+    ]
+  }
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Skill")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Skill"),
+        event.on_change(fn(value) { OpFieldEdited(field: ui.FSkillId, value:) }),
+      ],
+      options,
+    ),
+  ])
+}
+
+/// The fixed 0–4 experience-level `<select>` for AssessSkill, mirroring
+/// `leave_kind_field`'s fixed-vocabulary pattern. Defaults to "0" when blank.
+fn level_select_field(selected: String) -> Element(Msg) {
+  let selected = case selected {
+    "" -> "0"
+    other -> other
+  }
+  let levels = [
+    #("0", "0 — none"),
+    #("1", "1 — learning"),
+    #("2", "2 — with supervision"),
+    #("3", "3 — independently capable"),
+    #("4", "4 — expert · can teach"),
+  ]
+  let options =
+    list.map(levels, fn(level) {
+      let #(value, label) = level
+      html.option(
+        [attribute.value(value), attribute.selected(value == selected)],
+        label,
+      )
+    })
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text("Experience level")]),
+    html.select(
+      [
+        attribute.attribute("aria-label", "Experience level"),
+        event.on_change(fn(value) { OpFieldEdited(field: ui.FLevel, value:) }),
       ],
       options,
     ),
@@ -954,6 +1330,7 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpUpdateContact -> "Update contact details"
     ui.OpUpdateBanking -> "Update banking details"
     ui.OpUpdateEmergency -> "Update emergency contact"
+    ui.OpAssessSkill -> "Assess skill"
     _ -> "Operation"
   }
 }
@@ -969,6 +1346,7 @@ fn op_verb(kind: ui.OpKind) -> String {
     ui.OpUpdateContact -> "Save contact"
     ui.OpUpdateBanking -> "Save banking"
     ui.OpUpdateEmergency -> "Save emergency"
+    ui.OpAssessSkill -> "Record assessment"
     _ -> "Confirm"
   }
 }
@@ -981,4 +1359,10 @@ fn float_round(value: Float) -> Int {
 
 fn string_join(parts: List(String), with separator: String) -> String {
   string.join(parts, separator)
+}
+
+/// A float rounded to one decimal place ("3.75" -> "3.8"), for the rollup panel's
+/// proficiency figure.
+fn one_decimal(value: Float) -> String {
+  float.to_string(float.to_precision(value, 1))
 }

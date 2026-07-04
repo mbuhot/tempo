@@ -39,6 +39,7 @@ import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
+import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
 import shared/level
@@ -420,6 +421,7 @@ pub type OpKind {
   OpAdjustRateForPortion
   OpSetSalary
   OpSetProjectRequirement
+  OpAssessSkill
 }
 
 // --- Op authorization (client-side launcher gating) -------------------------
@@ -455,6 +457,7 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
     OpReviseRateCard -> policy.ManageRateCard
     OpAdjustRateForPortion -> policy.ManageRateCard
     OpSetSalary -> policy.SetSalary
+    OpAssessSkill -> policy.AssessSkills
   }
 }
 
@@ -545,6 +548,7 @@ pub type OpField {
   FInvoiceId
   FClient
   FClientId
+  FSkillId
   FLevel
   FFraction
   FDayRate
@@ -583,6 +587,7 @@ pub type OpForm {
     invoice_id: String,
     client: String,
     client_id: String,
+    skill_id: String,
     level: String,
     fraction: String,
     day_rate: String,
@@ -636,6 +641,7 @@ pub fn blank_op_form(
     invoice_id: "",
     client: "",
     client_id: "",
+    skill_id: "",
     level: "",
     fraction: "",
     day_rate: "",
@@ -673,6 +679,7 @@ pub fn update_op_form(form: OpForm, field: OpField, value: String) -> OpForm {
     FInvoiceId -> OpForm(..form, invoice_id: value)
     FClient -> OpForm(..form, client: value)
     FClientId -> OpForm(..form, client_id: value)
+    FSkillId -> OpForm(..form, skill_id: value)
     FLevel -> OpForm(..form, level: value)
     FFraction -> OpForm(..form, fraction: value)
     FDayRate -> OpForm(..form, day_rate: value)
@@ -1035,6 +1042,20 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
             valid_to:,
           ),
         ),
+      )
+    }
+    OpAssessSkill -> {
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      use skill_id <- result.try(require_int(form.skill_id, "skill"))
+      use level <- result.try(require_int(form.level, "level"))
+      use effective <- result.try(require_date(form.effective, "effective"))
+      Ok(
+        gateway.EngineerSkillCommand(engineer_skill_command.AssessSkill(
+          engineer_id:,
+          skill_id:,
+          level:,
+          effective:,
+        )),
       )
     }
     OpCreateProject -> Error("Create project is handled by the wizard.")
