@@ -134,6 +134,39 @@ test("the owner viewing an engineer sees the Assess-skill launcher", async ({
   await expect(page.getByRole("button", { name: "Assess skill" })).toBeVisible();
 });
 
+test("finance viewing a project's coverage tab does not see the Set-requirement launcher", async ({
+  page,
+}) => {
+  // Finance has read.projects (so it can open the project detail and its
+  // Capability coverage tab) but not project.manage. Scoped to the coverage
+  // panel, since the Overview tab's capacity-requirements panel shares the
+  // same launcher label and stays in the DOM behind the tab switch.
+  await signInAs(page, "Finance");
+  await navigateTo(page, "Projects");
+  await clickContent(page.getByText("Ledger Migration").first());
+  await page.getByRole("button", { name: "Capability coverage" }).click();
+  const coveragePanel = page.locator(".panel", { hasText: "Capability coverage" });
+  await expect(
+    coveragePanel.getByRole("heading", { name: "Capability coverage" }),
+  ).toBeVisible();
+  await expect(
+    coveragePanel.getByRole("button", { name: "Set requirement" }),
+  ).toHaveCount(0);
+});
+
+test("the owner viewing a project's coverage tab sees the Set-requirement launcher", async ({
+  page,
+}) => {
+  await signInAs(page, "Admin");
+  await navigateTo(page, "Projects");
+  await clickContent(page.getByText("Ledger Migration").first());
+  await page.getByRole("button", { name: "Capability coverage" }).click();
+  const coveragePanel = page.locator(".panel", { hasText: "Capability coverage" });
+  await expect(
+    coveragePanel.getByRole("button", { name: "Set requirement" }),
+  ).toBeVisible();
+});
+
 test("a manager viewing settings does not see the Revise-rate launcher", async ({
   page,
 }) => {
