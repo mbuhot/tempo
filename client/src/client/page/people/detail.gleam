@@ -25,6 +25,7 @@ import client/route
 import client/time
 import client/ui
 import gleam/dict.{type Dict}
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/list
@@ -45,6 +46,7 @@ import shared/engineer/view.{
   EngineerDetail, EngineerEmergency,
 } as engineer_view
 import shared/leave/view.{LeaveBalance} as leave_view
+import shared/location/view.{type LocationRecord, LocationRecord} as location_view
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
 import shared/skill/view.{
@@ -70,6 +72,7 @@ pub type Model {
     detail: DetailData,
     timesheet: TimesheetData,
     skills: SkillsData,
+    location: LocationData,
     roster: Directory,
     tab: Tab,
     op: Option(ui.OpState),
@@ -114,6 +117,14 @@ pub type SkillsData {
   SkillsFailed(message: String)
 }
 
+/// The engineer's location history load state (the Overview tab's "Location &
+/// timezone" card + timeline).
+pub type LocationData {
+  LocationLoading
+  LocationLoaded(records: List(LocationRecord))
+  LocationFailed(message: String)
+}
+
 // --- Messages ---------------------------------------------------------------
 
 /// The detail mode's messages: the bundle / timesheet / skills / directory fetch
@@ -135,6 +146,11 @@ pub type Msg {
     as_of: calendar.Date,
     engineer_id: Int,
     result: Result(EngineerSkills, rsvp.Error(String)),
+  )
+  LocationFetched(
+    as_of: calendar.Date,
+    engineer_id: Int,
+    result: Result(List(LocationRecord), rsvp.Error(String)),
   )
   DirectoryFetched(
     as_of: calendar.Date,
@@ -163,6 +179,7 @@ pub fn init(as_of: calendar.Date, engineer_id: Int) -> #(Model, Effect(Msg)) {
       detail: DetailLoading,
       timesheet: TimesheetLoading,
       skills: SkillsLoading,
+      location: LocationLoading,
       roster: DirectoryLoading,
       tab: Overview,
       op: None,
@@ -184,6 +201,7 @@ pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
       detail: DetailLoading,
       timesheet: TimesheetLoading,
       skills: SkillsLoading,
+      location: LocationLoading,
       roster: DirectoryLoading,
     ),
     effect.batch([
@@ -205,6 +223,7 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
     ),
     fetch_timesheet(as_of, engineer_id),
     fetch_skills(as_of, engineer_id),
+    fetch_location(as_of, engineer_id),
   ])
 }
 
@@ -216,6 +235,17 @@ fn fetch_skills(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
       <> time.iso_date(as_of),
     skill_view.engineer_skills_decoder(),
     fn(result) { SkillsFetched(as_of:, engineer_id:, result:) },
+  )
+}
+
+fn fetch_location(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
+  api.get(
+    "/api/engineers/"
+      <> int.to_string(engineer_id)
+      <> "/location?as_of="
+      <> time.iso_date(as_of),
+    decode.list(location_view.location_record_decoder()),
+    fn(result) { LocationFetched(as_of:, engineer_id:, result:) },
   )
 }
 
@@ -277,6 +307,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           }
           let op = reprefill_skill_id(model.op, skills)
           #(Model(..model, skills:, op:), effect.none(), [])
+        }
+      }
+
+    LocationFetched(as_of:, engineer_id:, result:) ->
+      case model.as_of == as_of && model.engineer_id == engineer_id {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let location = case result {
+            Ok(records) -> LocationLoaded(records:)
+            Error(error) -> LocationFailed(api.describe_error(error))
+          }
+          #(Model(..model, location:), effect.none(), [])
         }
       }
 
@@ -421,6 +463,7 @@ fn blank_form(model: Model, kind: ui.OpKind) -> ui.OpForm {
     ui.update_op_form(form, ui.FEngineerId, int.to_string(model.engineer_id))
   let form = prefill_from_detail(form, kind, model.detail)
   let form = prefill_skill_id(form, kind, model.skills)
+  let form = prefill_location(form, kind, model.location, model.as_of)
   ui.reconcile_form(form, [], project_refs(model))
 }
 
@@ -511,6 +554,55 @@ fn prefill_from_detail(
         _ -> form
       }
     _ -> form
+  }
+}
+
+/// Pre-fill `OpSetLocation`'s country/region/timezone from the location record
+/// covering `as_of`, so relocating opens showing the current location rather
+/// than blank. Other kinds (and no covering record) leave the form untouched.
+fn prefill_location(
+  form: ui.OpForm,
+  kind: ui.OpKind,
+  location: LocationData,
+  as_of: calendar.Date,
+) -> ui.OpForm {
+  case kind, location {
+    ui.OpSetLocation, LocationLoaded(records:) ->
+      case covering_location(records, as_of) {
+        Some(LocationRecord(country:, region:, timezone:, ..)) ->
+          form
+          |> ui.update_op_form(ui.FCountry, country)
+          |> ui.update_op_form(ui.FRegion, option.unwrap(region, ""))
+          |> ui.update_op_form(ui.FTimezone, timezone)
+        None -> form
+      }
+    _, _ -> form
+  }
+}
+
+/// The location record whose span contains `as_of`, if any.
+fn covering_location(
+  records: List(LocationRecord),
+  as_of: calendar.Date,
+) -> Option(LocationRecord) {
+  list.find(records, fn(record) {
+    let LocationRecord(valid_from:, valid_to:, ..) = record
+    covers_as_of(valid_from, valid_to, as_of)
+  })
+  |> option.from_result
+}
+
+/// Whether a `[valid_from, valid_to)` span (an open-ended span when `valid_to`
+/// is `None`) contains `as_of`.
+fn covers_as_of(
+  valid_from: calendar.Date,
+  valid_to: Option(calendar.Date),
+  as_of: calendar.Date,
+) -> Bool {
+  time.date_to_day_index(valid_from) <= time.date_to_day_index(as_of)
+  && case valid_to {
+    None -> True
+    Some(to) -> time.date_to_day_index(as_of) < time.date_to_day_index(to)
   }
 }
 
@@ -611,7 +703,14 @@ pub fn view(
         view_tabs(model.tab),
         subpage(
           model.tab == Overview,
-          detail_grid(detail, model.timesheet, permissions, own),
+          detail_grid(
+            detail,
+            model.timesheet,
+            model.location,
+            model.as_of,
+            permissions,
+            own,
+          ),
         ),
         subpage(model.tab == Skills, skills_grid(model.skills, model.as_of)),
       ])
@@ -696,6 +795,8 @@ fn situation(allocations: List(allocation_view.AllocationRow)) -> String {
 fn detail_grid(
   detail: EngineerDetail,
   timesheet: TimesheetData,
+  location: LocationData,
+  as_of: calendar.Date,
   permissions: Set(String),
   own: Bool,
 ) -> Element(Msg) {
@@ -705,6 +806,7 @@ fn detail_grid(
       timesheet_panel(timesheet, permissions, own),
     ]),
     html.div([], [
+      location_panel(location, as_of, permissions, own),
       balance_panel(detail.balance),
       contact_panel(detail.contact, permissions, own),
       banking_panel(detail.banking, permissions, own),
@@ -772,6 +874,130 @@ fn period_end(valid_to: Option(calendar.Date)) -> String {
     Some(date) -> time.iso_date(date)
     None -> "present"
   }
+}
+
+// --- Location panel ----------------------------------------------------
+
+/// The "Location & timezone" current card plus the "Location history" timeline,
+/// stacked in the Overview grid's side column.
+fn location_panel(
+  location: LocationData,
+  as_of: calendar.Date,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
+  html.div([], [
+    current_location_panel(location, as_of, permissions, own),
+    location_history_panel(location, as_of),
+  ])
+}
+
+fn current_location_panel(
+  location: LocationData,
+  as_of: calendar.Date,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
+  let launcher = [
+    op_launch(permissions, own, ui.OpSetLocation, "Set location", True),
+  ]
+  let body = case location {
+    LocationLoading -> [ui.empty_state("Loading location…")]
+    LocationFailed(message:) -> [
+      ui.empty_state("Could not load the location: " <> message),
+    ]
+    LocationLoaded(records:) ->
+      case covering_location(records, as_of) {
+        Some(record) -> [current_location_body(record)]
+        None -> [
+          ui.empty_state("No location set as of " <> time.format_date(as_of)),
+        ]
+      }
+  }
+  ui.panel(title: "Location & timezone", count: "", right: launcher, body:)
+}
+
+fn current_location_body(record: LocationRecord) -> Element(Msg) {
+  let LocationRecord(country:, region:, timezone:, utc_offset_minutes:, ..) =
+    record
+  let region_row = case region {
+    Some(text) -> [ui.kv(key: "Region", value: text, mono: False)]
+    None -> []
+  }
+  let rows =
+    [ui.kv(key: "Country", value: country, mono: False)]
+    |> list.append(region_row)
+    |> list.append([
+      ui.kv(key: "Timezone", value: timezone, mono: True),
+      ui.kv(
+        key: "Offset as-of",
+        value: time.utc_offset(utc_offset_minutes),
+        mono: True,
+      ),
+    ])
+  html.div([attribute.class("pad-detail")], [
+    html.div([attribute.class("kv")], rows),
+  ])
+}
+
+fn location_history_panel(
+  location: LocationData,
+  as_of: calendar.Date,
+) -> Element(Msg) {
+  case location {
+    LocationLoading ->
+      ui.panel(title: "Location history", count: "", right: [], body: [
+        ui.empty_state("Loading location history…"),
+      ])
+    LocationFailed(message:) ->
+      ui.panel(title: "Location history", count: "", right: [], body: [
+        ui.empty_state("Could not load location history: " <> message),
+      ])
+    LocationLoaded(records:) -> {
+      let body = case records {
+        [] -> [ui.empty_state("No location history on record.")]
+        _ -> [
+          ui.data_table(
+            headers: [
+              #("Location", False),
+              #("Timezone", False),
+              #("Period", False),
+              #("", False),
+            ],
+            rows: list.map(list.reverse(records), location_history_row(_, as_of)),
+          ),
+        ]
+      }
+      ui.panel(
+        title: "Location history",
+        count: int.to_string(list.length(records)),
+        right: [],
+        body:,
+      )
+    }
+  }
+}
+
+fn location_history_row(
+  record: LocationRecord,
+  as_of: calendar.Date,
+) -> Element(Msg) {
+  let LocationRecord(country:, region:, timezone:, valid_from:, valid_to:, ..) =
+    record
+  let flag = case covers_as_of(valid_from, valid_to, as_of) {
+    True -> ui.pill(variant: "active", label: "as-of")
+    False -> element.none()
+  }
+  html.tr([], [
+    html.td([], [
+      html.text(country <> ", " <> option.unwrap(region, country)),
+    ]),
+    html.td([attribute.class("mono")], [html.text(timezone)]),
+    html.td([attribute.class("mono muted")], [
+      html.text(time.iso_date(valid_from) <> " → " <> period_end(valid_to)),
+    ]),
+    html.td([], [flag]),
+  ])
 }
 
 // --- Timesheet grid ---------------------------------------------------------
@@ -1216,6 +1442,12 @@ fn op_fields(
       level_select_field(form.level),
       date_field("Assessed from", ui.FEffective, form.effective),
     ]
+    ui.OpSetLocation -> [
+      text_field("Country", ui.FCountry, form.country),
+      text_field("Region", ui.FRegion, form.region),
+      text_field("Timezone (IANA TZID)", ui.FTimezone, form.timezone),
+      date_field("Effective", ui.FEffective, form.effective),
+    ]
     _ -> [number_field("Engineer id", ui.FEngineerId, form.engineer_id)]
   }
 }
@@ -1355,6 +1587,7 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpUpdateBanking -> "Update banking details"
     ui.OpUpdateEmergency -> "Update emergency contact"
     ui.OpAssessSkill -> "Assess skill"
+    ui.OpSetLocation -> "Set location"
     _ -> "Operation"
   }
 }
@@ -1371,6 +1604,7 @@ fn op_verb(kind: ui.OpKind) -> String {
     ui.OpUpdateBanking -> "Save banking"
     ui.OpUpdateEmergency -> "Save emergency"
     ui.OpAssessSkill -> "Record assessment"
+    ui.OpSetLocation -> "Set location"
     _ -> "Confirm"
   }
 }
