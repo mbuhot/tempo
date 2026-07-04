@@ -43,6 +43,7 @@ import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
 import shared/level
+import shared/location/command as location_command
 import shared/money
 import shared/payroll/command as payroll_command
 import shared/project_capability/command as project_capability_command
@@ -424,6 +425,7 @@ pub type OpKind {
   OpSetProjectRequirement
   OpAssessSkill
   OpSetProjectCapability
+  OpSetLocation
 }
 
 // --- Op authorization (client-side launcher gating) -------------------------
@@ -461,6 +463,7 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
     OpAdjustRateForPortion -> policy.ManageRateCard
     OpSetSalary -> policy.SetSalary
     OpAssessSkill -> policy.AssessSkills
+    OpSetLocation -> policy.ManageLocation
   }
 }
 
@@ -576,6 +579,9 @@ pub type OpField {
   FEffective
   FValidFrom
   FValidTo
+  FCountry
+  FRegion
+  FTimezone
 }
 
 /// The raw text typed into an operation's fields, shared across every kind (each
@@ -616,6 +622,9 @@ pub type OpForm {
     effective: String,
     valid_from: String,
     valid_to: String,
+    country: String,
+    region: String,
+    timezone: String,
   )
 }
 
@@ -671,6 +680,9 @@ pub fn blank_op_form(
     effective: today,
     valid_from: today,
     valid_to: today,
+    country: "",
+    region: "",
+    timezone: "",
   )
 }
 
@@ -710,6 +722,9 @@ pub fn update_op_form(form: OpForm, field: OpField, value: String) -> OpForm {
     FEffective -> OpForm(..form, effective: value)
     FValidFrom -> OpForm(..form, valid_from: value)
     FValidTo -> OpForm(..form, valid_to: value)
+    FCountry -> OpForm(..form, country: value)
+    FRegion -> OpForm(..form, region: value)
+    FTimezone -> OpForm(..form, timezone: value)
   }
 }
 
@@ -1084,6 +1099,25 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
           engineer_id:,
           skill_id:,
           level:,
+          effective:,
+        )),
+      )
+    }
+    OpSetLocation -> {
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      use country <- result.try(require_text(form.country, "country"))
+      use timezone <- result.try(require_text(form.timezone, "timezone"))
+      use effective <- result.try(require_date(form.effective, "effective"))
+      let region = case string.trim(form.region) {
+        "" -> option.None
+        other -> option.Some(other)
+      }
+      Ok(
+        gateway.LocationCommand(location_command.SetEngineerLocation(
+          engineer_id:,
+          country:,
+          region:,
+          timezone:,
           effective:,
         )),
       )
