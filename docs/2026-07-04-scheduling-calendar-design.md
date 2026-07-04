@@ -1,7 +1,8 @@
 # Scheduling & Calendar System — Design
 
 **Date:** 2026-07-04
-**Status:** Proposed
+**Status:** Phase A shipped; B–D planned
+**Tracking:** #42
 **UI prototype:** `docs/prototypes/2026-07-04-scheduling.html` (Calendar + find-a-time, Locations listing, engineer location panel, public-holidays calendar)
 **Depends on:** PostgreSQL 18 temporal PKs (`WITHOUT OVERLAPS`), PG14 multiranges, PG19 `range_intersect_agg`
 
