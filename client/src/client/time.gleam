@@ -301,6 +301,21 @@ pub fn format_month(date: calendar.Date) -> String {
   month_abbrev(date.month) <> " " <> int.to_string(date.year)
 }
 
+/// Render a UTC offset given as minutes east of UTC as "UTC+HH:MM" / "UTC-HH:MM"
+/// (600 -> "UTC+10:00", -420 -> "UTC-07:00", 0 -> "UTC+00:00").
+pub fn utc_offset(minutes: Int) -> String {
+  let magnitude = int.absolute_value(minutes)
+  let sign = case minutes < 0 {
+    True -> "-"
+    False -> "+"
+  }
+  "UTC"
+  <> sign
+  <> pad2(magnitude / 60)
+  <> ":"
+  <> pad2(int.modulo(magnitude, 60) |> result.unwrap(0))
+}
+
 /// The relative phrase from the seed "today" to `date`: "today", "N days ago",
 /// or "in N days" (the prototype's `relDays`, anchored to the deterministic seed
 /// now rather than the wall clock).

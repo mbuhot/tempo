@@ -1436,6 +1436,7 @@ pub fn engineer_location_round_trips_test() {
         timezone: "Europe/London",
         valid_from: Date(2026, July, 1),
         valid_to: None,
+        utc_offset_minutes: 60,
       )),
     )
   assert round_trip(

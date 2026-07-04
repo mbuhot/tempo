@@ -32,7 +32,8 @@ pub fn handle_listing(req: wisp.Request, ctx: Context) -> wisp.Response {
   }
 }
 
-/// Handle GET /api/engineers/:id/location — one engineer's full location history.
+/// Handle GET /api/engineers/:id/location?as_of= — one engineer's full location
+/// history, each span's UTC offset computed as-of the date.
 pub fn handle_history(
   req: wisp.Request,
   ctx: Context,
@@ -42,13 +43,17 @@ pub fn handle_history(
   case int.parse(id_segment) {
     Error(Nil) -> wisp.bad_request("invalid engineer id '" <> id_segment <> "'")
     Ok(engineer_id) ->
-      case view.history(ctx, engineer_id) {
-        Ok(records) ->
-          response.json_response(json.array(
-            records,
-            location_view.encode_location_record,
-          ))
-        Error(error) -> response.db_error_response(error)
+      case request.date_from_query(req, "as_of") {
+        Error(detail) -> wisp.bad_request(detail)
+        Ok(as_of) ->
+          case view.history(ctx, engineer_id, as_of) {
+            Ok(records) ->
+              response.json_response(json.array(
+                records,
+                location_view.encode_location_record,
+              ))
+            Error(error) -> response.db_error_response(error)
+          }
       }
   }
 }

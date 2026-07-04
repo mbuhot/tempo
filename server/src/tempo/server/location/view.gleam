@@ -39,14 +39,17 @@ pub fn listing(
   })
 }
 
-/// One engineer's full location history, oldest span first.
+/// One engineer's full location history, oldest span first, each span's UTC offset
+/// computed as-of `as_of`.
 pub fn history(
   context: Context,
   engineer_id: Int,
+  as_of: Date,
 ) -> Result(List(LocationRecord), pog.QueryError) {
   use returned <- result.map(sql.engineer_location_history(
     context.db,
     engineer_id,
+    as_of,
   ))
   list.map(returned.rows, history_row_to_record)
 }
@@ -67,6 +70,7 @@ fn asof_row_to_record(row: sql.EngineerLocationsAsofRow) -> LocationRecord {
     timezone: row.timezone,
     valid_from: row.valid_from,
     valid_to: open_end(row.ongoing, row.valid_to),
+    utc_offset_minutes: row.utc_offset_minutes,
   )
 }
 
@@ -79,6 +83,7 @@ fn history_row_to_record(
     timezone: row.timezone,
     valid_from: row.valid_from,
     valid_to: open_end(row.ongoing, row.valid_to),
+    utc_offset_minutes: row.utc_offset_minutes,
   )
 }
 

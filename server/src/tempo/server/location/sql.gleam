@@ -23,12 +23,15 @@ pub type EngineerLocationHistoryRow {
     valid_from: Date,
     valid_to: Date,
     ongoing: Bool,
+    utc_offset_minutes: Int,
   )
 }
 
-/// engineer_location_history.sql — all location spans for one engineer, oldest first.
-/// Coalesced upper + upper_inf flag keep an open-ended span's NULL upper bound from
-/// decoding as a non-null Date. $1 = engineer_id.
+/// engineer_location_history.sql — all location spans for one engineer, oldest first, each
+/// with the timezone's UTC offset (minutes east of UTC) as-of $2 so the covering span's
+/// offset tracks DST on the viewing date. Coalesced upper + upper_inf flag keep an
+/// open-ended span's NULL upper bound from decoding as a non-null Date.
+/// $1 = engineer_id, $2 = as-of date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -36,6 +39,7 @@ pub type EngineerLocationHistoryRow {
 pub fn engineer_location_history(
   db: pog.Connection,
   engineer_id: Int,
+  arg_2: Date,
 ) -> Result(pog.Returned(EngineerLocationHistoryRow), pog.QueryError) {
   let decoder = {
     use country <- decode.field(0, decode.string)
@@ -44,6 +48,7 @@ pub fn engineer_location_history(
     use valid_from <- decode.field(3, pog.calendar_date_decoder())
     use valid_to <- decode.field(4, pog.calendar_date_decoder())
     use ongoing <- decode.field(5, decode.bool)
+    use utc_offset_minutes <- decode.field(6, decode.int)
     decode.success(EngineerLocationHistoryRow(
       country:,
       region:,
@@ -51,25 +56,32 @@ pub fn engineer_location_history(
       valid_from:,
       valid_to:,
       ongoing:,
+      utc_offset_minutes:,
     ))
   }
 
-  "-- engineer_location_history.sql — all location spans for one engineer, oldest first.
--- Coalesced upper + upper_inf flag keep an open-ended span's NULL upper bound from
--- decoding as a non-null Date. $1 = engineer_id.
+  "-- engineer_location_history.sql — all location spans for one engineer, oldest first, each
+-- with the timezone's UTC offset (minutes east of UTC) as-of $2 so the covering span's
+-- offset tracks DST on the viewing date. Coalesced upper + upper_inf flag keep an
+-- open-ended span's NULL upper bound from decoding as a non-null Date.
+-- $1 = engineer_id, $2 = as-of date.
 SELECT
   country,
   region,
   timezone,
   lower(located_during) AS valid_from,
   coalesce(upper(located_during), lower(located_during)) AS valid_to,
-  upper_inf(located_during) AS ongoing
+  upper_inf(located_during) AS ongoing,
+  (extract(epoch from
+     (($2::date::timestamp AT TIME ZONE 'UTC')
+      - ($2::date::timestamp AT TIME ZONE timezone))) / 60)::int AS utc_offset_minutes
 FROM engineer_location
 WHERE engineer_id = $1
 ORDER BY lower(located_during);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -136,13 +148,15 @@ pub type EngineerLocationsAsofRow {
     valid_from: Date,
     valid_to: Date,
     ongoing: Bool,
+    utc_offset_minutes: Int,
   )
 }
 
 /// engineer_locations_asof.sql — the location in force on $1 for every engineer that has
-/// one. Engineers without a location on that date are absent; the caller attaches them in
-/// Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag) so an
-/// open-ended span decodes cleanly. $1 = as-of date.
+/// one, plus that timezone's UTC offset (minutes east of UTC) computed AT the as-of date so
+/// it tracks DST. Engineers without a location on that date are absent; the caller attaches
+/// them in Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag)
+/// so an open-ended span decodes cleanly. $1 = as-of date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -159,6 +173,7 @@ pub fn engineer_locations_asof(
     use valid_from <- decode.field(4, pog.calendar_date_decoder())
     use valid_to <- decode.field(5, pog.calendar_date_decoder())
     use ongoing <- decode.field(6, decode.bool)
+    use utc_offset_minutes <- decode.field(7, decode.int)
     decode.success(EngineerLocationsAsofRow(
       engineer_id:,
       country:,
@@ -167,13 +182,15 @@ pub fn engineer_locations_asof(
       valid_from:,
       valid_to:,
       ongoing:,
+      utc_offset_minutes:,
     ))
   }
 
   "-- engineer_locations_asof.sql — the location in force on $1 for every engineer that has
--- one. Engineers without a location on that date are absent; the caller attaches them in
--- Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag) so an
--- open-ended span decodes cleanly. $1 = as-of date.
+-- one, plus that timezone's UTC offset (minutes east of UTC) computed AT the as-of date so
+-- it tracks DST. Engineers without a location on that date are absent; the caller attaches
+-- them in Gleam. Only NOT-NULL range bounds are selected (coalesced upper + upper_inf flag)
+-- so an open-ended span decodes cleanly. $1 = as-of date.
 SELECT
   engineer_id,
   country,
@@ -181,7 +198,10 @@ SELECT
   timezone,
   lower(located_during) AS valid_from,
   coalesce(upper(located_during), lower(located_during)) AS valid_to,
-  upper_inf(located_during) AS ongoing
+  upper_inf(located_during) AS ongoing,
+  (extract(epoch from
+     (($1::date::timestamp AT TIME ZONE 'UTC')
+      - ($1::date::timestamp AT TIME ZONE timezone))) / 60)::int AS utc_offset_minutes
 FROM engineer_location
 WHERE located_during @> $1::date;
 "

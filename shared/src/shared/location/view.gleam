@@ -14,6 +14,7 @@ pub type LocationRecord {
     timezone: String,
     valid_from: Date,
     valid_to: Option(Date),
+    utc_offset_minutes: Int,
   )
 }
 
@@ -26,14 +27,21 @@ pub type EngineerLocation {
 }
 
 pub fn encode_location_record(record: LocationRecord) -> Json {
-  let LocationRecord(country:, region:, timezone:, valid_from:, valid_to:) =
-    record
+  let LocationRecord(
+    country:,
+    region:,
+    timezone:,
+    valid_from:,
+    valid_to:,
+    utc_offset_minutes:,
+  ) = record
   json.object([
     #("country", json.string(country)),
     #("region", json.nullable(region, json.string)),
     #("timezone", json.string(timezone)),
     #("valid_from", wire.encode_date(valid_from)),
     #("valid_to", wire.encode_option_date(valid_to)),
+    #("utc_offset_minutes", json.int(utc_offset_minutes)),
   ])
 }
 
@@ -43,12 +51,14 @@ pub fn location_record_decoder() -> Decoder(LocationRecord) {
   use timezone <- decode.field("timezone", decode.string)
   use valid_from <- decode.field("valid_from", wire.date_decoder())
   use valid_to <- decode.field("valid_to", wire.option_date_decoder())
+  use utc_offset_minutes <- decode.field("utc_offset_minutes", decode.int)
   decode.success(LocationRecord(
     country:,
     region:,
     timezone:,
     valid_from:,
     valid_to:,
+    utc_offset_minutes:,
   ))
 }
 
