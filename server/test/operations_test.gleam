@@ -2075,6 +2075,33 @@ pub fn assess_skill_outside_employment_is_rejected_test() {
   assert outcome == Error(operation.NoSuchVersion)
 }
 
+// promote with an effective date the engineer is not employed for is rejected
+// the same way (require_covering_version's NoSuchVersion), rather than
+// journalling a promotion that was never written to engineer_role.
+pub fn promote_outside_employment_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Mary Jackson")
+      exec(
+        conn,
+        "INSERT INTO employment (engineer_id, employed_during) VALUES ("
+          <> int.to_string(engineer_id)
+          <> ", daterange('2026-01-01', NULL, '[)'))",
+      )
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.EngineerCommand(engineer_command.Promote(
+          engineer_id,
+          4,
+          Date(2025, January, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /// The id of the contract minted for `client_id` (used after sign_contract mints

@@ -205,7 +205,7 @@ fn write(
         level,
         audit_id,
       )
-      |> operation.run
+      |> require_covering_version
 
     EngineerContactDetails(
       engineer_id: EngineerId(engineer_id),
@@ -599,9 +599,9 @@ fn write(
   }
 }
 
-/// Assert a temporal write (`salary`/`rate_card` revise, `engineer_skill` assess)
-/// actually matched a covering row: its `RETURNING` rows are empty exactly when
-/// no version (or, for `engineer_skill`, no employment) covered the effective
+/// Assert a temporal write (`salary`/`rate_card` revise, `engineer_role` promote,
+/// `engineer_skill` assess) actually matched a covering row: its `RETURNING` rows
+/// are empty exactly when no version (or no employment) covered the effective
 /// date, so the write's `FOR PORTION OF` clause or `FROM employment` join matched
 /// nothing. A bare `operation.run` discards the rows and reports `Ok` for that
 /// no-op, journalling a change that never happened; this rejects it as a typed
