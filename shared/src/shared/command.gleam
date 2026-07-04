@@ -18,6 +18,7 @@ import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
+import shared/location/command as location_command
 import shared/pagination
 import shared/payroll/command as payroll_command
 import shared/project_capability/command as project_capability_command
@@ -71,6 +72,7 @@ pub type Command {
   CapabilityCommand(capability_command.CapabilityCommand)
   SkillCommand(skill_command.SkillCommand)
   EngineerSkillCommand(engineer_skill_command.EngineerSkillCommand)
+  LocationCommand(location_command.LocationCommand)
 }
 
 /// Encode a `Command` as a tagged JSON object keyed by `op`, delegating to the
@@ -98,6 +100,7 @@ pub fn encode_command(command: Command) -> Json {
     CapabilityCommand(command) -> capability_command.encode(command)
     SkillCommand(command) -> skill_command.encode(command)
     EngineerSkillCommand(command) -> engineer_skill_command.encode(command)
+    LocationCommand(command) -> location_command.encode(command)
   }
 }
 
@@ -131,6 +134,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(capability_command.decoder(op), CapabilityCommand)
   use <- try_group(skill_command.decoder(op), SkillCommand)
   use <- try_group(engineer_skill_command.decoder(op), EngineerSkillCommand)
+  use <- try_group(location_command.decoder(op), LocationCommand)
   Error(Nil)
 }
 

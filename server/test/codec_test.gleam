@@ -34,6 +34,7 @@ import shared/invoice/command as invoice_command
 import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
 import shared/leave/command as leave_command
 import shared/leave/view.{LeaveBalance} as _
+import shared/location/command as location_command
 import shared/location/view as location_view
 import shared/money
 import shared/payroll/command as payroll_command
@@ -1442,6 +1443,21 @@ pub fn engineer_location_round_trips_test() {
       location_view.encode_engineer_location,
       location_view.engineer_location_decoder(),
     )
+    == original
+}
+
+// --- SetEngineerLocation (Command) -------------------------------------------
+
+pub fn command_set_location_round_trips_test() {
+  let original =
+    gateway.LocationCommand(location_command.SetEngineerLocation(
+      engineer_id: 7,
+      country: "GB",
+      region: Some("GB-LND"),
+      timezone: "Europe/London",
+      effective: Date(2026, July, 1),
+    ))
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
 
