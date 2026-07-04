@@ -66,7 +66,7 @@ Wiring follows the standard exhaustive sites: shared `Command`/codec, `CommandKe
 - New route `/schedule`, sidebar entry, page module `client/src/client/page/schedule.gleam` with the frozen MVU interface; `refetch` takes the shell's global as-of date.
 - Scenario = list of draft operations in page state, built with the `ui.gleam` op-form engine (allocation assign / re-fraction / off-project, and reschedule-project). Permission-gated per op via `shared/access/policy`.
 - Empty scenario → `GET /api/schedule`. Non-empty → debounced `POST /preview` on every edit (token/timer debounce, the rail-scrub pattern). **Apply** posts the list to `/apply` and clears the scenario; **Discard** clears it. A preview error pins to the offending draft row.
-- Gap cells > 0 and over-allocation flags are visually highlighted; each project block shows a `Gap:` summary line per uncovered requirement, as in the sketch.
+- Gap cells > 0 and over-allocation flags are visually highlighted. A requirement line renders a gap row only when it has a positive gap in some week of the window; fully covered lines surface as a status chip in the project header. Each project block shows a `Gap:` summary chip per uncovered requirement, as in the sketch.
 - Scenarios live in page state only; navigation or refresh discards them.
 
 ## Permissions
