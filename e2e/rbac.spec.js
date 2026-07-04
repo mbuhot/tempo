@@ -34,6 +34,16 @@ test("only the owner sees the Access tab", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Access" })).toBeVisible();
 });
 
+test("an engineer does not see the Skills admin link", async ({ page }) => {
+  await signInAs(page, "Priya Sharma");
+  await expect(page.getByRole("link", { name: "Skills" })).toHaveCount(0);
+});
+
+test("the owner sees the Skills admin link", async ({ page }) => {
+  await signInAs(page, "Admin");
+  await expect(page.getByRole("link", { name: "Skills" })).toBeVisible();
+});
+
 test("the Access page visualizes the role-permission matrix and lists users", async ({
   page,
 }) => {
@@ -50,6 +60,7 @@ test("the Access page visualizes the role-permission matrix and lists users", as
   ).toBeVisible();
   await expect(page.getByText("payroll.run", { exact: true })).toBeVisible();
   await expect(page.getByText("roles.manage", { exact: true })).toBeVisible();
+  await expect(page.getByText("skills.manage", { exact: true })).toBeVisible();
   // The users list carries the seeded accounts.
   await expect(page.getByText("finance@alembic.com.au")).toBeVisible();
 });
@@ -102,6 +113,25 @@ test("the owner viewing an engineer sees the Promote launcher", async ({
   await navigateTo(page, "People");
   await clickContent(rosterRow(page, "Marcus Chen"));
   await expect(page.getByRole("button", { name: "Promote" })).toBeVisible();
+});
+
+test("finance viewing an engineer does not see the Assess-skill launcher", async ({
+  page,
+}) => {
+  // Finance has read.engineers but not skills.assess.
+  await signInAs(page, "Finance");
+  await navigateTo(page, "People");
+  await clickContent(rosterRow(page, "Marcus Chen"));
+  await expect(page.getByRole("button", { name: "Assess skill" })).toHaveCount(0);
+});
+
+test("the owner viewing an engineer sees the Assess-skill launcher", async ({
+  page,
+}) => {
+  await signInAs(page, "Admin");
+  await navigateTo(page, "People");
+  await clickContent(rosterRow(page, "Marcus Chen"));
+  await expect(page.getByRole("button", { name: "Assess skill" })).toBeVisible();
 });
 
 test("a manager viewing settings does not see the Revise-rate launcher", async ({
