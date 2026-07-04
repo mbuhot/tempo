@@ -1815,13 +1815,13 @@ authorization up front; timeline evaluated on the tx connection."
 - Consumes: `shared/schedule/view` codecs; `api.get`; the frozen page interface `Model / Msg / init(route, as_of, actor) / update -> #(Model, Effect(Msg), List(page.OutMsg)) / view(model, as_of, permissions) / refetch(model, as_of, actor)`.
 - Produces: route `/schedule`, sidebar entry "Schedule" (gated on `access.read_projects`), page rendering stats strip + per-project timeline grids; `api.post(url, body: Json, decoder, to_msg)` helper for Task 8.
 
-- [ ] **Step 1: Route + shell wiring**
+- [x] **Step 1: Route + shell wiring**
 
 `client/src/client/route.gleam`: add `Schedule` to the `Route` union, `["schedule"] -> Schedule` in `parse`, `Schedule -> "/schedule"` in `to_path`.
 
 `client/src/client/app.gleam`: add the six mirror sites, copying the `Locations` twin exactly (Page union `SchedulePage(schedule.Model)`, Msg union `ScheduleMsg(schedule.Msg)`, `update` dispatch arm, `init_page` arm, `refetch_page` arm, `view_page` arm, `same_page` arm, sidebar `nav_link_if(permissions, perm.read_projects, active, as_of, route.Schedule, icons.board(), "Schedule")` — reuse an existing icon fn such as `icons.board()`; pick whichever existing icon reads closest to a calendar/timeline in `client/src/client/icons.gleam`).
 
-- [ ] **Step 2: `api.post` helper**
+- [x] **Step 2: `api.post` helper**
 
 In `client/src/client/api.gleam`, alongside `get` (mirror its rsvp usage):
 
@@ -1838,7 +1838,7 @@ pub fn post(
 
 (Match `rsvp`'s real post signature — read how `submit_operation` posts and reuse its exact mechanics.)
 
-- [ ] **Step 3: The page module (read-only slice)**
+- [x] **Step 3: The page module (read-only slice)**
 
 `client/src/client/page/schedule.gleam` — full structure; scenario state lands in Task 8 but the Model already carries it:
 
@@ -1965,11 +1965,11 @@ fn line_label(kind: schedule_view.LineKind) -> String {
 }
 ```
 
-- [ ] **Step 4: Styles**
+- [x] **Step 4: Styles**
 
 `client/styles/schedule.scss` — token-only (ADR-038): translate the prototype's semantics onto tempo tokens: fraction tints `color-mix(in srgb, var(--color-accent) 9|16|24|32%, var(--color-surface))`; gap cells `var(--color-danger-soft)`/`var(--color-danger)`; over-allocation ring `inset 0 0 0 var(--border-thin) var(--color-warn)`; leave `var(--color-leave-soft)`/`var(--color-leave)`; grid rows `display: grid; grid-template-columns: 14rem repeat(12, minmax(3.5rem, 1fr))`; sticky first column `position: sticky; left: 0; background: var(--color-surface)`; wrapper `overflow-x: auto`. Add `@use "schedule";` to `client/styles/main.scss` beside `locations`.
 
-- [ ] **Step 5: Build gates, visual check, commit**
+- [x] **Step 5: Build gates, visual check, commit**
 
 Run: `bin/build > /tmp/build.log 2>&1; tail -3 /tmp/build.log` then `TEMPO_DB_PORT=5435 bin/test > /tmp/t7.log 2>&1; tail -5 /tmp/t7.log` (runs gleam format check + client build).
 Expected: both green. Then `TEMPO_DB_PORT=5435 bin/serve` and eyeball `http://localhost:8000/schedule` signed in as admin@alembic.com.au: five project blocks, Edge Analytics shows L3/L4/L5 gap rows from Aug 03, Ledger Migration shows the two capability gap rows, Aisha's Jun 15 cell reads "leave".

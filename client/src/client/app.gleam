@@ -38,6 +38,7 @@ import client/page/finance
 import client/page/locations
 import client/page/people
 import client/page/projects
+import client/page/schedule
 import client/page/settings
 import client/page/skills
 import client/route.{type Route}
@@ -72,6 +73,7 @@ pub type Page {
   AccessPage(access.Model)
   SkillsPage(skills.Model)
   LocationsPage(locations.Model)
+  SchedulePage(schedule.Model)
 }
 
 /// Who is signed in, as one of three states: `Verifying` while the boot `GET /api/me`
@@ -187,6 +189,7 @@ pub type Msg {
   AccessMsg(access.Msg)
   SkillsMsg(skills.Msg)
   LocationsMsg(locations.Msg)
+  ScheduleMsg(schedule.Msg)
 }
 
 /// Client entrypoint: start the Lustre application mounted on `#app`.
@@ -531,6 +534,20 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
+
+    ScheduleMsg(page_msg) ->
+      case model.page {
+        SchedulePage(page_model) -> {
+          let #(next, page_effect, outs) = schedule.update(page_model, page_msg)
+          handle_page(
+            model,
+            SchedulePage(next),
+            effect.map(page_effect, ScheduleMsg),
+            page_outs(outs),
+          )
+        }
+        _ -> #(model, effect.none())
+      }
   }
 }
 
@@ -668,6 +685,10 @@ fn init_page(
       let #(page, eff) = locations.init(route, as_of, actor)
       #(LocationsPage(page), effect.map(eff, LocationsMsg))
     }
+    route.Schedule -> {
+      let #(page, eff) = schedule.init(route, as_of, actor)
+      #(SchedulePage(page), effect.map(eff, ScheduleMsg))
+    }
     route.NotFound -> {
       let #(page, eff) = board.init(route, as_of, actor)
       #(BoardPage(page), effect.map(eff, BoardMsg))
@@ -723,6 +744,10 @@ fn refetch_page(
     LocationsPage(model) -> {
       let #(next, eff) = locations.refetch(model, as_of, actor)
       #(LocationsPage(next), effect.map(eff, LocationsMsg))
+    }
+    SchedulePage(model) -> {
+      let #(next, eff) = schedule.refetch(model, as_of, actor)
+      #(SchedulePage(next), effect.map(eff, ScheduleMsg))
     }
   }
 }
@@ -986,6 +1011,15 @@ fn view_sidebar(
         icons.locations(),
         "Locations",
       ),
+      nav_link_if(
+        permissions,
+        perm.read_projects,
+        active,
+        as_of,
+        route.Schedule,
+        icons.board(),
+        "Schedule",
+      ),
       admin_header(permissions),
       nav_link_if(
         permissions,
@@ -1095,6 +1129,7 @@ fn same_page(a: Route, b: Route) -> Bool {
     route.Access, route.Access -> True
     route.Skills, route.Skills -> True
     route.Locations, route.Locations -> True
+    route.Schedule, route.Schedule -> True
     route.NotFound, route.NotFound -> True
     _, _ -> False
   }
@@ -1169,6 +1204,8 @@ fn view_page(model: Model) -> Element(Msg) {
       element.map(skills.view(page, model.as_of, permissions), SkillsMsg)
     LocationsPage(page) ->
       element.map(locations.view(page, model.as_of, permissions), LocationsMsg)
+    SchedulePage(page) ->
+      element.map(schedule.view(page, model.as_of, permissions), ScheduleMsg)
   }
 }
 

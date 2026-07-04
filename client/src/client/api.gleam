@@ -10,7 +10,7 @@
 //// stamps it on the event log. A forged actor in the body is no longer possible.
 
 import gleam/dynamic/decode.{type Decoder}
-import gleam/json
+import gleam/json.{type Json}
 import gleam/option.{type Option}
 import lustre/effect.{type Effect}
 import rsvp
@@ -33,6 +33,19 @@ pub fn get(
   to_msg: fn(Result(a, rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   rsvp.get(url, rsvp.expect_json(decoder, to_msg))
+}
+
+/// POST `body` to `url`, decode the response with `decoder`, and hand the
+/// outcome to `to_msg`. The write-side twin of `get`, used by pages that need a
+/// bespoke read-modelling POST (e.g. the Schedule what-if preview/apply) rather
+/// than the fixed `/api/operations` write seam `submit_operation` covers.
+pub fn post(
+  url: String,
+  body: Json,
+  decoder: Decoder(a),
+  to_msg: fn(Result(a, rsvp.Error(String))) -> msg,
+) -> Effect(msg) {
+  rsvp.post(url, body, rsvp.expect_json(decoder, to_msg))
 }
 
 /// POST `{username, password, remember_me}` to `/api/login`. On success the server

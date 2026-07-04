@@ -41,6 +41,7 @@ pub type Route {
   Access
   Skills
   Locations
+  Schedule
   NotFound
 }
 
@@ -71,6 +72,7 @@ pub fn parse(uri: Uri) -> Route {
     ["access"] -> Access
     ["skills"] -> Skills
     ["locations"] -> Locations
+    ["schedule"] -> Schedule
     _ -> NotFound
   }
 }
@@ -94,6 +96,7 @@ pub fn to_path(route: Route) -> String {
     Access -> "/access"
     Skills -> "/skills"
     Locations -> "/locations"
+    Schedule -> "/schedule"
     NotFound -> "/"
   }
 }

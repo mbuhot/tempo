@@ -1,0 +1,169 @@
+// Schedule — the 12-week allocation timeline: a portfolio stats strip, one
+// grid per active project (engineer lanes + requirement gap rows), fraction
+// tints, leave/over-allocation marks. Token-only per ADR-038.
+
+@use "mixins" as *;
+
+.schedule-stats {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    padding: var(--space-md);
+    @include hairline;
+    background: var(--color-surface);
+    margin-bottom: var(--space-md);
+}
+.schedule-stats__stat {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+}
+.schedule-stats__dot {
+    width: var(--size-dot);
+    height: var(--size-dot);
+    border-radius: var(--radius-circle);
+    flex: none;
+}
+.schedule-stats__dot--gap {
+    background: var(--color-danger);
+}
+.schedule-stats__dot--warn {
+    background: var(--color-warn);
+}
+.schedule-stats__dot--leave {
+    background: var(--color-leave);
+}
+.schedule-stats__actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.schedule-projects {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.schedule-project {
+    @include hairline;
+    background: var(--color-surface);
+}
+.schedule-project--selected {
+    border-color: var(--color-accent);
+}
+.schedule-project__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    cursor: pointer;
+}
+.schedule-project__title {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-base);
+}
+.schedule-project__client {
+    color: var(--color-faint);
+    font-size: var(--text-xs);
+}
+.schedule-project__run {
+    @include mono-xs;
+    color: var(--color-muted);
+}
+.schedule-project__reqs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+.schedule-project__annotation {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    color: var(--color-warn);
+}
+
+.schedule-req {
+    @include mono-xs;
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--radius-pill);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+.schedule-grid-wrap {
+    overflow-x: auto;
+    border-top: var(--border-thin) solid var(--color-border);
+}
+.schedule-grid {
+    min-width: max-content;
+}
+.schedule-row {
+    display: grid;
+    grid-template-columns: 14rem repeat(12, minmax(3.5rem, 1fr));
+}
+.schedule-row--head {
+    font-size: var(--text-xs);
+    color: var(--color-faint);
+}
+.schedule-row--gap {
+    background: var(--color-surface-sunken);
+}
+.schedule-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xs);
+    font-size: var(--text-sm);
+    border-bottom: var(--border-thin) solid var(--color-border);
+}
+.schedule-cell--label {
+    position: sticky;
+    left: 0;
+    background: var(--color-surface);
+    justify-content: flex-start;
+    gap: var(--space-xs);
+}
+.schedule-cell--head {
+    font-weight: var(--weight-medium);
+}
+.schedule-lane__name {
+    font-weight: var(--weight-medium);
+}
+.schedule-lane__level {
+    @include mono-xs;
+    color: var(--color-muted);
+}
+.schedule-cell--outside,
+.schedule-cell--idle {
+    color: var(--color-faint);
+}
+.schedule-cell--leave {
+    background: var(--color-leave-soft);
+    color: var(--color-leave);
+}
+.schedule-cell--f25 {
+    background: color-mix(in srgb, var(--color-accent) 9%, var(--color-surface));
+}
+.schedule-cell--f50 {
+    background: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface));
+}
+.schedule-cell--f80 {
+    background: color-mix(in srgb, var(--color-accent) 24%, var(--color-surface));
+}
+.schedule-cell--f100 {
+    background: color-mix(in srgb, var(--color-accent) 32%, var(--color-surface));
+}
+.schedule-cell--oa {
+    box-shadow: inset 0 0 0 var(--border-thin) var(--color-warn);
+}
+.schedule-cell--g0 {
+    color: var(--color-faint);
+}
+.schedule-cell--gap {
+    color: var(--color-danger);
+    font-weight: var(--weight-medium);
+}
