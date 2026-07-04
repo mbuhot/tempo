@@ -17,10 +17,10 @@ import shared/access
 import shared/command.{
   type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
-  ProjectCapabilityCommand, ProjectDetailsCommand, ProjectRequirementCommand,
-  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
-  WorkflowCommand,
+  EngineerSkillCommand, InvoiceCommand, LeaveCommand, LocationCommand,
+  PayrollCommand, ProjectCapabilityCommand, ProjectDetailsCommand,
+  ProjectRequirementCommand, RateCardCommand, RoleCommand, SalaryCommand,
+  SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
@@ -53,6 +53,7 @@ pub type CommandKey {
   ConfirmProjectCreate
   ManageSkills
   AssessSkills
+  ManageLocation
 }
 
 /// What a key requires: a single permission (`Direct`), or — for the ownership-sensitive
@@ -86,6 +87,7 @@ pub fn requirement(key: CommandKey) -> Requirement {
     ConfirmProjectCreate -> Direct(access.project_create_confirm)
     ManageSkills -> Direct(access.skills_manage)
     AssessSkills -> Direct(access.skills_assess)
+    ManageLocation -> Direct(access.location_manage)
   }
 }
 
@@ -115,6 +117,7 @@ pub fn key(command: Command) -> CommandKey {
     CapabilityCommand(_) -> ManageSkills
     SkillCommand(_) -> ManageSkills
     EngineerSkillCommand(_) -> AssessSkills
+    LocationCommand(_) -> ManageLocation
   }
 }
 
