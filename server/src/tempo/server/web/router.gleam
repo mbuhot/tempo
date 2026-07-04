@@ -27,6 +27,7 @@ import tempo/server/engineer/http as engineers
 import tempo/server/engineer_skill/http as engineer_skill_http
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
+import tempo/server/location/http as location_http
 import tempo/server/payroll/http as payroll
 import tempo/server/people/http as people
 import tempo/server/pnl/http as pnl
@@ -182,6 +183,14 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "engineers", id, "skills"] -> {
       use principal <- guard.authenticated(context)
       engineer_skill_http.handle(request, context, id, principal)
+    }
+    ["api", "engineers", id, "location"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      location_http.handle_history(request, context, id)
+    }
+    ["api", "locations"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      location_http.handle_listing(request, context)
     }
     ["api", "clients"] -> {
       use _principal <- guard.require(context, access.read_projects)

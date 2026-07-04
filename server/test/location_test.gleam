@@ -1,10 +1,13 @@
 import gleam/dynamic/decode
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/time/calendar.{type Date, Date, July, June}
 import pog
 import shared/command as gateway
 import shared/location/command as location_command
+import shared/location/view.{type EngineerLocation, LocationRecord}
 import tempo/server/command
+import tempo/server/location/view as location_view
 import tempo/server/operation
 import test_pool
 
@@ -86,4 +89,22 @@ pub fn set_location_rejects_an_unknown_timezone_test() {
       )
     })
   assert outcome == Error(operation.InvalidValue)
+}
+
+fn priya(entries: List(EngineerLocation)) -> EngineerLocation {
+  let assert Ok(entry) = list.find(entries, fn(e) { e.name == "Priya Sharma" })
+  entry
+}
+
+pub fn listing_resolves_timezone_as_of_the_date_test() {
+  let assert Ok(before) =
+    location_view.listing(test_pool.ctx(), Date(2026, June, 15))
+  let assert Ok(after) =
+    location_view.listing(test_pool.ctx(), Date(2026, July, 15))
+  let assert Some(LocationRecord(timezone: tz_before, ..)) =
+    priya(before).location
+  let assert Some(LocationRecord(timezone: tz_after, ..)) =
+    priya(after).location
+  assert tz_before == "Australia/Sydney"
+  assert tz_after == "Europe/London"
 }
