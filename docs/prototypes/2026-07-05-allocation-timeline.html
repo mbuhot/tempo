@@ -90,8 +90,6 @@
   .rail input[type=range] { width: 220px; accent-color: var(--accent); }
 
   .wrap { padding: 24px 28px 60px; max-width: 1380px; }
-  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-  .head .sub { color: var(--ink-muted); font-size: 13px; margin-top: 3px; max-width: 68ch; }
 
   /* portfolio summary strip */
   .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -101,10 +99,6 @@
   .stat .d { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .d--busy { background: var(--busy); } .d--warn { background: var(--warn); }
   .d--leave { background: var(--leave); } .d--ok { background: var(--ok); }
-
-  .legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; font-size: 11.5px;
-    color: var(--ink-faint); margin: 2px 2px 16px; }
-  .legend .sw { display: inline-block; width: 14px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; border: 1px solid var(--border); }
 
   .grid { display: grid; grid-template-columns: minmax(0,1fr) var(--aside); gap: 18px; align-items: start; }
   @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .shell { grid-template-columns: 1fr; } .side { display: none; } }
@@ -190,7 +184,6 @@
   .win input[type=date] { font-family: var(--mono); font-size: 11.5px; color: var(--ink); background: var(--surface-2);
     border: 1px solid var(--border-strong); border-radius: 5px; padding: 3px 6px; }
   .win .arrow { color: var(--ink-faint); }
-  .win-note { flex-basis: 100%; font-size: 11px; color: var(--ink-faint); }
   .win-err { flex-basis: 100%; font-size: 11.5px; color: var(--busy); font-weight: 500; }
   .rcards { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; }
   .rcard { border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); padding: 11px 12px; }
@@ -201,9 +194,7 @@
   .meter > i { display: block; height: 100%; border-radius: 4px; background: var(--ok); }
   .meter-lbl { font-size: 11px; color: var(--ink-muted); display: flex; justify-content: space-between; gap: 8px; }
   .meter-lbl .mono { color: var(--ink); }
-  .rcard .note-p { font-size: 11.5px; color: var(--warn); font-weight: 500; margin-top: 6px; }
   .cands { margin-top: 9px; border-top: 1px dashed var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-  .cands-t { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
   .cand { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 7px; border-radius: 6px; border: 1px solid transparent; }
   .cand:hover { background: var(--surface); }
   .cand .av { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
@@ -244,7 +235,6 @@
   .op--err .ic { background: var(--busy-soft); color: var(--busy); }
   .op-err-msg { color: var(--busy); font-size: 11.5px; margin-top: 3px; font-weight: 500; }
 
-  .sc-note { padding: 4px 16px 0; font-size: 11.5px; color: var(--ink-faint); }
   .sc-foot { display: flex; gap: 9px; padding: 12px 14px 14px; }
   .btn { border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink);
     border-radius: var(--radius-sm); padding: 7px 13px; font-size: 12.5px; font-weight: 500; cursor: pointer; }
@@ -252,12 +242,6 @@
   .btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; flex: 1; }
   .btn--primary:hover { filter: brightness(1.06); }
   .btn[disabled] { opacity: .5; cursor: not-allowed; }
-
-  .verdict { border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface);
-    box-shadow: var(--shadow); padding: 12px 15px; font-size: 12.5px; color: var(--ink-muted); }
-  .verdict b { color: var(--ink); }
-  .verdict .row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
-  .verdict .d { width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center; }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
@@ -285,7 +269,7 @@
 
   <main>
     <div class="topbar">
-      <div class="crumb"><b>Schedule</b> · 12 weeks from as-of</div>
+      <div class="crumb"><b>Schedule</b></div>
       <div class="rail">
         <span class="rail-label">As of</span>
         <input type="range" min="0" max="100" value="42" aria-label="as-of date">
@@ -294,33 +278,13 @@
     </div>
 
     <div class="wrap">
-      <div class="head">
-        <div>
-          <h1>Allocation timeline</h1>
-          <div class="sub">Staffing against each project's capability and level requirements.
-            Draft changes preview against live data; apply commits them as one batch.</div>
-        </div>
-      </div>
-
       <div class="stats">
         <div class="stat"><span class="d d--busy"></span>
-          <span class="b"><b>2</b>&nbsp;requirements uncovered</span>
-          <span class="p"><b>3</b>&nbsp;requirements short (was 2)</span>
+          <span class="b"><b>2</b>&nbsp;uncovered</span>
+          <span class="p"><b>3</b>&nbsp;short</span>
         </div>
-        <div class="stat"><span class="d d--warn"></span><b>1</b> engineer over-allocated</div>
-        <div class="stat"><span class="d d--leave"></span><b>1</b> on leave in window</div>
-        <div class="stat"><span class="d d--ok"></span>
-          <span class="b"><b>3</b>&nbsp;projects in window</span>
-          <span class="p"><b>3</b>&nbsp;projects · previewing 2 drafts</span>
-        </div>
-      </div>
-
-      <div class="legend">
-        <span><span class="sw" style="background: color-mix(in srgb, var(--accent) 24%, var(--surface));"></span>cell tint = allocated fraction</span>
-        <span><span class="sw" style="background: var(--busy-soft);"></span>gap (required − covered)</span>
-        <span><span class="sw" style="background: var(--leave-soft);"></span>leave</span>
-        <span><span class="sw" style="box-shadow: inset 0 0 0 1.5px var(--warn); background: var(--surface);"></span>▲ over-allocated across projects</span>
-        <span><span class="sw" style="box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--surface);"></span>changed by scenario</span>
+        <div class="stat"><span class="d d--warn"></span><b>1</b> over-allocated</div>
+        <div class="stat"><span class="d d--leave"></span><b>1</b> on leave</div>
       </div>
 
       <div class="grid">
@@ -332,8 +296,8 @@
               <h3>Meridian</h3><span class="chev">▸</span><span class="client">Acme Corp</span>
               <span class="run">Jul 06 → Dec 18</span>
               <div class="reqs">
-                <span class="req req--gap b"><span class="d"></span>Data Platform ×1 @L4 · uncovered 9 wks</span>
-                <span class="req req--warn p"><span class="d"></span>Data Platform ×1 @L4 · 0.5 short 9 wks</span>
+                <span class="req req--gap b"><span class="d"></span>Data Platform @L4</span>
+                <span class="req req--warn p"><span class="d"></span>Data Platform @L4 · 0.5 short</span>
               </div>
             </div>
             <div class="scroll"><div class="tgrid">
@@ -387,8 +351,8 @@
               <h3>Atlas</h3><span class="chev">▸</span><span class="client">Globex</span>
               <span class="run">May 04 → Oct 30</span>
               <div class="reqs">
-                <span class="req req--gap p"><span class="d"></span>L5 ×1 · 0.5 short from Jul 06</span>
-                <span class="req req--warn"><span class="d"></span>Frontend ×1 @L3 · 1 wk gap (leave)</span>
+                <span class="req req--gap p"><span class="d"></span>L5 · 0.5 short</span>
+                <span class="req req--warn"><span class="d"></span>Frontend @L3 · 1 wk</span>
               </div>
             </div>
             <div class="scroll"><div class="tgrid">
@@ -444,7 +408,7 @@
               <h3>Kepler</h3><span class="chev">▸</span><span class="client">Initech</span>
               <span class="run">Jun 01 → Aug 28</span>
               <div class="reqs">
-                <span class="req req--warn"><span class="d"></span>Delivery ×1 @L2 · 0.2 short</span>
+                <span class="req req--warn"><span class="d"></span>Delivery @L2 · 0.2 short</span>
               </div>
             </div>
             <div class="scroll"><div class="tgrid">
@@ -490,7 +454,6 @@
             <div class="win">Run
               <input type="date" value="2026-07-06" aria-label="run start"> <span class="arrow">→</span>
               <input type="date" value="2026-12-18" aria-label="run end">
-              <span class="win-note">Client's ideal start. Changing dates drafts a reschedule — requirements and allocations shift with the run.</span>
             </div>
             <div class="rcards">
               <div class="rcard">
@@ -499,7 +462,6 @@
                 <div class="meter-lbl"><span>covered</span>
                   <span class="mono"><span class="b">0.0</span><span class="p">0.5</span> / 1.0</span></div>
                 <div class="cands">
-                  <div class="cands-t">Qualifying engineers</div>
                   <div class="cand on"><span class="av" style="background:#2e9e6b;">JH</span>James Holt
                     <span class="meta">L5 · prof 4.6 · Atlas 100%</span><button class="go">Drafted ✓</button></div>
                   <div class="cand"><span class="av" style="background:#7a5bd6;">DF</span>Dana Fox
@@ -511,7 +473,7 @@
               <div class="rcard">
                 <div class="rcard__top"><b>Level 5 ×1</b><span class="tf">Jul 06 → Dec 18</span></div>
                 <div class="meter"><i style="width:100%"></i></div>
-                <div class="meter-lbl"><span>covered by Priya Raman</span><span class="mono">1.0 / 1.0</span></div>
+                <div class="meter-lbl"><span>Priya Raman</span><span class="mono">1.0 / 1.0</span></div>
               </div>
             </div>
           </section>
@@ -526,14 +488,13 @@
               <div class="rcard">
                 <div class="rcard__top"><b>Level 5 ×1</b><span class="tf">May 04 → Oct 30</span></div>
                 <div class="meter"><i class="b" style="width:100%"></i><i class="p" style="width:50%"></i></div>
-                <div class="meter-lbl"><span>covered by James Holt</span>
+                <div class="meter-lbl"><span>James Holt</span>
                   <span class="mono"><span class="b">1.0</span><span class="p">0.5</span> / 1.0</span></div>
-                <div class="note-p p">Scenario halves James from Jul 06 — nominate cover here or accept the shortfall.</div>
               </div>
               <div class="rcard">
                 <div class="rcard__top"><b>Frontend ×1 @L3</b><span class="tf">May 04 → Oct 30</span></div>
                 <div class="meter"><i style="width:92%"></i></div>
-                <div class="meter-lbl"><span>covered by Jill Moreno · 1 wk gap Jun 22 (leave)</span><span class="mono">1.0 / 1.0</span></div>
+                <div class="meter-lbl"><span>Jill Moreno · leave Jun 22</span><span class="mono">1.0 / 1.0</span></div>
               </div>
             </div>
           </section>
@@ -543,15 +504,14 @@
             <div class="win">Run
               <input type="date" value="2026-05-18" aria-label="run start"> <span class="arrow">→</span>
               <input type="date" value="2026-08-14" aria-label="run end">
-              <span class="win-err">Rejected: run falls outside the Initech contract term (Jun 01 → Dec 31). Timeline still shows Jun 01 → Aug 28.</span>
+              <span class="win-err">Outside contract term Jun 01 → Dec 31</span>
             </div>
             <div class="rcards">
               <div class="rcard">
                 <div class="rcard__top"><b>Delivery ×1 @L2</b><span class="tf">Jun 01 → Aug 28</span></div>
                 <div class="meter"><i style="width:80%"></i></div>
-                <div class="meter-lbl"><span>covered by Joe Barnes</span><span class="mono">0.8 / 1.0</span></div>
+                <div class="meter-lbl"><span>Joe Barnes</span><span class="mono">0.8 / 1.0</span></div>
                 <div class="cands">
-                  <div class="cands-t">Qualifying engineers</div>
                   <div class="cand"><span class="av" style="background:#3e8fd0;">AS</span>Amir Shah
                     <span class="meta">L2 · prof 2.3 · 20% free</span><button class="go">Nominate</button></div>
                 </div>
@@ -582,26 +542,14 @@
                 <span class="ic">⇢</span>
                 <span class="tx"><b>Kepler</b> → start May 18
                   <div class="m">reschedule May 18 → Aug 14</div>
-                  <div class="op-err-msg">Rejected: run falls outside the Initech contract term (Jun 01 → Dec 31). Excluded from this preview.</div></span>
+                  <div class="op-err-msg">Outside contract term Jun 01 → Dec 31</div></span>
                 <button class="rm" title="Remove draft">✕</button>
               </div>
             </div>
-            <div class="sc-note">Drafts preview through the live write path in a rolled-back
-              transaction — nothing saves until Apply, which commits all drafts as one batch.</div>
             <div class="sc-foot">
-              <button class="btn btn--primary">Apply 2 valid drafts</button>
+              <button class="btn btn--primary">Apply 2</button>
               <button class="btn">Discard</button>
             </div>
-          </section>
-
-          <section class="verdict">
-            <b>Preview verdict</b>
-            <div class="row"><span class="d" style="background:var(--warn);"></span>
-              <span>Meridian's Data Platform gap narrows 1.0 → <b>0.5</b> — still half an engineer short at the Jul 06 start.</span></div>
-            <div class="row"><span class="d" style="background:var(--busy);"></span>
-              <span>Trade-off: Atlas L5 cover drops to <b>0.5</b> from Jul 06 — James is its only L5.</span></div>
-            <div class="row"><span class="d" style="background:var(--ok);"></span>
-              <span>No engineer over-allocates under this scenario.</span></div>
           </section>
         </div>
       </div>
