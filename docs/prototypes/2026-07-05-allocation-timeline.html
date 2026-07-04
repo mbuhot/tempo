@@ -1,0 +1,522 @@
+<title>tempo — Schedule</title>
+<style>
+  :root {
+    --ground: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #fbfcfd;
+    --border: #e4e7ee;
+    --border-strong: #d3d8e2;
+    --ink: #1b2333;
+    --ink-muted: #5d6675;
+    --ink-faint: #8b94a4;
+    --accent: #4a63d8;
+    --accent-soft: #eaeefc;
+    --ok: #1c8a63;
+    --ok-soft: #e3f3ec;
+    --busy: #c33f52;
+    --busy-soft: #fbe9ec;
+    --warn: #b5771a;
+    --warn-soft: #f8efdd;
+    --leave: #b0567c;
+    --leave-soft: #f9e9f0;
+    --lvl-2: #a5b4fc; --lvl-3: #818cf8; --lvl-4: #6366f1; --lvl-5: #4f46e5; --lvl-6: #4338ca;
+    --radius: 8px;
+    --radius-sm: 5px;
+    --aside: 316px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --shadow: 0 1px 2px rgba(20,28,45,.05), 0 1px 3px rgba(20,28,45,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e1219; --surface: #151b26; --surface-2: #131822; --border: #232c3b;
+      --border-strong: #2e3849; --ink: #e7ecf5; --ink-muted: #97a2b5; --ink-faint: #6b7688;
+      --accent: #7f93f2; --accent-soft: #1e2740; --ok: #4cc79a; --ok-soft: #14271f;
+      --busy: #e8788a; --busy-soft: #2b171c; --warn: #d69a45; --warn-soft: #2a2115;
+      --leave: #d87ba3; --leave-soft: #2b1a22; --shadow: none;
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f6f7f9; --surface: #ffffff; --surface-2: #fbfcfd; --border: #e4e7ee;
+    --border-strong: #d3d8e2; --ink: #1b2333; --ink-muted: #5d6675; --ink-faint: #8b94a4;
+    --accent: #4a63d8; --accent-soft: #eaeefc; --ok: #1c8a63; --ok-soft: #e3f3ec;
+    --busy: #c33f52; --busy-soft: #fbe9ec; --warn: #b5771a; --warn-soft: #f8efdd;
+    --leave: #b0567c; --leave-soft: #f9e9f0; --shadow: 0 1px 2px rgba(20,28,45,.05), 0 1px 3px rgba(20,28,45,.04);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0e1219; --surface: #151b26; --surface-2: #131822; --border: #232c3b;
+    --border-strong: #2e3849; --ink: #e7ecf5; --ink-muted: #97a2b5; --ink-faint: #6b7688;
+    --accent: #7f93f2; --accent-soft: #1e2740; --ok: #4cc79a; --ok-soft: #14271f;
+    --busy: #e8788a; --busy-soft: #2b171c; --warn: #d69a45; --warn-soft: #2a2115;
+    --leave: #d87ba3; --leave-soft: #2b1a22; --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+    font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+  button { font-family: var(--sans); }
+  button:focus-visible, input:focus-visible, .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .shell { display: grid; grid-template-columns: 208px 1fr; min-height: 100vh; }
+  .side { background: var(--surface); border-right: 1px solid var(--border); padding: 18px 12px;
+    display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; }
+  .brand { display: flex; align-items: baseline; gap: 7px; padding: 6px 10px 18px; }
+  .brand b { font-size: 17px; letter-spacing: -.02em; }
+  .brand span { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+  .nav { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-radius: var(--radius-sm);
+    color: var(--ink-muted); cursor: pointer; font-weight: 500; }
+  .nav:hover { background: var(--surface-2); color: var(--ink); }
+  .nav.active { background: var(--accent-soft); color: var(--accent); }
+  .nav-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-faint); padding: 16px 11px 6px; font-weight: 600; }
+  .side-foot { margin-top: auto; padding: 10px; }
+  .themebtn { width: 100%; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--ink-muted); border-radius: var(--radius-sm); padding: 7px; cursor: pointer;
+    font-size: 12.5px; display: flex; gap: 7px; justify-content: center; align-items: center; }
+  .themebtn:hover { border-color: var(--border-strong); color: var(--ink); }
+
+  main { min-width: 0; }
+  .topbar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 12px 28px; display: flex;
+    align-items: center; gap: 22px; }
+  .crumb { font-size: 13px; color: var(--ink-faint); }
+  .crumb b { color: var(--ink); font-weight: 600; }
+  .rail { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .rail-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); }
+  .rail-date { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); padding: 3px 9px; border-radius: 5px; }
+  .rail input[type=range] { width: 220px; accent-color: var(--accent); }
+
+  .wrap { padding: 24px 28px 60px; max-width: 1380px; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .head .sub { color: var(--ink-muted); font-size: 13px; margin-top: 3px; max-width: 68ch; }
+
+  /* portfolio summary strip */
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .stat { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 13px; box-shadow: var(--shadow); font-size: 12.5px; color: var(--ink-muted); }
+  .stat b { font-family: var(--mono); font-size: 15px; color: var(--ink); }
+  .stat .d { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .d--busy { background: var(--busy); } .d--warn { background: var(--warn); }
+  .d--leave { background: var(--leave); } .d--ok { background: var(--ok); }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; font-size: 11.5px;
+    color: var(--ink-faint); margin: 2px 2px 16px; }
+  .legend .sw { display: inline-block; width: 14px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; border: 1px solid var(--border); }
+
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) var(--aside); gap: 18px; align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .shell { grid-template-columns: 1fr; } .side { display: none; } }
+  .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden; }
+  .panel__head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .panel__head h3 { font-size: 14px; }
+  .panel__head .client { color: var(--ink-faint); font-size: 12px; }
+  .panel__head .run { font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; }
+  .reqs { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
+  .req { font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: 20px; display: inline-flex; gap: 6px; align-items: center; }
+  .req--ok { background: var(--ok-soft); color: var(--ok); }
+  .req--gap { background: var(--busy-soft); color: var(--busy); }
+  .req--warn { background: var(--warn-soft); color: var(--warn); }
+  .req .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* timeline grid */
+  .scroll { overflow-x: auto; }
+  .tgrid { min-width: 1000px; }
+  .trow { display: grid; grid-template-columns: 218px repeat(12, minmax(60px, 1fr)); align-items: stretch; }
+  .trow + .trow { border-top: 1px solid var(--border); }
+  .thead { border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .thead .c { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); padding: 6px 0; }
+  .thead .c.now { color: var(--accent); font-weight: 600; }
+  .thead .c.start { color: var(--ok); font-weight: 600; }
+  .lbl { position: sticky; left: 0; z-index: 2; background: var(--surface); padding: 8px 12px;
+    display: flex; align-items: center; gap: 9px; border-right: 1px solid var(--border); min-width: 0; }
+  .thead .lbl { background: var(--surface-2); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-faint); font-weight: 600; }
+  .av { width: 24px; height: 24px; border-radius: 7px; color: #fff; display: grid; place-items: center;
+    font-size: 10.5px; font-weight: 600; flex: none; }
+  .lbl .nm { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lvl { font-family: var(--mono); font-size: 9.5px; font-weight: 600; color: #fff; border-radius: 4px;
+    padding: 1px 5px; flex: none; }
+
+  .c { text-align: center; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px;
+    padding: 9px 2px; border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    position: relative; align-self: stretch; display: flex; align-items: center; justify-content: center; }
+  .c.z { color: var(--ink-faint); }
+  .c.out { color: color-mix(in srgb, var(--ink-faint) 45%, transparent); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+  .f25  { background: color-mix(in srgb, var(--accent) 9%,  var(--surface)); }
+  .f50  { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+  .f80  { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); }
+  .f100 { background: color-mix(in srgb, var(--accent) 32%, var(--surface)); font-weight: 600; }
+  .c.leave { background: var(--leave-soft); color: var(--leave); font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em; }
+  .c.oa::after { content: "▲"; position: absolute; top: 1px; right: 3px; font-size: 8px; color: var(--warn); }
+  .c.oa { box-shadow: inset 0 0 0 1.5px var(--warn); }
+
+  .grow { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+  .grow .lbl { font-size: 12px; font-weight: 600; }
+  .grow .lbl .k { color: var(--busy); font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+    background: var(--busy-soft); border-radius: 4px; padding: 1px 6px; flex: none; }
+  .grow .lbl .rq { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c.g0 { color: color-mix(in srgb, var(--ok) 70%, var(--ink-faint)); }
+  .c.gap { background: var(--busy-soft); color: var(--busy); font-weight: 600; }
+  .c.gap.mild { background: color-mix(in srgb, var(--busy-soft) 55%, var(--surface)); font-weight: 500; }
+
+  /* preview deltas */
+  body[data-scenario="on"] .chg { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  body[data-scenario="on"] .chg.oa { box-shadow: inset 0 0 0 1.5px var(--accent), inset 0 0 0 3px var(--warn); }
+  .c > .b, .c > .p { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  body[data-scenario="on"] .b { display: none; }
+  body:not([data-scenario="on"]) .p { display: none; }
+
+  /* scenario aside */
+  .aside { position: sticky; top: 74px; display: flex; flex-direction: column; gap: 12px; }
+  .sc-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+  .sc-head h3 { font-size: 13.5px; }
+  .sc-count { font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    background: var(--surface-2); border: 1px solid var(--border); padding: 1px 7px; border-radius: 20px; }
+  .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 12px; color: var(--ink-muted); user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track { width: 34px; height: 19px; border-radius: 20px; background: var(--border-strong); position: relative; transition: background .15s ease; }
+  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s ease; }
+  body[data-scenario="on"] .switch .track { background: var(--accent); }
+  body[data-scenario="on"] .switch .track::after { left: 17px; }
+
+  .ops { display: flex; flex-direction: column; gap: 9px; padding: 13px 14px 4px; }
+  .op { border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; background: var(--surface-2);
+    display: flex; gap: 10px; align-items: flex-start; }
+  .op .ic { width: 24px; height: 24px; flex: none; border-radius: 6px; background: var(--accent-soft);
+    color: var(--accent); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+  .op .tx { font-size: 12.5px; min-width: 0; }
+  .op .tx b { font-weight: 600; }
+  .op .tx .m { color: var(--ink-muted); font-size: 11.5px; margin-top: 1px; }
+  .op .rm { margin-left: auto; border: 0; background: none; color: var(--ink-faint); cursor: pointer;
+    font-size: 13px; padding: 0 2px; border-radius: 4px; }
+  .op .rm:hover { color: var(--busy); }
+  .op--err { border-color: color-mix(in srgb, var(--busy) 45%, var(--border)); background: color-mix(in srgb, var(--busy-soft) 40%, var(--surface)); }
+  .op--err .ic { background: var(--busy-soft); color: var(--busy); }
+  .op-err-msg { color: var(--busy); font-size: 11.5px; margin-top: 3px; font-weight: 500; }
+
+  .sc-note { padding: 4px 16px 0; font-size: 11.5px; color: var(--ink-faint); }
+  .sc-foot { display: flex; gap: 9px; padding: 12px 14px 14px; }
+  .btn { border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink);
+    border-radius: var(--radius-sm); padding: 7px 13px; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+  .btn:hover { background: var(--surface-2); }
+  .btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; flex: 1; }
+  .btn--primary:hover { filter: brightness(1.06); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+  .verdict { border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface);
+    box-shadow: var(--shadow); padding: 12px 15px; font-size: 12.5px; color: var(--ink-muted); }
+  .verdict b { color: var(--ink); }
+  .verdict .row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+  .verdict .d { width: 7px; height: 7px; border-radius: 50%; flex: none; align-self: center; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="shell">
+  <nav class="side">
+    <div class="brand"><b>tempo</b><span>consultancy os</span></div>
+    <div class="nav">Board</div>
+    <div class="nav active">Schedule</div>
+    <div class="nav-group">People</div>
+    <div class="nav">Roster</div>
+    <div class="nav">Skills</div>
+    <div class="nav">Locations</div>
+    <div class="nav">Timesheets</div>
+    <div class="nav-group">Work</div>
+    <div class="nav">Projects</div>
+    <div class="nav">Clients</div>
+    <div class="nav-group">Finance</div>
+    <div class="nav">Forecast</div>
+    <div class="nav">Invoices</div>
+    <div class="side-foot">
+      <button class="themebtn" id="themebtn">◐ Toggle theme</button>
+    </div>
+  </nav>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb"><b>Schedule</b> · 12 weeks from as-of</div>
+      <div class="rail">
+        <span class="rail-label">As of</span>
+        <input type="range" min="0" max="100" value="42" aria-label="as-of date">
+        <span class="rail-date">2026-06-15</span>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="head">
+        <div>
+          <h1>Allocation timeline</h1>
+          <div class="sub">Staffing against each project's capability and level requirements.
+            Draft changes preview against live data; apply commits them as one batch.</div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span class="d d--busy"></span>
+          <span class="b"><b>2</b>&nbsp;requirements uncovered</span>
+          <span class="p"><b>3</b>&nbsp;requirements short (was 2)</span>
+        </div>
+        <div class="stat"><span class="d d--warn"></span><b>1</b> engineer over-allocated</div>
+        <div class="stat"><span class="d d--leave"></span><b>1</b> on leave in window</div>
+        <div class="stat"><span class="d d--ok"></span>
+          <span class="b"><b>3</b>&nbsp;projects in window</span>
+          <span class="p"><b>3</b>&nbsp;projects · previewing 2 drafts</span>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><span class="sw" style="background: color-mix(in srgb, var(--accent) 24%, var(--surface));"></span>cell tint = allocated fraction</span>
+        <span><span class="sw" style="background: var(--busy-soft);"></span>gap (required − covered)</span>
+        <span><span class="sw" style="background: var(--leave-soft);"></span>leave</span>
+        <span><span class="sw" style="box-shadow: inset 0 0 0 1.5px var(--warn); background: var(--surface);"></span>▲ over-allocated across projects</span>
+        <span><span class="sw" style="box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--surface);"></span>changed by scenario</span>
+      </div>
+
+      <div class="grid">
+        <div class="col">
+
+          <!-- ============ MERIDIAN ============ -->
+          <section class="panel">
+            <div class="panel__head">
+              <h3>Meridian</h3><span class="client">Acme Corp</span>
+              <span class="run">Jul 06 → Dec 18</span>
+              <div class="reqs">
+                <span class="req req--gap b"><span class="d"></span>Data Platform ×1 @L4 · uncovered 9 wks</span>
+                <span class="req req--warn p"><span class="d"></span>Data Platform ×1 @L4 · 0.5 short 9 wks</span>
+                <span class="req req--ok"><span class="d"></span>L5 ×1 · covered</span>
+              </div>
+            </div>
+            <div class="scroll"><div class="tgrid">
+              <div class="trow thead">
+                <div class="lbl">Engineer</div>
+                <div class="c now">Jun 15</div><div class="c">Jun 22</div><div class="c">Jun 29</div>
+                <div class="c start">Jul 06 ▸</div><div class="c">Jul 13</div><div class="c">Jul 20</div>
+                <div class="c">Jul 27</div><div class="c">Aug 03</div><div class="c">Aug 10</div>
+                <div class="c">Aug 17</div><div class="c">Aug 24</div><div class="c">Aug 31</div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#3e8fd0;">PR</span><span class="nm">Priya Raman</span><span class="lvl" style="background:var(--lvl-6);">L6</span></div>
+                <div class="c out">·</div><div class="c out">·</div><div class="c out">·</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#1aa0a0;">WZ</span><span class="nm">Wei Zhang</span><span class="lvl" style="background:var(--lvl-3);">L3</span></div>
+                <div class="c out">·</div><div class="c out">·</div><div class="c out">·</div>
+                <div class="c z">–</div><div class="c z">–</div><div class="c f50">50</div>
+                <div class="c f50">50</div><div class="c f50">50</div><div class="c f50">50</div>
+                <div class="c f50">50</div><div class="c f50">50</div><div class="c f50">50</div>
+              </div>
+              <div class="trow p">
+                <div class="lbl"><span class="av" style="background:#2e9e6b;">JH</span><span class="nm">James Holt</span><span class="lvl" style="background:var(--lvl-5);">L5</span></div>
+                <div class="c out">·</div><div class="c out">·</div><div class="c out">·</div>
+                <div class="c f50 chg">50</div><div class="c f50 chg">50</div><div class="c f50 chg">50</div>
+                <div class="c f50 chg">50</div><div class="c f50 chg">50</div><div class="c f50 chg">50</div>
+                <div class="c f50 chg">50</div><div class="c f50 chg">50</div><div class="c f50 chg">50</div>
+              </div>
+              <div class="trow grow">
+                <div class="lbl"><span class="k">gap</span><span class="rq">Data Platform ×1 @L4</span></div>
+                <div class="c out">·</div><div class="c out">·</div><div class="c out">·</div>
+                <div class="c"><span class="b gap" >1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b gap">1.0</span><span class="p gap mild">0.5</span></div>
+              </div>
+              <div class="trow grow">
+                <div class="lbl"><span class="k" style="color:var(--ok);background:var(--ok-soft);">ok</span><span class="rq">Level 5 ×1</span></div>
+                <div class="c out">·</div><div class="c out">·</div><div class="c out">·</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+              </div>
+            </div></div>
+          </section>
+
+          <!-- ============ ATLAS ============ -->
+          <section class="panel">
+            <div class="panel__head">
+              <h3>Atlas</h3><span class="client">Globex</span>
+              <span class="run">May 04 → Oct 30</span>
+              <div class="reqs">
+                <span class="req req--ok b"><span class="d"></span>L5 ×1 · covered</span>
+                <span class="req req--gap p"><span class="d"></span>L5 ×1 · 0.5 short from Jul 06</span>
+                <span class="req req--warn"><span class="d"></span>Frontend ×1 @L3 · 1 wk gap (leave)</span>
+              </div>
+            </div>
+            <div class="scroll"><div class="tgrid">
+              <div class="trow thead">
+                <div class="lbl">Engineer</div>
+                <div class="c now">Jun 15</div><div class="c">Jun 22</div><div class="c">Jun 29</div>
+                <div class="c">Jul 06</div><div class="c">Jul 13</div><div class="c">Jul 20</div>
+                <div class="c">Jul 27</div><div class="c">Aug 03</div><div class="c">Aug 10</div>
+                <div class="c">Aug 17</div><div class="c">Aug 24</div><div class="c">Aug 31</div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#2e9e6b;">JH</span><span class="nm">James Holt</span><span class="lvl" style="background:var(--lvl-5);">L5</span></div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+                <div class="c"><span class="b f100">100</span><span class="p f50 chg">50</span></div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#c2566f;">JM</span><span class="nm">Jill Moreno</span><span class="lvl" style="background:var(--lvl-4);">L4</span></div>
+                <div class="c f100 oa" title="150% across Atlas + Kepler">100</div>
+                <div class="c leave">leave</div>
+                <div class="c f100 oa" title="150% across Atlas + Kepler">100</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+                <div class="c f100">100</div><div class="c f100">100</div><div class="c f100">100</div>
+              </div>
+              <div class="trow grow">
+                <div class="lbl"><span class="k" style="color:var(--ok);background:var(--ok-soft);">ok</span><span class="rq">Level 5 ×1</span></div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+                <div class="c"><span class="b g0">0</span><span class="p gap mild">0.5</span></div>
+              </div>
+              <div class="trow grow">
+                <div class="lbl"><span class="k">gap</span><span class="rq">Frontend ×1 @L3</span></div>
+                <div class="c g0">0</div><div class="c gap">1.0</div><div class="c g0">0</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+                <div class="c g0">0</div><div class="c g0">0</div><div class="c g0">0</div>
+              </div>
+            </div></div>
+          </section>
+
+          <!-- ============ KEPLER ============ -->
+          <section class="panel">
+            <div class="panel__head">
+              <h3>Kepler</h3><span class="client">Initech</span>
+              <span class="run">Jun 01 → Aug 28</span>
+              <div class="reqs">
+                <span class="req req--warn"><span class="d"></span>Delivery ×1 @L2 · 0.2 short</span>
+              </div>
+            </div>
+            <div class="scroll"><div class="tgrid">
+              <div class="trow thead">
+                <div class="lbl">Engineer</div>
+                <div class="c now">Jun 15</div><div class="c">Jun 22</div><div class="c">Jun 29</div>
+                <div class="c">Jul 06</div><div class="c">Jul 13</div><div class="c">Jul 20</div>
+                <div class="c">Jul 27</div><div class="c">Aug 03</div><div class="c">Aug 10</div>
+                <div class="c">Aug 17</div><div class="c">Aug 24</div><div class="c">Aug 31</div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#c7841c;">JB</span><span class="nm">Joe Barnes</span><span class="lvl" style="background:var(--lvl-3);">L3</span></div>
+                <div class="c f80">80</div><div class="c f80">80</div><div class="c f80">80</div>
+                <div class="c f80">80</div><div class="c f80">80</div><div class="c f80">80</div>
+                <div class="c f80">80</div><div class="c f80">80</div><div class="c f80">80</div>
+                <div class="c f80">80</div><div class="c f80">80</div><div class="c out">·</div>
+              </div>
+              <div class="trow">
+                <div class="lbl"><span class="av" style="background:#c2566f;">JM</span><span class="nm">Jill Moreno</span><span class="lvl" style="background:var(--lvl-4);">L4</span></div>
+                <div class="c f50 oa" title="150% across Atlas + Kepler">50</div>
+                <div class="c leave">leave</div>
+                <div class="c f50 oa" title="150% across Atlas + Kepler">50</div>
+                <div class="c z">–</div><div class="c z">–</div><div class="c z">–</div>
+                <div class="c z">–</div><div class="c z">–</div><div class="c z">–</div>
+                <div class="c z">–</div><div class="c z">–</div><div class="c out">·</div>
+              </div>
+              <div class="trow grow">
+                <div class="lbl"><span class="k" style="color:var(--warn);background:var(--warn-soft);">short</span><span class="rq">Delivery ×1 @L2</span></div>
+                <div class="c g0">0</div><div class="c gap mild">0.2</div><div class="c g0">0</div>
+                <div class="c gap mild">0.2</div><div class="c gap mild">0.2</div><div class="c gap mild">0.2</div>
+                <div class="c gap mild">0.2</div><div class="c gap mild">0.2</div><div class="c gap mild">0.2</div>
+                <div class="c gap mild">0.2</div><div class="c gap mild">0.2</div><div class="c out">·</div>
+              </div>
+            </div></div>
+          </section>
+        </div>
+
+        <!-- ============ SCENARIO BUILDER ============ -->
+        <div class="aside">
+          <section class="panel">
+            <div class="sc-head">
+              <h3>Scenario</h3><span class="sc-count">3 drafts</span>
+              <label class="switch"><input type="checkbox" id="scen" checked>
+                <span class="track"></span>Preview</label>
+            </div>
+            <div class="ops">
+              <div class="op">
+                <span class="ic">%</span>
+                <span class="tx"><b>James Holt</b> on <b>Atlas</b> → 50%
+                  <div class="m">re-fraction from Jul 06</div></span>
+                <button class="rm" title="Remove draft">✕</button>
+              </div>
+              <div class="op">
+                <span class="ic">↦</span>
+                <span class="tx"><b>James Holt</b> → <b>Meridian</b> at 50%
+                  <div class="m">assign Jul 06 → Dec 18</div></span>
+                <button class="rm" title="Remove draft">✕</button>
+              </div>
+              <div class="op op--err">
+                <span class="ic">⇢</span>
+                <span class="tx"><b>Kepler</b> → start May 18
+                  <div class="m">reschedule May 18 → Aug 14</div>
+                  <div class="op-err-msg">Rejected: run falls outside the Initech contract term (Jun 01 → Dec 31). Excluded from this preview.</div></span>
+                <button class="rm" title="Remove draft">✕</button>
+              </div>
+            </div>
+            <div class="sc-note">Drafts preview through the live write path in a rolled-back
+              transaction — nothing saves until Apply, which commits all drafts as one batch.</div>
+            <div class="sc-foot">
+              <button class="btn btn--primary">Apply 2 valid drafts</button>
+              <button class="btn">Discard</button>
+            </div>
+          </section>
+
+          <section class="verdict">
+            <b>Preview verdict</b>
+            <div class="row"><span class="d" style="background:var(--warn);"></span>
+              <span>Meridian's Data Platform gap narrows 1.0 → <b>0.5</b> — still half an engineer short at the Jul 06 start.</span></div>
+            <div class="row"><span class="d" style="background:var(--busy);"></span>
+              <span>Trade-off: Atlas L5 cover drops to <b>0.5</b> from Jul 06 — James is its only L5.</span></div>
+            <div class="row"><span class="d" style="background:var(--ok);"></span>
+              <span>No engineer over-allocates under this scenario.</span></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const root = document.documentElement;
+  document.getElementById("themebtn").addEventListener("click", () => {
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const cur = root.dataset.theme || (dark ? "dark" : "light");
+    root.dataset.theme = cur === "dark" ? "light" : "dark";
+  });
+  const scen = document.getElementById("scen");
+  const sync = () => { document.body.dataset.scenario = scen.checked ? "on" : "off"; };
+  scen.addEventListener("change", sync);
+  sync();
+</script>
