@@ -46,7 +46,7 @@ Preview and apply share one executor:
 3. Evaluate the timeline read on the same connection.
 4. Preview returns the payload through the `Error` channel so pog rolls back (`TransactionRolledBack(Evaluated(timeline))` unwraps to `Ok`); apply returns it through `Ok` so pog commits.
 
-All-or-nothing in both modes: a failing operation aborts the batch and the response carries its index plus the typed `OperationError` (containment violations, overlaps, and the reschedule guards below read as user-facing feedback against the offending draft). Preview burns `event_log` sequence ids on rollback; harmless. The timeline read runs on the in-transaction connection, so it stays serial (the pnl precedent) — the async fan-out helper is for pool reads only.
+Preview wraps each operation in a savepoint: a rejected operation rolls back to its savepoint and evaluation continues, so one bad draft never hides the rest of the scenario. The response pairs the timeline with per-operation outcomes (ok, or the typed `OperationError` — containment violations, overlaps, the reschedule guards below), and a project-scoped rejection also annotates that project in the timeline payload — the client renders it as a warning pill on the project's header (e.g. "Outside contract term Jun 01 → Dec 31") beside the pinned inspector error. Apply is all-or-nothing: any rejection rolls back the whole batch. Preview burns `event_log` sequence ids on rollback; harmless. The timeline read runs on the in-transaction connection, so it stays serial (the pnl precedent) — the async fan-out helper is for pool reads only.
 
 ## New command: RescheduleProject
 
