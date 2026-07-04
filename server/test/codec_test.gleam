@@ -34,6 +34,7 @@ import shared/invoice/command as invoice_command
 import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
 import shared/leave/command as leave_command
 import shared/leave/view.{LeaveBalance} as _
+import shared/location/view as location_view
 import shared/money
 import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as payroll_view
@@ -1417,6 +1418,29 @@ pub fn forecast_round_trips_test() {
       original,
       forecast_view.encode_forecast,
       forecast_view.forecast_decoder(),
+    )
+    == original
+}
+
+// --- EngineerLocation ----------------------------------------------------------
+
+pub fn engineer_location_round_trips_test() {
+  let original =
+    location_view.EngineerLocation(
+      engineer_id: 7,
+      name: "Priya Sharma",
+      location: Some(location_view.LocationRecord(
+        country: "GB",
+        region: Some("GB-LND"),
+        timezone: "Europe/London",
+        valid_from: Date(2026, July, 1),
+        valid_to: None,
+      )),
+    )
+  assert round_trip(
+      original,
+      location_view.encode_engineer_location,
+      location_view.engineer_location_decoder(),
     )
     == original
 }
