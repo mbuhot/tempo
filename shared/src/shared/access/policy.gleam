@@ -18,8 +18,9 @@ import shared/command.{
   type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
   EngagementCommand, EngineerCommand, EngineerDetailsCommand,
   EngineerSkillCommand, InvoiceCommand, LeaveCommand, PayrollCommand,
-  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
-  SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
+  ProjectCapabilityCommand, ProjectDetailsCommand, ProjectRequirementCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
+  WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_details/command as engineer_details_command
@@ -103,6 +104,7 @@ pub fn key(command: Command) -> CommandKey {
     ClientDetailsCommand(_) -> UpdateClient
     ProjectDetailsCommand(_) -> ManageProject
     ProjectRequirementCommand(_) -> ManageProject
+    ProjectCapabilityCommand(_) -> ManageProject
     RateCardCommand(_) -> ManageRateCard
     SalaryCommand(_) -> SetSalary
     InvoiceCommand(_) -> ManageInvoice

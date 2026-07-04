@@ -20,6 +20,7 @@ import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
 import shared/pagination
 import shared/payroll/command as payroll_command
+import shared/project_capability/command as project_capability_command
 import shared/project_details/command as project_details_command
 import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
@@ -64,6 +65,7 @@ pub type Command {
   ProjectRequirementCommand(
     project_requirement_command.ProjectRequirementCommand,
   )
+  ProjectCapabilityCommand(project_capability_command.ProjectCapabilityCommand)
   RoleCommand(role_command.RoleCommand)
   WorkflowCommand(workflow_command.WorkflowCommand)
   CapabilityCommand(capability_command.CapabilityCommand)
@@ -89,6 +91,8 @@ pub fn encode_command(command: Command) -> Json {
     PayrollCommand(command) -> payroll_command.encode(command)
     ProjectRequirementCommand(command) ->
       project_requirement_command.encode(command)
+    ProjectCapabilityCommand(command) ->
+      project_capability_command.encode(command)
     RoleCommand(command) -> role_command.encode(command)
     WorkflowCommand(command) -> workflow_command.encode(command)
     CapabilityCommand(command) -> capability_command.encode(command)
@@ -117,6 +121,10 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(
     project_requirement_command.decoder(op),
     ProjectRequirementCommand,
+  )
+  use <- try_group(
+    project_capability_command.decoder(op),
+    ProjectCapabilityCommand,
   )
   use <- try_group(role_command.decoder(op), RoleCommand)
   use <- try_group(workflow_command.decoder(op), WorkflowCommand)
