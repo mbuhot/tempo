@@ -95,3 +95,13 @@ Squirrel regen with the port-corrected URL (see Phase 1 plan Environment).
 ## 9. Gates
 
 Phase 1 plan §11 verbatim (drop stale test/e2e DBs, clean builds, `bin/test`, `bin/erd` → SCHEMA.md, `bin/e2e`). Ports per the environment note: everything on `TEMPO_DB_PORT=5435` while the 5434 proxy wedge persists.
+
+## Orchestration (how Phase 1 was executed — repeat it)
+
+Staged Workflow of **Sonnet** subagents (`model: 'sonnet'`); the orchestrator only plans, unblocks, reviews, and runs final gates. This plan is detailed enough that the cheaper model executes each stage reliably.
+
+- **Stages, sequential, one commit each, aborting the run if blocked:** migration+sql+squirrel → shared (command/envelope/policy/view types — must land together to keep `policy.key` exhaustive) → server write side → read model → client tab/modal ∥ seed+docs (parallel only because the packages are disjoint — two agents must never build the same gleam package concurrently) → tests → e2e serial run.
+- **Effort tiers:** `medium` for mechanical mirroring (migration, shared, seed, codec/auth tests), `high` for fan-out or fiddly stages (server write side, client, operations/api tests, e2e).
+- **Every agent prompt carries:** the plan section to execute, the mirror files to read first, `TEMPO_DB_PORT=5435`, the house rules (no inline comments, `let assert`, plain `assert ==`, `rm -rf build && gleam check` after union changes, never pipe test output through filters), explicit-path commits with no attribution lines, and a structured ok/blocked report with verification evidence.
+- **After implementation:** an adversarial review workflow (Sonnet finders per dimension → per-finding refutation verifiers, only confirmed findings acted on), then a fix workflow, then the full gates. Phase 1's review confirmed 10/14 findings this way — worth the ~1M Sonnet tokens.
+- Phase 1 cost ≈ 3.8M subagent tokens, ~85% Sonnet; the orchestrator model stayed out of implementation entirely.
