@@ -29,7 +29,7 @@ New server concept `schedule` (`view.gleam` + `sql/` + `http.gleam`), shared typ
 
 The capability qualifying test reuses the Phase 2 rollup definition: `Σ(skill level × weight) / Σ(weight)` over the capability's mapped skills, unassessed skills counting 0.
 
-**Candidates read**: for one requirement line, the engineers who qualify under the same rule, each with level, rollup proficiency, and free fraction (`1 − Σ allocations` over the line's window, floored at 0) plus a short commitment summary (current projects, leave). Served as `GET /api/schedule/candidates?project=…&line=…&as_of=…`; feeds the inspector's nomination list.
+**Candidates read**: for one requirement line, every engineer who qualifies under the same rule — including the fully committed — each with level, rollup proficiency, free fraction (`1 − Σ allocations` over the line's window, floored at 0), and a short commitment summary (current projects, leave). Served as `GET /api/schedule/candidates?project=…&line=…&as_of=…`; feeds the inspector's nomination picker. Nominating a committed engineer over-allocates them: the preview surfaces it through the over-allocation flag, and the operator either resolves it with further re-assignments or applies it as accepted overtime.
 
 ## Endpoints
 

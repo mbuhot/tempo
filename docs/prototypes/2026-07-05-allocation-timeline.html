@@ -208,8 +208,7 @@
   .cand:hover { background: var(--accent-soft); }
   .cand .av { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
   .cand .meta { margin-left: auto; color: var(--ink-faint); font-size: 10.5px; }
-  .cand.dim { opacity: .55; cursor: default; }
-  .cand.dim:hover { background: none; }
+  .cand .meta .oam { color: var(--warn); }
   .caps { padding: 9px 16px 16px; display: flex; flex-direction: column; gap: 9px; }
   .cap { font-size: 12px; }
   .cap .r { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -473,9 +472,9 @@
                 <span class="frac">100%</span><button class="go" data-picker="pick-meridian">Nominate</button></div>
               <div class="picker b" id="pick-meridian">
                 <button class="cand" id="cand-james"><span class="av" style="background:#2e9e6b;">JH</span>James Holt
-                  <span class="meta">L5 · 4.6 · Atlas 100%</span></button>
-                <button class="cand dim" tabindex="-1"><span class="av" style="background:#7a5bd6;">SO</span>Sam Ortiz
-                  <span class="meta">L6 · 5.1 · Vega 100%</span></button>
+                  <span class="meta">L5 · 4.6 · Atlas 100% <span class="oam">▲</span></span></button>
+                <button class="cand"><span class="av" style="background:#7a5bd6;">SO</span>Sam Ortiz
+                  <span class="meta">L6 · 5.1 · Vega 100% <span class="oam">▲</span></span></button>
               </div>
               <div class="seat draft p"><span class="lvl" style="background:var(--lvl-5);">L5</span>
                 <span class="av" style="background:#2e9e6b;">JH</span><span class="nm">James Holt</span>
@@ -507,8 +506,8 @@
               <div class="seat open p"><span class="lvl" style="background:var(--lvl-5);">L5</span>
                 <span class="frac">50%</span><button class="go" data-picker="pick-atlas">Nominate</button></div>
               <div class="picker p" id="pick-atlas">
-                <button class="cand dim" tabindex="-1"><span class="av" style="background:#7a5bd6;">SO</span>Sam Ortiz
-                  <span class="meta">L6 · 5.1 · Vega 100%</span></button>
+                <button class="cand"><span class="av" style="background:#7a5bd6;">SO</span>Sam Ortiz
+                  <span class="meta">L6 · 5.1 · Vega 100% <span class="oam">▲</span></span></button>
               </div>
               <div class="seat"><span class="lvl" style="background:var(--lvl-4);">L4</span>
                 <span class="av" style="background:#c2566f;">JM</span><span class="nm">Jill Moreno</span>
