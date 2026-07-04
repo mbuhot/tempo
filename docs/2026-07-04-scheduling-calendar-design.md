@@ -184,13 +184,20 @@ Across attendees:
 6. `unnest` the intersection, keep windows ≥ the requested duration, clip to the search
    range.
 
-**Participant modes** resolve to a required-attendee id array:
+**Participants** reach the finder as an explicit list of `(engineer_id, attendance)`
+pairs, where `attendance` is `required` or `optional`. Only required attendees gate a
+suggestion; optional attendees are surfaced but never constrain it. The wizard populates
+that list three ways, all client-side conveniences over the same list:
 
-| Mode | Resolution |
+| Affordance | Adds |
 |---|---|
-| All Staff | every employed engineer as-of the date |
-| Project Team | engineers allocated to the chosen project as-of the date (internal only) |
-| Selected Staff | an explicit pick |
+| Name search | one engineer at a time (autocomplete over employed engineers with a location as-of the date) |
+| Add everyone | every employed engineer with a location as-of the date |
+| Fill from project | engineers allocated to the chosen project as-of the date (internal only) |
+
+An engineer with no location as-of the date is offered by none of these and is named in
+the UI as unschedulable. The server receives the resolved list, so the finder query needs
+no notion of "mode".
 
 **Reschedule** reuses the query with `IS DISTINCT FROM $excluded_meeting` so the meeting
 being moved vacates its own slot.
@@ -245,9 +252,11 @@ free multirange is clipped back to the exact search range.
 
 | Surface | Phase | Shows |
 |---|---|---|
-| Engineer screen | A | current location + TZID, editable with an effective date (writes a dated fact); history under the as-of slider |
+| Locations listing | A | roster of engineers with location + TZID + offset as-of the date; entry point to set a location; engineers with no location flagged as unschedulable |
+| Engineer location panel | A | reached from the listing or the People screen; current location + TZID, editable with an effective date (writes a dated fact); location history and working hours |
+| Public holidays | B | per-country holiday calendar under Locations; nationwide and region-specific dates; annual import |
 | Calendar | C | upcoming meetings anchored to the as-of date; each meeting in the viewer's timezone plus each attendee's local time; create / edit / cancel |
-| Find-a-time wizard | D | mode → date range → duration → ranked free windows, each rendered in every attendee's local time so fairness is visible; one click books the meeting with those attendees |
+| Find a time | D | a sub-view of Calendar; build the attendee list (search / add everyone / fill from project) with per-person required-or-optional → date range → duration → ranked free windows, each rendered in every attendee's local time so fairness is visible; one click books the meeting |
 
 ## Guards and edges
 
