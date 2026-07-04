@@ -166,8 +166,9 @@ test("editing a composition weight inline updates the matrix and rolls back", as
   page,
 }) => {
   // Payment Gateways feeds only Payments Platform, seeded at weight 3 — the one
-  // number input in its matrix row. Re-weight it to 2, confirm the cell reflects
-  // the server's truth, then restore 3 so the taxonomy is unchanged for later runs.
+  // number input in its matrix row. Re-weight it to 2, confirm the write
+  // persists past a reload, then restore 3 so the taxonomy is unchanged for
+  // later runs.
   await signInAs(page, "Admin");
   await navigateTo(page, "Skills");
 
@@ -175,9 +176,24 @@ test("editing a composition weight inline updates the matrix and rolls back", as
   const weight = paymentGatewaysRow.getByRole("spinbutton");
   await expect(weight).toHaveValue("3");
 
+  await weight.focus();
   await weight.fill("2");
-  await expect(paymentGatewaysRow.getByRole("spinbutton")).toHaveValue("2");
+  await weight.blur();
+  await expect(weight).toHaveValue("2");
 
-  await paymentGatewaysRow.getByRole("spinbutton").fill("3");
-  await expect(paymentGatewaysRow.getByRole("spinbutton")).toHaveValue("3");
+  await page.reload();
+  const weightAfterReload = page
+    .getByRole("row", { name: /Payment Gateways/ })
+    .getByRole("spinbutton");
+  await expect(weightAfterReload).toHaveValue("2");
+
+  await weightAfterReload.focus();
+  await weightAfterReload.fill("3");
+  await weightAfterReload.blur();
+  await expect(weightAfterReload).toHaveValue("3");
+
+  await page.reload();
+  await expect(
+    page.getByRole("row", { name: /Payment Gateways/ }).getByRole("spinbutton"),
+  ).toHaveValue("3");
 });
