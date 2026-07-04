@@ -2,7 +2,7 @@
 
 **Problem.** A client names an ideal start date for their project. We need to see, quickly, whether the required capabilities and levels are staffed at that time — and preview the reassignments (or a start-date shift) that would close the gaps before committing to them.
 
-**Solution.** A new top-level **Schedule** page: every active project as a block of engineer rows over 12 weekly columns, with a gap row per requirement line. A scenario builder holds draft operations; each edit previews them through the real write seam inside a rolled-back transaction, so the timeline shows the hypothetical world with full database validation.
+**Solution.** A new top-level **Schedule** page: every active project as a block of engineer rows over 12 weekly columns, with a gap row per short requirement line. Selecting a project focuses an aside **inspector** — its run window as date controls, its team as one seat per required engineer, its capability coverage as a chart — and staffing edits are made there: open seats nominate candidates, dates draft a reschedule. The drafts preview through the real write seam inside a rolled-back transaction, so the timeline re-renders the hypothetical world with full database validation; a single **Preview** toggle and **Apply changes** button drive the whole scenario.
 
 ```
 Project A            |Jun 15|Jun 22|Jun 29|Jul 06| …
@@ -42,7 +42,7 @@ The capability qualifying test reuses the Phase 2 rollup definition: `Σ(skill l
 Preview and apply share one executor:
 
 1. Authorize every operation up front via the shared `access/policy` (any refusal → 403 naming the operation index; the transaction never opens).
-2. Open one `pog.transaction`; `dispatch_in` each operation in order. Each gets its own `event_log` entry, so an applied scenario keeps per-command provenance.
+2. Open one `pog.transaction`; `dispatch_in` each operation in order (under a per-op savepoint in preview). Each gets its own `event_log` entry, so an applied scenario keeps per-command provenance.
 3. Evaluate the timeline read on the same connection.
 4. Preview returns the payload through the `Error` channel so pog rolls back (`TransactionRolledBack(Evaluated(timeline))` unwraps to `Ok`); apply returns it through `Ok` so pog commits.
 
@@ -67,9 +67,10 @@ Wiring follows the standard exhaustive sites: shared `Command`/codec, `CommandKe
 
 - New route `/schedule`, sidebar entry, page module `client/src/client/page/schedule.gleam` with the frozen MVU interface; `refetch` takes the shell's global as-of date. UI reference: `docs/prototypes/2026-07-05-allocation-timeline.html`.
 - The timeline grid is read-only; edits flow through the aside **inspector**. Selecting a project block focuses it: run-window date controls (a change drafts `RescheduleProject`), a **Team** list with one seat row per required engineer (a level requirement of quantity N expands to ⌈N⌉ seats, the last carrying any fractional demand; each seat shows the engineer filling it and their fraction, and all unfilled demand — a wholly open seat or a partially filled seat's remainder — renders as an open slot with its required fraction and a **Nominate** picker backed by the candidates read; picking a candidate drafts an allocation assign, with a companion re-fraction draft on the candidate's other projects when needed), and a **Capabilities** chart (one bar per required capability: team proficiency against a target-level tick).
-- Scenario = the draft operations those controls produce, held in page state and permission-gated per op via `shared/access/policy`. The scenario chrome is a single top-bar **Preview** toggle plus an **Apply changes** button; the timeline and inspector re-render with the previewed outcome, drafted seats and dates carry an accent mark, and a preview error pins to the inspector control that produced it.
+- A portfolio stats strip sits above the timeline — requirement lines short, engineers over-allocated, engineers on leave, all derived from the timeline payload — with the scenario chrome inline at its right edge: a single **Preview** toggle and an **Apply changes** button. The timeline and inspector re-render with the previewed outcome, drafted seats and dates carry an accent mark, and a preview error pins to the inspector control that produced it plus a warning pill on the affected project's header.
+- Scenario = the draft operations the inspector controls produce, held in page state and permission-gated per op via `shared/access/policy`.
 - Empty scenario → `GET /api/schedule`. Non-empty → debounced `POST /preview` on every edit (token/timer debounce, the rail-scrub pattern). **Apply changes** posts the list to `/apply` and clears the scenario.
-- Gap cells > 0 and over-allocation flags are visually highlighted. A requirement line renders a gap row only when it has a positive gap in some week of the window; covered state lives in the inspector's requirement card, and header chips flag gaps only.
+- Gap cells > 0 and over-allocation flags are visually highlighted. A requirement line renders a gap row only when it has a positive gap in some week of the window; covered state lives in the inspector (filled seats, capability bars at or past their target tick), and header chips flag gaps and violations only.
 - Scenarios live in page state only; navigation or refresh discards them.
 
 ## Permissions
@@ -80,8 +81,8 @@ Wiring follows the standard exhaustive sites: shared `Command`/codec, `CommandKe
 ## Seed & testing
 
 - Extend the base seed with one deterministic gap: a project carrying a capability requirement no allocated engineer covers, and a level requirement partially covered (base-seed "now" is 2026-06-15).
-- gleeunit (base seed): timeline shape and week bucketing; gap arithmetic for both line kinds; leave zeroing a cell; over-allocation flag; preview leaves the database unchanged (preview, then plain read, assert identical); reschedule cascade (run + children shifted, clamp, drop-empty); reschedule guards (multiple runs, logged time); contract-term containment rejection surfacing the op index; per-op authorization refusal.
-- e2e (demo seed): open Schedule → gap visible → add draft reallocation → preview closes the gap → Apply → gap stays closed on plain reload.
+- gleeunit (base seed): timeline shape and week bucketing; gap arithmetic for both line kinds; leave zeroing a cell; over-allocation flag; candidates read (qualification rule, free fraction, committed engineers included); preview leaves the database unchanged (preview, then plain read, assert identical); a rejected op rolls back to its savepoint while the rest of the scenario evaluates, its outcome carrying the op index and project annotation; reschedule cascade (run + children shifted, clamp, drop-empty); reschedule guards (multiple runs, logged time); apply rolls back the whole batch on any rejection; per-op authorization refusal.
+- e2e (demo seed): open Schedule → gap row and open seat visible → nominate a candidate on the open seat → preview shows the gap narrowing on the timeline → Apply changes → gap stays closed on plain reload.
 
 ## Out of scope (v1)
 
