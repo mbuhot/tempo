@@ -59,6 +59,11 @@
 .rollup__name {
     font-weight: var(--weight-medium);
 }
+.rollup__value {
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
+    text-align: right;
+}
 .rollup__track {
     grid-column: 1 / -1;
     height: var(--size-spark-lg);

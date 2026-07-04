@@ -54,7 +54,10 @@ pub type Modal {
 }
 
 pub type Msg {
-  SnapshotReturned(result: Result(TaxonomySnapshot, rsvp.Error(String)))
+  SnapshotReturned(
+    as_of: Date,
+    result: Result(TaxonomySnapshot, rsvp.Error(String)),
+  )
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
   CapabilityModalOpened
   SkillModalOpened
@@ -86,22 +89,23 @@ fn fetch(as_of: Date) -> Effect(Msg) {
   api.get(
     "/api/skills?as_of=" <> time.iso_date(as_of),
     skill_view.taxonomy_snapshot_decoder(),
-    SnapshotReturned,
+    fn(result) { SnapshotReturned(as_of:, result:) },
   )
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
-    SnapshotReturned(Ok(snapshot)) -> #(
-      Model(..model, state: Loaded(snapshot)),
-      effect.none(),
-      [],
-    )
-    SnapshotReturned(Error(error)) -> #(
-      Model(..model, state: Failed(api.describe_error(error))),
-      effect.none(),
-      [],
-    )
+    SnapshotReturned(as_of:, result:) ->
+      case model.as_of == as_of {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let state = case result {
+            Ok(snapshot) -> Loaded(snapshot)
+            Error(error) -> Failed(api.describe_error(error))
+          }
+          #(Model(..model, state:), effect.none(), [])
+        }
+      }
 
     CapabilityModalOpened -> #(
       Model(..model, modal: NewCapability(name: "", summary: "")),
@@ -187,7 +191,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     CapabilitySkillWeightSet(capability_id:, skill_id:, weight:) ->
       case capability_id > 0 && skill_id > 0 {
         True -> #(
-          model,
+          Model(
+            ..model,
+            state: optimistic_weight(
+              model.state,
+              capability_id:,
+              skill_id:,
+              weight:,
+            ),
+          ),
           submit_capability(capability_command.SetCapabilitySkill(
             capability_id:,
             skill_id:,
@@ -214,6 +226,44 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       OperationCommitted,
     ])
     OperationReturned(Error(_)) -> #(model, fetch(model.as_of), [])
+  }
+}
+
+/// Optimistically apply a weight edit to a loaded snapshot's mappings so rapid
+/// stepper clicks compound off the just-set weight instead of the stale
+/// render-captured one; the refetch after the write still reconciles with the
+/// server's truth.
+fn optimistic_weight(
+  state: State,
+  capability_id capability_id: Int,
+  skill_id skill_id: Int,
+  weight weight: Int,
+) -> State {
+  case state {
+    Loaded(snapshot) -> {
+      let matched =
+        list.any(snapshot.mappings, fn(mapping) {
+          mapping.capability_id == capability_id && mapping.skill_id == skill_id
+        })
+      let mappings = case matched {
+        True ->
+          list.map(snapshot.mappings, fn(mapping) {
+            case
+              mapping.capability_id == capability_id
+              && mapping.skill_id == skill_id
+            {
+              True -> CapabilitySkillMapping(capability_id:, skill_id:, weight:)
+              False -> mapping
+            }
+          })
+        False -> [
+          CapabilitySkillMapping(capability_id:, skill_id:, weight:),
+          ..snapshot.mappings
+        ]
+      }
+      Loaded(skill_view.TaxonomySnapshot(..snapshot, mappings:))
+    }
+    _ -> state
   }
 }
 
@@ -461,7 +511,7 @@ fn view_weight_input(
     attribute.attribute("min", "1"),
     attribute.attribute("max", "3"),
     attribute.value(int.to_string(weight)),
-    event.on_input(fn(raw) {
+    event.on_change(fn(raw) {
       CapabilitySkillWeightSet(
         capability_id:,
         skill_id:,

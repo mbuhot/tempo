@@ -275,7 +275,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Ok(skills) -> SkillsLoaded(skills:)
             Error(error) -> SkillsFailed(api.describe_error(error))
           }
-          #(Model(..model, skills:), effect.none(), [])
+          let op = reprefill_skill_id(model.op, skills)
+          #(Model(..model, skills:, op:), effect.none(), [])
         }
       }
 
@@ -435,6 +436,29 @@ fn prefill_skill_id(
     ui.OpAssessSkill, SkillsLoaded(EngineerSkills(matrix: [first, ..], ..)) ->
       ui.update_op_form(form, ui.FSkillId, int.to_string(first.skill_id))
     _, _ -> form
+  }
+}
+
+/// Re-run the skill prefill on an already-open op modal once the skill matrix
+/// finishes loading after the modal opened: an `OpAssessSkill` form whose
+/// `skill_id` is still unset (the matrix was `SkillsLoading` at open time) gets
+/// seeded with the newly-loaded first skill, matching the `<select>` the browser
+/// auto-selects once real options render. Any other modal (or an already-seeded
+/// one) is left untouched.
+fn reprefill_skill_id(
+  op: Option(ui.OpState),
+  skills: SkillsData,
+) -> Option(ui.OpState) {
+  case op {
+    Some(ui.OpState(kind: ui.OpAssessSkill, form:, error:))
+      if form.skill_id == ""
+    ->
+      Some(ui.OpState(
+        kind: ui.OpAssessSkill,
+        form: prefill_skill_id(form, ui.OpAssessSkill, skills),
+        error:,
+      ))
+    _ -> op
   }
 }
 
@@ -939,11 +963,11 @@ fn rollup_row(rollup: CapabilityRollup) -> Element(Msg) {
   let CapabilityRollup(name:, proficiency:, ..) = rollup
   let fill_pct =
     int.clamp(float_round(proficiency /. 4.0 *. 100.0), min: 0, max: 100)
-  let ramp_step =
-    int.clamp(float_round(proficiency /. 4.0 *. 7.0), min: 1, max: 7)
+  let rounded_level = int.clamp(float_round(proficiency), min: 0, max: 4)
+  let ramp_step = badge_step(rounded_level)
   html.div([attribute.class("rollup")], [
     html.div([attribute.class("rollup__name")], [html.text(name)]),
-    html.div([attribute.class("rec__fit")], [
+    html.div([attribute.class("rollup__value")], [
       html.text(one_decimal(proficiency)),
     ]),
     html.div([attribute.class("rollup__track")], [
