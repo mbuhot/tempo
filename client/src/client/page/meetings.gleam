@@ -504,6 +504,8 @@ pub fn build_schedule_command(
     |> result.replace_error("duration must be a number"),
   )
   use date <- result.try(parse_date(form.date))
+  use client_id <- result.try(optional_int("client id", form.client_id))
+  use project_id <- result.try(optional_int("project id", form.project_id))
   case form.title, form.timezone, form.attendees {
     "", _, _ -> Error("title is required")
     _, "", _ -> Error("timezone is required")
@@ -517,8 +519,8 @@ pub fn build_schedule_command(
           starts_at: form.starts_at,
           duration_minutes: duration,
           location: optional_text(form.location),
-          client_id: optional_int(form.client_id),
-          project_id: optional_int(form.project_id),
+          client_id:,
+          project_id:,
           attendees: list.map(attendees, fn(attendee) {
             #(attendee.engineer_id, attendee.attendance)
           }),
@@ -535,12 +537,15 @@ fn optional_text(raw: String) -> Option(String) {
   }
 }
 
-/// `""` (after trimming) becomes `None`; a non-numeric value also becomes
-/// `None` — the surrounding form leaves this field blank rather than reject.
-fn optional_int(raw: String) -> Option(Int) {
+/// `""` (after trimming) becomes `Ok(None)`; a non-numeric value becomes an
+/// `Error` naming `field`.
+fn optional_int(field: String, raw: String) -> Result(Option(Int), String) {
   case string.trim(raw) {
-    "" -> None
-    trimmed -> int.parse(trimmed) |> option.from_result
+    "" -> Ok(None)
+    trimmed ->
+      int.parse(trimmed)
+      |> result.map(Some)
+      |> result.replace_error(field <> " must be a number")
   }
 }
 

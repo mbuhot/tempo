@@ -133,3 +133,22 @@ pub fn build_schedule_command_requires_an_attendee_test() {
   assert meetings.build_schedule_command(form)
     == Error("add at least one attendee")
 }
+
+pub fn build_schedule_command_rejects_a_non_numeric_project_id_test() {
+  let form =
+    meetings.CreateForm(
+      title: "Kickoff",
+      timezone: "Europe/London",
+      date: "2026-07-10",
+      starts_at: "09:30",
+      duration_minutes: "45",
+      location: "",
+      client_id: "",
+      project_id: "3x",
+      attendees: [meetings.Attendee(1, meeting_command.Required)],
+      query: "",
+      error: option.None,
+    )
+  assert meetings.build_schedule_command(form)
+    == Error("project id must be a number")
+}
