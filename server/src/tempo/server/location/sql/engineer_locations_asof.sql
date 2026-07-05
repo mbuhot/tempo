@@ -6,7 +6,7 @@
 SELECT
   engineer_id,
   country,
-  region,
+  nullif(region, '') AS "region?",
   timezone,
   lower(located_during) AS valid_from,
   coalesce(upper(located_during), lower(located_during)) AS valid_to,

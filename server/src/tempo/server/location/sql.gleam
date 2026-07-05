@@ -67,7 +67,7 @@ pub fn engineer_location_history(
 -- $1 = engineer_id, $2 = as-of date.
 SELECT
   country,
-  region,
+  nullif(region, '') AS \"region?\",
   timezone,
   lower(located_during) AS valid_from,
   coalesce(upper(located_during), lower(located_during)) AS valid_to,
@@ -89,9 +89,8 @@ ORDER BY lower(located_during);
 /// engineer_location_upsert.sql — set an engineer's location from $2 onward. The temporal
 /// DELETE clips the row covering $2 to [start, $2) and removes rows starting at/after $2,
 /// then inserts [$2, NULL) with the new values, superseding scheduled future versions.
-/// $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored NULL),
-/// $5 timezone, $6 audit_id. `nullif` maps an absent region to NULL since Squirrel types the
-/// INSERT value param as non-null text.
+/// $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored as ''),
+/// $5 timezone, $6 audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -110,9 +109,8 @@ pub fn engineer_location_upsert(
   "-- engineer_location_upsert.sql — set an engineer's location from $2 onward. The temporal
 -- DELETE clips the row covering $2 to [start, $2) and removes rows starting at/after $2,
 -- then inserts [$2, NULL) with the new values, superseding scheduled future versions.
--- $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored NULL),
--- $5 timezone, $6 audit_id. `nullif` maps an absent region to NULL since Squirrel types the
--- INSERT value param as non-null text.
+-- $1 engineer_id, $2 effective, $3 country, $4 region (empty string = none, stored as ''),
+-- $5 timezone, $6 audit_id.
 WITH deleted AS (
   DELETE FROM engineer_location
      FOR PORTION OF located_during FROM $2::date TO NULL
@@ -120,7 +118,7 @@ WITH deleted AS (
 )
 INSERT INTO engineer_location
   (engineer_id, located_during, country, region, timezone, audit_id)
-VALUES ($1, daterange($2::date, NULL, '[)'), $3, nullif($4, ''), $5, $6);
+VALUES ($1, daterange($2::date, NULL, '[)'), $3, $4, $5, $6);
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -194,7 +192,7 @@ pub fn engineer_locations_asof(
 SELECT
   engineer_id,
   country,
-  region,
+  nullif(region, '') AS \"region?\",
   timezone,
   lower(located_during) AS valid_from,
   coalesce(upper(located_during), lower(located_during)) AS valid_to,

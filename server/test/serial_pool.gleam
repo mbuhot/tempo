@@ -85,10 +85,12 @@ pub fn run(body: fn(context.Context) -> a) -> a {
   result
 }
 
-/// Truncate every table (RESTART IDENTITY CASCADE) except the migration tracker,
-/// then re-apply the base seed. `seed.run` is a no-op on an already-seeded DB
-/// (engineer rows present), but after the truncate the cast is gone, so it
-/// repopulates the base cast in full.
+/// Truncate every table (RESTART IDENTITY CASCADE) except the migration tracker and
+/// the `holiday_region` reference catalog, then re-apply the base seed. `seed.run` is
+/// a no-op on an already-seeded DB (engineer rows present), but after the truncate the
+/// cast is gone, so it repopulates the base cast in full. `holiday_region` is populated
+/// once by its migration (not by any seed step), so it is excluded from the truncate
+/// the same way `schema_migrations` is, rather than wiping a catalog nothing re-seeds.
 pub fn reset() -> Nil {
   let assert Ok(_) = pog.query(truncate_all) |> pog.execute(on: db())
   let assert Ok(seed.Seeded) = seed.run(ctx(), "dev")
@@ -96,7 +98,7 @@ pub fn reset() -> Nil {
 }
 
 const truncate_all = "DO $$ DECLARE r RECORD; BEGIN
-  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'schema_migrations'
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('schema_migrations', 'holiday_region')
   LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE'; END LOOP;
 END $$;"
 
