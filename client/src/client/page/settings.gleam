@@ -12,7 +12,7 @@
 ////
 //// Revisions are temporal: they apply from an effective date forward, so each
 //// op-form defaults its date fields to the rail's current day. The three writes
-//// reuse the shared `ui` op-form engine and open in the shared `ui.modal`; on a
+//// reuse the shared `ui` op-form engine and open in the shared `atoms.modal`; on a
 //// committed write the page raises `OperationCommitted` and refetches so the tables
 //// reflect the new version.
 
@@ -21,7 +21,9 @@ import client/page.{type OutMsg, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/float
 import gleam/int
 import gleam/list
@@ -51,7 +53,7 @@ pub type Model {
     rate_card: table_host.Host,
     leave_policy: table_host.Host,
     directory: Directory,
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
   )
 }
 
@@ -73,9 +75,9 @@ pub type Msg {
     as_of: calendar.Date,
     result: Result(Settings, rsvp.Error(String)),
   )
-  OpStarted(permit: ui.Permit)
+  OpStarted(permit: ops.Permit)
   OpDismissed
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
   OpResponded(result: Result(Nil, rsvp.Error(String)))
 }
@@ -194,10 +196,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     OpStarted(permit:) -> {
-      let kind = ui.permit_kind(permit)
-      let form = ui.blank_op_form(kind:, default_date: model.as_of)
+      let kind = ops.permit_kind(permit)
+      let form = ops.blank_op_form(kind:, default_date: model.as_of)
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -208,9 +210,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpFieldEdited(field:, value:) ->
       case model.op {
         Some(state) -> {
-          let form = ui.update_op_form(state.form, field, value)
+          let form = ops.update_op_form(state.form, field, value)
           #(
-            Model(..model, op: Some(ui.OpState(..state, form:, error: None))),
+            Model(..model, op: Some(ops.OpState(..state, form:, error: None))),
             effect.none(),
             [],
           )
@@ -221,14 +223,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(state) ->
-          case ui.build_command(state.kind, state.form) {
+          case ops.build_command(state.kind, state.form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(
-              Model(..model, op: Some(ui.OpState(..state, error: Some(prompt)))),
+              Model(
+                ..model,
+                op: Some(ops.OpState(..state, error: Some(prompt))),
+              ),
               effect.none(),
               [],
             )
@@ -249,7 +254,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               Model(
                 ..model,
                 op: Some(
-                  ui.OpState(..state, error: Some(api.describe_error(error))),
+                  ops.OpState(..state, error: Some(api.describe_error(error))),
                 ),
               ),
               effect.none(),
@@ -274,18 +279,18 @@ fn open_action(
     DirectoryLoaded(settings:), Ok(level) -> {
       let #(kind, amount) = case action {
         "revise_rate" -> #(
-          ui.OpReviseRateCard,
+          ops.OpReviseRateCard,
           day_rate_amount(settings, level),
         )
-        "set_salary" -> #(ui.OpSetSalary, salary_amount(settings, level))
-        _ -> #(ui.OpReviseRateCard, 0.0)
+        "set_salary" -> #(ops.OpSetSalary, salary_amount(settings, level))
+        _ -> #(ops.OpReviseRateCard, 0.0)
       }
       let form =
-        ui.blank_op_form(kind:, default_date: model.as_of)
-        |> ui.update_op_form(ui.FLevel, int.to_string(level))
-        |> ui.update_op_form(amount_field(kind), number_value(amount))
+        ops.blank_op_form(kind:, default_date: model.as_of)
+        |> ops.update_op_form(ops.FLevel, int.to_string(level))
+        |> ops.update_op_form(amount_field(kind), number_value(amount))
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
       )
     }
@@ -296,10 +301,10 @@ fn open_action(
 /// The form slot the per-row amount pre-fills for a kind: the day rate for a
 /// rate-card revision, the monthly salary for a salary set. Other kinds carry no
 /// per-row amount, so the slot is irrelevant and defaults to the day rate.
-fn amount_field(kind: ui.OpKind) -> ui.OpField {
+fn amount_field(kind: ops.OpKind) -> ops.OpField {
   case kind {
-    ui.OpSetSalary -> ui.FMonthlySalary
-    _ -> ui.FDayRate
+    ops.OpSetSalary -> ops.FMonthlySalary
+    _ -> ops.FDayRate
   }
 }
 
@@ -323,38 +328,43 @@ pub fn view(
 ) -> Element(Msg) {
   let _ = as_of
   let actions = [
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpAdjustRateForPortion),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpAdjustRateForPortion),
       to_msg: OpStarted,
       label: "Adjust window",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpSetSalary),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpSetSalary),
       to_msg: OpStarted,
       label: "Set salary",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpReviseRateCard),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpReviseRateCard),
       to_msg: OpStarted,
       label: "Revise rate",
-      kind: ui.Primary,
-      size: ui.Small,
+      kind: atoms.Primary,
+      size: atoms.Small,
     ),
   ]
   html.div([], [
     head(actions),
     html.div([attribute.class("settings-grid")], [
-      ui.panel(title: "Rate card & salary bands", count: "", right: [], body: [
-        element.map(
-          table_host.view(model.rate_card, "Loading rate card…"),
-          RateCardMsg,
-        ),
-      ]),
-      ui.panel(title: "Leave policy", count: "read-only", right: [], body: [
+      atoms.panel(
+        title: "Rate card & salary bands",
+        count: "",
+        right: [],
+        body: [
+          element.map(
+            table_host.view(model.rate_card, "Loading rate card…"),
+            RateCardMsg,
+          ),
+        ],
+      ),
+      atoms.panel(title: "Leave policy", count: "read-only", right: [], body: [
         element.map(
           table_host.view(model.leave_policy, "Loading leave policy…"),
           LeavePolicyMsg,
@@ -367,7 +377,7 @@ pub fn view(
 
 /// The page head, with an optional cluster of head actions on the right.
 fn head(actions: List(Element(Msg))) -> Element(Msg) {
-  ui.page_head(
+  atoms.page_head(
     title: "Settings",
     blurb: "Rate card, salary bands, and leave policy. Changes here are temporal — they apply from an effective date forward.",
     actions: actions,
@@ -384,7 +394,7 @@ fn view_op(model: Model) -> Element(Msg) {
   case model.op {
     None -> element.none()
     Some(state) ->
-      ui.modal(
+      atoms.modal(
         title: op_title(state.kind),
         error: option.unwrap(state.error, ""),
         body: op_fields(model, state),
@@ -396,21 +406,21 @@ fn view_op(model: Model) -> Element(Msg) {
 }
 
 /// The human title for an op kind.
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpReviseRateCard -> "Revise rate card"
-    ui.OpAdjustRateForPortion -> "Adjust rate for a window"
-    ui.OpSetSalary -> "Set salary"
+    ops.OpReviseRateCard -> "Revise rate card"
+    ops.OpAdjustRateForPortion -> "Adjust rate for a window"
+    ops.OpSetSalary -> "Set salary"
     _ -> "Operation"
   }
 }
 
 /// The confirm-button verb for an op kind.
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpReviseRateCard -> "Revise"
-    ui.OpAdjustRateForPortion -> "Adjust"
-    ui.OpSetSalary -> "Set salary"
+    ops.OpReviseRateCard -> "Revise"
+    ops.OpAdjustRateForPortion -> "Adjust"
+    ops.OpSetSalary -> "Set salary"
     _ -> "Confirm"
   }
 }
@@ -418,9 +428,9 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// The input fields for the open op kind, each bound to its `OpForm` slot. The
 /// level is a `<select>` over the levels present in the rate card; the amount and
 /// dates are text/number/date inputs. Only the settings writes are reachable here.
-fn op_fields(model: Model, state: ui.OpState) -> List(Element(Msg)) {
+fn op_fields(model: Model, state: ops.OpState) -> List(Element(Msg)) {
   let field = fn(label, slot, input_type, value) {
-    ui.op_field(
+    ops.op_field(
       label: label,
       field: slot,
       value: value,
@@ -430,21 +440,21 @@ fn op_fields(model: Model, state: ui.OpState) -> List(Element(Msg)) {
   }
   let form = state.form
   case state.kind {
-    ui.OpReviseRateCard -> [
+    ops.OpReviseRateCard -> [
       level_select(model, form.level),
-      field("Day rate", ui.FDayRate, "number", form.day_rate),
-      field("Effective", ui.FEffective, "date", form.effective),
+      field("Day rate", ops.FDayRate, "number", form.day_rate),
+      field("Effective", ops.FEffective, "date", form.effective),
     ]
-    ui.OpAdjustRateForPortion -> [
+    ops.OpAdjustRateForPortion -> [
       level_select(model, form.level),
-      field("Day rate", ui.FDayRate, "number", form.day_rate),
-      field("Valid from", ui.FValidFrom, "date", form.valid_from),
-      field("Valid to", ui.FValidTo, "date", form.valid_to),
+      field("Day rate", ops.FDayRate, "number", form.day_rate),
+      field("Valid from", ops.FValidFrom, "date", form.valid_from),
+      field("Valid to", ops.FValidTo, "date", form.valid_to),
     ]
-    ui.OpSetSalary -> [
+    ops.OpSetSalary -> [
       level_select(model, form.level),
-      field("Monthly salary", ui.FMonthlySalary, "number", form.monthly_salary),
-      field("Effective", ui.FEffective, "date", form.effective),
+      field("Monthly salary", ops.FMonthlySalary, "number", form.monthly_salary),
+      field("Effective", ops.FEffective, "date", form.effective),
     ]
     _ -> []
   }
@@ -462,7 +472,7 @@ fn level_select(model: Model, selected: String) -> Element(Msg) {
       let level = int.to_string(rate.level)
       html.option(
         [attribute.value(level), attribute.selected(level == selected)],
-        ui.level_band(rate.level),
+        format.level_band(rate.level),
       )
     })
   html.label([attribute.class("op-form__field")], [
@@ -470,7 +480,7 @@ fn level_select(model: Model, selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Level"),
-        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+        event.on_change(fn(value) { OpFieldEdited(ops.FLevel, value) }),
       ],
       options,
     ),

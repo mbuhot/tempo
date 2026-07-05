@@ -1,5 +1,5 @@
 import client/page/meetings
-import client/ui
+import client/ui/ops
 import gleam/option
 import gleam/result
 import gleam/time/calendar
@@ -16,16 +16,16 @@ pub fn local_time_applies_a_negative_offset_test() {
 
 pub fn build_reschedule_command_test() {
   let form =
-    ui.blank_op_form(
-      ui.OpRescheduleMeeting,
+    ops.blank_op_form(
+      ops.OpRescheduleMeeting,
       calendar.Date(2026, calendar.July, 10),
     )
-    |> ui.update_op_form(ui.FMeetingId, "7")
-    |> ui.update_op_form(ui.FTimezone, "Europe/London")
-    |> ui.update_op_form(ui.FEffective, "2026-07-11")
-    |> ui.update_op_form(ui.FStartsAt, "14:00")
-    |> ui.update_op_form(ui.FDurationMinutes, "30")
-  assert ui.build_command(ui.OpRescheduleMeeting, form)
+    |> ops.update_op_form(ops.FMeetingId, "7")
+    |> ops.update_op_form(ops.FTimezone, "Europe/London")
+    |> ops.update_op_form(ops.FEffective, "2026-07-11")
+    |> ops.update_op_form(ops.FStartsAt, "14:00")
+    |> ops.update_op_form(ops.FDurationMinutes, "30")
+  assert ops.build_command(ops.OpRescheduleMeeting, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.RescheduleMeeting(
         meeting_id: 7,
@@ -39,17 +39,20 @@ pub fn build_reschedule_command_test() {
 
 pub fn build_cancel_command_rejects_missing_id_test() {
   let form =
-    ui.blank_op_form(ui.OpCancelMeeting, calendar.Date(2026, calendar.July, 10))
-  assert ui.build_command(ui.OpCancelMeeting, form) |> result.is_error
+    ops.blank_op_form(
+      ops.OpCancelMeeting,
+      calendar.Date(2026, calendar.July, 10),
+    )
+  assert ops.build_command(ops.OpCancelMeeting, form) |> result.is_error
 }
 
 pub fn build_add_attendee_command_test() {
   let form =
-    ui.blank_op_form(ui.OpAddAttendee, calendar.Date(2026, calendar.July, 10))
-    |> ui.update_op_form(ui.FMeetingId, "7")
-    |> ui.update_op_form(ui.FEngineerId, "3")
-    |> ui.update_op_form(ui.FAttendance, "optional")
-  assert ui.build_command(ui.OpAddAttendee, form)
+    ops.blank_op_form(ops.OpAddAttendee, calendar.Date(2026, calendar.July, 10))
+    |> ops.update_op_form(ops.FMeetingId, "7")
+    |> ops.update_op_form(ops.FEngineerId, "3")
+    |> ops.update_op_form(ops.FAttendance, "optional")
+  assert ops.build_command(ops.OpAddAttendee, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.AddAttendee(
         meeting_id: 7,
@@ -61,13 +64,13 @@ pub fn build_add_attendee_command_test() {
 
 pub fn build_remove_attendee_command_test() {
   let form =
-    ui.blank_op_form(
-      ui.OpRemoveAttendee,
+    ops.blank_op_form(
+      ops.OpRemoveAttendee,
       calendar.Date(2026, calendar.July, 10),
     )
-    |> ui.update_op_form(ui.FMeetingId, "7")
-    |> ui.update_op_form(ui.FEngineerId, "3")
-  assert ui.build_command(ui.OpRemoveAttendee, form)
+    |> ops.update_op_form(ops.FMeetingId, "7")
+    |> ops.update_op_form(ops.FEngineerId, "3")
+  assert ops.build_command(ops.OpRemoveAttendee, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.RemoveAttendee(
         meeting_id: 7,

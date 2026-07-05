@@ -11,7 +11,7 @@ import client/scheduler
 import client/storage
 import client/table
 import client/time
-import client/ui
+import client/ui/atoms
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -235,8 +235,8 @@ pub fn update(
 /// own panel chrome and `element.map`s it into its own message type.
 pub fn view(host: Host, loading_message: String) -> Element(Msg) {
   case host.load {
-    Loading -> ui.empty_state(message: loading_message)
-    Failed(message:) -> ui.empty_state(message:)
+    Loading -> atoms.empty_state(message: loading_message)
+    Failed(message:) -> atoms.empty_state(message:)
     Loaded(schema:, rows:, next_cursor:, table_state:, footer:) ->
       element.map(
         table.view(

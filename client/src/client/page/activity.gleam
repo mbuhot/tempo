@@ -14,7 +14,7 @@
 import client/page.{type OutMsg}
 import client/route
 import client/table_host
-import client/ui
+import client/ui/atoms
 import gleam/time/calendar
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -72,12 +72,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 pub fn view(model: Model, as_of: calendar.Date) -> Element(Msg) {
   let _ = as_of
   html.div([], [
-    ui.page_head(
+    atoms.page_head(
       title: "Activity",
       blurb: "Every change recorded against the workspace, newest first. This feed is on system time — what was recorded when, independent of the rail. Expand a row for its full payload.",
       actions: [],
     ),
-    ui.panel(title: "Journal", count: "", right: [], body: [
+    atoms.panel(title: "Journal", count: "", right: [], body: [
       element.map(
         table_host.view(model.host, "Loading activity…"),
         TableHostMsg,

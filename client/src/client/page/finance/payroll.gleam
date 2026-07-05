@@ -21,7 +21,9 @@ import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -69,7 +71,7 @@ pub type Model {
     payroll: Load,
     mode: Mode,
     host: table_host.Host,
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
   )
 }
 
@@ -87,8 +89,8 @@ pub type Msg {
   GotPayroll(as_of: calendar.Date, result: Result(Payroll, rsvp.Error(String)))
   TableHostMsg(sub: table_host.Msg)
   ModePicked(mode: Mode)
-  OpOpened(permit: ui.Permit)
-  OpFieldChanged(field: ui.OpField, value: String)
+  OpOpened(permit: ops.Permit)
+  OpFieldChanged(field: ops.OpField, value: String)
   OpSubmitted
   OpCancelled
   OpReplied(result: Result(Nil, rsvp.Error(String)))
@@ -185,11 +187,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpOpened(..) -> {
       let form =
-        ui.blank_op_form(kind: ui.OpRunPayroll, default_date: model.as_of)
+        ops.blank_op_form(kind: ops.OpRunPayroll, default_date: model.as_of)
       #(
         Model(
           ..model,
-          op: Some(ui.OpState(kind: ui.OpRunPayroll, form:, error: None)),
+          op: Some(ops.OpState(kind: ops.OpRunPayroll, form:, error: None)),
         ),
         effect.none(),
         [],
@@ -199,9 +201,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpFieldChanged(field:, value:) ->
       case model.op {
         Some(op) -> {
-          let form = ui.update_op_form(op.form, field, value)
+          let form = ops.update_op_form(op.form, field, value)
           #(
-            Model(..model, op: Some(ui.OpState(..op, form:))),
+            Model(..model, op: Some(ops.OpState(..op, form:))),
             effect.none(),
             [],
           )
@@ -212,14 +214,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(op) ->
-          case ui.build_command(op.kind, op.form) {
+          case ops.build_command(op.kind, op.form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpReplied),
               [],
             )
             Error(message) -> #(
-              Model(..model, op: Some(ui.OpState(..op, error: Some(message)))),
+              Model(..model, op: Some(ops.OpState(..op, error: Some(message)))),
               effect.none(),
               [],
             )
@@ -253,7 +255,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               Model(
                 ..model,
                 op: Some(
-                  ui.OpState(..op, error: Some(api.describe_error(error))),
+                  ops.OpState(..op, error: Some(api.describe_error(error))),
                 ),
               ),
               effect.none(),
@@ -314,21 +316,21 @@ fn reconciled(lines: List(PayrollLine)) -> Bool {
 /// Render the tab: its loading guard and the op panel, delegating the loaded render
 /// to `panel`. The run-payroll button raises `OpOpened`.
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
-  let permit = ui.permit(permissions, own: False, kind: ui.OpRunPayroll)
+  let permit = ops.permit(permissions, own: False, kind: ops.OpRunPayroll)
   let body = case model.payroll {
-    Loading -> ui.empty_state(message: "Loading payroll…")
-    Failed(message:) -> ui.empty_state(message: message)
+    Loading -> atoms.empty_state(message: "Loading payroll…")
+    Failed(message:) -> atoms.empty_state(message: message)
     Loaded(payroll:) -> panel(model, payroll, permit)
   }
   html.div([], [op_panel(model.op), body])
 }
 
 /// The open Run-payroll op as a centred modal, or nothing.
-fn op_panel(op: Option(ui.OpState)) -> Element(Msg) {
+fn op_panel(op: Option(ops.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
     Some(op) ->
-      ui.modal(
+      atoms.modal(
         title: "Run payroll",
         error: option.unwrap(op.error, ""),
         body: op_fields(op.form),
@@ -339,18 +341,18 @@ fn op_panel(op: Option(ui.OpState)) -> Element(Msg) {
   }
 }
 
-fn op_fields(form: ui.OpForm) -> List(Element(Msg)) {
+fn op_fields(form: ops.OpForm) -> List(Element(Msg)) {
   [
-    ui.op_field(
+    ops.op_field(
       label: "Period from",
-      field: ui.FValidFrom,
+      field: ops.FValidFrom,
       value: form.valid_from,
       input_type: "date",
       to_msg: OpFieldChanged,
     ),
-    ui.op_field(
+    ops.op_field(
       label: "Period to",
-      field: ui.FValidTo,
+      field: ops.FValidTo,
       value: form.valid_to,
       input_type: "date",
       to_msg: OpFieldChanged,
@@ -364,11 +366,11 @@ fn op_fields(form: ui.OpForm) -> List(Element(Msg)) {
 fn panel(
   model: Model,
   payroll: Payroll,
-  permit: Result(ui.Permit, Nil),
+  permit: Result(ops.Permit, Nil),
 ) -> Element(Msg) {
   let month = time.format_month(payroll.period_from)
   let count = int.to_string(list.length(payroll.lines)) <> " employed"
-  ui.panel(
+  atoms.panel(
     title: "Payroll · " <> month,
     count:,
     right: headline(model.mode, payroll, permit),
@@ -385,7 +387,7 @@ fn panel(
 fn headline(
   mode: Mode,
   payroll: Payroll,
-  permit: Result(ui.Permit, Nil),
+  permit: Result(ops.Permit, Nil),
 ) -> List(Element(Msg)) {
   case mode {
     Preview -> {
@@ -393,14 +395,14 @@ fn headline(
         money.sum(list.map(payroll.lines, fn(line) { line.preview_amount }))
       [
         html.span([attribute.class("finance__total-note")], [
-          html.text(ui.money(money.to_float(total)) <> " to pay"),
+          html.text(format.money(money.to_float(total)) <> " to pay"),
         ]),
-        ui.launch(
+        ops.launch(
           permit,
           to_msg: OpOpened,
           label: "Run payroll",
-          kind: ui.Primary,
-          size: ui.Small,
+          kind: atoms.Primary,
+          size: atoms.Small,
         ),
       ]
     }
@@ -413,7 +415,7 @@ fn headline(
         )
       [
         html.span([attribute.class("finance__total-note")], [
-          html.text(ui.money(money.to_float(total)) <> " paid"),
+          html.text(format.money(money.to_float(total)) <> " paid"),
         ]),
       ]
     }
@@ -431,7 +433,7 @@ fn headline(
         True -> [
           html.span([attribute.class("finance__owed")], [
             html.text(
-              "⚠ " <> ui.money(money.to_float(owed)) <> " back-pay owed",
+              "⚠ " <> format.money(money.to_float(owed)) <> " back-pay owed",
             ),
           ]),
         ]

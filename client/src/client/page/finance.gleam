@@ -25,7 +25,7 @@ import client/page/finance/payroll as payroll_tab
 import client/page/finance/pnl as pnl_tab
 import client/route
 import client/time
-import client/ui
+import client/ui/atoms
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
@@ -194,11 +194,11 @@ pub fn view(
 ) -> Element(Msg) {
   case page_status(model) {
     Failed(message:) ->
-      html.div([], [page_head(as_of), ui.empty_state(message: message)])
+      html.div([], [page_head(as_of), atoms.empty_state(message: message)])
     PageLoading ->
       html.div([], [
         page_head(as_of),
-        ui.empty_state(message: "Loading finance…"),
+        atoms.empty_state(message: "Loading finance…"),
       ])
     Ready -> view_ready(model, as_of, permissions)
   }
@@ -297,7 +297,7 @@ fn forecast_failure(model: forecast_tab.Model) -> Option(String) {
 }
 
 fn page_head(as_of: calendar.Date) -> Element(Msg) {
-  ui.page_head(
+  atoms.page_head(
     title: "Finance",
     blurb: "Invoices, payroll, and profit — every figure resolved as of "
       <> time.format_date(as_of)

@@ -27,7 +27,9 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -58,7 +60,7 @@ pub type Model {
     host: table_host.Host,
     roster: Option(Result(Roster, String)),
     detail: Detail,
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
   )
 }
 
@@ -90,9 +92,9 @@ pub type Msg {
   )
   CloseDetail
   OpenProject(project_id: Int)
-  OpStarted(permit: ui.Permit)
+  OpStarted(permit: ops.Permit)
   OpCancelled
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
   OpResponded(result: Result(Nil, rsvp.Error(String)))
 }
@@ -207,11 +209,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     ])
 
     OpStarted(permit:) -> {
-      let kind = ui.permit_kind(permit)
-      let form = ui.blank_op_form(kind, model.as_of)
+      let kind = ops.permit_kind(permit)
+      let form = ops.blank_op_form(kind, model.as_of)
       let form = prefill_op_form(kind, form, model.detail, model)
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -224,7 +226,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         Some(op) -> {
           let form = apply_field_edit(model, op, field, value)
           #(
-            Model(..model, op: Some(ui.OpState(..op, form:))),
+            Model(..model, op: Some(ops.OpState(..op, form:))),
             effect.none(),
             [],
           )
@@ -235,14 +237,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(op) ->
-          case ui.build_command(op.kind, op.form) {
+          case ops.build_command(op.kind, op.form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(
-              Model(..model, op: Some(ui.OpState(..op, error: Some(prompt)))),
+              Model(..model, op: Some(ops.OpState(..op, error: Some(prompt)))),
               effect.none(),
               [],
             )
@@ -263,7 +265,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               Model(
                 ..model,
                 op: Some(
-                  ui.OpState(..op, error: Some(api.describe_error(error))),
+                  ops.OpState(..op, error: Some(api.describe_error(error))),
                 ),
               ),
               effect.none(),
@@ -354,12 +356,12 @@ pub fn view(
 fn view_list(model: Model, permissions: Set(String)) -> Element(Msg) {
   html.div([], [
     op_panel(model.roster, model.op),
-    ui.list_page(
+    atoms.list_page(
       title: "Clients",
       blurb: "Who we work for, and the contracts behind the projects.",
       actions: [
-        ui.page_action(
-          ui.permit(permissions, own: False, kind: ui.OpSignContract),
+        ops.page_action(
+          ops.permit(permissions, own: False, kind: ops.OpSignContract),
           OpStarted,
           "+ Sign contract",
         ),
@@ -378,17 +380,17 @@ fn view_list(model: Model, permissions: Set(String)) -> Element(Msg) {
 fn view_detail(
   detail: Detail,
   roster: Option(Result(Roster, String)),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   permissions: Set(String),
 ) -> Element(Msg) {
   case detail {
-    NoDetail -> ui.empty_state(message: "No client selected.")
+    NoDetail -> atoms.empty_state(message: "No client selected.")
     DetailLoading(..) ->
-      html.div([], [back_link(), ui.empty_state(message: "Loading client…")])
+      html.div([], [back_link(), atoms.empty_state(message: "Loading client…")])
     DetailFailed(message:, ..) ->
       html.div([], [
         back_link(),
-        ui.empty_state(message: "Could not load client: " <> message),
+        atoms.empty_state(message: "Could not load client: " <> message),
       ])
     DetailLoaded(detail: loaded) ->
       view_detail_loaded(loaded, roster, op, permissions)
@@ -398,19 +400,19 @@ fn view_detail(
 fn view_detail_loaded(
   detail: ClientDetail,
   roster: Option(Result(Roster, String)),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   permissions: Set(String),
 ) -> Element(Msg) {
   let client_view.ClientDetail(profile:, since:, contracts:, projects:) = detail
   let client_view.ClientProfile(name:, ..) = profile
   html.div([], [
     back_link(),
-    ui.page_head(
+    atoms.page_head(
       title: name,
       blurb: "Client since " <> option_date(since) <> ".",
       actions: [
-        op_trigger(permissions, "Sign contract", ui.OpSignContract),
-        op_trigger(permissions, "Edit profile", ui.OpUpdateClientProfile),
+        op_trigger(permissions, "Sign contract", ops.OpSignContract),
+        op_trigger(permissions, "Edit profile", ops.OpUpdateClientProfile),
       ],
     ),
     op_panel(roster, op),
@@ -425,15 +427,15 @@ fn view_detail_loaded(
 /// shows its swatch + title, budget, target date, and an active/ended pill computed
 /// as-of. Clicking a row opens that project's detail (a cross-page navigation).
 fn view_projects_panel(projects: List(ClientProjectRow)) -> Element(Msg) {
-  ui.panel(
+  atoms.panel(
     title: "Projects",
     count: int.to_string(list.length(projects)),
     right: [],
     body: [
       case projects {
-        [] -> ui.empty_state(message: "No projects for this client.")
+        [] -> atoms.empty_state(message: "No projects for this client.")
         rows ->
-          ui.data_table(
+          atoms.data_table(
             headers: [
               #("Project", False),
               #("Budget", True),
@@ -460,11 +462,11 @@ fn view_project_row(project: ClientProjectRow) -> Element(Msg) {
     [attribute.class("clickable"), event.on_click(OpenProject(project_id:))],
     [
       html.td([], [
-        ui.swatch(category: project_id, inline: True),
+        atoms.swatch(category: project_id, inline: True),
         html.text(title),
       ]),
       html.td([attribute.class("num")], [
-        html.text(ui.money_k(money.to_float(budget))),
+        html.text(format.money_k(money.to_float(budget))),
       ]),
       html.td([attribute.class("mono muted")], [
         html.text(time.iso_date(target_completion)),
@@ -482,12 +484,12 @@ fn view_profile_panel(
   since: Option(Date),
   contracts: List(ContractRow),
 ) -> Element(Msg) {
-  ui.panel(title: "Profile", count: "", right: [], body: [
+  atoms.panel(title: "Profile", count: "", right: [], body: [
     html.div([attribute.class("pad-detail")], [
       html.div([attribute.class("kv")], [
-        ui.kv(key: "Name", value: name, mono: False),
-        ui.kv(key: "Client since", value: option_date(since), mono: True),
-        ui.kv(
+        atoms.kv(key: "Name", value: name, mono: False),
+        atoms.kv(key: "Client since", value: option_date(since), mono: True),
+        atoms.kv(
           key: "Contracts",
           value: int.to_string(list.length(contracts)),
           mono: False,
@@ -500,9 +502,9 @@ fn view_profile_panel(
 
 fn view_contracts(contracts: List(ContractRow)) -> Element(Msg) {
   case contracts {
-    [] -> ui.empty_state(message: "No contracts signed.")
+    [] -> atoms.empty_state(message: "No contracts signed.")
     rows ->
-      ui.data_table(
+      atoms.data_table(
         headers: [#("Contract", False), #("Term", False), #("State", False)],
         rows: list.map(rows, view_contract_row),
       )
@@ -529,14 +531,14 @@ fn view_contract_row(contract: ContractRow) -> Element(Msg) {
 fn op_trigger(
   permissions: Set(String),
   label: String,
-  kind: ui.OpKind,
+  kind: ops.OpKind,
 ) -> Element(Msg) {
-  ui.launch(
-    ui.permit(permissions, own: False, kind:),
+  ops.launch(
+    ops.permit(permissions, own: False, kind:),
     to_msg: OpStarted,
     label: label,
-    kind: ui.Primary,
-    size: ui.Medium,
+    kind: atoms.Primary,
+    size: atoms.Medium,
   )
 }
 
@@ -544,12 +546,12 @@ fn op_trigger(
 /// kind's fields, any rejection line, and a Cancel / op-verb footer.
 fn op_panel(
   roster: Option(Result(Roster, String)),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
 ) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(ui.OpState(kind:, form:, error:)) ->
-      ui.modal(
+    Some(ops.OpState(kind:, form:, error:)) ->
+      atoms.modal(
         title: op_title(kind),
         error: option.unwrap(error, ""),
         body: op_fields(roster, kind, form),
@@ -568,33 +570,39 @@ fn op_panel(
 /// read-only.
 fn op_fields(
   roster: Option(Result(Roster, String)),
-  kind: ui.OpKind,
-  form: ui.OpForm,
+  kind: ops.OpKind,
+  form: ops.OpForm,
 ) -> List(Element(Msg)) {
   case kind {
-    ui.OpSignContract -> [
-      ui.ref_select(
+    ops.OpSignContract -> [
+      ops.ref_select(
         label: "Client",
-        field: ui.FClient,
+        field: ops.FClient,
         refs: client_refs(roster),
         selected: client_id_for_name(roster, form.client),
         to_msg: OpFieldEdited,
       ),
-      ui.op_field(
+      ops.op_field(
         "Valid from",
-        ui.FValidFrom,
+        ops.FValidFrom,
         form.valid_from,
         "date",
         OpFieldEdited,
       ),
-      ui.op_field("Valid to", ui.FValidTo, form.valid_to, "date", OpFieldEdited),
+      ops.op_field(
+        "Valid to",
+        ops.FValidTo,
+        form.valid_to,
+        "date",
+        OpFieldEdited,
+      ),
     ]
-    ui.OpUpdateClientProfile -> [
+    ops.OpUpdateClientProfile -> [
       locked_field("Client", form.name),
-      ui.op_field("Name", ui.FName, form.name, "text", OpFieldEdited),
-      ui.op_field(
+      ops.op_field("Name", ops.FName, form.name, "text", OpFieldEdited),
+      ops.op_field(
         "Effective",
-        ui.FEffective,
+        ops.FEffective,
         form.effective,
         "date",
         OpFieldEdited,
@@ -619,19 +627,19 @@ fn locked_field(label: String, value: String) -> Element(Msg) {
 }
 
 /// The op form's heading for a kind.
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpSignContract -> "Sign a contract"
-    ui.OpUpdateClientProfile -> "Update client profile"
+    ops.OpSignContract -> "Sign a contract"
+    ops.OpUpdateClientProfile -> "Update client profile"
     _ -> "Operation"
   }
 }
 
 /// The confirm-button verb for a kind.
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpSignContract -> "Sign contract"
-    ui.OpUpdateClientProfile -> "Save profile"
+    ops.OpSignContract -> "Sign contract"
+    ops.OpUpdateClientProfile -> "Save profile"
     _ -> "Confirm"
   }
 }
@@ -644,27 +652,27 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// slot to the first roster client when the roster has loaded, so the modal opens on
 /// a valid selection. Other kinds open blank.
 fn prefill_op_form(
-  kind: ui.OpKind,
-  form: ui.OpForm,
+  kind: ops.OpKind,
+  form: ops.OpForm,
   detail: Detail,
   model: Model,
-) -> ui.OpForm {
+) -> ops.OpForm {
   case kind {
-    ui.OpUpdateClientProfile ->
+    ops.OpUpdateClientProfile ->
       case detail {
         DetailLoaded(detail: client_view.ClientDetail(
           profile: client_view.ClientProfile(client_id:, name:),
           ..,
         )) -> {
           let form =
-            ui.update_op_form(form, ui.FClientId, int.to_string(client_id))
-          ui.update_op_form(form, ui.FName, name)
+            ops.update_op_form(form, ops.FClientId, int.to_string(client_id))
+          ops.update_op_form(form, ops.FName, name)
         }
         _ -> form
       }
-    ui.OpSignContract ->
+    ops.OpSignContract ->
       case client_refs(model.roster) {
-        [first, ..] -> ui.update_op_form(form, ui.FClient, first.name)
+        [first, ..] -> ops.update_op_form(form, ops.FClient, first.name)
         [] -> form
       }
     _ -> form
@@ -676,17 +684,17 @@ fn prefill_op_form(
 /// ends up on a valid selection rather than a blank one. Leaves any other open op (or
 /// none) untouched.
 fn reconcile_op_client(
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   roster: Option(Result(Roster, String)),
-) -> Option(ui.OpState) {
+) -> Option(ops.OpState) {
   case op {
-    Some(ui.OpState(kind: ui.OpSignContract, form:, ..) as state) ->
+    Some(ops.OpState(kind: ops.OpSignContract, form:, ..) as state) ->
       case form.client, client_refs(roster) {
         "", [first, ..] ->
           Some(
-            ui.OpState(
+            ops.OpState(
               ..state,
-              form: ui.update_op_form(form, ui.FClient, first.name),
+              form: ops.update_op_form(form, ops.FClient, first.name),
             ),
           )
         _, _ -> op
@@ -701,14 +709,14 @@ fn reconcile_op_client(
 /// Every other field writes through unchanged.
 fn apply_field_edit(
   model: Model,
-  op: ui.OpState,
-  field: ui.OpField,
+  op: ops.OpState,
+  field: ops.OpField,
   value: String,
-) -> ui.OpForm {
+) -> ops.OpForm {
   case op.kind, field {
-    ui.OpSignContract, ui.FClient ->
-      ui.update_op_form(op.form, ui.FClient, client_name_for_id(model, value))
-    _, _ -> ui.update_op_form(op.form, field, value)
+    ops.OpSignContract, ops.FClient ->
+      ops.update_op_form(op.form, ops.FClient, client_name_for_id(model, value))
+    _, _ -> ops.update_op_form(op.form, field, value)
   }
 }
 
@@ -760,8 +768,8 @@ fn back_link() -> Element(Msg) {
 /// An active/ended status pill.
 fn status_pill(active: Bool) -> Element(Msg) {
   case active {
-    True -> ui.pill(variant: "active", label: "active")
-    False -> ui.pill(variant: "ended", label: "ended")
+    True -> atoms.pill(variant: "active", label: "active")
+    False -> atoms.pill(variant: "ended", label: "ended")
   }
 }
 

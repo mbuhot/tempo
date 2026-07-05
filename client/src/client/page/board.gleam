@@ -18,7 +18,9 @@ import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/float
 import gleam/int
 import gleam/list
@@ -62,7 +64,7 @@ pub type Data {
 /// An open contextual operation: which write, the form being filled, and the last
 /// rejection message (empty until a submit is refused).
 pub type OpState {
-  OpState(kind: ui.OpKind, form: ui.OpForm, error: String)
+  OpState(kind: ops.OpKind, form: ops.OpForm, error: String)
 }
 
 // --- Messages ----------------------------------------------------------------
@@ -79,10 +81,10 @@ pub type Msg {
     result: Result(Roster, rsvp.Error(String)),
   )
   CardClicked(engineer: String)
-  OpStarted(permit: ui.Permit)
-  OpStartedFor(permit: ui.Permit, engineer_id: Int, project_id: Int)
-  OpStartedForProject(permit: ui.Permit, project_id: Int)
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpStarted(permit: ops.Permit)
+  OpStartedFor(permit: ops.Permit, engineer_id: Int, project_id: Int)
+  OpStartedForProject(permit: ops.Permit, project_id: Int)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpCancelled
   OpSubmitted
   OpResolved(result: Result(Nil, rsvp.Error(String)))
@@ -173,8 +175,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     OpStarted(permit:) -> {
-      let kind = ui.permit_kind(permit)
-      let form = ui.blank_op_form(kind:, default_date: model.as_of)
+      let kind = ops.permit_kind(permit)
+      let form = ops.blank_op_form(kind:, default_date: model.as_of)
       let form = reconcile(model, form)
       #(
         Model(..model, op: Some(OpState(kind:, form:, error: ""))),
@@ -184,12 +186,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     }
 
     OpStartedFor(permit:, engineer_id:, project_id:) -> {
-      let kind = ui.permit_kind(permit)
-      let form = ui.blank_op_form(kind:, default_date: model.as_of)
+      let kind = ops.permit_kind(permit)
+      let form = ops.blank_op_form(kind:, default_date: model.as_of)
       let form =
-        ui.update_op_form(form, ui.FEngineerId, int.to_string(engineer_id))
+        ops.update_op_form(form, ops.FEngineerId, int.to_string(engineer_id))
       let form =
-        ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+        ops.update_op_form(form, ops.FProjectId, int.to_string(project_id))
       let form = reconcile(model, form)
       #(
         Model(..model, op: Some(OpState(kind:, form:, error: ""))),
@@ -199,10 +201,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     }
 
     OpStartedForProject(permit:, project_id:) -> {
-      let kind = ui.permit_kind(permit)
-      let form = ui.blank_op_form(kind:, default_date: model.as_of)
+      let kind = ops.permit_kind(permit)
+      let form = ops.blank_op_form(kind:, default_date: model.as_of)
       let form =
-        ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+        ops.update_op_form(form, ops.FProjectId, int.to_string(project_id))
       let form = reconcile(model, form)
       #(
         Model(..model, op: Some(OpState(kind:, form:, error: ""))),
@@ -215,7 +217,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case model.op {
         None -> #(model, effect.none(), [])
         Some(state) -> {
-          let form = ui.update_op_form(state.form, field, value)
+          let form = ops.update_op_form(state.form, field, value)
           #(
             Model(..model, op: Some(OpState(..state, form:, error: ""))),
             effect.none(),
@@ -230,7 +232,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case model.op {
         None -> #(model, effect.none(), [])
         Some(state) ->
-          case ui.build_command(state.kind, state.form) {
+          case ops.build_command(state.kind, state.form) {
             Error(prompt) -> #(
               Model(..model, op: Some(OpState(..state, error: prompt))),
               effect.none(),
@@ -269,8 +271,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// Snap an op form's engineer and project slots to valid options from the as-of
 /// roster, so a freshly opened form (whether blank or pre-filled from a card) names
 /// an engineer and project the directory actually carries.
-fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
-  ui.reconcile_form(form, engineer_refs(model), project_refs(model))
+fn reconcile(model: Model, form: ops.OpForm) -> ops.OpForm {
+  ops.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
 /// The engineer id for a board engineer NAME, resolved through the as-of roster
@@ -324,24 +326,24 @@ pub fn view(
 fn view_loading(permissions: Set(String)) -> Element(Msg) {
   html.div([], [
     head(permissions),
-    ui.empty_state(message: "Loading the board…"),
+    atoms.empty_state(message: "Loading the board…"),
   ])
 }
 
 fn view_failed(message: String, permissions: Set(String)) -> Element(Msg) {
   html.div([], [
     head(permissions),
-    ui.empty_state(message: "Could not load the board: " <> message),
+    atoms.empty_state(message: "Could not load the board: " <> message),
   ])
 }
 
 fn head(permissions: Set(String)) -> Element(Msg) {
-  ui.page_head(
+  atoms.page_head(
     title: "Board",
     blurb: "The whole consultancy as it stands on the selected date. Scrub the timeline to watch allocations, leave, and run-rate change.",
     actions: [
-      ui.page_action(
-        ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+      ops.page_action(
+        ops.permit(permissions, own: False, kind: ops.OpAssignToProject),
         OpStarted,
         "+ Assign",
       ),
@@ -396,29 +398,29 @@ fn stats_hero(
       }),
     )
   html.div([attribute.class("stats")], [
-    ui.stat(
+    atoms.stat(
       value: int.to_string(headcount),
       unit: "people",
       label: "Employed",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
-    ui.stat(
+    atoms.stat(
       value: int.to_string(utilization) <> "%",
       unit: "",
       label: "Utilization",
-      pct: ui.Pct(utilization),
+      pct: atoms.Pct(utilization),
     ),
-    ui.stat(
+    atoms.stat(
       value: int.to_string(list.length(on_leave)),
       unit: "on leave",
       label: "On leave",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
-    ui.stat(
-      value: ui.money_k(money.to_float(day_revenue)),
+    atoms.stat(
+      value: format.money_k(money.to_float(day_revenue)),
       unit: "/day",
       label: "Billable run-rate",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
   ])
 }
@@ -441,13 +443,13 @@ fn on_projects_panel(
     <> int.to_string(project_count)
     <> " projects"
   let body = case groups {
-    [] -> [ui.empty_state(message: "No one is allocated on this date.")]
+    [] -> [atoms.empty_state(message: "No one is allocated on this date.")]
     groups ->
       list.index_map(groups, fn(group, index) {
         proj_block(model, group, index, permissions)
       })
   }
-  ui.panel(title: "On projects", count: count, right: [], body: body)
+  atoms.panel(title: "On projects", count: count, right: [], body: body)
 }
 
 /// One project's block of engineer cards. `category` (the group's index) tints the
@@ -466,7 +468,7 @@ fn proj_block(
       }),
     )
   let meta =
-    ui.money_k(money.to_float(project_revenue))
+    format.money_k(money.to_float(project_revenue))
     <> "/day · "
     <> int.to_string(list.length(rows))
     <> " on team"
@@ -474,7 +476,7 @@ fn proj_block(
     list.map(rows, fn(row) { project_card(model, project, row, permissions) })
   html.div([attribute.class("board-group")], [
     html.div([attribute.class("board-group__head")], [
-      ui.swatch(category: category, inline: False),
+      atoms.swatch(category: category, inline: False),
       html.span([attribute.class("board-group__title")], [html.text(project)]),
       html.span([attribute.class("board-group__client")], [html.text(client)]),
       html.span([attribute.class("board-group__meta")], [html.text(meta)]),
@@ -495,11 +497,11 @@ fn project_card(
 ) -> Element(Msg) {
   let sub = case row.engagement {
     OnProject(day_rate:, fraction:, ..) -> [
-      ui.chip(label: ui.fraction(fraction), tone: ui.Accent),
-      ui.chip(label: short_level(row.level), tone: ui.Neutral),
-      ui.chip(
-        label: ui.money(money.to_float(day_rate)) <> "/d",
-        tone: ui.Neutral,
+      atoms.chip(label: format.fraction(fraction), tone: atoms.Accent),
+      atoms.chip(label: short_level(row.level), tone: atoms.Neutral),
+      atoms.chip(
+        label: format.money(money.to_float(day_rate)) <> "/d",
+        tone: atoms.Neutral,
       ),
     ]
     _ -> []
@@ -519,8 +521,8 @@ fn roll_off_action(
 ) -> Element(Msg) {
   case engineer_id_for(model, row.engineer), project_id_for(model, project) {
     Some(engineer_id), Some(project_id) ->
-      ui.when_permitted(
-        ui.permit(permissions, own: False, kind: ui.OpRollOff),
+      ops.when_permitted(
+        ops.permit(permissions, own: False, kind: ops.OpRollOff),
         fn(granted) {
           html.button(
             [
@@ -559,7 +561,7 @@ fn unstaffed_projects_panel(
     projects -> {
       let cards =
         list.map(projects, fn(project) { unstaffed_card(project, permissions) })
-      ui.panel(
+      atoms.panel(
         title: "Unstaffed projects",
         count: unstaffed_count(list.length(projects)),
         right: [],
@@ -594,14 +596,14 @@ fn unstaffed_card(
       html.div([attribute.class("board-card__sub")], [html.text(client)]),
     ]),
     html.div([attribute.class("board-card__action")], [
-      ui.launch(
-        ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+      ops.launch(
+        ops.permit(permissions, own: False, kind: ops.OpAssignToProject),
         to_msg: fn(granted) {
           OpStartedForProject(permit: granted, project_id:)
         },
         label: "Assign",
-        kind: ui.Ghost,
-        size: ui.Small,
+        kind: atoms.Ghost,
+        size: atoms.Small,
       ),
     ]),
   ])
@@ -628,7 +630,7 @@ fn on_leave_panel(on_leave: List(BoardRow)) -> Element(Msg) {
           }
           alloc_card(row, "on-leave", sub, element.none())
         })
-      ui.panel(
+      atoms.panel(
         title: "On leave",
         count: int.to_string(list.length(rows)),
         right: [],
@@ -651,12 +653,12 @@ fn unassigned_panel(unassigned: List(BoardRow)) -> Element(Msg) {
       let cards =
         list.map(rows, fn(row) {
           let sub = [
-            ui.chip(label: short_level(row.level), tone: ui.Neutral),
+            atoms.chip(label: short_level(row.level), tone: atoms.Neutral),
             html.span([], [html.text("available")]),
           ]
           alloc_card(row, "bench", sub, element.none())
         })
-      ui.panel(
+      atoms.panel(
         title: "Unassigned",
         count: int.to_string(list.length(rows)),
         right: [],
@@ -686,7 +688,7 @@ fn alloc_card(
     extra -> "board-card board-card--" <> extra
   }
   html.div([attribute.class(class), event.on_click(CardClicked(row.engineer))], [
-    ui.avatar(
+    atoms.avatar(
       name: row.engineer,
       category: name_category(row.engineer),
       class: "avatar",
@@ -710,7 +712,7 @@ fn op_panel(model: Model) -> Element(Msg) {
   case model.op {
     None -> element.none()
     Some(state) ->
-      ui.modal(
+      atoms.modal(
         title: op_title(state.kind),
         error: state.error,
         body: op_fields(model, state),
@@ -721,18 +723,18 @@ fn op_panel(model: Model) -> Element(Msg) {
   }
 }
 
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpAssignToProject -> "Assign to a project"
-    ui.OpRollOff -> "Roll off a project"
+    ops.OpAssignToProject -> "Assign to a project"
+    ops.OpRollOff -> "Roll off a project"
     _ -> "Operation"
   }
 }
 
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpAssignToProject -> "Assign"
-    ui.OpRollOff -> "Roll off"
+    ops.OpAssignToProject -> "Assign"
+    ops.OpRollOff -> "Roll off"
     _ -> "Confirm"
   }
 }
@@ -743,42 +745,42 @@ fn op_verb(kind: ui.OpKind) -> String {
 /// date.
 fn op_fields(model: Model, state: OpState) -> List(Element(Msg)) {
   let engineer_field =
-    ui.ref_select(
+    ops.ref_select(
       label: "Engineer",
-      field: ui.FEngineerId,
+      field: ops.FEngineerId,
       refs: engineer_refs(model),
       selected: state.form.engineer_id,
       to_msg: OpFieldEdited,
     )
   let project_field =
-    ui.ref_select(
+    ops.ref_select(
       label: "Project",
-      field: ui.FProjectId,
+      field: ops.FProjectId,
       refs: project_refs(model),
       selected: state.form.project_id,
       to_msg: OpFieldEdited,
     )
   case state.kind {
-    ui.OpAssignToProject -> [
+    ops.OpAssignToProject -> [
       engineer_field,
       project_field,
-      ui.op_field(
+      ops.op_field(
         label: "Fraction",
-        field: ui.FFraction,
+        field: ops.FFraction,
         value: state.form.fraction,
         input_type: "number",
         to_msg: OpFieldEdited,
       ),
-      ui.op_field(
+      ops.op_field(
         label: "Valid from",
-        field: ui.FValidFrom,
+        field: ops.FValidFrom,
         value: state.form.valid_from,
         input_type: "date",
         to_msg: OpFieldEdited,
       ),
-      ui.op_field(
+      ops.op_field(
         label: "Valid to",
-        field: ui.FValidTo,
+        field: ops.FValidTo,
         value: state.form.valid_to,
         input_type: "date",
         to_msg: OpFieldEdited,
@@ -787,9 +789,9 @@ fn op_fields(model: Model, state: OpState) -> List(Element(Msg)) {
     _ -> [
       engineer_field,
       project_field,
-      ui.op_field(
+      ops.op_field(
         label: "Effective",
-        field: ui.FEffective,
+        field: ops.FEffective,
         value: state.form.effective,
         input_type: "date",
         to_msg: OpFieldEdited,
@@ -897,7 +899,7 @@ fn name_category(name: String) -> Int {
 }
 
 /// The board's short level label ("L6"), the dense card form of the People
-/// detail's full `ui.level_band` ("L6 · Distinguished").
+/// detail's full `format.level_band` ("L6 · Distinguished").
 fn short_level(level: Int) -> String {
   "L" <> int.to_string(level)
 }

@@ -17,7 +17,8 @@ import client/api
 import client/page.{type OutMsg}
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
 import gleam/int
 import gleam/list
 import gleam/time/calendar
@@ -112,8 +113,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// to `panel`.
 pub fn view(model: Model) -> Element(Msg) {
   case model.forecast {
-    Loading -> ui.empty_state(message: "Loading forecast…")
-    Failed(message:) -> ui.empty_state(message: message)
+    Loading -> atoms.empty_state(message: "Loading forecast…")
+    Failed(message:) -> atoms.empty_state(message: message)
     Loaded(forecast:) -> panel(model, forecast)
   }
 }
@@ -125,20 +126,23 @@ pub fn view(model: Model) -> Element(Msg) {
 fn panel(model: Model, forecast: Forecast) -> Element(Msg) {
   case forecast.months {
     [] ->
-      ui.panel(title: "Forecast", count: "0 months", right: [], body: [
-        ui.empty_state(message: "No committed demand to forecast on this date."),
+      atoms.panel(title: "Forecast", count: "0 months", right: [], body: [
+        atoms.empty_state(
+          message: "No committed demand to forecast on this date.",
+        ),
       ])
     months -> {
       let count = list.length(months)
       let total_revenue =
         money.sum(list.map(months, fn(month) { month.revenue }))
-      ui.panel(
+      atoms.panel(
         title: "Forecast",
         count: int.to_string(count) <> " months",
         right: [
           html.span([attribute.class("finance__total-note")], [
             html.text(
-              ui.money(money.to_float(total_revenue)) <> " revenue to the cliff",
+              format.money(money.to_float(total_revenue))
+              <> " revenue to the cliff",
             ),
           ]),
         ],

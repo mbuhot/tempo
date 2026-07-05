@@ -14,7 +14,8 @@
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/ops
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
@@ -29,7 +30,7 @@ import rsvp
 import shared/location/view.{type EngineerLocation, type LocationRecord} as location_view
 
 pub type Model {
-  Model(as_of: Date, actor: String, state: State, op: Option(ui.OpState))
+  Model(as_of: Date, actor: String, state: State, op: Option(ops.OpState))
 }
 
 /// The page's load state: fetching, the loaded roster-with-location, or a load
@@ -45,9 +46,13 @@ pub type Msg {
     as_of: Date,
     result: Result(List(EngineerLocation), rsvp.Error(String)),
   )
-  OpOpened(permit: ui.Permit, engineer_id: Int, current: Option(LocationRecord))
+  OpOpened(
+    permit: ops.Permit,
+    engineer_id: Int,
+    current: Option(LocationRecord),
+  )
   OpCancelled
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
@@ -87,13 +92,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     OpOpened(permit:, engineer_id:, current:) -> {
-      let kind = ui.permit_kind(permit)
+      let kind = ops.permit_kind(permit)
       let form =
-        ui.blank_op_form(kind, model.as_of)
-        |> ui.update_op_form(ui.FEngineerId, int.to_string(engineer_id))
+        ops.blank_op_form(kind, model.as_of)
+        |> ops.update_op_form(ops.FEngineerId, int.to_string(engineer_id))
         |> prefill_location(current)
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -103,12 +108,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) -> #(
+        Some(ops.OpState(kind:, form:, ..)) -> #(
           Model(
             ..model,
-            op: Some(ui.OpState(
+            op: Some(ops.OpState(
               kind:,
-              form: ui.update_op_form(form, field, value),
+              form: ops.update_op_form(form, field, value),
               error: None,
             )),
           ),
@@ -120,8 +125,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) ->
-          case ui.build_command(kind, form) {
+        Some(ops.OpState(kind:, form:, ..)) ->
+          case ops.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OperationReturned),
@@ -130,7 +135,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(prompt) -> #(
               Model(
                 ..model,
-                op: Some(ui.OpState(kind:, form:, error: Some(prompt))),
+                op: Some(ops.OpState(kind:, form:, error: Some(prompt))),
               ),
               effect.none(),
               [],
@@ -158,15 +163,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// Pre-fill the form's location fields from the row's current location, if any.
 /// A row with no location on record opens the modal blank.
 fn prefill_location(
-  form: ui.OpForm,
+  form: ops.OpForm,
   current: Option(LocationRecord),
-) -> ui.OpForm {
+) -> ops.OpForm {
   case current {
     Some(location_view.LocationRecord(country:, region:, timezone:, ..)) ->
       form
-      |> ui.update_op_form(ui.FCountry, country)
-      |> ui.update_op_form(ui.FRegion, option.unwrap(region, ""))
-      |> ui.update_op_form(ui.FTimezone, timezone)
+      |> ops.update_op_form(ops.FCountry, country)
+      |> ops.update_op_form(ops.FRegion, option.unwrap(region, ""))
+      |> ops.update_op_form(ops.FTimezone, timezone)
     None -> form
   }
 }
@@ -174,8 +179,8 @@ fn prefill_location(
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case model.op {
-    Some(ui.OpState(kind:, form:, ..)) ->
-      Model(..model, op: Some(ui.OpState(kind:, form:, error: Some(message))))
+    Some(ops.OpState(kind:, form:, ..)) ->
+      Model(..model, op: Some(ops.OpState(kind:, form:, error: Some(message))))
     None -> model
   }
 }
@@ -190,7 +195,7 @@ pub fn view(
   let _ = as_of
   html.div([], [
     view_op_modal(model.op),
-    ui.list_page(
+    atoms.list_page(
       title: "Locations",
       blurb: "Every engineer's country, region, and IANA timezone as of the rail date, so the finder and calendar know each person's local wall-clock.",
       actions: [],
@@ -201,9 +206,9 @@ pub fn view(
 
 fn view_body(state: State, permissions: Set(String)) -> Element(Msg) {
   case state {
-    LocationsLoading -> ui.empty_state(message: "Loading locations…")
+    LocationsLoading -> atoms.empty_state(message: "Loading locations…")
     LocationsFailed(detail:) ->
-      ui.empty_state(message: "Could not load locations: " <> detail)
+      atoms.empty_state(message: "Could not load locations: " <> detail)
     LocationsLoaded(entries:) -> view_table(entries, permissions)
   }
 }
@@ -212,7 +217,7 @@ fn view_table(
   entries: List(EngineerLocation),
   permissions: Set(String),
 ) -> Element(Msg) {
-  ui.data_table(
+  atoms.data_table(
     headers: [
       #("Engineer", False),
       #("Location", False),
@@ -278,7 +283,7 @@ fn view_unlocated_row(
 
 fn view_engineer_cell(engineer_id: Int, name: String) -> Element(Msg) {
   html.span([attribute.class("cell-name")], [
-    ui.avatar(name:, category: engineer_id, class: "avatar"),
+    atoms.avatar(name:, category: engineer_id, class: "avatar"),
     html.span([attribute.class("cell-name__text")], [
       html.span([attribute.class("cell-name__name")], [html.text(name)]),
     ]),
@@ -302,22 +307,22 @@ fn set_location_launch(
   current: Option(LocationRecord),
   permissions: Set(String),
 ) -> Element(Msg) {
-  ui.launch(
-    ui.permit(permissions, own: False, kind: ui.OpSetLocation),
+  ops.launch(
+    ops.permit(permissions, own: False, kind: ops.OpSetLocation),
     to_msg: fn(granted) { OpOpened(permit: granted, engineer_id:, current:) },
     label: "Set location",
-    kind: ui.Ghost,
-    size: ui.Small,
+    kind: atoms.Ghost,
+    size: atoms.Small,
   )
 }
 
 // --- Op form ------------------------------------------------------------
 
-fn view_op_modal(op: Option(ui.OpState)) -> Element(Msg) {
+fn view_op_modal(op: Option(ops.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(ui.OpState(kind:, form:, error:)) ->
-      ui.modal(
+    Some(ops.OpState(kind:, form:, error:)) ->
+      atoms.modal(
         title: "Set location",
         error: option.unwrap(error, ""),
         body: op_fields(kind, form),
@@ -328,20 +333,24 @@ fn view_op_modal(op: Option(ui.OpState)) -> Element(Msg) {
   }
 }
 
-fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
+fn op_fields(kind: ops.OpKind, form: ops.OpForm) -> List(Element(Msg)) {
   case kind {
-    ui.OpSetLocation -> [
-      text_field("Country", ui.FCountry, form.country),
-      text_field("Region", ui.FRegion, form.region),
-      text_field("Timezone (IANA TZID)", ui.FTimezone, form.timezone),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpSetLocation -> [
+      text_field("Country", ops.FCountry, form.country),
+      text_field("Region", ops.FRegion, form.region),
+      text_field("Timezone (IANA TZID)", ops.FTimezone, form.timezone),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
     _ -> []
   }
 }
 
-fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn text_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -350,8 +359,12 @@ fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
   )
 }
 
-fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn date_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,

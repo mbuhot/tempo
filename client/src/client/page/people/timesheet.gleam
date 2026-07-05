@@ -9,7 +9,9 @@
 //// (disabled where the engineer is not allocated) and the "Log week" submit.
 
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/dict.{type Dict}
 import gleam/float
 import gleam/int
@@ -32,12 +34,12 @@ import shared/timesheet/view.{
 pub fn view(
   week: TimesheetWeek,
   edits: Dict(#(Int, Int), String),
-  on_submit on_submit: fn(ui.Permit) -> msg,
+  on_submit on_submit: fn(ops.Permit) -> msg,
   on_cell_edit on_cell_edit: fn(Int, calendar.Date, String) -> msg,
-  permit permit: Result(ui.Permit, Nil),
+  permit permit: Result(ops.Permit, Nil),
 ) -> Element(msg) {
   let permitted = result.is_ok(permit)
-  ui.panel(
+  atoms.panel(
     title: "Timesheet",
     count: "week of " <> time.iso_date(week.week_start),
     right: [submit_week_button(week, on_submit, permit)],
@@ -51,17 +53,17 @@ pub fn view(
 
 fn submit_week_button(
   week: TimesheetWeek,
-  on_submit: fn(ui.Permit) -> msg,
-  permit: Result(ui.Permit, Nil),
+  on_submit: fn(ops.Permit) -> msg,
+  permit: Result(ops.Permit, Nil),
 ) -> Element(msg) {
   case week.rows {
     [] -> element.none()
     _ ->
-      ui.when_permitted(permit, fn(granted) {
-        ui.button(
+      ops.when_permitted(permit, fn(granted) {
+        atoms.button(
           label: "Log week",
-          kind: ui.Primary,
-          size: ui.Small,
+          kind: atoms.Primary,
+          size: atoms.Small,
           on_press: on_submit(granted),
         )
       })
@@ -90,7 +92,7 @@ fn grid(
         html.tbody([], [
           html.tr([], [
             html.td([attribute.attribute("colspan", "9")], [
-              ui.empty_state("Nothing to log this week."),
+              atoms.empty_state("Nothing to log this week."),
             ]),
           ]),
         ]),
@@ -122,12 +124,12 @@ fn totals_row(
       [html.td([], [html.text("Total")])],
       list.map(day_totals, fn(total) {
         html.td([attribute.class("timesheet__total")], [
-          html.text(ui.days(total)),
+          html.text(format.days(total)),
         ])
       }),
       [
         html.td([attribute.class("timesheet__total")], [
-          html.text(ui.days(float.sum(day_totals))),
+          html.text(format.days(float.sum(day_totals))),
         ]),
       ],
     ]),
@@ -202,7 +204,7 @@ fn row_view(
     list.flatten([
       [
         html.td([], [
-          ui.swatch(category: project_id, inline: True),
+          atoms.swatch(category: project_id, inline: True),
           html.text(project),
         ]),
       ],
@@ -211,7 +213,7 @@ fn row_view(
       }),
       [
         html.td([attribute.class("timesheet__total")], [
-          html.text(ui.days(row_total(row, edits))),
+          html.text(format.days(row_total(row, edits))),
         ]),
       ],
     ]),
@@ -308,7 +310,7 @@ fn parse_hours_opt(text: String) -> Result(Float, Nil) {
 fn hours_display(hours: Float) -> String {
   case hours == 0.0 {
     True -> ""
-    False -> ui.days(hours)
+    False -> format.days(hours)
   }
 }
 

@@ -11,7 +11,8 @@
 //// so a new `Cell`/`Tone`/`FilterKind` variant fails the build until handled here.
 
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
 import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
 import gleam/float
@@ -979,7 +980,7 @@ fn body_rows(
         html.td(
           [attribute.attribute("colspan", int.to_string(list.length(columns)))],
           [
-            ui.empty_state(message: "No rows match these filters."),
+            atoms.empty_state(message: "No rows match these filters."),
           ],
         ),
       ]),
@@ -1133,16 +1134,16 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
     NumberCell(value) ->
       html.span([attribute.class("mono")], [html.text(number_text(value))])
     PercentCell(value) ->
-      html.span([attribute.class("mono")], [html.text(ui.pct(value))])
+      html.span([attribute.class("mono")], [html.text(format.pct(value))])
     MoneyCell(value) ->
       html.span([attribute.class("mono")], [
-        html.text(ui.money(money.to_float(value))),
+        html.text(format.money(money.to_float(value))),
       ])
     SignedMoneyCell(amount:, tone:) ->
       html.span(
         [attribute.class("mono dt-money dt-money--" <> tone_class(tone))],
         [
-          html.text(ui.money(money.to_float(amount))),
+          html.text(format.money(money.to_float(amount))),
         ],
       )
     DateCell(value) ->
@@ -1180,7 +1181,7 @@ pub fn render_cell(cell: Cell) -> Element(msg) {
         html.span(
           [
             attribute.class("avatar"),
-            attribute.style("background", ui.cat_color(category)),
+            attribute.style("background", atoms.cat_color(category)),
           ],
           [html.text(initials)],
         ),
@@ -1240,7 +1241,7 @@ fn render_chip(chip: Chip, index: Int) -> Element(msg) {
       html.span(
         [
           attribute.class("avatar avatar--chip"),
-          attribute.style("background", ui.cat_color(index)),
+          attribute.style("background", atoms.cat_color(index)),
         ],
         [html.text(initials)],
       )
@@ -1254,8 +1255,8 @@ fn render_chip(chip: Chip, index: Int) -> Element(msg) {
 /// neutral border token. Exhaustive on `Swatch`.
 fn swatch_color(swatch: Swatch) -> String {
   case swatch {
-    Category(id) -> ui.cat_color(id)
-    Level(level) -> ui.lvl_color(level)
+    Category(id) -> atoms.cat_color(id)
+    Level(level) -> atoms.lvl_color(level)
     Placeholder -> "var(--color-border)"
   }
 }

@@ -12,7 +12,8 @@
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/ops
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
@@ -51,7 +52,7 @@ pub type Attendee {
 }
 
 /// Names a slot of the bespoke `CreateForm` — the create form's own field
-/// enum, distinct from `ui.OpField` since `ScheduleMeeting` is built directly
+/// enum, distinct from `ops.OpField` since `ScheduleMeeting` is built directly
 /// rather than through the scalar op-form engine.
 pub type CreateField {
   CreateTitle
@@ -87,7 +88,7 @@ pub type Model {
     as_of: Date,
     actor: String,
     state: State,
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
     roster: List(EngineerLocation),
     create: Option(CreateForm),
   )
@@ -96,12 +97,12 @@ pub type Model {
 pub type Msg {
   Fetched(as_of: Date, result: Result(List(MeetingRecord), rsvp.Error(String)))
   RosterFetched(result: Result(List(EngineerLocation), rsvp.Error(String)))
-  RescheduleOpened(permit: ui.Permit, record: MeetingRecord)
-  CancelOpened(permit: ui.Permit, meeting_id: Int)
-  AddAttendeeOpened(permit: ui.Permit, meeting_id: Int)
-  RemoveAttendeeOpened(permit: ui.Permit, meeting_id: Int, engineer_id: Int)
+  RescheduleOpened(permit: ops.Permit, record: MeetingRecord)
+  CancelOpened(permit: ops.Permit, meeting_id: Int)
+  AddAttendeeOpened(permit: ops.Permit, meeting_id: Int)
+  RemoveAttendeeOpened(permit: ops.Permit, meeting_id: Int, engineer_id: Int)
   OpCancelled
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
   CreateOpened
@@ -177,7 +178,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     }
 
     RescheduleOpened(permit:, record:) -> {
-      let kind = ui.permit_kind(permit)
+      let kind = ops.permit_kind(permit)
       let meeting_view.MeetingRecord(
         meeting_id:,
         meeting_tz:,
@@ -187,23 +188,23 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         ..,
       ) = record
       let form =
-        ui.blank_op_form(kind, model.as_of)
-        |> ui.update_op_form(ui.FMeetingId, int.to_string(meeting_id))
-        |> ui.update_op_form(
-          ui.FEffective,
+        ops.blank_op_form(kind, model.as_of)
+        |> ops.update_op_form(ops.FMeetingId, int.to_string(meeting_id))
+        |> ops.update_op_form(
+          ops.FEffective,
           time.iso_date(local_date(starts_at, canonical_offset_minutes)),
         )
-        |> ui.update_op_form(
-          ui.FStartsAt,
+        |> ops.update_op_form(
+          ops.FStartsAt,
           local_time(starts_at, canonical_offset_minutes),
         )
-        |> ui.update_op_form(
-          ui.FDurationMinutes,
+        |> ops.update_op_form(
+          ops.FDurationMinutes,
           int.to_string(minutes_between(starts_at, ends_at)),
         )
-        |> ui.update_op_form(ui.FTimezone, meeting_tz)
+        |> ops.update_op_form(ops.FTimezone, meeting_tz)
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -222,13 +223,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     )
 
     RemoveAttendeeOpened(permit:, meeting_id:, engineer_id:) -> {
-      let kind = ui.permit_kind(permit)
+      let kind = ops.permit_kind(permit)
       let form =
-        ui.blank_op_form(kind, model.as_of)
-        |> ui.update_op_form(ui.FMeetingId, int.to_string(meeting_id))
-        |> ui.update_op_form(ui.FEngineerId, int.to_string(engineer_id))
+        ops.blank_op_form(kind, model.as_of)
+        |> ops.update_op_form(ops.FMeetingId, int.to_string(meeting_id))
+        |> ops.update_op_form(ops.FEngineerId, int.to_string(engineer_id))
       #(
-        Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -238,12 +239,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) -> #(
+        Some(ops.OpState(kind:, form:, ..)) -> #(
           Model(
             ..model,
-            op: Some(ui.OpState(
+            op: Some(ops.OpState(
               kind:,
-              form: ui.update_op_form(form, field, value),
+              form: ops.update_op_form(form, field, value),
               error: None,
             )),
           ),
@@ -255,8 +256,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) ->
-          case ui.build_command(kind, form) {
+        Some(ops.OpState(kind:, form:, ..)) ->
+          case ops.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OperationReturned),
@@ -265,7 +266,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(prompt) -> #(
               Model(
                 ..model,
-                op: Some(ui.OpState(kind:, form:, error: Some(prompt))),
+                op: Some(ops.OpState(kind:, form:, error: Some(prompt))),
               ),
               effect.none(),
               [],
@@ -383,12 +384,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
 /// Open `permit`'s op with a form pre-filled with `meeting_id` only — the shape
 /// shared by cancel and add-attendee, which need no other prefill.
-fn open_op(model: Model, permit: ui.Permit, meeting_id: Int) -> Model {
-  let kind = ui.permit_kind(permit)
+fn open_op(model: Model, permit: ops.Permit, meeting_id: Int) -> Model {
+  let kind = ops.permit_kind(permit)
   let form =
-    ui.blank_op_form(kind, model.as_of)
-    |> ui.update_op_form(ui.FMeetingId, int.to_string(meeting_id))
-  Model(..model, op: Some(ui.OpState(kind:, form:, error: None)))
+    ops.blank_op_form(kind, model.as_of)
+    |> ops.update_op_form(ops.FMeetingId, int.to_string(meeting_id))
+  Model(..model, op: Some(ops.OpState(kind:, form:, error: None)))
 }
 
 /// Surface a rejection on whichever modal is open — the bespoke create form
@@ -405,8 +406,8 @@ fn set_error(model: Model, message: String) -> Model {
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case model.op {
-    Some(ui.OpState(kind:, form:, ..)) ->
-      Model(..model, op: Some(ui.OpState(kind:, form:, error: Some(message))))
+    Some(ops.OpState(kind:, form:, ..)) ->
+      Model(..model, op: Some(ops.OpState(kind:, form:, error: Some(message))))
     None -> model
   }
 }
@@ -610,7 +611,7 @@ pub fn view(
   html.div([], [
     view_op_modal(model.op),
     view_create_modal(model.create, model.roster),
-    ui.list_page(
+    atoms.list_page(
       title: "Meetings",
       blurb: "Every upcoming meeting as of the rail date, with each attendee's local wall-clock time.",
       actions: view_actions(permissions),
@@ -622,10 +623,10 @@ pub fn view(
 fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
   case set.contains(permissions, perm.meeting_manage) {
     True -> [
-      ui.button(
+      atoms.button(
         label: "New meeting",
-        kind: ui.Primary,
-        size: ui.Medium,
+        kind: atoms.Primary,
+        size: atoms.Medium,
         on_press: CreateOpened,
       ),
     ]
@@ -635,9 +636,9 @@ fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
 
 fn view_body(state: State, permissions: Set(String)) -> Element(Msg) {
   case state {
-    MeetingsLoading -> ui.empty_state(message: "Loading meetings…")
+    MeetingsLoading -> atoms.empty_state(message: "Loading meetings…")
     MeetingsFailed(detail:) ->
-      ui.empty_state(message: "Could not load meetings: " <> detail)
+      atoms.empty_state(message: "Could not load meetings: " <> detail)
     MeetingsLoaded(records:) -> view_table(records, permissions)
   }
 }
@@ -647,9 +648,9 @@ fn view_table(
   permissions: Set(String),
 ) -> Element(Msg) {
   case records {
-    [] -> ui.empty_state(message: "No upcoming meetings.")
+    [] -> atoms.empty_state(message: "No upcoming meetings.")
     _ ->
-      ui.data_table(
+      atoms.data_table(
         headers: [
           #("Meeting", False),
           #("When", False),
@@ -690,26 +691,26 @@ fn view_meeting_actions(
 ) -> Element(Msg) {
   let meeting_view.MeetingRecord(meeting_id:, ..) = record
   html.div([attribute.class("action-row")], [
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpRescheduleMeeting),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpRescheduleMeeting),
       to_msg: fn(granted) { RescheduleOpened(permit: granted, record:) },
       label: "Reschedule",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpCancelMeeting),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpCancelMeeting),
       to_msg: fn(granted) { CancelOpened(permit: granted, meeting_id:) },
       label: "Cancel",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpAddAttendee),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpAddAttendee),
       to_msg: fn(granted) { AddAttendeeOpened(permit: granted, meeting_id:) },
       label: "Add attendee",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
   ])
 }
@@ -761,14 +762,14 @@ fn view_attendee(
     html.text(" "),
     attendance_chip(attendance),
     html.text(" "),
-    ui.launch(
-      ui.permit(permissions, own: False, kind: ui.OpRemoveAttendee),
+    ops.launch(
+      ops.permit(permissions, own: False, kind: ops.OpRemoveAttendee),
       to_msg: fn(granted) {
         RemoveAttendeeOpened(permit: granted, meeting_id:, engineer_id:)
       },
       label: "Remove",
-      kind: ui.Ghost,
-      size: ui.Small,
+      kind: atoms.Ghost,
+      size: atoms.Small,
     ),
   ])
 }
@@ -785,18 +786,18 @@ fn attendee_local_time(
 
 fn attendance_chip(attendance: command.Attendance) -> Element(Msg) {
   case attendance {
-    Required -> ui.chip(label: "Required", tone: ui.Neutral)
-    Optional -> ui.chip(label: "Optional", tone: ui.Accent)
+    Required -> atoms.chip(label: "Required", tone: atoms.Neutral)
+    Optional -> atoms.chip(label: "Optional", tone: atoms.Accent)
   }
 }
 
 // --- Op form --------------------------------------------------------------
 
-fn view_op_modal(op: Option(ui.OpState)) -> Element(Msg) {
+fn view_op_modal(op: Option(ops.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(ui.OpState(kind:, form:, error:)) ->
-      ui.modal(
+    Some(ops.OpState(kind:, form:, error:)) ->
+      atoms.modal(
         title: op_title(kind),
         error: option.unwrap(error, ""),
         body: op_fields(kind, form),
@@ -807,48 +808,48 @@ fn view_op_modal(op: Option(ui.OpState)) -> Element(Msg) {
   }
 }
 
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpRescheduleMeeting -> "Reschedule meeting"
-    ui.OpCancelMeeting -> "Cancel meeting"
-    ui.OpAddAttendee -> "Add attendee"
-    ui.OpRemoveAttendee -> "Remove attendee"
+    ops.OpRescheduleMeeting -> "Reschedule meeting"
+    ops.OpCancelMeeting -> "Cancel meeting"
+    ops.OpAddAttendee -> "Add attendee"
+    ops.OpRemoveAttendee -> "Remove attendee"
     _ -> ""
   }
 }
 
 /// The confirm-button verb for an operation kind — the action the presenter is
 /// committing, not a generic "Confirm".
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpRescheduleMeeting -> "Reschedule"
-    ui.OpCancelMeeting -> "Cancel meeting"
-    ui.OpAddAttendee -> "Add"
-    ui.OpRemoveAttendee -> "Remove"
+    ops.OpRescheduleMeeting -> "Reschedule"
+    ops.OpCancelMeeting -> "Cancel meeting"
+    ops.OpAddAttendee -> "Add"
+    ops.OpRemoveAttendee -> "Remove"
     _ -> "Confirm"
   }
 }
 
-fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
+fn op_fields(kind: ops.OpKind, form: ops.OpForm) -> List(Element(Msg)) {
   case kind {
-    ui.OpRescheduleMeeting -> [
-      date_field("Date", ui.FEffective, form.effective),
-      text_field("Start (HH:MM)", ui.FStartsAt, form.starts_at),
+    ops.OpRescheduleMeeting -> [
+      date_field("Date", ops.FEffective, form.effective),
+      text_field("Start (HH:MM)", ops.FStartsAt, form.starts_at),
       text_field(
         "Duration (minutes)",
-        ui.FDurationMinutes,
+        ops.FDurationMinutes,
         form.duration_minutes,
       ),
-      text_field("Timezone (IANA TZID)", ui.FTimezone, form.timezone),
+      text_field("Timezone (IANA TZID)", ops.FTimezone, form.timezone),
     ]
-    ui.OpCancelMeeting -> [
+    ops.OpCancelMeeting -> [
       html.p([], [html.text("Cancel meeting #" <> form.meeting_id <> "?")]),
     ]
-    ui.OpAddAttendee -> [
-      text_field("Engineer id", ui.FEngineerId, form.engineer_id),
+    ops.OpAddAttendee -> [
+      text_field("Engineer id", ops.FEngineerId, form.engineer_id),
       attendance_select(form.attendance),
     ]
-    ui.OpRemoveAttendee -> [
+    ops.OpRemoveAttendee -> [
       html.p([], [
         html.text(
           "Remove engineer #"
@@ -863,8 +864,12 @@ fn op_fields(kind: ui.OpKind, form: ui.OpForm) -> List(Element(Msg)) {
   }
 }
 
-fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn text_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -873,8 +878,12 @@ fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
   )
 }
 
-fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn date_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -891,7 +900,7 @@ fn attendance_select(selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Attendance"),
-        event.on_change(fn(value) { OpFieldEdited(ui.FAttendance, value) }),
+        event.on_change(fn(value) { OpFieldEdited(ops.FAttendance, value) }),
       ],
       [
         html.option(
@@ -922,7 +931,7 @@ fn view_create_modal(
   case create {
     None -> element.none()
     Some(form) ->
-      ui.modal(
+      atoms.modal(
         title: "Schedule meeting",
         error: option.unwrap(form.error, ""),
         body: view_create_fields(form, roster),
@@ -1031,10 +1040,10 @@ fn view_roster_match(entry: EngineerLocation) -> Element(Msg) {
     ],
     [
       html.span([], [html.text(name)]),
-      ui.button(
+      atoms.button(
         label: "Add",
-        kind: ui.Ghost,
-        size: ui.Small,
+        kind: atoms.Ghost,
+        size: atoms.Small,
         on_press: AttendeeAdded(engineer_id),
       ),
     ],
@@ -1066,10 +1075,10 @@ fn view_current_attendee(
     [
       html.span([], [html.text(name)]),
       create_attendance_select(engineer_id, attendance),
-      ui.button(
+      atoms.button(
         label: "Remove",
-        kind: ui.Ghost,
-        size: ui.Small,
+        kind: atoms.Ghost,
+        size: atoms.Small,
         on_press: AttendeeRemoved(engineer_id),
       ),
     ],

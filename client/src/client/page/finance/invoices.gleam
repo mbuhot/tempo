@@ -23,7 +23,9 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -50,7 +52,7 @@ pub type Model {
     selected: Option(Int),
     detail: Option(InvoiceDetail),
     roster: Option(Roster),
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
   )
 }
 
@@ -66,9 +68,9 @@ pub type Msg {
   )
   GotRoster(as_of: calendar.Date, result: Result(Roster, rsvp.Error(String)))
   DetailClosed
-  OpOpened(permit: ui.Permit)
-  OpOpenedForInvoice(permit: ui.Permit, invoice_id: Int)
-  OpFieldChanged(field: ui.OpField, value: String)
+  OpOpened(permit: ops.Permit)
+  OpOpenedForInvoice(permit: ops.Permit, invoice_id: Int)
+  OpFieldChanged(field: ops.OpField, value: String)
   OpSubmitted
   OpCancelled
   OpReplied(result: Result(Nil, rsvp.Error(String)))
@@ -202,17 +204,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       [Navigate(route.Finance(tab: route.Invoices, invoice: None))],
     )
 
-    OpOpened(permit:) -> on_op_opened(model, ui.permit_kind(permit), None)
+    OpOpened(permit:) -> on_op_opened(model, ops.permit_kind(permit), None)
 
     OpOpenedForInvoice(permit:, invoice_id:) ->
-      on_op_opened(model, ui.permit_kind(permit), Some(invoice_id))
+      on_op_opened(model, ops.permit_kind(permit), Some(invoice_id))
 
     OpFieldChanged(field:, value:) ->
       case model.op {
         Some(op) -> {
-          let form = ui.update_op_form(op.form, field, value)
+          let form = ops.update_op_form(op.form, field, value)
           #(
-            Model(..model, op: Some(ui.OpState(..op, form:))),
+            Model(..model, op: Some(ops.OpState(..op, form:))),
             effect.none(),
             [],
           )
@@ -223,14 +225,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(op) ->
-          case ui.build_command(op.kind, op.form) {
+          case ops.build_command(op.kind, op.form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpReplied),
               [],
             )
             Error(message) -> #(
-              Model(..model, op: Some(ui.OpState(..op, error: Some(message)))),
+              Model(..model, op: Some(ops.OpState(..op, error: Some(message)))),
               effect.none(),
               [],
             )
@@ -260,7 +262,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               Model(
                 ..model,
                 op: Some(
-                  ui.OpState(..op, error: Some(api.describe_error(error))),
+                  ops.OpState(..op, error: Some(api.describe_error(error))),
                 ),
               ),
               effect.none(),
@@ -277,17 +279,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// header) so the presenter does not retype the id.
 fn on_op_opened(
   model: Model,
-  kind: ui.OpKind,
+  kind: ops.OpKind,
   invoice_id: Option(Int),
 ) -> #(Model, Effect(Msg), List(OutMsg)) {
-  let blank = ui.blank_op_form(kind:, default_date: model.as_of)
+  let blank = ops.blank_op_form(kind:, default_date: model.as_of)
   let filled = case invoice_id {
-    Some(id) -> ui.update_op_form(blank, ui.FInvoiceId, int.to_string(id))
+    Some(id) -> ops.update_op_form(blank, ops.FInvoiceId, int.to_string(id))
     None -> blank
   }
-  let form = ui.reconcile_form(filled, [], project_refs(model))
+  let form = ops.reconcile_form(filled, [], project_refs(model))
   #(
-    Model(..model, op: Some(ui.OpState(kind:, form:, error: None))),
+    Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
     effect.none(),
     [],
   )
@@ -310,7 +312,7 @@ pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let actions = invoice_actions(permissions)
   let body = case model.detail, model.selected {
     Some(detail_data), Some(_) -> detail(detail_data, actions)
-    _, Some(_) -> ui.empty_state(message: "Loading invoice…")
+    _, Some(_) -> atoms.empty_state(message: "Loading invoice…")
     _, None -> list_view(model.host, actions)
   }
   html.div([], [op_panel(model), body])
@@ -328,9 +330,9 @@ fn op_panel(model: Model) -> Element(Msg) {
 /// open the matching op form, opening a row selects it, closing returns to the list.
 fn invoice_actions(permissions: Set(String)) -> Actions(Msg) {
   Actions(
-    draft: ui.permit(permissions, own: False, kind: ui.OpDraftInvoice),
-    issue: ui.permit(permissions, own: False, kind: ui.OpIssueInvoice),
-    pay: ui.permit(permissions, own: False, kind: ui.OpPayInvoice),
+    draft: ops.permit(permissions, own: False, kind: ops.OpDraftInvoice),
+    issue: ops.permit(permissions, own: False, kind: ops.OpIssueInvoice),
+    pay: ops.permit(permissions, own: False, kind: ops.OpPayInvoice),
     to_open: OpOpened,
     to_open_for: OpOpenedForInvoice,
     on_close: DetailClosed,
@@ -341,8 +343,8 @@ fn invoice_actions(permissions: Set(String)) -> Actions(Msg) {
 /// (the Draft project picker draws from the as-of roster; Issue/Mark-paid show the
 /// known invoice id as a locked read-only field), the last rejection line, and a
 /// Cancel / verb-labelled Confirm footer.
-fn view_op_form(model: Model, op: ui.OpState) -> Element(Msg) {
-  ui.modal(
+fn view_op_form(model: Model, op: ops.OpState) -> Element(Msg) {
+  atoms.modal(
     title: op_title(op.kind),
     error: option.unwrap(op.error, ""),
     body: op_fields(model, op.kind, op.form),
@@ -352,68 +354,68 @@ fn view_op_form(model: Model, op: ui.OpState) -> Element(Msg) {
   )
 }
 
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpDraftInvoice -> "Draft an invoice"
-    ui.OpIssueInvoice -> "Issue invoice"
-    ui.OpPayInvoice -> "Mark invoice paid"
+    ops.OpDraftInvoice -> "Draft an invoice"
+    ops.OpIssueInvoice -> "Issue invoice"
+    ops.OpPayInvoice -> "Mark invoice paid"
     _ -> "Operation"
   }
 }
 
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpDraftInvoice -> "Draft"
-    ui.OpIssueInvoice -> "Issue"
-    ui.OpPayInvoice -> "Mark paid"
+    ops.OpDraftInvoice -> "Draft"
+    ops.OpIssueInvoice -> "Issue"
+    ops.OpPayInvoice -> "Mark paid"
     _ -> "Confirm"
   }
 }
 
 fn op_fields(
   model: Model,
-  kind: ui.OpKind,
-  form: ui.OpForm,
+  kind: ops.OpKind,
+  form: ops.OpForm,
 ) -> List(Element(Msg)) {
   case kind {
-    ui.OpDraftInvoice -> [
-      ui.ref_select(
+    ops.OpDraftInvoice -> [
+      ops.ref_select(
         label: "Project",
-        field: ui.FProjectId,
+        field: ops.FProjectId,
         refs: project_refs(model),
         selected: form.project_id,
         to_msg: OpFieldChanged,
       ),
-      ui.op_field(
+      ops.op_field(
         label: "Billing from",
-        field: ui.FValidFrom,
+        field: ops.FValidFrom,
         value: form.valid_from,
         input_type: "date",
         to_msg: OpFieldChanged,
       ),
-      ui.op_field(
+      ops.op_field(
         label: "Billing to",
-        field: ui.FValidTo,
+        field: ops.FValidTo,
         value: form.valid_to,
         input_type: "date",
         to_msg: OpFieldChanged,
       ),
     ]
-    ui.OpIssueInvoice -> [
+    ops.OpIssueInvoice -> [
       locked_invoice_field(form.invoice_id),
-      ui.op_field(
+      ops.op_field(
         label: "Date",
-        field: ui.FEffective,
+        field: ops.FEffective,
         value: form.effective,
         input_type: "date",
         to_msg: OpFieldChanged,
       ),
     ]
-    ui.OpPayInvoice -> [
+    ops.OpPayInvoice -> [
       locked_invoice_field(form.invoice_id),
-      ui.op_field(
+      ops.op_field(
         label: "Date",
-        field: ui.FEffective,
+        field: ops.FEffective,
         value: form.effective,
         input_type: "date",
         to_msg: OpFieldChanged,
@@ -446,12 +448,12 @@ pub type Actions(msg) {
   Actions(
     /// Permits to draft / issue / pay (each `invoice.manage`); a launcher renders only
     /// when its permit was granted, so it cannot fire an op the viewer may not run.
-    draft: Result(ui.Permit, Nil),
-    issue: Result(ui.Permit, Nil),
-    pay: Result(ui.Permit, Nil),
+    draft: Result(ops.Permit, Nil),
+    issue: Result(ops.Permit, Nil),
+    pay: Result(ops.Permit, Nil),
     /// Build the page's op-start message from a granted permit.
-    to_open: fn(ui.Permit) -> msg,
-    to_open_for: fn(ui.Permit, Int) -> msg,
+    to_open: fn(ops.Permit) -> msg,
+    to_open_for: fn(ops.Permit, Int) -> msg,
     on_close: msg,
   )
 }
@@ -460,17 +462,22 @@ pub type Actions(msg) {
 /// pagination, column layout) wrapped in the Invoices panel with a "+ Draft" action.
 /// The table's own messages are mapped onto the tab's `TableMsg`.
 fn list_view(host: table_host.Host, actions: Actions(Msg)) -> Element(Msg) {
-  ui.panel(title: "Invoices", count: "", right: [draft_button(actions)], body: [
-    element.map(table_host.view(host, "Loading invoices…"), TableHostMsg),
-  ])
+  atoms.panel(
+    title: "Invoices",
+    count: "",
+    right: [draft_button(actions)],
+    body: [
+      element.map(table_host.view(host, "Loading invoices…"), TableHostMsg),
+    ],
+  )
 }
 
 fn draft_button(actions: Actions(msg)) -> Element(msg) {
-  ui.when_permitted(actions.draft, fn(granted) {
-    ui.button(
+  ops.when_permitted(actions.draft, fn(granted) {
+    atoms.button(
       label: "+ Draft",
-      kind: ui.Primary,
-      size: ui.Small,
+      kind: atoms.Primary,
+      size: atoms.Small,
       on_press: actions.to_open(granted),
     )
   })
@@ -482,20 +489,20 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
   let invoice = detail.invoice
   let action = case invoice.status {
     Draft ->
-      ui.when_permitted(actions.issue, fn(granted) {
-        ui.button(
+      ops.when_permitted(actions.issue, fn(granted) {
+        atoms.button(
           label: "Issue",
-          kind: ui.Primary,
-          size: ui.Small,
+          kind: atoms.Primary,
+          size: atoms.Small,
           on_press: actions.to_open_for(granted, invoice.id),
         )
       })
     Issued ->
-      ui.when_permitted(actions.pay, fn(granted) {
-        ui.button(
+      ops.when_permitted(actions.pay, fn(granted) {
+        atoms.button(
           label: "Mark paid",
-          kind: ui.Primary,
-          size: ui.Small,
+          kind: atoms.Primary,
+          size: atoms.Small,
           on_press: actions.to_open_for(granted, invoice.id),
         )
       })
@@ -506,35 +513,35 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
     html.div([attribute.class("back-link"), event.on_click(actions.on_close)], [
       html.text("‹ All invoices"),
     ]),
-    ui.panel(
+    atoms.panel(
       title: "Invoice #" <> int.to_string(invoice.id),
       count: status.to_string(invoice.status),
       right: [action],
       body: [
         html.div([attribute.class("pad-detail")], [
           html.div([attribute.class("kv")], [
-            ui.kv(key: "Project", value: invoice.project, mono: False),
-            ui.kv(key: "Client", value: invoice.client, mono: False),
-            ui.kv(
+            atoms.kv(key: "Project", value: invoice.project, mono: False),
+            atoms.kv(key: "Client", value: invoice.client, mono: False),
+            atoms.kv(
               key: "Month",
               value: time.format_month(invoice.billing_from),
               mono: False,
             ),
-            ui.kv(
+            atoms.kv(
               key: "Total",
-              value: ui.money(money.to_float(invoice.total)),
+              value: format.money(money.to_float(invoice.total)),
               mono: True,
             ),
           ]),
         ]),
       ],
     ),
-    ui.panel(
+    atoms.panel(
       title: "Lines",
       count: int.to_string(list.length(detail.lines)),
       right: [],
       body: [
-        ui.data_table(
+        atoms.data_table(
           headers: [
             #("Engineer", False),
             #("Level", False),
@@ -554,15 +561,15 @@ fn invoice_line_row(line: InvoiceLine) -> Element(msg) {
     html.td([], [html.text(line.engineer)]),
     html.td([], [
       html.span([attribute.class("level-pill")], [
-        html.text(ui.level_band(line.level)),
+        html.text(format.level_band(line.level)),
       ]),
     ]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(money.to_float(line.day_rate))),
+      html.text(format.money(money.to_float(line.day_rate))),
     ]),
-    html.td([attribute.class("num")], [html.text(ui.days(line.days))]),
+    html.td([attribute.class("num")], [html.text(format.days(line.days))]),
     html.td([attribute.class("num")], [
-      html.text(ui.money(money.to_float(line.amount))),
+      html.text(format.money(money.to_float(line.amount))),
     ]),
   ])
 }

@@ -18,7 +18,8 @@ import client/page.{type OutMsg, Navigate}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
 import gleam/float
 import gleam/int
 import gleam/option.{Some}
@@ -116,8 +117,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// render to `panel`.
 pub fn view(model: Model) -> Element(Msg) {
   case model.pnl {
-    Loading -> ui.empty_state(message: "Loading P&L…")
-    Failed(message:) -> ui.empty_state(message: message)
+    Loading -> atoms.empty_state(message: "Loading P&L…")
+    Failed(message:) -> atoms.empty_state(message: message)
     Loaded(pnl:) -> panel(model, pnl, model.as_of)
   }
 }
@@ -131,46 +132,46 @@ fn panel(model: Model, pnl: Pnl, as_of: calendar.Date) -> Element(Msg) {
   let year = int.to_string(time.first_of_month(as_of).year)
   html.div([], [
     html.div([attribute.class("stats stats--cols-3")], [
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.month_revenue)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.month_revenue)),
         unit: "/mo",
         label: "Revenue · " <> month,
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.month_cost)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.month_cost)),
         unit: "/mo",
         label: "Cost · " <> month,
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.month_profit)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.month_profit)),
         unit: "/mo",
         label: "Profit · " <> month,
         pct: margin_pct,
       ),
     ]),
     html.div([attribute.class("stats stats--cols-3")], [
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.ytd_revenue)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.ytd_revenue)),
         unit: "YTD",
         label: "Revenue · since Jan " <> year,
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.ytd_cost)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.ytd_cost)),
         unit: "YTD",
         label: "Cost · since Jan " <> year,
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
-        value: ui.money_k(money.to_float(pnl.ytd_profit)),
+      atoms.stat(
+        value: format.money_k(money.to_float(pnl.ytd_profit)),
         unit: "YTD",
         label: "Profit · since Jan " <> year,
         pct: ytd_margin_pct,
       ),
     ]),
-    ui.panel(
+    atoms.panel(
       title: "Profit & loss · " <> month,
       count: "per engineer",
       right: [],
@@ -183,9 +184,9 @@ fn panel(model: Model, pnl: Pnl, as_of: calendar.Date) -> Element(Msg) {
 
 /// The month margin badge: `profit / revenue` as a whole percent, or no badge when
 /// revenue is zero (avoids a 0%-on-no-revenue reading).
-fn margin(profit: money.Money, of revenue: money.Money) -> ui.StatPct {
+fn margin(profit: money.Money, of revenue: money.Money) -> atoms.StatPct {
   case money.to_float(revenue) >. 0.0 {
-    True -> ui.Pct(float.round(money.ratio(profit, revenue) *. 100.0))
-    False -> ui.NoPct
+    True -> atoms.Pct(float.round(money.ratio(profit, revenue) *. 100.0))
+    False -> atoms.NoPct
   }
 }

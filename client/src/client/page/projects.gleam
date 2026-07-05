@@ -18,8 +18,8 @@
 //// Each view fetches its read model AND the as-of `Roster` (the directory of
 //// employed engineers, active projects, and clients as `Ref`s — id + name) so the
 //// op forms select an engineer/project by NAME rather than a typed id. The op form
-//// opens in a centred modal (`ui.modal`); entity slots are `ui.ref_select`s sourced
-//// from the roster and snapped to valid options by `ui.reconcile_form`. The
+//// opens in a centred modal (`atoms.modal`); entity slots are `ops.ref_select`s sourced
+//// from the roster and snapped to valid options by `ops.reconcile_form`. The
 //// project select is locked to the project in view; an op launched from a team card
 //// pre-fills the engineer.
 ////
@@ -40,7 +40,9 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import client/workflow/host
 import client/workflow/wizard
 import gleam/dynamic/decode
@@ -85,7 +87,7 @@ pub type Model {
     as_of: calendar.Date,
     host: table_host.Host,
     roster: Load(Roster),
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
     wizard: Option(wizard.Model),
     rates: Option(List(RateCardRow)),
     rates_for: String,
@@ -96,7 +98,7 @@ pub type Model {
     project_id: Int,
     detail: Load(ProjectDetail),
     roster: Load(Roster),
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
     tab: Tab,
     coverage: Load(CoverageSnapshot),
   )
@@ -150,9 +152,9 @@ pub type Msg {
   TabClicked(tab: Tab)
   TeamCardClicked(engineer_id: Int)
   InvoiceRowClicked(invoice_id: Int)
-  OpStarted(permit: ui.Permit)
-  OpStartedFor(permit: ui.Permit, engineer_id: Int)
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpStarted(permit: ops.Permit)
+  OpStartedFor(permit: ops.Permit, engineer_id: Int)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpCancelled
   OpSubmitted
   OpResponded(result: Result(Nil, rsvp.Error(String)))
@@ -440,7 +442,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     ])
 
     OpStarted(permit:) -> #(
-      set_op(model, Some(open_op(model, ui.permit_kind(permit), None))),
+      set_op(model, Some(open_op(model, ops.permit_kind(permit), None))),
       effect.none(),
       [],
     )
@@ -448,7 +450,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpStartedFor(permit:, engineer_id:) -> #(
       set_op(
         model,
-        Some(open_op(model, ui.permit_kind(permit), Some(engineer_id))),
+        Some(open_op(model, ops.permit_kind(permit), Some(engineer_id))),
       ),
       effect.none(),
       [],
@@ -456,10 +458,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case current_op(model) {
-        Some(ui.OpState(kind:, form:, ..)) -> {
-          let form = ui.update_op_form(form, field, value)
+        Some(ops.OpState(kind:, form:, ..)) -> {
+          let form = ops.update_op_form(form, field, value)
           #(
-            set_op(model, Some(ui.OpState(kind:, form:, error: None))),
+            set_op(model, Some(ops.OpState(kind:, form:, error: None))),
             effect.none(),
             [],
           )
@@ -471,15 +473,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case current_op(model) {
-        Some(ui.OpState(kind:, form:, ..)) ->
-          case ui.build_command(kind, form) {
+        Some(ops.OpState(kind:, form:, ..)) ->
+          case ops.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpResponded),
               [],
             )
             Error(prompt) -> #(
-              set_op(model, Some(ui.OpState(kind:, form:, error: Some(prompt)))),
+              set_op(
+                model,
+                Some(ops.OpState(kind:, form:, error: Some(prompt))),
+              ),
               effect.none(),
               [],
             )
@@ -496,10 +501,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         }
         Error(error) ->
           case current_op(model) {
-            Some(ui.OpState(kind:, form:, ..)) -> #(
+            Some(ops.OpState(kind:, form:, ..)) -> #(
               set_op(
                 model,
-                Some(ui.OpState(
+                Some(ops.OpState(
                   kind:,
                   form:,
                   error: Some(api.describe_error(error)),
@@ -571,14 +576,14 @@ fn view_as_of(model: Model) -> calendar.Date {
   }
 }
 
-fn current_op(model: Model) -> Option(ui.OpState) {
+fn current_op(model: Model) -> Option(ops.OpState) {
   case model {
     ListView(op:, ..) -> op
     DetailView(op:, ..) -> op
   }
 }
 
-fn set_op(model: Model, op: Option(ui.OpState)) -> Model {
+fn set_op(model: Model, op: Option(ops.OpState)) -> Model {
   case model {
     ListView(..) -> ListView(..model, op:)
     DetailView(..) -> DetailView(..model, op:)
@@ -615,27 +620,27 @@ fn set_coverage(model: Model, coverage: Load(CoverageSnapshot)) -> Model {
 /// pre-fills the engineer. Entity slots are then snapped to valid roster options.
 fn open_op(
   model: Model,
-  kind: ui.OpKind,
+  kind: ops.OpKind,
   engineer_id: Option(Int),
-) -> ui.OpState {
-  let form = ui.blank_op_form(kind, view_as_of(model))
+) -> ops.OpState {
+  let form = ops.blank_op_form(kind, view_as_of(model))
   let form = seed_project(model, form)
   let form = seed_detail_fields(model, kind, form)
   let form = prefill_capability_id(form, kind, coverage_of(model))
   let form = case engineer_id {
-    Some(id) -> ui.update_op_form(form, ui.FEngineerId, int.to_string(id))
+    Some(id) -> ops.update_op_form(form, ops.FEngineerId, int.to_string(id))
     None -> form
   }
   let form = reconcile(model, form)
-  ui.OpState(kind:, form:, error: None)
+  ops.OpState(kind:, form:, error: None)
 }
 
 /// Seed the form's project slot from the detail view, so an op composed on a
 /// project's page pre-targets that project.
-fn seed_project(model: Model, form: ui.OpForm) -> ui.OpForm {
+fn seed_project(model: Model, form: ops.OpForm) -> ops.OpForm {
   case model {
     DetailView(project_id:, ..) ->
-      ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+      ops.update_op_form(form, ops.FProjectId, int.to_string(project_id))
     ListView(..) -> form
   }
 }
@@ -645,34 +650,34 @@ fn seed_project(model: Model, form: ui.OpForm) -> ui.OpForm {
 /// values rather than blank.
 fn seed_detail_fields(
   model: Model,
-  kind: ui.OpKind,
-  form: ui.OpForm,
-) -> ui.OpForm {
+  kind: ops.OpKind,
+  form: ops.OpForm,
+) -> ops.OpForm {
   case model {
     DetailView(detail: Loaded(detail), ..) ->
       case kind {
-        ui.OpUpdateProjectProfile ->
+        ops.OpUpdateProjectProfile ->
           form
-          |> ui.update_op_form(ui.FTitle, detail.profile.title)
-          |> ui.update_op_form(ui.FSummary, detail.profile.summary)
-        ui.OpUpdateProjectPlan ->
+          |> ops.update_op_form(ops.FTitle, detail.profile.title)
+          |> ops.update_op_form(ops.FSummary, detail.profile.summary)
+        ops.OpUpdateProjectPlan ->
           form
-          |> ui.update_op_form(
-            ui.FBudget,
+          |> ops.update_op_form(
+            ops.FBudget,
             float_text(money.to_float(detail.plan.budget)),
           )
-          |> ui.update_op_form(
-            ui.FTargetCompletion,
+          |> ops.update_op_form(
+            ops.FTargetCompletion,
             iso_date(detail.plan.target_completion),
           )
-        ui.OpSetProjectRequirement ->
+        ops.OpSetProjectRequirement ->
           form
-          |> ui.update_op_form(ui.FLevel, "3")
-          |> ui.update_op_form(ui.FFraction, "1")
-        ui.OpSetProjectCapability ->
+          |> ops.update_op_form(ops.FLevel, "3")
+          |> ops.update_op_form(ops.FFraction, "1")
+        ops.OpSetProjectCapability ->
           form
-          |> ui.update_op_form(ui.FLevel, "3")
-          |> ui.update_op_form(ui.FFraction, "1")
+          |> ops.update_op_form(ops.FLevel, "3")
+          |> ops.update_op_form(ops.FFraction, "1")
         _ -> form
       }
     _ -> form
@@ -683,17 +688,17 @@ fn seed_detail_fields(
 /// `<select>` opens on a valid capability id rather than blank. Other kinds (and an
 /// unloaded coverage snapshot) leave the form untouched.
 fn prefill_capability_id(
-  form: ui.OpForm,
-  kind: ui.OpKind,
+  form: ops.OpForm,
+  kind: ops.OpKind,
   coverage: Load(CoverageSnapshot),
-) -> ui.OpForm {
+) -> ops.OpForm {
   case kind, coverage {
-    ui.OpSetProjectCapability,
+    ops.OpSetProjectCapability,
       Loaded(value: CoverageSnapshot(catalog: [first, ..], ..))
     ->
-      ui.update_op_form(
+      ops.update_op_form(
         form,
-        ui.FCapabilityId,
+        ops.FCapabilityId,
         int.to_string(first.capability_id),
       )
     _, _ -> form
@@ -706,16 +711,16 @@ fn prefill_capability_id(
 /// time) gets seeded with the newly-loaded first capability. Any other modal (or an
 /// already-seeded one) is left untouched.
 fn reprefill_capability_id(
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   coverage: Load(CoverageSnapshot),
-) -> Option(ui.OpState) {
+) -> Option(ops.OpState) {
   case op {
-    Some(ui.OpState(kind: ui.OpSetProjectCapability, form:, error:))
+    Some(ops.OpState(kind: ops.OpSetProjectCapability, form:, error:))
       if form.capability_id == ""
     ->
-      Some(ui.OpState(
-        kind: ui.OpSetProjectCapability,
-        form: prefill_capability_id(form, ui.OpSetProjectCapability, coverage),
+      Some(ops.OpState(
+        kind: ops.OpSetProjectCapability,
+        form: prefill_capability_id(form, ops.OpSetProjectCapability, coverage),
         error:,
       ))
     _ -> op
@@ -734,8 +739,8 @@ fn coverage_of(model: Model) -> Load(CoverageSnapshot) {
 /// Snap the form's engineer and project slots to valid options from the as-of
 /// roster, so a freshly opened form names an engineer and project the directory
 /// actually carries.
-fn reconcile(model: Model, form: ui.OpForm) -> ui.OpForm {
-  ui.reconcile_form(form, engineer_refs(model), project_refs(model))
+fn reconcile(model: Model, form: ops.OpForm) -> ops.OpForm {
+  ops.reconcile_form(form, engineer_refs(model), project_refs(model))
 }
 
 /// The create-project host configuration for the Projects list.
@@ -784,32 +789,32 @@ pub fn view(
 fn view_list(
   host: table_host.Host,
   roster: Load(Roster),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   wizard_open: Option(wizard.Model),
   rates: Option(List(RateCardRow)),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
   let page =
-    ui.list_page(
+    atoms.list_page(
       title: "Projects",
       blurb: "Active engagements as of "
         <> time.format_date(as_of)
         <> ", with budget and target completion.",
       actions: [
-        ui.when_permitted(
-          ui.permit(permissions, own: False, kind: ui.OpCreateProject),
+        ops.when_permitted(
+          ops.permit(permissions, own: False, kind: ops.OpCreateProject),
           fn(_granted) {
-            ui.button(
+            atoms.button(
               label: "+ New project",
-              kind: ui.Primary,
-              size: ui.Medium,
+              kind: atoms.Primary,
+              size: atoms.Medium,
               on_press: CreateProjectClicked,
             )
           },
         ),
-        ui.page_action(
-          ui.permit(permissions, own: False, kind: ui.OpStartProject),
+        ops.page_action(
+          ops.permit(permissions, own: False, kind: ops.OpStartProject),
           OpStarted,
           "+ Start project",
         ),
@@ -854,11 +859,11 @@ fn rates_panel(rates: Option(List(RateCardRow))) -> Element(a) {
         html.div([attribute.class("kv__row")], [
           html.span([attribute.class("kv__key")], [
             html.span([attribute.class("level-pill")], [
-              html.text(ui.level_band(row.level)),
+              html.text(format.level_band(row.level)),
             ]),
           ]),
           html.span([attribute.class("kv__value mono")], [
-            html.text(ui.money(money.to_float(row.day_rate)) <> "/d"),
+            html.text(format.money(money.to_float(row.day_rate)) <> "/d"),
           ]),
         ])
       })
@@ -872,7 +877,7 @@ fn rates_panel(rates: Option(List(RateCardRow))) -> Element(a) {
 fn view_detail(
   detail: Load(ProjectDetail),
   roster: Load(Roster),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   tab: Tab,
   coverage: Load(CoverageSnapshot),
   as_of: calendar.Date,
@@ -883,9 +888,9 @@ fn view_detail(
       html.text("‹ All projects"),
     ])
   let body = case detail {
-    Loading -> ui.empty_state(message: "Loading project…")
+    Loading -> atoms.empty_state(message: "Loading project…")
     Failed(message:) ->
-      ui.empty_state(message: "Could not load project: " <> message)
+      atoms.empty_state(message: "Could not load project: " <> message)
     Loaded(value:) ->
       view_project_detail(value, roster, op, tab, coverage, as_of, permissions)
   }
@@ -895,7 +900,7 @@ fn view_detail(
 fn view_project_detail(
   detail: ProjectDetail,
   roster: Load(Roster),
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   tab: Tab,
   coverage: Load(CoverageSnapshot),
   as_of: calendar.Date,
@@ -906,85 +911,85 @@ fn view_project_detail(
       html.div([], [
         html.h1([], [html.text(detail.profile.title)]),
         html.div([attribute.class("detail__subtitle")], [
-          ui.swatch(category: detail.profile.project_id, inline: False),
+          atoms.swatch(category: detail.profile.project_id, inline: False),
           html.text(detail.client),
         ]),
         html.p([], [html.text(detail.profile.summary)]),
       ]),
       html.div([attribute.class("action-row")], [
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpAssignToProject),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpAssignToProject),
           to_msg: OpStarted,
           label: "Assign",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         ),
-        ui.launch(
-          ui.permit(
+        ops.launch(
+          ops.permit(
             permissions,
             own: False,
-            kind: ui.OpChangeAllocationFraction,
+            kind: ops.OpChangeAllocationFraction,
           ),
           to_msg: OpStarted,
           label: "Adjust allocation",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         ),
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpUpdateProjectProfile),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpUpdateProjectProfile),
           to_msg: OpStarted,
           label: "Edit profile",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         ),
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpUpdateProjectPlan),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpUpdateProjectPlan),
           to_msg: OpStarted,
           label: "Edit plan",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         ),
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpSetProjectRequirement),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpSetProjectRequirement),
           to_msg: OpStarted,
           label: "Set requirement",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         ),
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpDraftInvoice),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpDraftInvoice),
           to_msg: OpStarted,
           label: "Draft invoice",
-          kind: ui.Primary,
-          size: ui.Small,
+          kind: atoms.Primary,
+          size: atoms.Small,
         ),
       ]),
     ])
   let stats =
     html.div([attribute.class("stats")], [
-      ui.stat(
-        value: ui.money_k(money.to_float(detail.plan.budget)),
+      atoms.stat(
+        value: format.money_k(money.to_float(detail.plan.budget)),
         unit: "",
         label: "Budget",
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
+      atoms.stat(
         value: int.to_string(list.length(detail.team)),
         unit: "people",
         label: "On team now",
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
-        value: ui.money_k(money.to_float(run_rate_of(detail.team))),
+      atoms.stat(
+        value: format.money_k(money.to_float(run_rate_of(detail.team))),
         unit: "/day",
         label: "Run-rate",
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
-      ui.stat(
+      atoms.stat(
         value: short_date(detail.plan.target_completion),
         unit: "",
         label: "Target",
-        pct: ui.NoPct,
+        pct: atoms.NoPct,
       ),
     ])
   let grid =
@@ -1037,13 +1042,13 @@ fn team_panel(
   permissions: Set(String),
 ) -> Element(Msg) {
   let cards = case team {
-    [] -> [ui.empty_state(message: "No one allocated on this date.")]
+    [] -> [atoms.empty_state(message: "No one allocated on this date.")]
     members ->
       list.index_map(members, fn(member, index) {
         team_card(member, index, permissions)
       })
   }
-  ui.panel(
+  atoms.panel(
     title: "Team on " <> time.format_date(as_of),
     count: int.to_string(list.length(team)),
     right: [],
@@ -1070,27 +1075,27 @@ fn team_card(
       event.on_click(TeamCardClicked(engineer_id: member.engineer_id)),
     ],
     [
-      ui.avatar(name: member.name, category: index, class: "avatar"),
+      atoms.avatar(name: member.name, category: index, class: "avatar"),
       html.div([attribute.class("board-card__info")], [
         html.div([attribute.class("board-card__name")], [html.text(member.name)]),
         html.div([attribute.class("board-card__sub")], [
           html.span([attribute.class("board-card__fraction")], [
-            html.text(ui.fraction(member.fraction)),
+            html.text(format.fraction(member.fraction)),
           ]),
           html.span([attribute.class("level-pill")], [
-            html.text(ui.level_band(member.level)),
+            html.text(format.level_band(member.level)),
           ]),
           html.span([], [
-            html.text(ui.money(money.to_float(member.day_rate)) <> "/d"),
+            html.text(format.money(money.to_float(member.day_rate)) <> "/d"),
           ]),
         ]),
       ]),
       html.div([attribute.class("board-card__action")], [
-        ui.when_permitted(
-          ui.permit(
+        ops.when_permitted(
+          ops.permit(
             permissions,
             own: False,
-            kind: ui.OpChangeAllocationFraction,
+            kind: ops.OpChangeAllocationFraction,
           ),
           fn(granted) {
             html.button(
@@ -1117,10 +1122,10 @@ fn team_card(
 /// the project carries no requirements.
 fn requirements_panel(requirements: List(ProjectRequirement)) -> Element(Msg) {
   let body = case requirements {
-    [] -> [ui.empty_state(message: "No capacity requirements.")]
+    [] -> [atoms.empty_state(message: "No capacity requirements.")]
     requirements -> list.map(requirements, requirement_row)
   }
-  ui.panel(
+  atoms.panel(
     title: "Capacity requirements",
     count: int.to_string(list.length(requirements)),
     right: [],
@@ -1131,9 +1136,12 @@ fn requirements_panel(requirements: List(ProjectRequirement)) -> Element(Msg) {
 fn requirement_row(requirement: ProjectRequirement) -> Element(Msg) {
   html.div([attribute.class("kv__row")], [
     html.span([attribute.class("kv__key")], [
-      ui.chip(label: ui.level_band(requirement.level), tone: ui.Neutral),
+      atoms.chip(
+        label: format.level_band(requirement.level),
+        tone: atoms.Neutral,
+      ),
       html.span([attribute.class("board-card__fraction")], [
-        html.text("×" <> ui.days(requirement.quantity)),
+        html.text("×" <> format.days(requirement.quantity)),
       ]),
     ]),
     html.span([attribute.class("kv__value mono")], [
@@ -1157,28 +1165,28 @@ fn coverage_panel(
 ) -> Element(Msg) {
   case coverage {
     Loading ->
-      ui.panel(title: "Capability coverage", count: "", right: [], body: [
-        ui.empty_state(message: "Loading coverage…"),
+      atoms.panel(title: "Capability coverage", count: "", right: [], body: [
+        atoms.empty_state(message: "Loading coverage…"),
       ])
     Failed(message:) ->
-      ui.panel(title: "Capability coverage", count: "", right: [], body: [
-        ui.empty_state(message: "Could not load coverage: " <> message),
+      atoms.panel(title: "Capability coverage", count: "", right: [], body: [
+        atoms.empty_state(message: "Could not load coverage: " <> message),
       ])
     Loaded(value: CoverageSnapshot(requirements:, ..)) -> {
       let launcher =
-        ui.launch(
-          ui.permit(permissions, own: False, kind: ui.OpSetProjectCapability),
+        ops.launch(
+          ops.permit(permissions, own: False, kind: ops.OpSetProjectCapability),
           to_msg: OpStarted,
           label: "Set requirement",
-          kind: ui.Ghost,
-          size: ui.Small,
+          kind: atoms.Ghost,
+          size: atoms.Small,
         )
       let note =
         html.span([attribute.class("note")], [
           html.text("as of " <> time.format_date(as_of)),
         ])
       let body = case requirements {
-        [] -> [ui.empty_state(message: "No capability requirements.")]
+        [] -> [atoms.empty_state(message: "No capability requirements.")]
         rows -> [
           html.div(
             [attribute.class("coverage"), attribute.role("list")],
@@ -1186,7 +1194,7 @@ fn coverage_panel(
           ),
         ]
       }
-      ui.panel(
+      atoms.panel(
         title: "Capability coverage",
         count: int.to_string(list.length(requirements)),
         right: [note, launcher],
@@ -1217,12 +1225,12 @@ fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
     0 ->
       int.to_string(covering_count)
       <> " / "
-      <> ui.days(quantity)
+      <> format.days(quantity)
       <> " · covered"
     _ ->
       int.to_string(covering_count)
       <> " / "
-      <> ui.days(quantity)
+      <> format.days(quantity)
       <> " · gap "
       <> int.to_string(gap)
   }
@@ -1252,7 +1260,7 @@ fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
     [
       html.div([attribute.class("coverage__head")], [
         html.span([attribute.class("coverage__cap")], [
-          ui.swatch(category: index, inline: True),
+          atoms.swatch(category: index, inline: True),
           html.text(capability_name),
         ]),
         html.span([attribute.class("coverage__target")], [
@@ -1260,7 +1268,7 @@ fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
             "target L"
             <> int.to_string(target_level)
             <> " · need "
-            <> ui.days(quantity),
+            <> format.days(quantity),
           ),
         ]),
         html.span([attribute.class(count_class)], [html.text(count_text)]),
@@ -1294,26 +1302,26 @@ fn coverage_slot(have: Bool) -> Element(Msg) {
 
 fn coverage_engineer_chip(engineer: CoverageEngineer) -> Element(Msg) {
   let CoverageEngineer(name:, proficiency:, allocation:, ..) = engineer
-  ui.chip(
+  atoms.chip(
     label: name
       <> " · "
-      <> ui.days(proficiency)
+      <> format.days(proficiency)
       <> " · "
-      <> ui.fraction(allocation),
-    tone: ui.Accent,
+      <> format.fraction(allocation),
+    tone: atoms.Accent,
   )
 }
 
 fn engineer_summary(engineer: CoverageEngineer) -> String {
   let CoverageEngineer(name:, proficiency:, ..) = engineer
-  name <> " " <> ui.days(proficiency)
+  name <> " " <> format.days(proficiency)
 }
 
 fn invoices_panel(invoices: List(Invoice)) -> Element(Msg) {
   let body = case invoices {
-    [] -> ui.empty_state(message: "No invoices.")
+    [] -> atoms.empty_state(message: "No invoices.")
     invoices ->
-      ui.data_table(
+      atoms.data_table(
         headers: [
           #("Invoice", False),
           #("Month", False),
@@ -1323,7 +1331,7 @@ fn invoices_panel(invoices: List(Invoice)) -> Element(Msg) {
         rows: list.map(invoices, invoice_row),
       )
   }
-  ui.panel(
+  atoms.panel(
     title: "Invoices",
     count: int.to_string(list.length(invoices)),
     right: [],
@@ -1343,10 +1351,10 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
       ]),
       html.td([], [html.text(time.format_month(invoice.billing_from))]),
       html.td([attribute.class("num")], [
-        html.text(ui.money(money.to_float(invoice.total))),
+        html.text(format.money(money.to_float(invoice.total))),
       ]),
       html.td([], [
-        ui.pill(
+        atoms.pill(
           variant: invoice_status.to_string(invoice.status),
           label: invoice_status.to_string(invoice.status),
         ),
@@ -1356,15 +1364,15 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
 }
 
 fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
-  ui.panel(title: "Plan", count: "", right: [], body: [
+  atoms.panel(title: "Plan", count: "", right: [], body: [
     html.div([attribute.class("pad-detail")], [
       html.div([attribute.class("kv")], [
-        ui.kv(
+        atoms.kv(
           key: "Budget",
-          value: ui.money(money.to_float(detail.plan.budget)),
+          value: format.money(money.to_float(detail.plan.budget)),
           mono: True,
         ),
-        ui.kv(
+        atoms.kv(
           key: "Target completion",
           value: time.format_date(detail.plan.target_completion),
           mono: True,
@@ -1389,15 +1397,15 @@ fn plan_panel(detail: ProjectDetail) -> Element(Msg) {
 /// detail page), the last rejection message, and a Cancel / verb-labelled Confirm
 /// footer. `locked_project_id`, when present, pins the project select to that id.
 fn op_modal(
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   roster: Load(Roster),
   coverage: Load(CoverageSnapshot),
   locked_project_id: Option(Int),
 ) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(ui.OpState(kind:, form:, error:)) ->
-      ui.modal(
+    Some(ops.OpState(kind:, form:, error:)) ->
+      atoms.modal(
         title: op_title(kind),
         error: error_text(error),
         body: op_fields(kind, form, roster, coverage, locked_project_id),
@@ -1421,8 +1429,8 @@ fn error_text(error: Option(String)) -> String {
 /// StartProject keeps a typed numeric Contract id — the roster carries no contract
 /// directory to select over.
 fn op_fields(
-  kind: ui.OpKind,
-  form: ui.OpForm,
+  kind: ops.OpKind,
+  form: ops.OpForm,
   roster: Load(Roster),
   coverage: Load(CoverageSnapshot),
   locked_project_id: Option(Int),
@@ -1431,68 +1439,68 @@ fn op_fields(
   let projects = roster_projects(roster)
   let project_select = project_field(form, projects, locked_project_id)
   let engineer_select =
-    ui.ref_select(
+    ops.ref_select(
       label: "Engineer",
-      field: ui.FEngineerId,
+      field: ops.FEngineerId,
       refs: engineers,
       selected: form.engineer_id,
       to_msg: edit,
     )
   case kind {
-    ui.OpStartProject -> [
-      text_field("Title", ui.FName, form.name),
-      number_field("Contract id", ui.FContractId, form.contract_id),
-      date_field("Valid from", ui.FValidFrom, form.valid_from),
-      date_field("Valid to", ui.FValidTo, form.valid_to),
+    ops.OpStartProject -> [
+      text_field("Title", ops.FName, form.name),
+      number_field("Contract id", ops.FContractId, form.contract_id),
+      date_field("Valid from", ops.FValidFrom, form.valid_from),
+      date_field("Valid to", ops.FValidTo, form.valid_to),
     ]
-    ui.OpAssignToProject -> [
+    ops.OpAssignToProject -> [
       engineer_select,
       project_select,
-      number_field("Fraction", ui.FFraction, form.fraction),
-      date_field("Valid from", ui.FValidFrom, form.valid_from),
-      date_field("Valid to", ui.FValidTo, form.valid_to),
+      number_field("Fraction", ops.FFraction, form.fraction),
+      date_field("Valid from", ops.FValidFrom, form.valid_from),
+      date_field("Valid to", ops.FValidTo, form.valid_to),
     ]
-    ui.OpChangeAllocationFraction -> [
+    ops.OpChangeAllocationFraction -> [
       engineer_select,
       project_select,
-      number_field("Fraction", ui.FFraction, form.fraction),
-      date_field("Effective", ui.FEffective, form.effective),
+      number_field("Fraction", ops.FFraction, form.fraction),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpUpdateProjectProfile -> [
+    ops.OpUpdateProjectProfile -> [
       project_select,
-      text_field("Title", ui.FTitle, form.title),
-      text_field("Summary", ui.FSummary, form.summary),
-      date_field("Effective", ui.FEffective, form.effective),
+      text_field("Title", ops.FTitle, form.title),
+      text_field("Summary", ops.FSummary, form.summary),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpUpdateProjectPlan -> [
+    ops.OpUpdateProjectPlan -> [
       project_select,
-      number_field("Budget", ui.FBudget, form.budget),
+      number_field("Budget", ops.FBudget, form.budget),
       date_field(
         "Target completion",
-        ui.FTargetCompletion,
+        ops.FTargetCompletion,
         form.target_completion,
       ),
-      date_field("Effective", ui.FEffective, form.effective),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpDraftInvoice -> [
+    ops.OpDraftInvoice -> [
       project_select,
-      date_field("Billing from", ui.FValidFrom, form.valid_from),
-      date_field("Billing to", ui.FValidTo, form.valid_to),
+      date_field("Billing from", ops.FValidFrom, form.valid_from),
+      date_field("Billing to", ops.FValidTo, form.valid_to),
     ]
-    ui.OpSetProjectRequirement -> [
+    ops.OpSetProjectRequirement -> [
       project_select,
       level_select(form.level),
-      number_field("Quantity", ui.FFraction, form.fraction),
-      date_field("Valid from", ui.FValidFrom, form.valid_from),
-      date_field("Valid to", ui.FValidTo, form.valid_to),
+      number_field("Quantity", ops.FFraction, form.fraction),
+      date_field("Valid from", ops.FValidFrom, form.valid_from),
+      date_field("Valid to", ops.FValidTo, form.valid_to),
     ]
-    ui.OpSetProjectCapability -> [
+    ops.OpSetProjectCapability -> [
       project_select,
       capability_select(form.capability_id, coverage),
       target_level_select(form.level),
-      number_field("Quantity", ui.FFraction, form.fraction),
-      date_field("Valid from", ui.FValidFrom, form.valid_from),
-      date_field("Valid to", ui.FValidTo, form.valid_to),
+      number_field("Quantity", ops.FFraction, form.fraction),
+      date_field("Valid from", ops.FValidFrom, form.valid_from),
+      date_field("Valid to", ops.FValidTo, form.valid_to),
     ]
     _ -> []
   }
@@ -1500,7 +1508,7 @@ fn op_fields(
 
 /// A labelled `<select>` over levels 1–7, bound to the `FLevel` slot. The option
 /// value is the level number as text, the label its band name; the form's current
-/// level is pre-selected. Built locally so `ui.gleam` stays frozen.
+/// level is pre-selected. Built locally so `atoms.gleam` stays frozen.
 fn level_select(selected: String) -> Element(Msg) {
   let options =
     [1, 2, 3, 4, 5, 6, 7]
@@ -1508,7 +1516,7 @@ fn level_select(selected: String) -> Element(Msg) {
       let value = int.to_string(level)
       html.option(
         [attribute.value(value), attribute.selected(value == selected)],
-        ui.level_band(level),
+        format.level_band(level),
       )
     })
   html.label([attribute.class("op-form__field")], [
@@ -1516,7 +1524,7 @@ fn level_select(selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Level"),
-        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+        event.on_change(fn(value) { OpFieldEdited(ops.FLevel, value) }),
       ],
       options,
     ),
@@ -1531,9 +1539,9 @@ fn capability_select(
   selected: String,
   coverage: Load(CoverageSnapshot),
 ) -> Element(Msg) {
-  ui.ref_select(
+  ops.ref_select(
     label: "Capability",
-    field: ui.FCapabilityId,
+    field: ops.FCapabilityId,
     refs: capability_refs(coverage),
     selected:,
     to_msg: edit,
@@ -1552,7 +1560,7 @@ fn capability_ref(choice: CapabilityChoice) -> Ref {
 }
 
 /// A labelled `<select>` over target levels 0–4, bound to the `FLevel` slot. Built
-/// locally (rather than in `ui.gleam`) because the option labels are the
+/// locally (rather than in `atoms.gleam`) because the option labels are the
 /// capability-proficiency scale, distinct from the engineer seniority `level_band`
 /// levels 1–7 the requirement form's `level_select` renders.
 fn target_level_select(selected: String) -> Element(Msg) {
@@ -1570,7 +1578,7 @@ fn target_level_select(selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Target level"),
-        event.on_change(fn(value) { OpFieldEdited(ui.FLevel, value) }),
+        event.on_change(fn(value) { OpFieldEdited(ops.FLevel, value) }),
       ],
       options,
     ),
@@ -1591,16 +1599,16 @@ fn capability_level_label(level: Int) -> String {
 /// The project select: a free `<select>` over the roster on the list page, or a
 /// locked single-option select pinned to the project in view on the detail page.
 fn project_field(
-  form: ui.OpForm,
+  form: ops.OpForm,
   projects: List(Ref),
   locked_project_id: Option(Int),
 ) -> Element(Msg) {
   case locked_project_id {
     Some(project_id) -> locked_project_select(project_id, projects)
     None ->
-      ui.ref_select(
+      ops.ref_select(
         label: "Project",
-        field: ui.FProjectId,
+        field: ops.FProjectId,
         refs: projects,
         selected: form.project_id,
         to_msg: edit,
@@ -1666,50 +1674,58 @@ fn roster_projects(roster: Load(Roster)) -> List(Ref) {
 
 // --- Op-form field helpers ---------------------------------------------------
 
-fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(label:, field:, value:, input_type: "text", to_msg: edit)
+fn text_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(label:, field:, value:, input_type: "text", to_msg: edit)
 }
 
 fn number_field(
   label: String,
-  field: ui.OpField,
+  field: ops.OpField,
   value: String,
 ) -> Element(Msg) {
-  ui.op_field(label:, field:, value:, input_type: "number", to_msg: edit)
+  ops.op_field(label:, field:, value:, input_type: "number", to_msg: edit)
 }
 
-fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(label:, field:, value:, input_type: "date", to_msg: edit)
+fn date_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(label:, field:, value:, input_type: "date", to_msg: edit)
 }
 
-fn edit(field: ui.OpField, value: String) -> Msg {
+fn edit(field: ops.OpField, value: String) -> Msg {
   OpFieldEdited(field:, value:)
 }
 
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpStartProject -> "Start a project"
-    ui.OpAssignToProject -> "Assign to project"
-    ui.OpChangeAllocationFraction -> "Change allocation fraction"
-    ui.OpUpdateProjectProfile -> "Edit project profile"
-    ui.OpUpdateProjectPlan -> "Edit project plan"
-    ui.OpDraftInvoice -> "Draft an invoice"
-    ui.OpSetProjectRequirement -> "Set capacity requirement"
-    ui.OpSetProjectCapability -> "Set capability requirement"
+    ops.OpStartProject -> "Start a project"
+    ops.OpAssignToProject -> "Assign to project"
+    ops.OpChangeAllocationFraction -> "Change allocation fraction"
+    ops.OpUpdateProjectProfile -> "Edit project profile"
+    ops.OpUpdateProjectPlan -> "Edit project plan"
+    ops.OpDraftInvoice -> "Draft an invoice"
+    ops.OpSetProjectRequirement -> "Set capacity requirement"
+    ops.OpSetProjectCapability -> "Set capability requirement"
     _ -> "Operation"
   }
 }
 
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpStartProject -> "Start project"
-    ui.OpAssignToProject -> "Assign"
-    ui.OpChangeAllocationFraction -> "Adjust allocation"
-    ui.OpUpdateProjectProfile -> "Save profile"
-    ui.OpUpdateProjectPlan -> "Save plan"
-    ui.OpDraftInvoice -> "Draft invoice"
-    ui.OpSetProjectRequirement -> "Set requirement"
-    ui.OpSetProjectCapability -> "Set requirement"
+    ops.OpStartProject -> "Start project"
+    ops.OpAssignToProject -> "Assign"
+    ops.OpChangeAllocationFraction -> "Adjust allocation"
+    ops.OpUpdateProjectProfile -> "Save profile"
+    ops.OpUpdateProjectPlan -> "Save plan"
+    ops.OpDraftInvoice -> "Draft invoice"
+    ops.OpSetProjectRequirement -> "Set requirement"
+    ops.OpSetProjectCapability -> "Set requirement"
     _ -> "Confirm"
   }
 }

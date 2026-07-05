@@ -13,7 +13,7 @@ import client/page.{type OutMsg}
 import client/route.{type Route}
 import client/scheduler
 import client/time
-import client/ui
+import client/ui/atoms
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
@@ -1109,7 +1109,7 @@ fn view_team_section(
 
 fn view_team_row(permissions: Set(String), row: TeamRow) -> Element(Msg) {
   html.div([attribute.class("schedule-seat schedule-seat--filled")], [
-    ui.avatar(
+    atoms.avatar(
       name: row.name,
       category: row.engineer_id,
       class: "avatar avatar--chip",

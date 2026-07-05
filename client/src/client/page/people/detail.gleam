@@ -11,7 +11,7 @@
 //// result carrying the `as_of` (and the timesheet/skills their engineer id) so a
 //// stale reply is dropped. Its writes — Promote, TakeLeave, RollOff,
 //// TerminateEmployment, LogWeek, AssessSkill, and Update{Contact,Banking,Emergency}Details —
-//// drive a shared `ui.OpForm`; submitting posts via `api.submit_operation` and, on
+//// drive a shared `ops.OpForm`; submitting posts via `api.submit_operation` and, on
 //// success, raises `OperationCommitted` and refetches. `LogWeek` is assembled
 //// directly from the grid's edited cells rather than the empty-entry form. The
 //// Overview/Skills split is internal tab state (an `Overview`/`Skills` `tab` field
@@ -23,7 +23,9 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/page/people/timesheet as timesheet_grid
 import client/route
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/format
+import client/ui/ops
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/float
@@ -76,7 +78,7 @@ pub type Model {
     location: LocationData,
     roster: Directory,
     tab: Tab,
-    op: Option(ui.OpState),
+    op: Option(ops.OpState),
   )
 }
 
@@ -159,12 +161,12 @@ pub type Msg {
   )
   BackClicked
   TabClicked(tab: Tab)
-  OpOpened(permit: ui.Permit)
+  OpOpened(permit: ops.Permit)
   OpCancelled
-  OpFieldEdited(field: ui.OpField, value: String)
+  OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
   CellEdited(project_id: Int, day: calendar.Date, value: String)
-  TimesheetSubmitted(permit: ui.Permit)
+  TimesheetSubmitted(permit: ops.Permit)
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
@@ -340,11 +342,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     TabClicked(tab:) -> #(Model(..model, tab:), effect.none(), [])
 
     OpOpened(permit:) -> {
-      let kind = ui.permit_kind(permit)
+      let kind = ops.permit_kind(permit)
       #(
         Model(
           ..model,
-          op: Some(ui.OpState(kind:, form: blank_form(model, kind), error: None)),
+          op: Some(ops.OpState(
+            kind:,
+            form: blank_form(model, kind),
+            error: None,
+          )),
         ),
         effect.none(),
         [],
@@ -355,12 +361,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpFieldEdited(field:, value:) ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) -> #(
+        Some(ops.OpState(kind:, form:, ..)) -> #(
           Model(
             ..model,
-            op: Some(ui.OpState(
+            op: Some(ops.OpState(
               kind:,
-              form: ui.update_op_form(form, field, value),
+              form: ops.update_op_form(form, field, value),
               error: None,
             )),
           ),
@@ -372,8 +378,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 
     OpSubmitted ->
       case model.op {
-        Some(ui.OpState(kind:, form:, ..)) ->
-          case ui.build_command(kind, form) {
+        Some(ops.OpState(kind:, form:, ..)) ->
+          case ops.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OperationReturned),
@@ -382,7 +388,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(prompt) -> #(
               Model(
                 ..model,
-                op: Some(ui.OpState(kind:, form:, error: Some(prompt))),
+                op: Some(ops.OpState(kind:, form:, error: Some(prompt))),
               ),
               effect.none(),
               [],
@@ -434,8 +440,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case model.op {
-    Some(ui.OpState(kind:, form:, ..)) ->
-      Model(..model, op: Some(ui.OpState(kind:, form:, error: Some(message))))
+    Some(ops.OpState(kind:, form:, ..)) ->
+      Model(..model, op: Some(ops.OpState(kind:, form:, error: Some(message))))
     None -> model
   }
 }
@@ -454,32 +460,36 @@ fn project_refs(model: Model) -> List(Ref) {
 /// pre-filled into the matching edit form, the roll-off project pre-selected from
 /// the engineer's active allocation, and every entity slot snapped to a valid
 /// directory option. Dates default to the as-of.
-fn blank_form(model: Model, kind: ui.OpKind) -> ui.OpForm {
-  let form = ui.blank_op_form(kind, model.as_of)
+fn blank_form(model: Model, kind: ops.OpKind) -> ops.OpForm {
+  let form = ops.blank_op_form(kind, model.as_of)
   let form = case kind {
-    ui.OpTakeLeave ->
-      ui.update_op_form(form, ui.FKind, leave_kind.to_string(leave_kind.Annual))
+    ops.OpTakeLeave ->
+      ops.update_op_form(
+        form,
+        ops.FKind,
+        leave_kind.to_string(leave_kind.Annual),
+      )
     _ -> form
   }
   let form =
-    ui.update_op_form(form, ui.FEngineerId, int.to_string(model.engineer_id))
+    ops.update_op_form(form, ops.FEngineerId, int.to_string(model.engineer_id))
   let form = prefill_from_detail(form, kind, model.detail)
   let form = prefill_skill_id(form, kind, model.skills)
   let form = prefill_location(form, kind, model.location, model.as_of)
-  ui.reconcile_form(form, [], project_refs(model))
+  ops.reconcile_form(form, [], project_refs(model))
 }
 
 /// Pre-select the first assessed skill for `OpAssessSkill` so the `<select>` opens
 /// on a valid skill id rather than blank. Other kinds (and an unloaded matrix)
 /// leave the form untouched.
 fn prefill_skill_id(
-  form: ui.OpForm,
-  kind: ui.OpKind,
+  form: ops.OpForm,
+  kind: ops.OpKind,
   skills: SkillsData,
-) -> ui.OpForm {
+) -> ops.OpForm {
   case kind, skills {
-    ui.OpAssessSkill, SkillsLoaded(EngineerSkills(matrix: [first, ..], ..)) ->
-      ui.update_op_form(form, ui.FSkillId, int.to_string(first.skill_id))
+    ops.OpAssessSkill, SkillsLoaded(EngineerSkills(matrix: [first, ..], ..)) ->
+      ops.update_op_form(form, ops.FSkillId, int.to_string(first.skill_id))
     _, _ -> form
   }
 }
@@ -491,16 +501,16 @@ fn prefill_skill_id(
 /// auto-selects once real options render. Any other modal (or an already-seeded
 /// one) is left untouched.
 fn reprefill_skill_id(
-  op: Option(ui.OpState),
+  op: Option(ops.OpState),
   skills: SkillsData,
-) -> Option(ui.OpState) {
+) -> Option(ops.OpState) {
   case op {
-    Some(ui.OpState(kind: ui.OpAssessSkill, form:, error:))
+    Some(ops.OpState(kind: ops.OpAssessSkill, form:, error:))
       if form.skill_id == ""
     ->
-      Some(ui.OpState(
-        kind: ui.OpAssessSkill,
-        form: prefill_skill_id(form, ui.OpAssessSkill, skills),
+      Some(ops.OpState(
+        kind: ops.OpAssessSkill,
+        form: prefill_skill_id(form, ops.OpAssessSkill, skills),
         error:,
       ))
     _ -> op
@@ -512,45 +522,49 @@ fn reprefill_skill_id(
 /// current values, and roll-off pre-selects the engineer's active allocation. Other
 /// kinds (and an unloaded bundle) leave the form untouched.
 fn prefill_from_detail(
-  form: ui.OpForm,
-  kind: ui.OpKind,
+  form: ops.OpForm,
+  kind: ops.OpKind,
   detail: DetailData,
-) -> ui.OpForm {
+) -> ops.OpForm {
   case detail {
     DetailLoaded(detail:) ->
       case kind {
-        ui.OpUpdateContact -> {
+        ops.OpUpdateContact -> {
           let EngineerContact(name:, email:, phone:, postal_address:, ..) =
             detail.contact
           form
-          |> ui.update_op_form(ui.FName, name)
-          |> ui.update_op_form(ui.FEmail, email)
-          |> ui.update_op_form(ui.FPhone, phone)
-          |> ui.update_op_form(ui.FPostalAddress, postal_address)
+          |> ops.update_op_form(ops.FName, name)
+          |> ops.update_op_form(ops.FEmail, email)
+          |> ops.update_op_form(ops.FPhone, phone)
+          |> ops.update_op_form(ops.FPostalAddress, postal_address)
         }
-        ui.OpUpdateBanking -> {
+        ops.OpUpdateBanking -> {
           let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) =
             detail.banking
           form
-          |> ui.update_op_form(ui.FBank, bank)
-          |> ui.update_op_form(ui.FBranch, branch)
-          |> ui.update_op_form(ui.FAccountNo, account_no)
-          |> ui.update_op_form(ui.FAccountName, account_name)
+          |> ops.update_op_form(ops.FBank, bank)
+          |> ops.update_op_form(ops.FBranch, branch)
+          |> ops.update_op_form(ops.FAccountNo, account_no)
+          |> ops.update_op_form(ops.FAccountName, account_name)
         }
-        ui.OpUpdateEmergency ->
+        ops.OpUpdateEmergency ->
           case detail.emergency {
             Some(EngineerEmergency(relation:, name:, phone:, email:, ..)) ->
               form
-              |> ui.update_op_form(ui.FRelation, relation)
-              |> ui.update_op_form(ui.FEmergencyName, name)
-              |> ui.update_op_form(ui.FEmergencyPhone, phone)
-              |> ui.update_op_form(ui.FEmergencyEmail, email)
+              |> ops.update_op_form(ops.FRelation, relation)
+              |> ops.update_op_form(ops.FEmergencyName, name)
+              |> ops.update_op_form(ops.FEmergencyPhone, phone)
+              |> ops.update_op_form(ops.FEmergencyEmail, email)
             None -> form
           }
-        ui.OpRollOff ->
+        ops.OpRollOff ->
           case active_allocation(detail.allocations) {
             Some(project_id) ->
-              ui.update_op_form(form, ui.FProjectId, int.to_string(project_id))
+              ops.update_op_form(
+                form,
+                ops.FProjectId,
+                int.to_string(project_id),
+              )
             None -> form
           }
         _ -> form
@@ -563,19 +577,19 @@ fn prefill_from_detail(
 /// covering `as_of`, so relocating opens showing the current location rather
 /// than blank. Other kinds (and no covering record) leave the form untouched.
 fn prefill_location(
-  form: ui.OpForm,
-  kind: ui.OpKind,
+  form: ops.OpForm,
+  kind: ops.OpKind,
   location: LocationData,
   as_of: calendar.Date,
-) -> ui.OpForm {
+) -> ops.OpForm {
   case kind, location {
-    ui.OpSetLocation, LocationLoaded(records:) ->
+    ops.OpSetLocation, LocationLoaded(records:) ->
       case covering_location(records, as_of) {
         Some(LocationRecord(country:, region:, timezone:, ..)) ->
           form
-          |> ui.update_op_form(ui.FCountry, country)
-          |> ui.update_op_form(ui.FRegion, option.unwrap(region, ""))
-          |> ui.update_op_form(ui.FTimezone, timezone)
+          |> ops.update_op_form(ops.FCountry, country)
+          |> ops.update_op_form(ops.FRegion, option.unwrap(region, ""))
+          |> ops.update_op_form(ops.FTimezone, timezone)
         None -> form
       }
     _, _ -> form
@@ -693,9 +707,12 @@ pub fn view(
       html.text("‹ All engineers"),
     ])
   case model.detail {
-    DetailLoading -> column([back, ui.empty_state("Loading engineer…")])
+    DetailLoading -> column([back, atoms.empty_state("Loading engineer…")])
     DetailFailed(message:) ->
-      column([back, ui.empty_state("Could not load this engineer: " <> message)])
+      column([
+        back,
+        atoms.empty_state("Could not load this engineer: " <> message),
+      ])
     DetailLoaded(detail:) -> {
       let own = viewer_engineer_id == Some(detail.engineer_id)
       column([
@@ -733,20 +750,20 @@ fn detail_head(
   html.div([attribute.class("page-head")], [
     html.div([], [
       html.h1([attribute.class("detail__title")], [
-        ui.avatar(name:, category: engineer_id, class: "avatar"),
+        atoms.avatar(name:, category: engineer_id, class: "avatar"),
         html.text(name),
       ]),
       html.div([attribute.class("detail__subtitle")], [
-        html.text(ui.level_band(level)),
+        html.text(format.level_band(level)),
       ]),
       html.p([], [html.text(situation(allocations))]),
     ]),
     html.div([attribute.class("action-row")], [
-      op_launch(permissions, own, ui.OpAssessSkill, "Assess skill", False),
-      op_launch(permissions, own, ui.OpTakeLeave, "Take leave", True),
-      op_launch(permissions, own, ui.OpRollOff, "Roll off", True),
-      op_launch(permissions, own, ui.OpTerminateEmployment, "Terminate", True),
-      op_launch(permissions, own, ui.OpPromote, "Promote", False),
+      op_launch(permissions, own, ops.OpAssessSkill, "Assess skill", False),
+      op_launch(permissions, own, ops.OpTakeLeave, "Take leave", True),
+      op_launch(permissions, own, ops.OpRollOff, "Roll off", True),
+      op_launch(permissions, own, ops.OpTerminateEmployment, "Terminate", True),
+      op_launch(permissions, own, ops.OpPromote, "Promote", False),
     ]),
   ])
 }
@@ -828,9 +845,9 @@ fn allocations_panel(
 ) -> Element(Msg) {
   let rows = list.map(allocations, allocation_row)
   let body = case allocations {
-    [] -> [ui.empty_state("No allocations on record.")]
+    [] -> [atoms.empty_state("No allocations on record.")]
     _ -> [
-      ui.data_table(
+      atoms.data_table(
         headers: [
           #("Project", False),
           #("Fraction", True),
@@ -841,7 +858,7 @@ fn allocations_panel(
       ),
     ]
   }
-  ui.panel(title: "Allocations", count: "", right: [], body:)
+  atoms.panel(title: "Allocations", count: "", right: [], body:)
 }
 
 fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
@@ -859,14 +876,14 @@ fn allocation_row(allocation: allocation_view.AllocationRow) -> Element(Msg) {
   }
   html.tr([], [
     html.td([], [
-      ui.swatch(category: project_id, inline: True),
+      atoms.swatch(category: project_id, inline: True),
       html.text(project),
     ]),
-    html.td([attribute.class("num")], [html.text(ui.fraction(fraction))]),
+    html.td([attribute.class("num")], [html.text(format.fraction(fraction))]),
     html.td([attribute.class("mono muted")], [
       html.text(time.iso_date(valid_from) <> " → " <> period_end(valid_to)),
     ]),
-    html.td([], [ui.pill(variant:, label:)]),
+    html.td([], [atoms.pill(variant:, label:)]),
   ])
 }
 
@@ -901,37 +918,37 @@ fn current_location_panel(
   own: Bool,
 ) -> Element(Msg) {
   let launcher = [
-    op_launch(permissions, own, ui.OpSetLocation, "Set location", True),
+    op_launch(permissions, own, ops.OpSetLocation, "Set location", True),
   ]
   let body = case location {
-    LocationLoading -> [ui.empty_state("Loading location…")]
+    LocationLoading -> [atoms.empty_state("Loading location…")]
     LocationFailed(message:) -> [
-      ui.empty_state("Could not load the location: " <> message),
+      atoms.empty_state("Could not load the location: " <> message),
     ]
     LocationLoaded(records:) ->
       case covering_location(records, as_of) {
         Some(record) -> [current_location_body(record)]
         None -> [
-          ui.empty_state("No location set as of " <> time.format_date(as_of)),
+          atoms.empty_state("No location set as of " <> time.format_date(as_of)),
         ]
       }
   }
-  ui.panel(title: "Location & timezone", count: "", right: launcher, body:)
+  atoms.panel(title: "Location & timezone", count: "", right: launcher, body:)
 }
 
 fn current_location_body(record: LocationRecord) -> Element(Msg) {
   let LocationRecord(country:, region:, timezone:, utc_offset_minutes:, ..) =
     record
   let region_row = case region {
-    Some(text) -> [ui.kv(key: "Region", value: text, mono: False)]
+    Some(text) -> [atoms.kv(key: "Region", value: text, mono: False)]
     None -> []
   }
   let rows =
-    [ui.kv(key: "Country", value: country, mono: False)]
+    [atoms.kv(key: "Country", value: country, mono: False)]
     |> list.append(region_row)
     |> list.append([
-      ui.kv(key: "Timezone", value: timezone, mono: True),
-      ui.kv(
+      atoms.kv(key: "Timezone", value: timezone, mono: True),
+      atoms.kv(
         key: "Offset as-of",
         value: time.utc_offset(utc_offset_minutes),
         mono: True,
@@ -948,18 +965,18 @@ fn location_history_panel(
 ) -> Element(Msg) {
   case location {
     LocationLoading ->
-      ui.panel(title: "Location history", count: "", right: [], body: [
-        ui.empty_state("Loading location history…"),
+      atoms.panel(title: "Location history", count: "", right: [], body: [
+        atoms.empty_state("Loading location history…"),
       ])
     LocationFailed(message:) ->
-      ui.panel(title: "Location history", count: "", right: [], body: [
-        ui.empty_state("Could not load location history: " <> message),
+      atoms.panel(title: "Location history", count: "", right: [], body: [
+        atoms.empty_state("Could not load location history: " <> message),
       ])
     LocationLoaded(records:) -> {
       let body = case records {
-        [] -> [ui.empty_state("No location history on record.")]
+        [] -> [atoms.empty_state("No location history on record.")]
         _ -> [
-          ui.data_table(
+          atoms.data_table(
             headers: [
               #("Location", False),
               #("Timezone", False),
@@ -970,7 +987,7 @@ fn location_history_panel(
           ),
         ]
       }
-      ui.panel(
+      atoms.panel(
         title: "Location history",
         count: int.to_string(list.length(records)),
         right: [],
@@ -987,7 +1004,7 @@ fn location_history_row(
   let LocationRecord(country:, region:, timezone:, valid_from:, valid_to:, ..) =
     record
   let flag = case covers_as_of(valid_from, valid_to, as_of) {
-    True -> ui.pill(variant: "active", label: "as-of")
+    True -> atoms.pill(variant: "active", label: "as-of")
     False -> element.none()
   }
   html.tr([], [
@@ -1014,12 +1031,12 @@ fn timesheet_panel(
 ) -> Element(Msg) {
   case timesheet {
     TimesheetLoading ->
-      ui.panel(title: "Timesheet", count: "", right: [], body: [
-        ui.empty_state("Loading week…"),
+      atoms.panel(title: "Timesheet", count: "", right: [], body: [
+        atoms.empty_state("Loading week…"),
       ])
     TimesheetFailed(message:) ->
-      ui.panel(title: "Timesheet", count: "", right: [], body: [
-        ui.empty_state("Could not load the timesheet: " <> message),
+      atoms.panel(title: "Timesheet", count: "", right: [], body: [
+        atoms.empty_state("Could not load the timesheet: " <> message),
       ])
     TimesheetLoaded(week:, edits:) ->
       timesheet_grid.view(
@@ -1029,7 +1046,7 @@ fn timesheet_panel(
         on_cell_edit: fn(project_id, day, value) {
           CellEdited(project_id:, day:, value:)
         },
-        permit: ui.permit(permissions, own:, kind: ui.OpLogWeek),
+        permit: ops.permit(permissions, own:, kind: ops.OpLogWeek),
       )
   }
 }
@@ -1041,12 +1058,12 @@ fn timesheet_panel(
 fn skills_grid(skills: SkillsData, as_of: calendar.Date) -> Element(Msg) {
   case skills {
     SkillsLoading ->
-      ui.panel(title: "Skill matrix", count: "", right: [], body: [
-        ui.empty_state("Loading skills…"),
+      atoms.panel(title: "Skill matrix", count: "", right: [], body: [
+        atoms.empty_state("Loading skills…"),
       ])
     SkillsFailed(message:) ->
-      ui.panel(title: "Skill matrix", count: "", right: [], body: [
-        ui.empty_state("Could not load the skill matrix: " <> message),
+      atoms.panel(title: "Skill matrix", count: "", right: [], body: [
+        atoms.empty_state("Could not load the skill matrix: " <> message),
       ])
     SkillsLoaded(skills: EngineerSkills(matrix:, rollups:, recent:)) ->
       html.div([attribute.class("detail-grid")], [
@@ -1065,7 +1082,7 @@ fn skill_matrix_panel(
       html.text("as of " <> time.format_date(as_of)),
     ])
   let body = case matrix {
-    [] -> [ui.empty_state("No skills in the taxonomy yet.")]
+    [] -> [atoms.empty_state("No skills in the taxonomy yet.")]
     rows -> [
       html.div(
         [attribute.class("skill-matrix"), attribute.role("list")],
@@ -1074,7 +1091,7 @@ fn skill_matrix_panel(
       legend(),
     ]
   }
-  ui.panel(
+  atoms.panel(
     title: "Skill matrix",
     count: int.to_string(list.length(matrix)) <> " skills",
     right: [note],
@@ -1096,7 +1113,7 @@ fn skill_matrix_row(assessment: SkillAssessment) -> Element(Msg) {
         html.div(
           [attribute.class("skill-matrix__caps")],
           list.map(capability_names, fn(capability) {
-            ui.chip(label: capability, tone: ui.Neutral)
+            atoms.chip(label: capability, tone: atoms.Neutral)
           }),
         ),
       ]),
@@ -1119,7 +1136,7 @@ fn lvl_badge(level: Int) -> Element(Msg) {
       html.span(
         [
           attribute.class("lvl-badge"),
-          attribute.style("background", ui.lvl_color(badge_step(level))),
+          attribute.style("background", atoms.lvl_color(badge_step(level))),
         ],
         [html.text("L" <> int.to_string(level))],
       )
@@ -1174,7 +1191,7 @@ fn legend_item(
       html.span(
         [
           attribute.class("lvl-badge"),
-          attribute.style("background", ui.lvl_color(step)),
+          attribute.style("background", atoms.lvl_color(step)),
         ],
         [html.text(label)],
       )
@@ -1186,7 +1203,7 @@ fn legend_item(
 }
 
 fn rollup_panel(rollups: List(CapabilityRollup)) -> Element(Msg) {
-  ui.panel(title: "Capability rollup", count: "", right: [], body: [
+  atoms.panel(title: "Capability rollup", count: "", right: [], body: [
     html.div([attribute.class("pad-detail note")], [
       html.text("weighted average of constituent skills"),
     ]),
@@ -1216,7 +1233,7 @@ fn rollup_row(rollup: CapabilityRollup) -> Element(Msg) {
           [
             attribute.class("rollup__fill"),
             attribute.style("width", int.to_string(fill_pct) <> "%"),
-            attribute.style("background", ui.lvl_color(ramp_step)),
+            attribute.style("background", atoms.lvl_color(ramp_step)),
           ],
           [],
         ),
@@ -1227,7 +1244,7 @@ fn rollup_row(rollup: CapabilityRollup) -> Element(Msg) {
 
 fn recent_panel(recent: List(AssessmentVersion)) -> Element(Msg) {
   let body = case recent {
-    [] -> [ui.empty_state("No assessments on record.")]
+    [] -> [atoms.empty_state("No assessments on record.")]
     versions -> [
       html.div(
         [attribute.class("pad-block kv")],
@@ -1235,12 +1252,12 @@ fn recent_panel(recent: List(AssessmentVersion)) -> Element(Msg) {
       ),
     ]
   }
-  ui.panel(title: "Recent assessments", count: "", right: [], body:)
+  atoms.panel(title: "Recent assessments", count: "", right: [], body:)
 }
 
 fn recent_row(version: AssessmentVersion) -> Element(Msg) {
   let AssessmentVersion(skill_name:, level:, valid_from:, ..) = version
-  ui.kv(
+  atoms.kv(
     key: skill_name <> " → L" <> int.to_string(level),
     value: time.format_date(valid_from),
     mono: True,
@@ -1251,7 +1268,7 @@ fn recent_row(version: AssessmentVersion) -> Element(Msg) {
 
 fn balance_panel(balance: leave_view.LeaveBalance) -> Element(Msg) {
   let LeaveBalance(annual:, sick:, ..) = balance
-  ui.panel(title: "Leave balance", count: "", right: [], body: [
+  atoms.panel(title: "Leave balance", count: "", right: [], body: [
     html.div([attribute.class("pad-block")], [
       balance_bar("Annual", annual, 20.0),
       balance_bar("Sick", sick, 10.0),
@@ -1265,7 +1282,7 @@ fn balance_bar(label: String, value: Float, max: Float) -> Element(Msg) {
     html.div([attribute.class("balance__head")], [
       html.span([attribute.class("eyebrow")], [html.text(label)]),
       html.span([attribute.class("balance__value")], [
-        html.text(ui.days(value) <> " days"),
+        html.text(format.days(value) <> " days"),
       ]),
     ]),
     html.div([attribute.class("spark spark--lg")], [
@@ -1281,16 +1298,16 @@ fn contact_panel(
 ) -> Element(Msg) {
   let EngineerContact(name:, email:, phone:, postal_address:, ..) = contact
   let _ = name
-  ui.panel(
+  atoms.panel(
     title: "Contact",
     count: "",
-    right: [op_launch(permissions, own, ui.OpUpdateContact, "Edit", True)],
+    right: [op_launch(permissions, own, ops.OpUpdateContact, "Edit", True)],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
-          ui.kv(key: "Email", value: email, mono: False),
-          ui.kv(key: "Phone", value: phone, mono: True),
-          ui.kv(key: "Address", value: postal_address, mono: False),
+          atoms.kv(key: "Email", value: email, mono: False),
+          atoms.kv(key: "Phone", value: phone, mono: True),
+          atoms.kv(key: "Address", value: postal_address, mono: False),
         ]),
       ]),
     ],
@@ -1303,17 +1320,17 @@ fn banking_panel(
   own: Bool,
 ) -> Element(Msg) {
   let EngineerBanking(bank:, branch:, account_no:, account_name:, ..) = banking
-  ui.panel(
+  atoms.panel(
     title: "Banking",
     count: "",
-    right: [op_launch(permissions, own, ui.OpUpdateBanking, "Edit", True)],
+    right: [op_launch(permissions, own, ops.OpUpdateBanking, "Edit", True)],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
-          ui.kv(key: "Bank", value: bank, mono: False),
-          ui.kv(key: "BSB", value: branch, mono: True),
-          ui.kv(key: "Account", value: account_no, mono: True),
-          ui.kv(key: "Name", value: account_name, mono: False),
+          atoms.kv(key: "Bank", value: bank, mono: False),
+          atoms.kv(key: "BSB", value: branch, mono: True),
+          atoms.kv(key: "Account", value: account_no, mono: True),
+          atoms.kv(key: "Name", value: account_name, mono: False),
         ]),
       ]),
     ],
@@ -1333,23 +1350,23 @@ fn employment_panel(
       name <> " (" <> relation <> ", " <> phone <> ")"
     None -> "Not on record"
   }
-  ui.panel(
+  atoms.panel(
     title: "Employment",
     count: "",
     right: [
-      op_launch(permissions, own, ui.OpUpdateEmergency, "Emergency", True),
+      op_launch(permissions, own, ops.OpUpdateEmergency, "Emergency", True),
     ],
     body: [
       html.div([attribute.class("pad-detail")], [
         html.div([attribute.class("kv")], [
-          ui.kv(key: "Started", value: time.iso_date(started), mono: True),
-          ui.kv(key: "Level", value: ui.level_band(level), mono: False),
-          ui.kv(
+          atoms.kv(key: "Started", value: time.iso_date(started), mono: True),
+          atoms.kv(key: "Level", value: format.level_band(level), mono: False),
+          atoms.kv(
             key: "Monthly salary",
-            value: ui.money(money.to_float(monthly_salary)),
+            value: format.money(money.to_float(monthly_salary)),
             mono: True,
           ),
-          ui.kv(key: "Emergency", value: emergency_line, mono: False),
+          atoms.kv(key: "Emergency", value: emergency_line, mono: False),
         ]),
       ]),
     ],
@@ -1364,31 +1381,31 @@ fn employment_panel(
 fn op_launch(
   permissions: Set(String),
   own: Bool,
-  kind: ui.OpKind,
+  kind: ops.OpKind,
   label: String,
   ghost: Bool,
 ) -> Element(Msg) {
   let button_kind = case ghost {
-    True -> ui.Ghost
-    False -> ui.Primary
+    True -> atoms.Ghost
+    False -> atoms.Primary
   }
-  ui.launch(
-    ui.permit(permissions, own:, kind:),
+  ops.launch(
+    ops.permit(permissions, own:, kind:),
     to_msg: OpOpened,
     label:,
     kind: button_kind,
-    size: ui.Small,
+    size: atoms.Small,
   )
 }
 
 /// The contextual operation as a centred modal over a dimmed backdrop, shown only
 /// while an op is open. Renders the fields the chosen kind needs, the rejection
 /// prompt if any, and the Cancel / op-verb Confirm footer.
-fn view_op_modal(model: Model, op: Option(ui.OpState)) -> Element(Msg) {
+fn view_op_modal(model: Model, op: Option(ops.OpState)) -> Element(Msg) {
   case op {
     None -> element.none()
-    Some(ui.OpState(kind:, form:, error:)) ->
-      ui.modal(
+    Some(ops.OpState(kind:, form:, error:)) ->
+      atoms.modal(
         title: op_title(kind),
         error: option.unwrap(error, ""),
         body: op_fields(model, kind, form),
@@ -1406,65 +1423,65 @@ fn view_op_modal(model: Model, op: Option(ui.OpState)) -> Element(Msg) {
 /// its engineer-id field (a safe fallback never triggered).
 fn op_fields(
   model: Model,
-  kind: ui.OpKind,
-  form: ui.OpForm,
+  kind: ops.OpKind,
+  form: ops.OpForm,
 ) -> List(Element(Msg)) {
   case kind {
-    ui.OpPromote -> [
-      number_field("New level", ui.FLevel, form.level),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpPromote -> [
+      number_field("New level", ops.FLevel, form.level),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpTakeLeave -> [
+    ops.OpTakeLeave -> [
       leave_kind_field(form.kind),
-      date_field("From", ui.FValidFrom, form.valid_from),
-      date_field("To", ui.FValidTo, form.valid_to),
+      date_field("From", ops.FValidFrom, form.valid_from),
+      date_field("To", ops.FValidTo, form.valid_to),
     ]
-    ui.OpRollOff -> [
-      ui.ref_select(
+    ops.OpRollOff -> [
+      ops.ref_select(
         label: "Project",
-        field: ui.FProjectId,
+        field: ops.FProjectId,
         refs: project_refs(model),
         selected: form.project_id,
         to_msg: OpFieldEdited,
       ),
-      date_field("Effective", ui.FEffective, form.effective),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpTerminateEmployment -> [
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpTerminateEmployment -> [
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpUpdateContact -> [
-      text_field("Name", ui.FName, form.name),
-      text_field("Email", ui.FEmail, form.email),
-      text_field("Phone", ui.FPhone, form.phone),
-      text_field("Address", ui.FPostalAddress, form.postal_address),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpUpdateContact -> [
+      text_field("Name", ops.FName, form.name),
+      text_field("Email", ops.FEmail, form.email),
+      text_field("Phone", ops.FPhone, form.phone),
+      text_field("Address", ops.FPostalAddress, form.postal_address),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpUpdateBanking -> [
-      text_field("Bank", ui.FBank, form.bank),
-      text_field("BSB", ui.FBranch, form.branch),
-      text_field("Account", ui.FAccountNo, form.account_no),
-      text_field("Account name", ui.FAccountName, form.account_name),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpUpdateBanking -> [
+      text_field("Bank", ops.FBank, form.bank),
+      text_field("BSB", ops.FBranch, form.branch),
+      text_field("Account", ops.FAccountNo, form.account_no),
+      text_field("Account name", ops.FAccountName, form.account_name),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpUpdateEmergency -> [
-      text_field("Relation", ui.FRelation, form.relation),
-      text_field("Name", ui.FEmergencyName, form.emergency_name),
-      text_field("Phone", ui.FEmergencyPhone, form.emergency_phone),
-      text_field("Email", ui.FEmergencyEmail, form.emergency_email),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpUpdateEmergency -> [
+      text_field("Relation", ops.FRelation, form.relation),
+      text_field("Name", ops.FEmergencyName, form.emergency_name),
+      text_field("Phone", ops.FEmergencyPhone, form.emergency_phone),
+      text_field("Email", ops.FEmergencyEmail, form.emergency_email),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    ui.OpAssessSkill -> [
+    ops.OpAssessSkill -> [
       skill_select_field(model.skills, form.skill_id),
       level_select_field(form.level),
-      date_field("Assessed from", ui.FEffective, form.effective),
+      date_field("Assessed from", ops.FEffective, form.effective),
     ]
-    ui.OpSetLocation -> [
-      text_field("Country", ui.FCountry, form.country),
-      text_field("Region", ui.FRegion, form.region),
-      text_field("Timezone (IANA TZID)", ui.FTimezone, form.timezone),
-      date_field("Effective", ui.FEffective, form.effective),
+    ops.OpSetLocation -> [
+      text_field("Country", ops.FCountry, form.country),
+      text_field("Region", ops.FRegion, form.region),
+      text_field("Timezone (IANA TZID)", ops.FTimezone, form.timezone),
+      date_field("Effective", ops.FEffective, form.effective),
     ]
-    _ -> [number_field("Engineer id", ui.FEngineerId, form.engineer_id)]
+    _ -> [number_field("Engineer id", ops.FEngineerId, form.engineer_id)]
   }
 }
 
@@ -1489,7 +1506,7 @@ fn leave_kind_field(selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Kind"),
-        event.on_change(fn(value) { OpFieldEdited(field: ui.FKind, value:) }),
+        event.on_change(fn(value) { OpFieldEdited(field: ops.FKind, value:) }),
       ],
       options,
     ),
@@ -1519,7 +1536,7 @@ fn skill_select_field(skills: SkillsData, selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Skill"),
-        event.on_change(fn(value) { OpFieldEdited(field: ui.FSkillId, value:) }),
+        event.on_change(fn(value) { OpFieldEdited(field: ops.FSkillId, value:) }),
       ],
       options,
     ),
@@ -1553,15 +1570,19 @@ fn level_select_field(selected: String) -> Element(Msg) {
     html.select(
       [
         attribute.attribute("aria-label", "Experience level"),
-        event.on_change(fn(value) { OpFieldEdited(field: ui.FLevel, value:) }),
+        event.on_change(fn(value) { OpFieldEdited(field: ops.FLevel, value:) }),
       ],
       options,
     ),
   ])
 }
 
-fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn text_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -1572,10 +1593,10 @@ fn text_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
 
 fn number_field(
   label: String,
-  field: ui.OpField,
+  field: ops.OpField,
   value: String,
 ) -> Element(Msg) {
-  ui.op_field(
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -1584,8 +1605,12 @@ fn number_field(
   )
 }
 
-fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
-  ui.op_field(
+fn date_field(
+  label: String,
+  field: ops.OpField,
+  value: String,
+) -> Element(Msg) {
+  ops.op_field(
     label:,
     field:,
     value:,
@@ -1594,34 +1619,34 @@ fn date_field(label: String, field: ui.OpField, value: String) -> Element(Msg) {
   )
 }
 
-fn op_title(kind: ui.OpKind) -> String {
+fn op_title(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpPromote -> "Promote"
-    ui.OpTakeLeave -> "Take leave"
-    ui.OpRollOff -> "Roll off a project"
-    ui.OpTerminateEmployment -> "Terminate employment"
-    ui.OpUpdateContact -> "Update contact details"
-    ui.OpUpdateBanking -> "Update banking details"
-    ui.OpUpdateEmergency -> "Update emergency contact"
-    ui.OpAssessSkill -> "Assess skill"
-    ui.OpSetLocation -> "Set location"
+    ops.OpPromote -> "Promote"
+    ops.OpTakeLeave -> "Take leave"
+    ops.OpRollOff -> "Roll off a project"
+    ops.OpTerminateEmployment -> "Terminate employment"
+    ops.OpUpdateContact -> "Update contact details"
+    ops.OpUpdateBanking -> "Update banking details"
+    ops.OpUpdateEmergency -> "Update emergency contact"
+    ops.OpAssessSkill -> "Assess skill"
+    ops.OpSetLocation -> "Set location"
     _ -> "Operation"
   }
 }
 
 /// The confirm-button verb for an operation kind — the action the presenter is
 /// committing, not a generic "Apply".
-fn op_verb(kind: ui.OpKind) -> String {
+fn op_verb(kind: ops.OpKind) -> String {
   case kind {
-    ui.OpPromote -> "Promote"
-    ui.OpTakeLeave -> "Take leave"
-    ui.OpRollOff -> "Roll off"
-    ui.OpTerminateEmployment -> "Terminate"
-    ui.OpUpdateContact -> "Save contact"
-    ui.OpUpdateBanking -> "Save banking"
-    ui.OpUpdateEmergency -> "Save emergency"
-    ui.OpAssessSkill -> "Record assessment"
-    ui.OpSetLocation -> "Set location"
+    ops.OpPromote -> "Promote"
+    ops.OpTakeLeave -> "Take leave"
+    ops.OpRollOff -> "Roll off"
+    ops.OpTerminateEmployment -> "Terminate"
+    ops.OpUpdateContact -> "Save contact"
+    ops.OpUpdateBanking -> "Save banking"
+    ops.OpUpdateEmergency -> "Save emergency"
+    ops.OpAssessSkill -> "Record assessment"
+    ops.OpSetLocation -> "Set location"
     _ -> "Confirm"
   }
 }

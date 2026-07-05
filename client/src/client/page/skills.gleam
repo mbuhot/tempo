@@ -5,7 +5,7 @@
 //// remove a composition weight) is a page-local `CapabilityCommand`/`SkillCommand`
 //// through the normal operations pipeline, then the page refetches the snapshot
 //// so the catalog and matrix reflect the new truth. The create and composition
-//// forms are page-local direct-submit (not the shared `ui.OpForm` machinery) —
+//// forms are page-local direct-submit (not the shared `ops.OpForm` machinery) —
 //// their steppers and multi-field creates don't fit that engine.
 ////
 //// Follows the frozen page interface (init/update/view/refetch + OutMsg).
@@ -13,7 +13,7 @@
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/time
-import client/ui
+import client/ui/atoms
 import gleam/int
 import gleam/list
 import gleam/result
@@ -284,15 +284,15 @@ pub fn view(
 ) -> Element(Msg) {
   let _ = as_of
   html.div([attribute.class("skills")], [
-    ui.page_head(
+    atoms.page_head(
       title: "Capabilities & skills",
       blurb: "The service taxonomy: what we deliver (capabilities), what consultants know (skills), and how skills compose into a capability.",
       actions: view_actions(permissions),
     ),
     case model.state {
-      Loading -> ui.empty_state(message: "Loading the taxonomy…")
+      Loading -> atoms.empty_state(message: "Loading the taxonomy…")
       Failed(detail) ->
-        ui.empty_state(message: "Could not load the taxonomy: " <> detail)
+        atoms.empty_state(message: "Could not load the taxonomy: " <> detail)
       Loaded(snapshot) -> view_loaded(snapshot)
     },
     view_modal(model),
@@ -302,16 +302,16 @@ pub fn view(
 fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
   case set.contains(permissions, perm.skills_manage) {
     True -> [
-      ui.button(
+      atoms.button(
         label: "+ Skill",
-        kind: ui.Ghost,
-        size: ui.Medium,
+        kind: atoms.Ghost,
+        size: atoms.Medium,
         on_press: SkillModalOpened,
       ),
-      ui.button(
+      atoms.button(
         label: "+ Capability",
-        kind: ui.Primary,
-        size: ui.Medium,
+        kind: atoms.Primary,
+        size: atoms.Medium,
         on_press: CapabilityModalOpened,
       ),
     ]
@@ -329,23 +329,23 @@ fn view_loaded(snapshot: TaxonomySnapshot) -> Element(Msg) {
 
 fn view_stats(snapshot: TaxonomySnapshot) -> Element(Msg) {
   html.div([attribute.class("stats stats--cols-3")], [
-    ui.stat(
+    atoms.stat(
       value: int.to_string(list.length(snapshot.capabilities)),
       unit: "",
       label: "Capabilities",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
-    ui.stat(
+    atoms.stat(
       value: int.to_string(list.length(snapshot.skills)),
       unit: "",
       label: "Skills",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
-    ui.stat(
+    atoms.stat(
       value: int.to_string(list.length(snapshot.mappings)),
       unit: "",
       label: "Mappings",
-      pct: ui.NoPct,
+      pct: atoms.NoPct,
     ),
   ])
 }
@@ -362,7 +362,7 @@ fn view_capabilities_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
     list.index_map(snapshot.capabilities, fn(capability, index) {
       view_capability_row(capability, index, snapshot)
     })
-  ui.panel(
+  atoms.panel(
     title: "Capabilities",
     count: int.to_string(list.length(snapshot.capabilities)),
     right: [],
@@ -389,7 +389,7 @@ fn view_capability_row(
       attribute.aria_label(name),
     ],
     [
-      ui.swatch(category: index + 1, inline: False),
+      atoms.swatch(category: index + 1, inline: False),
       html.div([], [
         html.div([attribute.class("list-row__name")], [html.text(name)]),
         html.div([attribute.class("list-row__sub")], [html.text(summary)]),
@@ -411,7 +411,7 @@ fn view_capability_row(
 fn view_skills_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
   let rows =
     list.map(snapshot.skills, fn(skill) { view_skill_row(skill, snapshot) })
-  ui.panel(
+  atoms.panel(
     title: "Skills",
     count: int.to_string(list.length(snapshot.skills)),
     right: [],
@@ -446,7 +446,7 @@ fn view_skill_row(
 }
 
 fn view_matrix_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
-  ui.panel(
+  atoms.panel(
     title: "Composition",
     count: "capability × skill · weight",
     right: [
@@ -567,7 +567,7 @@ fn view_modal(model: Model) -> Element(Msg) {
 }
 
 fn view_capability_modal(name: String, summary: String) -> Element(Msg) {
-  ui.modal(
+  atoms.modal(
     title: "New capability",
     error: "",
     body: [
@@ -591,7 +591,7 @@ fn view_capability_modal(name: String, summary: String) -> Element(Msg) {
 }
 
 fn view_skill_modal(name: String, summary: String) -> Element(Msg) {
-  ui.modal(
+  atoms.modal(
     title: "New skill",
     error: "",
     body: [
@@ -651,7 +651,7 @@ fn view_composition_modal(
     list.filter(snapshot.skills, fn(skill) {
       !list.any(mapped, fn(mapping) { mapping.skill_id == skill.skill_id })
     })
-  ui.modal(
+  atoms.modal(
     title: "Composition — " <> capability_name,
     error: "",
     body: list.flatten([

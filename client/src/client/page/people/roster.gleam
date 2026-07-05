@@ -15,7 +15,8 @@ import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
 import client/time
-import client/ui
+import client/ui/atoms
+import client/ui/ops
 import client/workflow/host
 import client/workflow/wizard
 import gleam/int
@@ -40,7 +41,7 @@ pub type Model {
 
 pub type Msg {
   TableHostMsg(sub: table_host.Msg)
-  OnboardClicked(permit: ui.Permit)
+  OnboardClicked(permit: ops.Permit)
   OnboardStarted(result: Result(String, rsvp.Error(String)))
   WizardMsg(sub: wizard.Msg)
 }
@@ -142,14 +143,14 @@ fn open_wizard(
 /// wizard modal (when open), and the roster table.
 pub fn view(model: Model, permissions: Set(String)) -> Element(Msg) {
   let list_page =
-    ui.list_page(
+    atoms.list_page(
       title: "People",
       blurb: "Everyone employed as of "
         <> time.iso_date(model.as_of)
         <> ". Open a person for their full record and history.",
       actions: [
-        ui.page_action(
-          ui.permit(permissions, own: False, kind: ui.OpOnboardEngineer),
+        ops.page_action(
+          ops.permit(permissions, own: False, kind: ops.OpOnboardEngineer),
           OnboardClicked,
           "+ Onboard",
         ),

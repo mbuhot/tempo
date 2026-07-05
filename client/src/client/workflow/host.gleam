@@ -5,7 +5,7 @@
 //// dialog are shared here, so a third workflow host becomes configuration.
 
 import client/focus
-import client/ui
+import client/ui/atoms
 import client/workflow/api as wapi
 import client/workflow/wizard
 import gleam/option.{type Option, None, Some}
@@ -79,7 +79,7 @@ pub fn view(
   case open {
     None -> element.none()
     Some(wizard_model) ->
-      ui.dialog(
+      atoms.dialog(
         title: config.title,
         on_dismiss: wrap(wizard.DismissClicked),
         body: element.map(wizard.view(wizard_model, permissions, aside), wrap),
