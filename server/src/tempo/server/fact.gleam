@@ -324,7 +324,11 @@ pub type Fact {
   /// The meeting is cancelled.
   MeetingCancelled(meeting_id: MeetingId)
   /// An engineer is added (or re-marked) as an attendee of the meeting.
-  MeetingAttendeeAdded(meeting_id: MeetingId, engineer_id: Int, attendance: String)
+  MeetingAttendeeAdded(
+    meeting_id: MeetingId,
+    engineer_id: Int,
+    attendance: String,
+  )
   /// An attendee is removed from the meeting.
   MeetingAttendeeRemoved(meeting_id: MeetingId, engineer_id: Int)
 }

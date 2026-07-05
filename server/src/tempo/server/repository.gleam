@@ -91,7 +91,9 @@ pub fn create_engineer(
 }
 
 /// Mint a new meeting identity row; its detail and attendees follow as facts.
-pub fn create_meeting(conn: pog.Connection) -> Result(MeetingId, OperationError) {
+pub fn create_meeting(
+  conn: pog.Connection,
+) -> Result(MeetingId, OperationError) {
   use returned <- operation.try(meeting_sql.meeting_create(conn))
   let assert [row] = returned.rows
   Ok(MeetingId(row.id))
@@ -703,7 +705,12 @@ pub fn write(
       engineer_id:,
       attendance:,
     ) ->
-      meeting_sql.meeting_attendee_insert(conn, meeting_id, engineer_id, attendance)
+      meeting_sql.meeting_attendee_insert(
+        conn,
+        meeting_id,
+        engineer_id,
+        attendance,
+      )
       |> operation.run
 
     MeetingAttendeeRemoved(meeting_id: MeetingId(meeting_id), engineer_id:) ->
