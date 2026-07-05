@@ -10,6 +10,7 @@ import client/api
 import client/scheduler
 import client/storage
 import client/table
+import client/table/render
 import client/time
 import client/ui/atoms
 import gleam/list
@@ -239,7 +240,7 @@ pub fn view(host: Host, loading_message: String) -> Element(Msg) {
     Failed(message:) -> atoms.empty_state(message:)
     Loaded(schema:, rows:, next_cursor:, table_state:, footer:) ->
       element.map(
-        table.view(
+        render.view(
           schema,
           rows,
           table_state,
