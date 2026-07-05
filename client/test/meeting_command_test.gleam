@@ -1,4 +1,4 @@
-import client/page/meetings
+import client/page/meetings/update as meetings
 import client/ui/ops
 import gleam/option
 import gleam/result
