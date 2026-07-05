@@ -5,7 +5,10 @@
 //// `model.step` (Next also persists the open step) — so there is no URL per step;
 //// the draft is durable in the DB and reopened by resuming from the People list.
 //// The schema drives rendering generically; field values autosave on blur with a
-//// no-op guard; undo/redo is a per-step buffer that re-saves.
+//// no-op guard; undo/redo is a per-step buffer that re-saves. Hand-off waits for any
+//// in-flight autosaves to land before it fires, so a blur-then-hand-off gesture can't
+//// commit against stale stored values; a save that comes back an error cancels the
+//// queued hand-off instead.
 
 import client/api
 import client/focus
@@ -49,7 +52,16 @@ pub type Model {
     undo: List(Dict(String, value.FieldValue)),
     redo: List(Dict(String, value.FieldValue)),
     error: String,
+    save_status: SaveStatus,
   )
+}
+
+/// In-flight field saves for the current step, and whether a hand-off request is
+/// queued behind them.
+pub type SaveStatus {
+  AllSaved
+  Saving(pending: Int)
+  SavingThenHandOff(pending: Int)
 }
 
 pub type Msg {
@@ -94,6 +106,7 @@ pub fn init(
       undo: [],
       redo: [],
       error: "",
+      save_status: AllSaved,
     )
   #(
     model,
@@ -142,9 +155,23 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
         ),
       )
 
-    Saved(Ok(_)) -> working(model)
+    Saved(Ok(_)) -> {
+      let #(save_status, dispatch_hand_off) =
+        save_succeeded(model.save_status)
+      let model = Model(..model, save_status:)
+      case dispatch_hand_off {
+        True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
+        False -> working(model)
+      }
+    }
     Saved(Error(error)) ->
-      working(Model(..model, error: api.describe_error(error)))
+      working(
+        Model(
+          ..model,
+          save_status: save_failed(model.save_status),
+          error: api.describe_error(error),
+        ),
+      )
 
     UndoClicked -> step_undo(model)
     RedoClicked -> step_redo(model)
@@ -172,11 +199,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
     StepAdvanced(_, Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
 
-    HandOffClicked -> #(
-      model,
-      wapi.hand_off(model.instance_id, HandedOff),
-      Working,
-    )
+    HandOffClicked -> {
+      let #(save_status, dispatch_now) = request_hand_off(model.save_status)
+      let model = Model(..model, save_status:)
+      case dispatch_now {
+        True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
+        False -> working(model)
+      }
+    }
     HandedOff(Ok(_)) -> #(model, effect.none(), Dismissed)
     HandedOff(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -200,6 +230,42 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
 fn working(model: Model) -> #(Model, Effect(Msg), Outcome) {
   #(model, effect.none(), Working)
+}
+
+fn save_dispatched(status: SaveStatus) -> SaveStatus {
+  case status {
+    AllSaved -> Saving(1)
+    Saving(pending) -> Saving(pending + 1)
+    SavingThenHandOff(pending) -> SavingThenHandOff(pending + 1)
+  }
+}
+
+fn save_succeeded(status: SaveStatus) -> #(SaveStatus, Bool) {
+  case status {
+    Saving(1) -> #(AllSaved, False)
+    Saving(pending) -> #(Saving(pending - 1), False)
+    SavingThenHandOff(1) -> #(AllSaved, True)
+    SavingThenHandOff(pending) -> #(SavingThenHandOff(pending - 1), False)
+    AllSaved -> #(AllSaved, False)
+  }
+}
+
+fn save_failed(status: SaveStatus) -> SaveStatus {
+  case status {
+    Saving(1) -> AllSaved
+    Saving(pending) -> Saving(pending - 1)
+    SavingThenHandOff(1) -> AllSaved
+    SavingThenHandOff(pending) -> Saving(pending - 1)
+    AllSaved -> AllSaved
+  }
+}
+
+fn request_hand_off(status: SaveStatus) -> #(SaveStatus, Bool) {
+  case status {
+    AllSaved -> #(AllSaved, True)
+    Saving(pending) -> #(SavingThenHandOff(pending), False)
+    SavingThenHandOff(pending) -> #(SavingThenHandOff(pending), False)
+  }
 }
 
 /// Like `working`, but also focuses the first field of the (now-rendered) step.
@@ -239,6 +305,7 @@ fn commit_field(
               undo: [prev_doc, ..model.undo],
               redo: [],
               error: "",
+              save_status: save_dispatched(model.save_status),
             )
           #(
             model,
@@ -298,6 +365,7 @@ fn restore_doc(
       undo:,
       redo:,
       error: "",
+      save_status: save_dispatched(model.save_status),
     )
   #(model, wapi.save_step(model.instance_id, model.step, doc, Saved), Working)
 }
@@ -666,6 +734,7 @@ fn save_group(
       edits:,
       undo: [prev_doc, ..model.undo],
       redo: [],
+      save_status: save_dispatched(model.save_status),
     )
   #(model, wapi.save_step(model.instance_id, step_id, new_doc, Saved), Working)
 }
