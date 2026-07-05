@@ -73,6 +73,10 @@ pub type SkillId {
   SkillId(Int)
 }
 
+pub type MeetingId {
+  MeetingId(Int)
+}
+
 pub type Fact {
   // --- engineer ---------------------------------------------------------------
   /// The engineer is employed from `from` onward (open-ended). Ended by
@@ -293,4 +297,34 @@ pub type Fact {
     timezone: String,
     from: Date,
   )
+
+  // --- meeting -------------------------------------------------------------------
+  /// A meeting's detail (composed instant range, title, location, client/project) as
+  /// scheduled. Plain mutable row; a reschedule is `MeetingRescheduled`, a cancel is
+  /// `MeetingCancelled`.
+  MeetingScheduled(
+    meeting_id: MeetingId,
+    date: Date,
+    starts_at: String,
+    duration_minutes: Int,
+    timezone: String,
+    title: String,
+    location: Option(String),
+    client_id: Option(Int),
+    project_id: Option(Int),
+  )
+  /// The meeting moves in place to a new date/start/duration/timezone.
+  MeetingRescheduled(
+    meeting_id: MeetingId,
+    date: Date,
+    starts_at: String,
+    duration_minutes: Int,
+    timezone: String,
+  )
+  /// The meeting is cancelled.
+  MeetingCancelled(meeting_id: MeetingId)
+  /// An engineer is added (or re-marked) as an attendee of the meeting.
+  MeetingAttendeeAdded(meeting_id: MeetingId, engineer_id: Int, attendance: String)
+  /// An attendee is removed from the meeting.
+  MeetingAttendeeRemoved(meeting_id: MeetingId, engineer_id: Int)
 }

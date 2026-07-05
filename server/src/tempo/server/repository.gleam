@@ -30,6 +30,7 @@
 //// delete (a retraction's cap) leaves no row, so its provenance lives only in
 //// event_log.
 
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -45,14 +46,16 @@ import tempo/server/engineer_skill/sql as engineer_skill_sql
 import tempo/server/event
 import tempo/server/fact.{
   type CapabilityId, type ClientId, type ContractId, type EngineerId, type Fact,
-  type InvoiceId, type PayrollRunId, type ProjectId, type SkillId, CapabilityId,
-  CapabilityProfile, CapabilityRetired, CapabilitySkillRemoved,
-  CapabilitySkillSet, ClientId, ClientProfile, ContractId, ContractTerms,
-  EngineerAllocatedToProject, EngineerAtLevel, EngineerBankingDetails,
-  EngineerContactDetails, EngineerDeparted, EngineerEmergencyContact,
-  EngineerEmployed, EngineerId, EngineerLocated, EngineerOffProject,
-  EngineerOnLeave, EngineerSkillAssessed, EngineerWorkedHours, InvoiceId,
-  InvoiceInStatus, InvoiceLine, InvoiceSubject, PayrollLine, PayrollLineSegment,
+  type InvoiceId, type MeetingId, type PayrollRunId, type ProjectId,
+  type SkillId, CapabilityId, CapabilityProfile, CapabilityRetired,
+  CapabilitySkillRemoved, CapabilitySkillSet, ClientId, ClientProfile,
+  ContractId, ContractTerms, EngineerAllocatedToProject, EngineerAtLevel,
+  EngineerBankingDetails, EngineerContactDetails, EngineerDeparted,
+  EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerLocated,
+  EngineerOffProject, EngineerOnLeave, EngineerSkillAssessed,
+  EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
+  MeetingAttendeeAdded, MeetingAttendeeRemoved, MeetingCancelled, MeetingId,
+  MeetingRescheduled, MeetingScheduled, PayrollLine, PayrollLineSegment,
   PayrollPeriod, PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
   ProjectProfile, ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard,
   Salary, SkillId, SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
@@ -60,6 +63,7 @@ import tempo/server/fact.{
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
 import tempo/server/location/sql as location_sql
+import tempo/server/meeting/sql as meeting_sql
 import tempo/server/operation.{type Event as JournalEntry, type OperationError}
 import tempo/server/payroll/sql as payroll_sql
 import tempo/server/project/sql as project_sql
@@ -84,6 +88,13 @@ pub fn create_engineer(
     engineer_sql.engineer_create(conn, row.id) |> operation.run,
   )
   Ok(EngineerId(row.id))
+}
+
+/// Mint a new meeting identity row; its detail and attendees follow as facts.
+pub fn create_meeting(conn: pog.Connection) -> Result(MeetingId, OperationError) {
+  use returned <- operation.try(meeting_sql.meeting_create(conn))
+  let assert [row] = returned.rows
+  Ok(MeetingId(row.id))
 }
 
 /// Mint a client anchor (reserve id, insert the id-only row), returning its typed id.
@@ -185,7 +196,7 @@ pub fn record_facts(
 /// revise, and unwrapping the strongly-typed anchor id in the pattern. Deletes (a
 /// retraction's cap) carry no audit_id. Anchors are not facts — they are minted by
 /// `create_*`, so they never reach here.
-fn write(
+pub fn write(
   conn: pog.Connection,
   audit_id: Int,
   a_fact: Fact,
@@ -637,6 +648,66 @@ fn write(
         timezone,
         audit_id,
       )
+      |> operation.run
+
+    MeetingScheduled(
+      meeting_id: MeetingId(meeting_id),
+      date:,
+      starts_at:,
+      duration_minutes:,
+      timezone:,
+      title:,
+      location:,
+      client_id:,
+      project_id:,
+    ) ->
+      meeting_sql.meeting_detail_insert(
+        conn,
+        meeting_id,
+        operation.iso(date),
+        starts_at,
+        int.to_string(duration_minutes),
+        timezone,
+        title,
+        option.unwrap(location, ""),
+        option.unwrap(client_id, 0),
+        option.unwrap(project_id, 0),
+        audit_id,
+      )
+      |> operation.run
+
+    MeetingRescheduled(
+      meeting_id: MeetingId(meeting_id),
+      date:,
+      starts_at:,
+      duration_minutes:,
+      timezone:,
+    ) ->
+      meeting_sql.meeting_reschedule(
+        conn,
+        meeting_id,
+        operation.iso(date),
+        starts_at,
+        int.to_string(duration_minutes),
+        timezone,
+        audit_id,
+      )
+      |> require_covering_version
+
+    MeetingCancelled(meeting_id: MeetingId(meeting_id)) ->
+      meeting_sql.meeting_cancel(conn, meeting_id, audit_id)
+      |> require_covering_version
+
+    MeetingAttendeeAdded(
+      meeting_id: MeetingId(meeting_id),
+      engineer_id:,
+      attendance:,
+    ) ->
+      meeting_sql.meeting_attendee_insert(conn, meeting_id, engineer_id, attendance)
+      |> operation.run
+
+    MeetingAttendeeRemoved(meeting_id: MeetingId(meeting_id), engineer_id:) ->
+      meeting_sql.meeting_attendee_delete(conn, meeting_id, engineer_id)
       |> operation.run
   }
 }
