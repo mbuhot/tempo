@@ -366,7 +366,7 @@ fn view_capabilities_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
     title: "Capabilities",
     count: int.to_string(list.length(snapshot.capabilities)),
     right: [],
-    body: rows,
+    body: [html.div([attribute.role("list")], rows)],
   )
 }
 
@@ -382,23 +382,30 @@ fn view_capability_row(
         mapping.capability_id == capability_id
       }),
     )
-  html.div([attribute.class("list-row")], [
-    ui.swatch(category: index + 1, inline: False),
-    html.div([], [
-      html.div([attribute.class("list-row__name")], [html.text(name)]),
-      html.div([attribute.class("list-row__sub")], [html.text(summary)]),
-    ]),
-    html.span([attribute.class("list-row__meta")], [
-      html.text(int.to_string(skill_count) <> " skills"),
-    ]),
-    html.button(
-      [
-        attribute.class("list-row__edit"),
-        event.on_click(CompositionModalOpened(capability_id:)),
-      ],
-      [html.text("Edit")],
-    ),
-  ])
+  html.div(
+    [
+      attribute.class("list-row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      ui.swatch(category: index + 1, inline: False),
+      html.div([], [
+        html.div([attribute.class("list-row__name")], [html.text(name)]),
+        html.div([attribute.class("list-row__sub")], [html.text(summary)]),
+      ]),
+      html.span([attribute.class("list-row__meta")], [
+        html.text(int.to_string(skill_count) <> " skills"),
+      ]),
+      html.button(
+        [
+          attribute.class("list-row__edit"),
+          event.on_click(CompositionModalOpened(capability_id:)),
+        ],
+        [html.text("Edit")],
+      ),
+    ],
+  )
 }
 
 fn view_skills_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
@@ -408,7 +415,7 @@ fn view_skills_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {
     title: "Skills",
     count: int.to_string(list.length(snapshot.skills)),
     right: [],
-    body: rows,
+    body: [html.div([attribute.role("list")], rows)],
   )
 }
 
@@ -423,12 +430,19 @@ fn view_skill_row(
         mapping.skill_id == skill_id
       }),
     )
-  html.div([attribute.class("list-row")], [
-    html.div([attribute.class("list-row__name")], [html.text(name)]),
-    html.span([attribute.class("list-row__meta")], [
-      html.text("in " <> int.to_string(capability_count) <> " caps"),
-    ]),
-  ])
+  html.div(
+    [
+      attribute.class("list-row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.div([attribute.class("list-row__name")], [html.text(name)]),
+      html.span([attribute.class("list-row__meta")], [
+        html.text("in " <> int.to_string(capability_count) <> " caps"),
+      ]),
+    ],
+  )
 }
 
 fn view_matrix_panel(snapshot: TaxonomySnapshot) -> Element(Msg) {

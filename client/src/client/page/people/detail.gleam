@@ -1068,7 +1068,7 @@ fn skill_matrix_panel(
     [] -> [ui.empty_state("No skills in the taxonomy yet.")]
     rows -> [
       html.div(
-        [attribute.class("skill-matrix")],
+        [attribute.class("skill-matrix"), attribute.role("list")],
         list.map(rows, skill_matrix_row),
       ),
       legend(),
@@ -1084,21 +1084,28 @@ fn skill_matrix_panel(
 
 fn skill_matrix_row(assessment: SkillAssessment) -> Element(Msg) {
   let SkillAssessment(name:, level:, capability_names:, ..) = assessment
-  html.div([attribute.class("skill-matrix__row")], [
-    html.div([], [
-      html.div([attribute.class("skill-matrix__name")], [html.text(name)]),
-      html.div(
-        [attribute.class("skill-matrix__caps")],
-        list.map(capability_names, fn(capability) {
-          ui.chip(label: capability, tone: ui.Neutral)
-        }),
-      ),
-    ]),
-    lvl_badge(level),
-    html.div([attribute.class("skill-matrix__meaning")], [
-      html.text(level_meaning(level)),
-    ]),
-  ])
+  html.div(
+    [
+      attribute.class("skill-matrix__row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.div([], [
+        html.div([attribute.class("skill-matrix__name")], [html.text(name)]),
+        html.div(
+          [attribute.class("skill-matrix__caps")],
+          list.map(capability_names, fn(capability) {
+            ui.chip(label: capability, tone: ui.Neutral)
+          }),
+        ),
+      ]),
+      lvl_badge(level),
+      html.div([attribute.class("skill-matrix__meaning")], [
+        html.text(level_meaning(level)),
+      ]),
+    ],
+  )
 }
 
 /// A skill's level badge: 0 renders the muted `lvl-badge--0` variant labelled
@@ -1183,7 +1190,7 @@ fn rollup_panel(rollups: List(CapabilityRollup)) -> Element(Msg) {
     html.div([attribute.class("pad-detail note")], [
       html.text("weighted average of constituent skills"),
     ]),
-    ..list.map(rollups, rollup_row)
+    html.div([attribute.role("list")], list.map(rollups, rollup_row)),
   ])
 }
 
@@ -1193,22 +1200,29 @@ fn rollup_row(rollup: CapabilityRollup) -> Element(Msg) {
     int.clamp(float_round(proficiency /. 4.0 *. 100.0), min: 0, max: 100)
   let rounded_level = int.clamp(float_round(proficiency), min: 0, max: 4)
   let ramp_step = badge_step(rounded_level)
-  html.div([attribute.class("rollup")], [
-    html.div([attribute.class("rollup__name")], [html.text(name)]),
-    html.div([attribute.class("rollup__value")], [
-      html.text(one_decimal(proficiency)),
-    ]),
-    html.div([attribute.class("rollup__track")], [
-      html.div(
-        [
-          attribute.class("rollup__fill"),
-          attribute.style("width", int.to_string(fill_pct) <> "%"),
-          attribute.style("background", ui.lvl_color(ramp_step)),
-        ],
-        [],
-      ),
-    ]),
-  ])
+  html.div(
+    [
+      attribute.class("rollup"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.div([attribute.class("rollup__name")], [html.text(name)]),
+      html.div([attribute.class("rollup__value")], [
+        html.text(one_decimal(proficiency)),
+      ]),
+      html.div([attribute.class("rollup__track")], [
+        html.div(
+          [
+            attribute.class("rollup__fill"),
+            attribute.style("width", int.to_string(fill_pct) <> "%"),
+            attribute.style("background", ui.lvl_color(ramp_step)),
+          ],
+          [],
+        ),
+      ]),
+    ],
+  )
 }
 
 fn recent_panel(recent: List(AssessmentVersion)) -> Element(Msg) {

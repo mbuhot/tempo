@@ -5,6 +5,7 @@ const {
   navigateTo,
   escapeRegExp,
   railReadout,
+  opModal,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the time rail + Board page on the NEW shell. After
@@ -207,10 +208,11 @@ test("an unstaffed project's Assign opens the assign modal pre-filled with that 
     .locator("div")
     .filter({ hasText: /^Platform TelemetryGlobex CorporationAssign$/ });
   await card.getByRole("button", { name: "Assign", exact: true }).click();
-  await expect(page.getByText("Assign to a project")).toBeVisible();
-  await expect(page.getByLabel("Project")).toHaveValue(/.+/);
+  const modal = opModal(page);
+  await expect(modal.getByText("Assign to a project")).toBeVisible();
+  await expect(modal.getByLabel("Project")).toHaveValue(/.+/);
   await expect(
-    page.getByLabel("Project").locator("option:checked"),
+    modal.getByLabel("Project").locator("option:checked"),
   ).toHaveText("Platform Telemetry");
 });
 

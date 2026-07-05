@@ -108,14 +108,21 @@ pub fn panel(
     [] -> element.none()
     controls -> html.div([attribute.class("panel__actions")], controls)
   }
-  html.div([attribute.class("panel")], [
-    html.div([attribute.class("panel__head")], [
-      html.h2([], [html.text(title)]),
-      count_badge,
-      right_cluster,
-    ]),
-    html.div([attribute.class("panel__body")], body),
-  ])
+  html.div(
+    [
+      attribute.class("panel"),
+      attribute.role("region"),
+      attribute.aria_label(title),
+    ],
+    [
+      html.div([attribute.class("panel__head")], [
+        html.h2([], [html.text(title)]),
+        count_badge,
+        right_cluster,
+      ]),
+      html.div([attribute.class("panel__body")], body),
+    ],
+  )
 }
 
 /// A single stat card: a big value, an optional unit suffix, a label, and an
@@ -1217,20 +1224,29 @@ pub fn modal(
       html.div([attribute.class("op-form__error")], [html.text(message)])
   }
   html.div([attribute.class("modal-backdrop"), event.on_click(on_cancel)], [
-    html.div([attribute.class("modal"), swallow_click(on_cancel)], [
-      html.div([attribute.class("modal__header")], [html.text(title)]),
-      html.div([attribute.class("modal__body op-form")], body),
-      error_line,
-      html.div([attribute.class("modal__footer")], [
-        html.button(
-          [attribute.class("btn btn--ghost"), event.on_click(on_cancel)],
-          [html.text("Cancel")],
-        ),
-        html.button([attribute.class("btn"), event.on_click(on_confirm)], [
-          html.text(confirm_label),
+    html.div(
+      [
+        attribute.class("modal"),
+        attribute.role("dialog"),
+        attribute.aria_modal(True),
+        attribute.aria_label(title),
+        swallow_click(on_cancel),
+      ],
+      [
+        html.div([attribute.class("modal__header")], [html.text(title)]),
+        html.div([attribute.class("modal__body op-form")], body),
+        error_line,
+        html.div([attribute.class("modal__footer")], [
+          html.button(
+            [attribute.class("btn btn--ghost"), event.on_click(on_cancel)],
+            [html.text("Cancel")],
+          ),
+          html.button([attribute.class("btn"), event.on_click(on_confirm)], [
+            html.text(confirm_label),
+          ]),
         ]),
-      ]),
-    ]),
+      ],
+    ),
   ])
 }
 
@@ -1246,8 +1262,9 @@ pub fn dialog(
     html.div(
       [
         attribute.class("modal modal--wide"),
-        attribute.attribute("role", "dialog"),
-        attribute.attribute("aria-modal", "true"),
+        attribute.role("dialog"),
+        attribute.aria_modal(True),
+        attribute.aria_label(title),
         attribute.attribute("tabindex", "-1"),
         swallow_click(on_dismiss),
       ],

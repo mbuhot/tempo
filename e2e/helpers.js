@@ -141,10 +141,10 @@ function rosterRow(page, name) {
 // backdrop (ui.modal). The launcher that opened it (e.g. a "Promote" / "Assign"
 // button) stays in the page behind the backdrop, so its verb can collide with the
 // modal's own confirm verb. Scope confirm clicks and in-form controls through this
-// locator so they resolve only the open dialog. The dialog carries no ARIA role,
-// so it is reached by its overlay container.
+// locator so they resolve only the open dialog (ui.modal renders `role="dialog"`
+// with an aria-label naming the operation).
 function opModal(page) {
-  return page.locator(".modal");
+  return page.getByRole("dialog");
 }
 
 // Click the modal's footer confirm button by its op-verb label (e.g. "Promote",

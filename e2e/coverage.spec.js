@@ -36,7 +36,7 @@ async function openCoverageTab(page) {
 // the same launcher label and stays in the DOM (hidden, not removed) behind
 // the tab switch.
 function coveragePanel(page) {
-  return page.locator(".panel", { hasText: "Capability coverage" });
+  return page.getByRole("region", { name: "Capability coverage" });
 }
 
 test("the Capability coverage tab renders the seeded gap and the fully-covered contrast", async ({
@@ -46,8 +46,8 @@ test("the Capability coverage tab renders the seeded gap and the fully-covered c
   await openLedgerMigration(page);
   await openCoverageTab(page);
 
-  const paymentsPlatform = page.locator(".coverage__row", {
-    hasText: "Payments Platform",
+  const paymentsPlatform = page.getByRole("listitem", {
+    name: "Payments Platform",
   });
   await expect(
     paymentsPlatform.getByText("1 / 2 · gap 1", { exact: true }),
@@ -56,8 +56,8 @@ test("the Capability coverage tab renders the seeded gap and the fully-covered c
     paymentsPlatform.getByText("Priya Sharma · 3.6 · 50%", { exact: true }),
   ).toBeVisible();
 
-  const frontendDelivery = page.locator(".coverage__row", {
-    hasText: "Frontend Delivery",
+  const frontendDelivery = page.getByRole("listitem", {
+    name: "Frontend Delivery",
   });
   await expect(
     frontendDelivery.getByText("1 / 1 · covered", { exact: true }),
@@ -77,17 +77,20 @@ test("setting a capability requirement records new demand and is journalled", as
   await coveragePanel(page)
     .getByRole("button", { name: "Set requirement" })
     .dispatchEvent("click");
-  await expect(page.getByLabel("Capability")).toBeVisible();
-  await page.getByLabel("Capability").selectOption({ label: "Data Engineering" });
-  await page.getByLabel("Target level").selectOption("2");
-  await page.getByLabel("Quantity").fill("1");
-  await page.getByLabel("Valid from").fill("2026-02-01");
-  await page.getByLabel("Valid to").fill("2026-08-01");
+  const setRequirementModal = opModal(page);
+  await expect(setRequirementModal.getByLabel("Capability")).toBeVisible();
+  await setRequirementModal
+    .getByLabel("Capability")
+    .selectOption({ label: "Data Engineering" });
+  await setRequirementModal.getByLabel("Target level").selectOption("2");
+  await setRequirementModal.getByLabel("Quantity").fill("1");
+  await setRequirementModal.getByLabel("Valid from").fill("2026-02-01");
+  await setRequirementModal.getByLabel("Valid to").fill("2026-08-01");
   await confirmOp(page, "Set requirement");
 
   await expect(opModal(page)).toHaveCount(0);
-  const dataEngineering = page.locator(".coverage__row", {
-    hasText: "Data Engineering",
+  const dataEngineering = page.getByRole("listitem", {
+    name: "Data Engineering",
   });
   await expect(dataEngineering).toBeVisible();
 

@@ -1181,7 +1181,7 @@ fn coverage_panel(
         [] -> [ui.empty_state(message: "No capability requirements.")]
         rows -> [
           html.div(
-            [attribute.class("coverage")],
+            [attribute.class("coverage"), attribute.role("list")],
             list.index_map(rows, coverage_row),
           ),
         ]
@@ -1243,30 +1243,37 @@ fn coverage_row(requirement: CoverageRequirement, index: Int) -> Element(Msg) {
         ),
       ])
   }
-  html.div([attribute.class("coverage__row")], [
-    html.div([attribute.class("coverage__head")], [
-      html.span([attribute.class("coverage__cap")], [
-        ui.swatch(category: index, inline: True),
-        html.text(capability_name),
+  html.div(
+    [
+      attribute.class("coverage__row"),
+      attribute.role("listitem"),
+      attribute.aria_label(capability_name),
+    ],
+    [
+      html.div([attribute.class("coverage__head")], [
+        html.span([attribute.class("coverage__cap")], [
+          ui.swatch(category: index, inline: True),
+          html.text(capability_name),
+        ]),
+        html.span([attribute.class("coverage__target")], [
+          html.text(
+            "target L"
+            <> int.to_string(target_level)
+            <> " · need "
+            <> ui.days(quantity),
+          ),
+        ]),
+        html.span([attribute.class(count_class)], [html.text(count_text)]),
       ]),
-      html.span([attribute.class("coverage__target")], [
-        html.text(
-          "target L"
-          <> int.to_string(target_level)
-          <> " · need "
-          <> ui.days(quantity),
-        ),
-      ]),
-      html.span([attribute.class(count_class)], [html.text(count_text)]),
-    ]),
-    html.div([attribute.class("coverage__bar")], bar),
-    html.div(
-      [attribute.class("coverage__who")],
-      list.append(covering_chips, [
-        below_note,
-      ]),
-    ),
-  ])
+      html.div([attribute.class("coverage__bar")], bar),
+      html.div(
+        [attribute.class("coverage__who")],
+        list.append(covering_chips, [
+          below_note,
+        ]),
+      ),
+    ],
+  )
 }
 
 /// The number of bar slots a requirement's `quantity` renders as: the fractional

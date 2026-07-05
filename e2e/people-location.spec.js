@@ -20,15 +20,11 @@ test("the Overview tab shows an engineer's current location and location history
 
   await scrubTo(page, "2026-07-15");
 
-  const currentCard = page.locator(".panel", {
-    has: page.getByRole("heading", { name: "Location & timezone" }),
-  });
+  const currentCard = page.getByRole("region", { name: "Location & timezone" });
   await expect(currentCard).toContainText("Europe/London");
   await expect(currentCard).toContainText("UTC+01:00");
 
-  const historyPanel = page.locator(".panel", {
-    has: page.getByRole("heading", { name: "Location history" }),
-  });
+  const historyPanel = page.getByRole("region", { name: "Location history" });
   await expect(historyPanel).toContainText("Australia/Sydney");
   await expect(historyPanel).toContainText("Europe/London");
 });

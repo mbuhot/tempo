@@ -45,39 +45,37 @@ test("the Skills tab renders the seeded skill matrix and capability rollup", asy
   await openDetail(page, "Priya Sharma");
   await openSkillsTab(page);
 
-  const paymentGateways = page.locator(".skill-matrix__row", {
-    hasText: "Payment Gateways",
+  const paymentGateways = page.getByRole("listitem", {
+    name: "Payment Gateways",
   });
   await expect(paymentGateways.getByText("L4", { exact: true })).toBeVisible();
 
-  const frontendDevelopment = page.locator(".skill-matrix__row", {
-    hasText: "Frontend Development",
+  const frontendDevelopment = page.getByRole("listitem", {
+    name: "Frontend Development",
   });
   await expect(
     frontendDevelopment.getByText("L2", { exact: true }),
   ).toBeVisible();
 
-  const kubernetes = page.locator(".skill-matrix__row", {
-    hasText: "Kubernetes",
-  });
+  const kubernetes = page.getByRole("listitem", { name: "Kubernetes" });
   await expect(kubernetes.getByText("0", { exact: true })).toBeVisible();
 
   // The weighted-average rollups, computed from the seeded composition weights
   // and Priya's seeded levels: Payments Platform (32/9), Frontend Delivery
   // (9/6), Platform Infrastructure (0/9, none of its skills assessed).
   await expect(page.getByRole("heading", { name: "Capability rollup" })).toBeVisible();
-  const paymentsPlatform = page.locator(".rollup", {
-    hasText: "Payments Platform",
+  const paymentsPlatform = page.getByRole("listitem", {
+    name: "Payments Platform",
   });
   await expect(paymentsPlatform.getByText("3.6", { exact: true })).toBeVisible();
 
-  const frontendDelivery = page.locator(".rollup", {
-    hasText: "Frontend Delivery",
+  const frontendDelivery = page.getByRole("listitem", {
+    name: "Frontend Delivery",
   });
   await expect(frontendDelivery.getByText("1.5", { exact: true })).toBeVisible();
 
-  const platformInfrastructure = page.locator(".rollup", {
-    hasText: "Platform Infrastructure",
+  const platformInfrastructure = page.getByRole("listitem", {
+    name: "Platform Infrastructure",
   });
   await expect(
     platformInfrastructure.getByText("0.0", { exact: true }),
@@ -96,22 +94,25 @@ test("recording a skill assessment updates the matrix and rollup and is journall
   await openSkillsTab(page);
 
   await page.getByRole("button", { name: "Assess skill" }).dispatchEvent("click");
-  await expect(page.getByLabel("Skill")).toBeVisible();
-  await page.getByLabel("Skill").selectOption({ label: "SQL & Database Design" });
-  await page.getByLabel("Experience level").selectOption("3");
-  await page.getByLabel("Assessed from").fill("2026-06-01");
+  const assessModal = opModal(page);
+  await expect(assessModal.getByLabel("Skill")).toBeVisible();
+  await assessModal
+    .getByLabel("Skill")
+    .selectOption({ label: "SQL & Database Design" });
+  await assessModal.getByLabel("Experience level").selectOption("3");
+  await assessModal.getByLabel("Assessed from").fill("2026-06-01");
   await confirmOp(page, "Record assessment");
 
   await expect(opModal(page)).toHaveCount(0);
-  const sqlDatabaseDesign = page.locator(".skill-matrix__row", {
-    hasText: "SQL & Database Design",
+  const sqlDatabaseDesign = page.getByRole("listitem", {
+    name: "SQL & Database Design",
   });
   await expect(sqlDatabaseDesign.getByText("L3", { exact: true })).toBeVisible();
 
   // Data Engineering (SQL & Database Design weight 3 of weight-sum 8, the other
   // two constituent skills unassessed): (3*3)/8 = 1.1.
-  const dataEngineering = page.locator(".rollup", {
-    hasText: "Data Engineering",
+  const dataEngineering = page.getByRole("listitem", {
+    name: "Data Engineering",
   });
   await expect(dataEngineering.getByText("1.1", { exact: true })).toBeVisible();
 
@@ -142,13 +143,13 @@ test("the Skills admin page lists the seeded capabilities, skills, and compositi
 
   // Payments Platform is composed of 4 skills (Payment Gateways, PCI Compliance,
   // Ledger Accounting Systems, API Design).
-  const paymentsPlatformRow = page.locator(".list-row", {
-    hasText: "Payments Platform",
+  const paymentsPlatformRow = page.getByRole("listitem", {
+    name: "Payments Platform",
   });
   await expect(paymentsPlatformRow).toContainText("4 skills");
 
   // API Design feeds both Payments Platform and Frontend Delivery.
-  const apiDesignRow = page.locator(".list-row", { hasText: "API Design" });
+  const apiDesignRow = page.getByRole("listitem", { name: "API Design" });
   await expect(apiDesignRow).toContainText("in 2 caps");
 
   // The composition matrix has a column per capability and a row per skill.

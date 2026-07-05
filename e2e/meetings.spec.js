@@ -61,17 +61,17 @@ test("an admin schedules, reschedules, and cancels a meeting", async ({
 
   await createModal.getByLabel("Search engineers").fill("Priya");
   await createModal
-    .locator(".attendee-builder__match", { hasText: "Priya Sharma" })
+    .getByRole("listitem", { name: "Priya Sharma" })
     .getByRole("button", { name: "Add" })
     .click();
 
   await createModal.getByLabel("Search engineers").fill("Marcus");
   await createModal
-    .locator(".attendee-builder__match", { hasText: "Marcus Chen" })
+    .getByRole("listitem", { name: "Marcus Chen" })
     .getByRole("button", { name: "Add" })
     .click();
   await createModal
-    .locator(".attendee-builder__row", { hasText: "Marcus Chen" })
+    .getByRole("listitem", { name: "Marcus Chen" })
     .getByRole("combobox", { name: "Attendance" })
     .selectOption("optional");
 

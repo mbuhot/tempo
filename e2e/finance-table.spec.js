@@ -69,9 +69,7 @@ test("scrolling to the bottom loads more invoice rows (infinite scroll)", async 
   const invoices = page
     .getByRole("table")
     .filter({ has: page.getByRole("columnheader", { name: "#" }) });
-  const viewport = invoices.locator(
-    "xpath=ancestor::div[contains(@class,'dt-scroll')]",
-  );
+  const viewport = page.getByRole("group", { name: "Invoices table scroll" });
   const firstPage = await invoices.getByRole("row").count();
   await expect(async () => {
     await viewport.evaluate((el) => {

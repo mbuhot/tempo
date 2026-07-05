@@ -1008,7 +1008,7 @@ fn view_roster_matches(
     "" -> element.none()
     _ ->
       html.div(
-        [attribute.class("attendee-builder__matches")],
+        [attribute.class("attendee-builder__matches"), attribute.role("list")],
         roster
           |> list.filter(fn(entry) {
             !list.any(form.attendees, fn(attendee) {
@@ -1023,15 +1023,22 @@ fn view_roster_matches(
 
 fn view_roster_match(entry: EngineerLocation) -> Element(Msg) {
   let location_view.EngineerLocation(engineer_id:, name:, ..) = entry
-  html.div([attribute.class("attendee-builder__match")], [
-    html.span([], [html.text(name)]),
-    ui.button(
-      label: "Add",
-      kind: ui.Ghost,
-      size: ui.Small,
-      on_press: AttendeeAdded(engineer_id),
-    ),
-  ])
+  html.div(
+    [
+      attribute.class("attendee-builder__match"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.span([], [html.text(name)]),
+      ui.button(
+        label: "Add",
+        kind: ui.Ghost,
+        size: ui.Small,
+        on_press: AttendeeAdded(engineer_id),
+      ),
+    ],
+  )
 }
 
 fn view_current_attendees(
@@ -1039,7 +1046,7 @@ fn view_current_attendees(
   roster: List(EngineerLocation),
 ) -> Element(Msg) {
   html.div(
-    [attribute.class("attendee-builder__rows")],
+    [attribute.class("attendee-builder__rows"), attribute.role("list")],
     list.map(attendees, view_current_attendee(_, roster)),
   )
 }
@@ -1049,16 +1056,24 @@ fn view_current_attendee(
   roster: List(EngineerLocation),
 ) -> Element(Msg) {
   let Attendee(engineer_id:, attendance:) = attendee
-  html.div([attribute.class("attendee-builder__row")], [
-    html.span([], [html.text(roster_name(roster, engineer_id))]),
-    create_attendance_select(engineer_id, attendance),
-    ui.button(
-      label: "Remove",
-      kind: ui.Ghost,
-      size: ui.Small,
-      on_press: AttendeeRemoved(engineer_id),
-    ),
-  ])
+  let name = roster_name(roster, engineer_id)
+  html.div(
+    [
+      attribute.class("attendee-builder__row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.span([], [html.text(name)]),
+      create_attendance_select(engineer_id, attendance),
+      ui.button(
+        label: "Remove",
+        kind: ui.Ghost,
+        size: ui.Small,
+        on_press: AttendeeRemoved(engineer_id),
+      ),
+    ],
+  )
 }
 
 fn roster_name(roster: List(EngineerLocation), engineer_id: Int) -> String {

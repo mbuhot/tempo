@@ -141,7 +141,7 @@ test("finance viewing a project's coverage tab does not see the Set-requirement 
   await navigateTo(page, "Projects");
   await clickContent(page.getByText("Ledger Migration").first());
   await page.getByRole("button", { name: "Capability coverage" }).click();
-  const coveragePanel = page.locator(".panel", { hasText: "Capability coverage" });
+  const coveragePanel = page.getByRole("region", { name: "Capability coverage" });
   await expect(
     coveragePanel.getByRole("heading", { name: "Capability coverage" }),
   ).toBeVisible();
@@ -157,7 +157,7 @@ test("the owner viewing a project's coverage tab sees the Set-requirement launch
   await navigateTo(page, "Projects");
   await clickContent(page.getByText("Ledger Migration").first());
   await page.getByRole("button", { name: "Capability coverage" }).click();
-  const coveragePanel = page.locator(".panel", { hasText: "Capability coverage" });
+  const coveragePanel = page.getByRole("region", { name: "Capability coverage" });
   await expect(
     coveragePanel.getByRole("button", { name: "Set requirement" }),
   ).toBeVisible();
@@ -187,7 +187,7 @@ test("the owner can grant and revoke a user's role", async ({ page }) => {
 
   // Marcus's row carries a toggle per role; grant 'finance' (off -> on), then revoke
   // it (on -> off) so the test is re-run safe against the never-reset database.
-  const row = page.locator(".access__user", { hasText: "Marcus Chen" });
+  const row = page.getByRole("listitem", { name: "Marcus Chen" });
   const financeToggle = row.getByRole("button", { name: "finance", exact: true });
 
   await expect(financeToggle).toHaveAttribute("aria-pressed", "false");

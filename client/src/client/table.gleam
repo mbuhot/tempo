@@ -891,15 +891,25 @@ fn table(
     True -> [event.on("scroll", scroll_decoder()) |> event.throttle(150)]
     False -> []
   }
-  html.div([attribute.class("dt-scroll"), ..scroll_listener], [
-    html.table([], [
-      html.thead([], [
-        html.tr([], list.map(columns, fn(column) { header(column, state) })),
+  html.div(
+    [
+      attribute.class("dt-scroll"),
+      attribute.role("group"),
+      attribute.aria_label(
+        string.capitalise(schema.table_id) <> " table scroll",
+      ),
+      ..scroll_listener
+    ],
+    [
+      html.table([], [
+        html.thead([], [
+          html.tr([], list.map(columns, fn(column) { header(column, state) })),
+        ]),
+        html.tbody([], body_rows(columns, rows, state.expanded)),
+        foot_row(columns, table_footer),
       ]),
-      html.tbody([], body_rows(columns, rows, state.expanded)),
-      foot_row(columns, table_footer),
-    ]),
-  ])
+    ],
+  )
 }
 
 /// The summary `<tfoot>` row, when the response carries a footer. The first visible

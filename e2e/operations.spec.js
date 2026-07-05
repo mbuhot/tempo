@@ -87,12 +87,15 @@ test("a containment violation is refused with the reason and leaves the board un
   await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
 
   await page.getByRole("button", { name: "+ Assign" }).dispatchEvent("click");
-  await expect(page.getByText("Assign to a project")).toBeVisible();
-  await page.getByLabel("Engineer").selectOption({ label: "Aisha Okafor" });
-  await page.getByLabel("Project").selectOption({ label: "Ledger Migration" });
-  await page.getByLabel("Fraction").fill("0.5");
-  await page.getByLabel("Valid from").fill("2024-01-01");
-  await page.getByLabel("Valid to").fill("2024-06-01");
+  const assignModal = opModal(page);
+  await expect(assignModal.getByText("Assign to a project")).toBeVisible();
+  await assignModal.getByLabel("Engineer").selectOption({ label: "Aisha Okafor" });
+  await assignModal
+    .getByLabel("Project")
+    .selectOption({ label: "Ledger Migration" });
+  await assignModal.getByLabel("Fraction").fill("0.5");
+  await assignModal.getByLabel("Valid from").fill("2024-01-01");
+  await assignModal.getByLabel("Valid to").fill("2024-06-01");
   await confirmOp(page, "Assign");
 
   // The user sees the employment rule that fired — not a crash, not a silent
@@ -116,10 +119,11 @@ test("a leave request beyond the accrued balance is refused with the reason", as
   // Take leave opens in the modal; Kind is now a <select> (defaulting to Annual),
   // From/To are dates, and the confirm verb is "Take leave" scoped to the dialog.
   await page.getByRole("button", { name: "Take leave" }).dispatchEvent("click");
-  await expect(page.getByLabel("Kind")).toBeVisible();
-  await page.getByLabel("Kind").selectOption({ label: "Annual" });
-  await page.getByLabel("From").fill("2026-08-01");
-  await page.getByLabel("To").fill("2026-12-01");
+  const leaveModal = opModal(page);
+  await expect(leaveModal.getByLabel("Kind")).toBeVisible();
+  await leaveModal.getByLabel("Kind").selectOption({ label: "Annual" });
+  await leaveModal.getByLabel("From").fill("2026-08-01");
+  await leaveModal.getByLabel("To").fill("2026-12-01");
   await confirmOp(page, "Take leave");
 
   await expect(

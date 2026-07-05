@@ -170,7 +170,7 @@ fn view_users(snapshot: AccessSnapshot, as_of: Date) -> Element(Msg) {
   html.section([attribute.class("access__section")], [
     html.div([attribute.class("eyebrow")], [html.text("People")]),
     html.div(
-      [attribute.class("access__users")],
+      [attribute.class("access__users"), attribute.role("list")],
       list.map(snapshot.users, fn(user) {
         view_user(user, snapshot.roles, as_of)
       }),
@@ -183,20 +183,27 @@ fn view_user(
   roles: List(RoleInfo),
   as_of: Date,
 ) -> Element(Msg) {
-  html.div([attribute.class("access__user")], [
-    html.div([attribute.class("access__user-meta")], [
-      html.div([attribute.class("access__user-name")], [
-        html.text(user.display_name),
+  html.div(
+    [
+      attribute.class("access__user"),
+      attribute.role("listitem"),
+      attribute.aria_label(user.display_name),
+    ],
+    [
+      html.div([attribute.class("access__user-meta")], [
+        html.div([attribute.class("access__user-name")], [
+          html.text(user.display_name),
+        ]),
+        html.div([attribute.class("access__user-email")], [
+          html.text(user.username),
+        ]),
       ]),
-      html.div([attribute.class("access__user-email")], [
-        html.text(user.username),
-      ]),
-    ]),
-    html.div(
-      [attribute.class("access__user-roles")],
-      list.map(roles, fn(role) { view_role_toggle(user, role, as_of) }),
-    ),
-  ])
+      html.div(
+        [attribute.class("access__user-roles")],
+        list.map(roles, fn(role) { view_role_toggle(user, role, as_of) }),
+      ),
+    ],
+  )
 }
 
 fn view_role_toggle(

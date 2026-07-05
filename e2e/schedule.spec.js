@@ -17,7 +17,7 @@ test("gaps surface and a nomination previews without saving", async ({ page }) =
   await navigateTo(page, "Schedule");
   await scrubScheduleTo(page, "2026-06-15", "Jun 15");
 
-  const edge = page.locator("section", { hasText: "Edge Analytics" }).first();
+  const edge = page.getByRole("region", { name: "Edge Analytics" });
   await expect(edge).toContainText("L3");
   await expect(edge).toContainText("2.0");
 
@@ -38,7 +38,7 @@ test("a reschedule outside the contract pills the project header", async ({ page
   await navigateTo(page, "Schedule");
   await scrubScheduleTo(page, "2026-06-15", "Jun 15");
 
-  const edge = page.locator("section", { hasText: "Edge Analytics" }).first();
+  const edge = page.getByRole("region", { name: "Edge Analytics" });
   await edge.getByRole("button", { name: "Edge Analytics" }).click();
   const inspector = page.getByRole("complementary");
   await inspector.getByLabel("Run start").fill("2026-05-01");
@@ -56,9 +56,7 @@ test("applying a reschedule persists the new run window", async ({ page }) => {
   await navigateTo(page, "Schedule");
   await scrubScheduleTo(page, "2026-06-15", "Jun 15");
 
-  const telemetry = page
-    .locator("section", { hasText: "Platform Telemetry" })
-    .first();
+  const telemetry = page.getByRole("region", { name: "Platform Telemetry" });
   await telemetry.getByRole("button", { name: "Platform Telemetry" }).click();
   const inspector = page.getByRole("complementary");
   await inspector.getByLabel("Run start").fill("2026-03-01");
@@ -71,6 +69,6 @@ test("applying a reschedule persists the new run window", async ({ page }) => {
   await expect(telemetry).toContainText("2026-03-01 → 2027-01-01");
   await page.reload();
   await expect(
-    page.locator("section", { hasText: "Platform Telemetry" }).first(),
+    page.getByRole("region", { name: "Platform Telemetry" }),
   ).toContainText("2026-03-01 → 2027-01-01");
 });
