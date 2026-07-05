@@ -10,6 +10,7 @@ import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/result
 import shared/allocation/command as allocation_command
+import shared/availability/command as availability_command
 import shared/capability/command as capability_command
 import shared/client/command as client_command
 import shared/engagement/command as engagement_command
@@ -69,6 +70,7 @@ pub type Command {
   EngineerSkillCommand(engineer_skill_command.EngineerSkillCommand)
   LocationCommand(location_command.LocationCommand)
   MeetingCommand(meeting_command.MeetingCommand)
+  AvailabilityCommand(availability_command.AvailabilityCommand)
 }
 
 /// Encode a `Command` as a tagged JSON object keyed by `op`, delegating to the
@@ -95,6 +97,7 @@ pub fn encode_command(command: Command) -> Json {
     EngineerSkillCommand(command) -> engineer_skill_command.encode(command)
     LocationCommand(command) -> location_command.encode(command)
     MeetingCommand(command) -> meeting_command.encode(command)
+    AvailabilityCommand(command) -> availability_command.encode(command)
   }
 }
 
@@ -125,6 +128,7 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engineer_skill_command.decoder(op), EngineerSkillCommand)
   use <- try_group(location_command.decoder(op), LocationCommand)
   use <- try_group(meeting_command.decoder(op), MeetingCommand)
+  use <- try_group(availability_command.decoder(op), AvailabilityCommand)
   Error(Nil)
 }
 

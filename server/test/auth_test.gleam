@@ -7,10 +7,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/set
 import gleam/time/calendar
 import shared/access
+import shared/availability/command as availability_command
 import shared/capability/command as capability_command
 import shared/command.{
-  CapabilityCommand, EngineerCommand, EngineerSkillCommand, PayrollCommand,
-  SalaryCommand, SkillCommand,
+  AvailabilityCommand, CapabilityCommand, EngineerCommand, EngineerSkillCommand,
+  PayrollCommand, SalaryCommand, SkillCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
@@ -50,6 +51,28 @@ fn update_contact(engineer_id: Int) -> command.Command {
     postal_address: "addr",
     effective: date(),
   ))
+}
+
+fn set_schedule(engineer_id: Int) -> command.Command {
+  AvailabilityCommand(
+    availability_command.SetWorkSchedule(engineer_id:, effective: date(), days: [
+      availability_command.DayHours(0, Some(#("09:00", "17:00"))),
+      availability_command.DayHours(1, Some(#("09:00", "17:00"))),
+      availability_command.DayHours(2, Some(#("09:00", "17:00"))),
+      availability_command.DayHours(3, Some(#("09:00", "17:00"))),
+      availability_command.DayHours(4, Some(#("09:00", "17:00"))),
+      availability_command.DayHours(5, None),
+      availability_command.DayHours(6, None),
+    ]),
+  )
+}
+
+fn import_one() -> command.Command {
+  AvailabilityCommand(
+    availability_command.ImportHolidays(rows: [
+      availability_command.HolidayRow("AU", "AU-NSW", date(), "Labour Day"),
+    ]),
+  )
 }
 
 // A command runs only when the principal holds its required permission.
@@ -217,4 +240,25 @@ pub fn can_read_engineer_allows_any_with_permission_or_own_test() {
   )
   assert !auth.can_read_engineer(principal_with([], Some(5)), 9)
   assert auth.can_read_engineer(principal_with([], Some(5)), 5)
+}
+
+// availability.manage is ownership-scoped like profile.update: `.own` lets an engineer
+// set their OWN weekly hours but not another's; `.any` sets anyone's.
+pub fn availability_is_ownership_scoped_test() {
+  let own_set = principal_with([access.availability_manage_own], Some(5))
+  assert auth.authorize(own_set, set_schedule(5)) == Ok("Test")
+  assert auth.authorize(own_set, set_schedule(9))
+    == Error(Forbidden(actor: "Test", command: "manage_availability"))
+  let any_set = principal_with([access.availability_manage_any], None)
+  assert auth.authorize(any_set, set_schedule(9)) == Ok("Test")
+}
+
+// Importing public holidays keys on holiday.manage, a distinct permission from
+// availability.manage.any.
+pub fn holiday_import_requires_holiday_manage_test() {
+  let no_permission = principal_with([access.availability_manage_any], None)
+  assert auth.authorize(no_permission, import_one())
+    == Error(Forbidden(actor: "Test", command: "manage_availability"))
+  let holiday_admin = principal_with([access.holiday_manage], None)
+  assert auth.authorize(holiday_admin, import_one()) == Ok("Test")
 }

@@ -18,9 +18,9 @@ import shared/access
 import shared/access/policy
 import shared/capability/command as capability_command
 import shared/command.{
-  type Command, AllocationCommand, CapabilityCommand, ClientCommand,
-  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
-  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
+  type Command, AllocationCommand, AvailabilityCommand, CapabilityCommand,
+  ClientCommand, EngagementCommand, EngineerCommand, EngineerSkillCommand,
+  InvoiceCommand, LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
   ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
@@ -150,5 +150,6 @@ fn command_tag(command: Command) -> String {
       "assess_skill"
     LocationCommand(_) -> "set_engineer_location"
     MeetingCommand(_) -> "manage_meeting"
+    AvailabilityCommand(_) -> "manage_availability"
   }
 }

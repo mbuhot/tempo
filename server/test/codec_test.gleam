@@ -17,9 +17,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{
-  August, Date, January, July, June, March, May, September,
+  August, Date, January, July, June, March, May, October, September,
 }
 import shared/allocation/command as allocation_command
+import shared/availability/command as availability_command
 import shared/board/view.{
   BoardRow, BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as board_view
@@ -1558,6 +1559,51 @@ pub fn command_schedule_meeting_round_trips_test() {
 pub fn command_cancel_meeting_round_trips_test() {
   let original =
     gateway.MeetingCommand(meeting_command.CancelMeeting(meeting_id: 5))
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+// --- AvailabilityCommand (Command) --------------------------------------
+
+pub fn command_set_work_schedule_round_trips_test() {
+  let original =
+    gateway.AvailabilityCommand(
+      availability_command.SetWorkSchedule(
+        engineer_id: 1,
+        effective: Date(2026, July, 6),
+        days: [
+          availability_command.DayHours(0, Some(#("09:00", "17:00"))),
+          availability_command.DayHours(1, Some(#("09:00", "17:00"))),
+          availability_command.DayHours(2, Some(#("10:00", "16:00"))),
+          availability_command.DayHours(3, Some(#("09:00", "17:00"))),
+          availability_command.DayHours(4, None),
+          availability_command.DayHours(5, None),
+          availability_command.DayHours(6, None),
+        ],
+      ),
+    )
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_import_holidays_round_trips_test() {
+  let original =
+    gateway.AvailabilityCommand(
+      availability_command.ImportHolidays(rows: [
+        availability_command.HolidayRow(
+          "AU",
+          "AU-NSW",
+          Date(2026, October, 5),
+          "Labour Day",
+        ),
+        availability_command.HolidayRow(
+          "GB",
+          "",
+          Date(2026, August, 31),
+          "Summer Bank Holiday",
+        ),
+      ]),
+    )
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }

@@ -84,6 +84,15 @@ pub const location_manage = "location.manage"
 /// Schedule/reschedule/cancel a meeting and manage its attendees.
 pub const meeting_manage = "meeting.manage"
 
+/// Set an engineer's own weekly hours and focus blocks.
+pub const availability_manage_own = "availability.manage.own"
+
+/// Set any engineer's weekly hours and focus blocks.
+pub const availability_manage_any = "availability.manage.any"
+
+/// Import public holidays.
+pub const holiday_manage = "holiday.manage"
+
 // --- Role names --------------------------------------------------------------
 
 pub const role_engineer = "engineer"
@@ -104,6 +113,7 @@ pub fn all() -> List(String) {
     engineer_terminate, allocation_manage, engagement_manage, project_manage,
     project_create_confirm, client_manage, salary_set, ratecard_manage,
     invoice_manage, payroll_run, roles_manage, skills_manage, skills_assess,
-    location_manage, meeting_manage,
+    location_manage, meeting_manage, availability_manage_own,
+    availability_manage_any, holiday_manage,
   ]
 }

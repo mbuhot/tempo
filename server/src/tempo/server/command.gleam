@@ -21,14 +21,16 @@
 import gleam/result
 import pog
 import shared/command.{
-  type Command, type Event, AllocationCommand, CapabilityCommand, ClientCommand,
-  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
-  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
-  ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
-  SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
+  type Command, type Event, AllocationCommand, AvailabilityCommand,
+  CapabilityCommand, ClientCommand, EngagementCommand, EngineerCommand,
+  EngineerSkillCommand, InvoiceCommand, LeaveCommand, LocationCommand,
+  MeetingCommand, PayrollCommand, ProjectCapabilityCommand, ProjectCommand,
+  RateCardCommand, RoleCommand, SalaryCommand, SkillCommand, TimesheetCommand,
+  WorkflowCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
+import tempo/server/availability/command as availability
 import tempo/server/capability/command as capability
 import tempo/server/client/command as client
 import tempo/server/context.{type Context}
@@ -136,5 +138,6 @@ fn route(
     EngineerSkillCommand(command) -> engineer_skill.route(command)
     LocationCommand(command) -> location.route(conn, command)
     MeetingCommand(command) -> meeting.route(conn, command)
+    AvailabilityCommand(command) -> availability.route(conn, command)
   }
 }

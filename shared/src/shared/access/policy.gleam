@@ -14,10 +14,11 @@
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import shared/access
+import shared/availability/command as availability_command
 import shared/command.{
-  type Command, AllocationCommand, CapabilityCommand, ClientCommand,
-  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
-  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
+  type Command, AllocationCommand, AvailabilityCommand, CapabilityCommand,
+  ClientCommand, EngagementCommand, EngineerCommand, EngineerSkillCommand,
+  InvoiceCommand, LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
   ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
@@ -53,6 +54,8 @@ pub type CommandKey {
   AssessSkills
   ManageLocation
   ManageMeeting
+  ManageAvailability
+  ManageHolidays
 }
 
 /// What a key requires: a single permission (`Direct`), or — for the ownership-sensitive
@@ -88,6 +91,9 @@ pub fn requirement(key: CommandKey) -> Requirement {
     AssessSkills -> Direct(access.skills_assess)
     ManageLocation -> Direct(access.location_manage)
     ManageMeeting -> Direct(access.meeting_manage)
+    ManageAvailability ->
+      Owned(access.availability_manage_own, access.availability_manage_any)
+    ManageHolidays -> Direct(access.holiday_manage)
   }
 }
 
@@ -121,6 +127,9 @@ pub fn key(command: Command) -> CommandKey {
     EngineerSkillCommand(_) -> AssessSkills
     LocationCommand(_) -> ManageLocation
     MeetingCommand(_) -> ManageMeeting
+    AvailabilityCommand(availability_command.ImportHolidays(_)) ->
+      ManageHolidays
+    AvailabilityCommand(_) -> ManageAvailability
   }
 }
 
@@ -132,6 +141,7 @@ pub fn target(command: Command) -> Option(Int) {
     EngineerCommand(details) -> engineer_target(details)
     LeaveCommand(leave_command.TakeLeave(engineer_id:, ..)) -> Some(engineer_id)
     TimesheetCommand(entry) -> Some(timesheet_target(entry))
+    AvailabilityCommand(availability) -> availability_target(availability)
     _ -> None
   }
 }
@@ -168,5 +178,16 @@ fn timesheet_target(command: timesheet_command.TimesheetCommand) -> Int {
   case command {
     timesheet_command.LogTimesheet(engineer_id:, ..) -> engineer_id
     timesheet_command.LogWeek(engineer_id:, ..) -> engineer_id
+  }
+}
+
+fn availability_target(
+  command: availability_command.AvailabilityCommand,
+) -> Option(Int) {
+  case command {
+    availability_command.SetWorkSchedule(engineer_id:, ..) -> Some(engineer_id)
+    availability_command.AddFocusBlock(engineer_id:, ..) -> Some(engineer_id)
+    availability_command.RemoveFocusBlock(engineer_id:, ..) -> Some(engineer_id)
+    availability_command.ImportHolidays(_) -> None
   }
 }
