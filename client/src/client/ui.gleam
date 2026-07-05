@@ -44,6 +44,7 @@ import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
 import shared/level
 import shared/location/command as location_command
+import shared/meeting/command as meeting_command
 import shared/money
 import shared/payroll/command as payroll_command
 import shared/project_capability/command as project_capability_command
@@ -426,6 +427,10 @@ pub type OpKind {
   OpAssessSkill
   OpSetProjectCapability
   OpSetLocation
+  OpRescheduleMeeting
+  OpCancelMeeting
+  OpAddAttendee
+  OpRemoveAttendee
 }
 
 // --- Op authorization (client-side launcher gating) -------------------------
@@ -464,6 +469,10 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
     OpSetSalary -> policy.SetSalary
     OpAssessSkill -> policy.AssessSkills
     OpSetLocation -> policy.ManageLocation
+    OpRescheduleMeeting -> policy.ManageMeeting
+    OpCancelMeeting -> policy.ManageMeeting
+    OpAddAttendee -> policy.ManageMeeting
+    OpRemoveAttendee -> policy.ManageMeeting
   }
 }
 
@@ -582,6 +591,10 @@ pub type OpField {
   FCountry
   FRegion
   FTimezone
+  FMeetingId
+  FStartsAt
+  FDurationMinutes
+  FAttendance
 }
 
 /// The raw text typed into an operation's fields, shared across every kind (each
@@ -625,6 +638,10 @@ pub type OpForm {
     country: String,
     region: String,
     timezone: String,
+    meeting_id: String,
+    starts_at: String,
+    duration_minutes: String,
+    attendance: String,
   )
 }
 
@@ -683,6 +700,10 @@ pub fn blank_op_form(
     country: "",
     region: "",
     timezone: "",
+    meeting_id: "",
+    starts_at: "",
+    duration_minutes: "60",
+    attendance: "required",
   )
 }
 
@@ -725,6 +746,10 @@ pub fn update_op_form(form: OpForm, field: OpField, value: String) -> OpForm {
     FCountry -> OpForm(..form, country: value)
     FRegion -> OpForm(..form, region: value)
     FTimezone -> OpForm(..form, timezone: value)
+    FMeetingId -> OpForm(..form, meeting_id: value)
+    FStartsAt -> OpForm(..form, starts_at: value)
+    FDurationMinutes -> OpForm(..form, duration_minutes: value)
+    FAttendance -> OpForm(..form, attendance: value)
   }
 }
 
@@ -1119,6 +1144,54 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
           region:,
           timezone:,
           effective:,
+        )),
+      )
+    }
+    OpRescheduleMeeting -> {
+      use meeting_id <- result.try(require_int(form.meeting_id, "meeting id"))
+      use timezone <- result.try(require_text(form.timezone, "timezone"))
+      use date <- result.try(require_date(form.effective, "date"))
+      use starts_at <- result.try(require_text(form.starts_at, "start time"))
+      use duration_minutes <- result.try(require_int(
+        form.duration_minutes,
+        "duration",
+      ))
+      Ok(
+        gateway.MeetingCommand(meeting_command.RescheduleMeeting(
+          meeting_id:,
+          timezone:,
+          date:,
+          starts_at:,
+          duration_minutes:,
+        )),
+      )
+    }
+    OpCancelMeeting -> {
+      use meeting_id <- result.try(require_int(form.meeting_id, "meeting id"))
+      Ok(gateway.MeetingCommand(meeting_command.CancelMeeting(meeting_id:)))
+    }
+    OpAddAttendee -> {
+      use meeting_id <- result.try(require_int(form.meeting_id, "meeting id"))
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      let attendance = case form.attendance {
+        "optional" -> meeting_command.Optional
+        _ -> meeting_command.Required
+      }
+      Ok(
+        gateway.MeetingCommand(meeting_command.AddAttendee(
+          meeting_id:,
+          engineer_id:,
+          attendance:,
+        )),
+      )
+    }
+    OpRemoveAttendee -> {
+      use meeting_id <- result.try(require_int(form.meeting_id, "meeting id"))
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      Ok(
+        gateway.MeetingCommand(meeting_command.RemoveAttendee(
+          meeting_id:,
+          engineer_id:,
         )),
       )
     }
