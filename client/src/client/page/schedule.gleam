@@ -196,9 +196,10 @@ fn preview_effect(model: Model) -> Effect(Msg) {
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
     Fetched(as_of:, result:) ->
-      case model.as_of == as_of {
-        False -> #(model, effect.none(), [])
-        True -> {
+      case model.as_of == as_of, model.preview_on, model.scenario {
+        False, _, _ -> #(model, effect.none(), [])
+        True, True, [_, ..] -> #(model, effect.none(), [])
+        True, _, _ -> {
           let state = case result {
             Ok(schedule) -> Loaded(schedule)
             Error(error) -> Failed(api.describe_error(error))
