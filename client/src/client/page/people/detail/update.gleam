@@ -1,7 +1,8 @@
 //// The People detail's state machine: the model (the engineer bundle, timesheet,
-//// skills, location, and directory load states, the active tab, and the open op
-//// form), the messages, init/refetch, and update — including the op-form
-//// seeding/prefills, the timesheet cell edits, and the LogWeek assembly.
+//// skills, location, availability, and directory load states, the active tab, the
+//// open op form, and the open weekly-hours editor), the messages, init/refetch,
+//// and update — including the op-form seeding/prefills, the timesheet cell edits,
+//// the LogWeek assembly, and the weekly-hours editor's `SetWorkSchedule` assembly.
 
 import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
@@ -14,11 +15,14 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleam/time/calendar
 import lustre/effect.{type Effect}
 import rsvp
 import shared/allocation/view.{AllocationRow} as allocation_view
+import shared/availability/command as availability_command
+import shared/availability/view.{type AvailabilityRecord, type DaySlot} as availability_view
 import shared/command as gateway
 import shared/engineer/view.{
   type EngineerDetail, EngineerBanking, EngineerContact, EngineerEmergency,
@@ -47,9 +51,11 @@ pub type Model {
     timesheet: TimesheetData,
     skills: SkillsData,
     location: LocationData,
+    availability: AvailabilityData,
     roster: Directory,
     tab: Tab,
     op: Option(ops.OpState),
+    week_form: Option(WeekForm),
   )
 }
 
@@ -99,6 +105,26 @@ pub type LocationData {
   LocationFailed(message: String)
 }
 
+/// The engineer's availability load state (the Overview tab's "Availability"
+/// panel: weekly working hours, upcoming focus blocks, upcoming holidays).
+pub type AvailabilityData {
+  AvailabilityLoading
+  AvailabilityLoaded(record: AvailabilityRecord)
+  AvailabilityFailed(message: String)
+}
+
+/// One editable row of the bespoke weekly-hours editor: whether the engineer
+/// works that weekday, and the typed start/end times (blank when not working).
+pub type DayEdit {
+  DayEdit(working: Bool, starts: String, ends: String)
+}
+
+/// The bespoke weekly-hours editor's state: the typed effective date, the 7
+/// editable day rows (index = weekday, 0 = Monday), and a rejection prompt.
+pub type WeekForm {
+  WeekForm(effective: String, days: List(DayEdit), error: Option(String))
+}
+
 // --- Messages ---------------------------------------------------------------
 
 /// The detail mode's messages: the bundle / timesheet / skills / directory fetch
@@ -126,6 +152,11 @@ pub type Msg {
     engineer_id: Int,
     result: Result(List(LocationRecord), rsvp.Error(String)),
   )
+  AvailabilityFetched(
+    as_of: calendar.Date,
+    engineer_id: Int,
+    result: Result(AvailabilityRecord, rsvp.Error(String)),
+  )
   DirectoryFetched(
     as_of: calendar.Date,
     result: Result(Roster, rsvp.Error(String)),
@@ -138,6 +169,13 @@ pub type Msg {
   OpSubmitted
   CellEdited(project_id: Int, day: calendar.Date, value: String)
   TimesheetSubmitted(permit: ops.Permit)
+  WeekOpened
+  WeekCancelled
+  WeekEffectiveEdited(value: String)
+  WeekDayToggled(weekday: Int)
+  WeekStartsEdited(weekday: Int, value: String)
+  WeekEndsEdited(weekday: Int, value: String)
+  WeekSubmitted
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
@@ -154,9 +192,11 @@ pub fn init(as_of: calendar.Date, engineer_id: Int) -> #(Model, Effect(Msg)) {
       timesheet: TimesheetLoading,
       skills: SkillsLoading,
       location: LocationLoading,
+      availability: AvailabilityLoading,
       roster: DirectoryLoading,
       tab: Overview,
       op: None,
+      week_form: None,
     )
   #(
     model,
@@ -176,6 +216,7 @@ pub fn refetch(model: Model, as_of: calendar.Date) -> #(Model, Effect(Msg)) {
       timesheet: TimesheetLoading,
       skills: SkillsLoading,
       location: LocationLoading,
+      availability: AvailabilityLoading,
       roster: DirectoryLoading,
     ),
     effect.batch([
@@ -198,6 +239,7 @@ fn fetch_detail(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
     fetch_timesheet(as_of, engineer_id),
     fetch_skills(as_of, engineer_id),
     fetch_location(as_of, engineer_id),
+    fetch_availability(as_of, engineer_id),
   ])
 }
 
@@ -220,6 +262,17 @@ fn fetch_location(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
       <> time.iso_date(as_of),
     decode.list(location_view.location_record_decoder()),
     fn(result) { LocationFetched(as_of:, engineer_id:, result:) },
+  )
+}
+
+fn fetch_availability(as_of: calendar.Date, engineer_id: Int) -> Effect(Msg) {
+  api.get(
+    "/api/engineers/"
+      <> int.to_string(engineer_id)
+      <> "/availability?as_of="
+      <> time.iso_date(as_of),
+    availability_view.availability_record_decoder(),
+    fn(result) { AvailabilityFetched(as_of:, engineer_id:, result:) },
   )
 }
 
@@ -293,6 +346,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             Error(error) -> LocationFailed(api.describe_error(error))
           }
           #(Model(..model, location:), effect.none(), [])
+        }
+      }
+
+    AvailabilityFetched(as_of:, engineer_id:, result:) ->
+      case model.as_of == as_of && model.engineer_id == engineer_id {
+        False -> #(model, effect.none(), [])
+        True -> {
+          let availability = case result {
+            Ok(record) -> AvailabilityLoaded(record:)
+            Error(error) -> AvailabilityFailed(api.describe_error(error))
+          }
+          #(Model(..model, availability:), effect.none(), [])
         }
       }
 
@@ -390,15 +455,120 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
+    WeekOpened -> #(
+      Model(..model, week_form: Some(seed_week_form(model))),
+      effect.none(),
+      [],
+    )
+
+    WeekCancelled -> #(Model(..model, week_form: None), effect.none(), [])
+
+    WeekEffectiveEdited(value:) ->
+      case model.week_form {
+        Some(form) -> #(
+          Model(
+            ..model,
+            week_form: Some(WeekForm(..form, effective: value, error: None)),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    WeekDayToggled(weekday:) ->
+      case model.week_form {
+        Some(form) -> #(
+          Model(
+            ..model,
+            week_form: Some(
+              WeekForm(
+                ..form,
+                days: edit_day(form.days, weekday, fn(day) {
+                  DayEdit(..day, working: !day.working)
+                }),
+                error: None,
+              ),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    WeekStartsEdited(weekday:, value:) ->
+      case model.week_form {
+        Some(form) -> #(
+          Model(
+            ..model,
+            week_form: Some(
+              WeekForm(
+                ..form,
+                days: edit_day(form.days, weekday, fn(day) {
+                  DayEdit(..day, starts: value)
+                }),
+                error: None,
+              ),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    WeekEndsEdited(weekday:, value:) ->
+      case model.week_form {
+        Some(form) -> #(
+          Model(
+            ..model,
+            week_form: Some(
+              WeekForm(
+                ..form,
+                days: edit_day(form.days, weekday, fn(day) {
+                  DayEdit(..day, ends: value)
+                }),
+                error: None,
+              ),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    WeekSubmitted ->
+      case model.week_form {
+        Some(form) ->
+          case build_week_command(model.engineer_id, form) {
+            Ok(command) -> #(
+              model,
+              api.submit_operation(command, OperationReturned),
+              [],
+            )
+            Error(message) -> #(
+              Model(
+                ..model,
+                week_form: Some(WeekForm(..form, error: Some(message))),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
     OperationReturned(result:) ->
       case result {
         Ok(_events) -> {
           let #(refreshed, fetch) =
-            refetch(Model(..model, op: None), model.as_of)
+            refetch(Model(..model, op: None, week_form: None), model.as_of)
           #(refreshed, fetch, [OperationCommitted])
         }
         Error(error) -> #(
-          set_op_error(model, api.describe_error(error)),
+          set_week_or_op_error(model, api.describe_error(error)),
           effect.none(),
           [],
         )
@@ -414,6 +584,99 @@ fn set_op_error(model: Model, message: String) -> Model {
     Some(ops.OpState(kind:, form:, ..)) ->
       Model(..model, op: Some(ops.OpState(kind:, form:, error: Some(message))))
     None -> model
+  }
+}
+
+/// Surface a rejection on whichever form is open — the op-form modal or the
+/// bespoke weekly-hours editor — leaving its typed fields intact.
+fn set_week_or_op_error(model: Model, message: String) -> Model {
+  case model.week_form {
+    Some(form) ->
+      Model(..model, week_form: Some(WeekForm(..form, error: Some(message))))
+    None -> set_op_error(model, message)
+  }
+}
+
+const weekday_names = [
+  "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+]
+
+/// Seed the weekly-hours editor from the loaded week (or blank rows while it is
+/// still loading) at the current as-of.
+fn seed_week_form(model: Model) -> WeekForm {
+  let days = case model.availability {
+    AvailabilityLoaded(record:) -> list.map(record.week, day_edit_from_slot)
+    _ -> list.repeat(DayEdit(False, "", ""), 7)
+  }
+  WeekForm(effective: time.iso_date(model.as_of), days:, error: None)
+}
+
+fn day_edit_from_slot(slot: DaySlot) -> DayEdit {
+  case slot.starts, slot.ends {
+    Some(starts), Some(ends) -> DayEdit(True, starts, ends)
+    _, _ -> DayEdit(False, "", "")
+  }
+}
+
+/// Rewrite the day row at `weekday` with `edit`, leaving every other row
+/// untouched.
+fn edit_day(
+  days: List(DayEdit),
+  weekday: Int,
+  edit: fn(DayEdit) -> DayEdit,
+) -> List(DayEdit) {
+  list.index_map(days, fn(day, index) {
+    case index == weekday {
+      True -> edit(day)
+      False -> day
+    }
+  })
+}
+
+/// Build `SetWorkSchedule` from the weekly editor; the days list is always 7
+/// long, index = weekday (0 = Monday).
+pub fn build_week_command(
+  engineer_id: Int,
+  form: WeekForm,
+) -> Result(gateway.Command, String) {
+  use effective <- result.try(
+    time.parse_iso_date(form.effective)
+    |> result.replace_error("effective date must be YYYY-MM-DD"),
+  )
+  use days <- result.try(
+    form.days
+    |> list.index_map(fn(day, weekday) { day_hours(day, weekday) })
+    |> result.all,
+  )
+  Ok(
+    gateway.AvailabilityCommand(availability_command.SetWorkSchedule(
+      engineer_id:,
+      effective:,
+      days:,
+    )),
+  )
+}
+
+fn day_hours(
+  day: DayEdit,
+  weekday: Int,
+) -> Result(availability_command.DayHours, String) {
+  let name = weekday_name(weekday)
+  case day.working, string.trim(day.starts), string.trim(day.ends) {
+    False, _, _ -> Ok(availability_command.DayHours(weekday, None))
+    True, "", _ -> Error(name <> " needs start and end times")
+    True, _, "" -> Error(name <> " needs start and end times")
+    True, starts, ends ->
+      Ok(availability_command.DayHours(weekday, Some(#(starts, ends))))
+  }
+}
+
+/// The English weekday name for a 0-indexed weekday (0 = Monday), shared by the
+/// weekly-hours editor's validation prompts and the Availability panel's grid.
+pub fn weekday_name(weekday: Int) -> String {
+  case list.drop(weekday_names, weekday) {
+    [name, ..] -> name
+    [] -> "Day"
   }
 }
 

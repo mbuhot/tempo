@@ -1,16 +1,20 @@
 //// The People detail's views: the header with its action row, the
-//// Overview/Skills tabs, the allocations/location/timesheet panels, the skill
-//// matrix with capability rollups and recent assessments, and the
+//// Overview/Skills tabs, the allocations/location/availability/timesheet
+//// panels (and the availability panel's bespoke weekly-hours editor modal),
+//// the skill matrix with capability rollups and recent assessments, and the
 //// contact/banking/employment side panels.
 
 import client/page/people/detail/op_form.{op_launch, view_op_modal}
 import client/page/people/detail/update.{
-  type LocationData, type Model, type Msg, type SkillsData, type Tab,
-  type TimesheetData, BackClicked, CellEdited, DetailFailed, DetailLoaded,
-  DetailLoading, LocationFailed, LocationLoaded, LocationLoading, Overview,
-  Skills, SkillsFailed, SkillsLoaded, SkillsLoading, TabClicked, TimesheetFailed,
-  TimesheetLoaded, TimesheetLoading, TimesheetSubmitted, covering_location,
-  covers_as_of,
+  type AvailabilityData, type DayEdit, type LocationData, type Model, type Msg,
+  type SkillsData, type Tab, type TimesheetData, type WeekForm,
+  AvailabilityFailed, AvailabilityLoaded, AvailabilityLoading, BackClicked,
+  CellEdited, DayEdit, DetailFailed, DetailLoaded, DetailLoading, LocationFailed,
+  LocationLoaded, LocationLoading, Overview, Skills, SkillsFailed, SkillsLoaded,
+  SkillsLoading, TabClicked, TimesheetFailed, TimesheetLoaded, TimesheetLoading,
+  TimesheetSubmitted, WeekCancelled, WeekDayToggled, WeekEffectiveEdited,
+  WeekEndsEdited, WeekOpened, WeekStartsEdited, WeekSubmitted, covering_location,
+  covers_as_of, weekday_name,
 }
 import client/page/people/timesheet as timesheet_grid
 import client/time
@@ -24,11 +28,18 @@ import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar
+import gleam/time/duration
+import gleam/time/timestamp
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import shared/access as perm
 import shared/allocation/view.{AllocationRow} as allocation_view
+import shared/availability/view.{
+  type DaySlot, type EngineerHoliday, type FocusBlockRecord, DaySlot,
+  EngineerHoliday, FocusBlockRecord,
+}
 import shared/engineer/view.{
   type EngineerDetail, Employment, EngineerBanking, EngineerContact,
   EngineerDetail, EngineerEmergency,
@@ -69,6 +80,8 @@ pub fn view(
             detail,
             model.timesheet,
             model.location,
+            model.availability,
+            model.week_form,
             model.as_of,
             permissions,
             own,
@@ -158,6 +171,8 @@ fn detail_grid(
   detail: EngineerDetail,
   timesheet: TimesheetData,
   location: LocationData,
+  availability: AvailabilityData,
+  week_form: Option(WeekForm),
   as_of: calendar.Date,
   permissions: Set(String),
   own: Bool,
@@ -169,6 +184,8 @@ fn detail_grid(
     ]),
     html.div([], [
       location_panel(location, as_of, permissions, own),
+      availability_panel(availability, permissions, own),
+      view_week_modal(week_form),
       balance_panel(detail.balance),
       contact_panel(detail.contact, permissions, own),
       banking_panel(detail.banking, permissions, own),
@@ -370,6 +387,187 @@ fn location_history_row(
       html.text(time.iso_date(valid_from) <> " → " <> period_end(valid_to)),
     ]),
     html.td([], [flag]),
+  ])
+}
+
+// --- Availability panel ------------------------------------------------
+
+/// The "Availability" panel: the as-of weekly working-hours grid, upcoming
+/// focus blocks (in the engineer's local time when an offset is known), and
+/// upcoming regional holidays, plus the "Edit hours" launcher that opens the
+/// bespoke weekly editor.
+fn availability_panel(
+  availability: AvailabilityData,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
+  let launcher = case may_manage_availability(permissions, own) {
+    True -> [
+      atoms.button(
+        label: "Edit hours",
+        kind: atoms.Ghost,
+        size: atoms.Small,
+        on_press: WeekOpened,
+      ),
+    ]
+    False -> []
+  }
+  let body = case availability {
+    AvailabilityLoading -> [atoms.empty_state("Loading availability…")]
+    AvailabilityFailed(message:) -> [
+      atoms.empty_state("Could not load availability: " <> message),
+    ]
+    AvailabilityLoaded(record:) -> [
+      week_grid(record.week),
+      focus_block_list(record.focus_blocks),
+      holiday_strip(record.holidays),
+    ]
+  }
+  atoms.panel(title: "Availability", count: "", right: launcher, body:)
+}
+
+/// Whether the viewer may open the weekly-hours editor: `availability.manage.any`
+/// unconditionally, or `availability.manage.own` when viewing their own record.
+fn may_manage_availability(permissions: Set(String), own: Bool) -> Bool {
+  set.contains(permissions, perm.availability_manage_any)
+  || { own && set.contains(permissions, perm.availability_manage_own) }
+}
+
+fn week_grid(week: List(DaySlot)) -> Element(Msg) {
+  html.div(
+    [attribute.class("pad-detail kv")],
+    list.map(week, fn(slot) {
+      let DaySlot(weekday:, starts:, ends:) = slot
+      atoms.kv(
+        key: weekday_name(weekday),
+        value: day_slot_label(starts, ends),
+        mono: True,
+      )
+    }),
+  )
+}
+
+fn day_slot_label(starts: Option(String), ends: Option(String)) -> String {
+  case starts, ends {
+    Some(starts), Some(ends) -> starts <> "–" <> ends
+    _, _ -> "—"
+  }
+}
+
+fn focus_block_list(focus_blocks: List(FocusBlockRecord)) -> Element(Msg) {
+  case focus_blocks {
+    [] -> element.none()
+    blocks ->
+      html.div([attribute.class("pad-block kv")], [
+        html.span([attribute.class("eyebrow")], [html.text("Focus blocks")]),
+        ..list.map(blocks, focus_block_row)
+      ])
+  }
+}
+
+fn focus_block_row(record: FocusBlockRecord) -> Element(Msg) {
+  let FocusBlockRecord(title:, starts_at:, offset_minutes:, ..) = record
+  let time_label = case offset_minutes {
+    Some(offset) -> local_time(starts_at, offset)
+    None -> starts_at
+  }
+  atoms.kv(key: title, value: time_label, mono: True)
+}
+
+fn holiday_strip(holidays: List(EngineerHoliday)) -> Element(Msg) {
+  case holidays {
+    [] -> element.none()
+    rows ->
+      html.div([attribute.class("pad-block kv")], [
+        html.span([attribute.class("eyebrow")], [html.text("Holidays")]),
+        ..list.map(rows, holiday_row)
+      ])
+  }
+}
+
+fn holiday_row(holiday: EngineerHoliday) -> Element(Msg) {
+  let EngineerHoliday(holiday_on:, name:) = holiday
+  atoms.kv(key: name, value: time.format_date(holiday_on), mono: True)
+}
+
+/// An ISO-8601 UTC instant's wall-clock "HH:MM" shifted by `offset_minutes`
+/// (minutes east of UTC), mirroring `page/meetings`'s `local_time`.
+fn local_time(starts_at_iso: String, offset_minutes: Int) -> String {
+  let assert Ok(instant) = timestamp.parse_rfc3339(starts_at_iso)
+  let shifted = timestamp.add(instant, duration.minutes(offset_minutes))
+  let #(_date, time_of_day) =
+    timestamp.to_calendar(shifted, calendar.utc_offset)
+  pad2(time_of_day.hours) <> ":" <> pad2(time_of_day.minutes)
+}
+
+fn pad2(value: Int) -> String {
+  case value < 10 {
+    True -> "0" <> int.to_string(value)
+    False -> int.to_string(value)
+  }
+}
+
+/// The bespoke weekly-hours editor as a centred modal — shown only while
+/// `week_form` is `Some`. Mirrors `atoms.modal`'s chrome but hosts a 7-row grid
+/// of checkbox + start/end fields instead of the generic `OpField` slots.
+fn view_week_modal(week_form: Option(WeekForm)) -> Element(Msg) {
+  case week_form {
+    None -> element.none()
+    Some(form) ->
+      atoms.modal(
+        title: "Edit weekly hours",
+        error: option.unwrap(form.error, ""),
+        body: week_form_fields(form),
+        on_cancel: WeekCancelled,
+        on_confirm: WeekSubmitted,
+        confirm_label: "Save hours",
+      )
+  }
+}
+
+fn week_form_fields(form: WeekForm) -> List(Element(Msg)) {
+  [
+    html.label([attribute.class("op-form__field")], [
+      html.span([], [html.text("Effective")]),
+      html.input([
+        attribute.type_("date"),
+        attribute.attribute("aria-label", "Effective"),
+        attribute.value(form.effective),
+        event.on_input(WeekEffectiveEdited),
+      ]),
+    ]),
+    html.div(
+      [attribute.class("pad-block")],
+      list.index_map(form.days, week_day_row),
+    ),
+  ]
+}
+
+fn week_day_row(day: DayEdit, weekday: Int) -> Element(Msg) {
+  let DayEdit(working:, starts:, ends:) = day
+  html.div([attribute.class("op-form__field")], [
+    html.label([], [
+      html.input([
+        attribute.type_("checkbox"),
+        attribute.checked(working),
+        event.on_check(fn(_checked) { WeekDayToggled(weekday) }),
+      ]),
+      html.text(" " <> weekday_name(weekday)),
+    ]),
+    html.input([
+      attribute.type_("text"),
+      attribute.attribute("aria-label", weekday_name(weekday) <> " starts"),
+      attribute.value(starts),
+      attribute.placeholder("09:00"),
+      event.on_input(fn(value) { WeekStartsEdited(weekday, value) }),
+    ]),
+    html.input([
+      attribute.type_("text"),
+      attribute.attribute("aria-label", weekday_name(weekday) <> " ends"),
+      attribute.value(ends),
+      attribute.placeholder("17:00"),
+      event.on_input(fn(value) { WeekEndsEdited(weekday, value) }),
+    ]),
   ])
 }
 
