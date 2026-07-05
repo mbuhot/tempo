@@ -72,7 +72,7 @@ pub type MeetingAttendeesAsofRow {
     name: Option(String),
     attendance: String,
     timezone: Option(String),
-    local_offset_minutes: Int,
+    local_offset_minutes: Option(Int),
   )
 }
 
@@ -93,7 +93,7 @@ pub fn meeting_attendees_asof(
     use name <- decode.field(2, decode.optional(decode.string))
     use attendance <- decode.field(3, decode.string)
     use timezone <- decode.field(4, decode.optional(decode.string))
-    use local_offset_minutes <- decode.field(5, decode.int)
+    use local_offset_minutes <- decode.field(5, decode.optional(decode.int))
     decode.success(MeetingAttendeesAsofRow(
       meeting_id:,
       engineer_id:,
@@ -115,7 +115,7 @@ SELECT a.meeting_id AS meeting_id,
        CASE WHEN loc.timezone IS NULL THEN NULL
             ELSE ((extract(epoch from (lower(d.meeting_at) AT TIME ZONE loc.timezone))
                    - extract(epoch from (lower(d.meeting_at) AT TIME ZONE 'UTC'))) / 60)::int
-       END AS local_offset_minutes
+       END AS \"local_offset_minutes?\"
 FROM meeting_attendee a
 JOIN meeting_detail d ON d.meeting_id = a.meeting_id AND d.status = 'scheduled'
 JOIN engineer_current ec ON ec.id = a.engineer_id

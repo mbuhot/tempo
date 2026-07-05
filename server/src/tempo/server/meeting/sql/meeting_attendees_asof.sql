@@ -9,7 +9,7 @@ SELECT a.meeting_id AS meeting_id,
        CASE WHEN loc.timezone IS NULL THEN NULL
             ELSE ((extract(epoch from (lower(d.meeting_at) AT TIME ZONE loc.timezone))
                    - extract(epoch from (lower(d.meeting_at) AT TIME ZONE 'UTC'))) / 60)::int
-       END AS local_offset_minutes
+       END AS "local_offset_minutes?"
 FROM meeting_attendee a
 JOIN meeting_detail d ON d.meeting_id = a.meeting_id AND d.status = 'scheduled'
 JOIN engineer_current ec ON ec.id = a.engineer_id
