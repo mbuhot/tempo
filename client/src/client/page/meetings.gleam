@@ -450,7 +450,11 @@ fn update_create_field(
 
 /// Append `engineer_id` as a `Required` attendee, unless already present.
 fn add_attendee(form: CreateForm, engineer_id: Int) -> CreateForm {
-  case list.any(form.attendees, fn(a) { a.engineer_id == engineer_id }) {
+  case
+    list.any(form.attendees, fn(attendee) {
+      attendee.engineer_id == engineer_id
+    })
+  {
     True -> form
     False ->
       CreateForm(
@@ -467,8 +471,8 @@ fn add_attendee(form: CreateForm, engineer_id: Int) -> CreateForm {
 fn remove_attendee(form: CreateForm, engineer_id: Int) -> CreateForm {
   CreateForm(
     ..form,
-    attendees: list.filter(form.attendees, fn(a) {
-      a.engineer_id != engineer_id
+    attendees: list.filter(form.attendees, fn(attendee) {
+      attendee.engineer_id != engineer_id
     }),
   )
 }
@@ -481,10 +485,10 @@ fn set_attendance(
 ) -> CreateForm {
   CreateForm(
     ..form,
-    attendees: list.map(form.attendees, fn(a) {
-      case a.engineer_id == engineer_id {
-        True -> Attendee(..a, attendance:)
-        False -> a
+    attendees: list.map(form.attendees, fn(attendee) {
+      case attendee.engineer_id == engineer_id {
+        True -> Attendee(..attendee, attendance:)
+        False -> attendee
       }
     }),
   )
@@ -515,8 +519,8 @@ pub fn build_schedule_command(
           location: optional_text(form.location),
           client_id: optional_int(form.client_id),
           project_id: optional_int(form.project_id),
-          attendees: list.map(attendees, fn(a) {
-            #(a.engineer_id, a.attendance)
+          attendees: list.map(attendees, fn(attendee) {
+            #(attendee.engineer_id, attendee.attendance)
           }),
         )),
       )
@@ -769,7 +773,7 @@ fn attendee_local_time(
   local_offset_minutes: Option(Int),
 ) -> String {
   case local_offset_minutes {
-    option.Some(offset) -> local_time(starts_at, offset)
+    Some(offset) -> local_time(starts_at, offset)
     None -> "no location"
   }
 }
@@ -793,7 +797,7 @@ fn view_op_modal(op: Option(ui.OpState)) -> Element(Msg) {
         body: op_fields(kind, form),
         on_cancel: OpCancelled,
         on_confirm: OpSubmitted,
-        confirm_label: op_title(kind),
+        confirm_label: op_verb(kind),
       )
   }
 }
@@ -805,6 +809,18 @@ fn op_title(kind: ui.OpKind) -> String {
     ui.OpAddAttendee -> "Add attendee"
     ui.OpRemoveAttendee -> "Remove attendee"
     _ -> ""
+  }
+}
+
+/// The confirm-button verb for an operation kind — the action the presenter is
+/// committing, not a generic "Confirm".
+fn op_verb(kind: ui.OpKind) -> String {
+  case kind {
+    ui.OpRescheduleMeeting -> "Reschedule"
+    ui.OpCancelMeeting -> "Cancel meeting"
+    ui.OpAddAttendee -> "Add"
+    ui.OpRemoveAttendee -> "Remove"
+    _ -> "Confirm"
   }
 }
 
@@ -990,8 +1006,8 @@ fn view_roster_matches(
         [attribute.class("attendee-builder__matches")],
         roster
           |> list.filter(fn(entry) {
-            !list.any(form.attendees, fn(a) {
-              a.engineer_id == entry.engineer_id
+            !list.any(form.attendees, fn(attendee) {
+              attendee.engineer_id == entry.engineer_id
             })
             && string.contains(string.lowercase(entry.name), query)
           })

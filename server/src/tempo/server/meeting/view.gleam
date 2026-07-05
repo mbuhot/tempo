@@ -40,11 +40,12 @@ fn group_attendees(
     let #(meeting_id, record) = entry
     dict.upsert(by_meeting, meeting_id, fn(existing) {
       case existing {
-        option.Some(records) -> list.append(records, [record])
+        option.Some(records) -> [record, ..records]
         option.None -> [record]
       }
     })
   })
+  |> dict.map_values(fn(_, records) { list.reverse(records) })
 }
 
 fn attendee_row_to_record(

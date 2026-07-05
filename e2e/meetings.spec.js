@@ -87,7 +87,7 @@ test("an admin schedules, reschedules, and cancels a meeting", async ({
   await row.getByRole("button", { name: "Reschedule", exact: true }).click();
   const rescheduleModal = opModal(page);
   await rescheduleModal.getByLabel("Start (HH:MM)").fill("14:00");
-  await confirmOp(page, "Reschedule meeting");
+  await confirmOp(page, "Reschedule");
   await expect(opModal(page)).toHaveCount(0);
 
   row = meetingRow(page, title);

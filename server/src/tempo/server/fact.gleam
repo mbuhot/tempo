@@ -20,6 +20,9 @@
 //// `to` is a bounded span `[from, to)`. Where `to` is `Option`, `None` is the
 //// open-ended change and `Some` the bounded form (assign vs re-fraction; revise vs
 //// surgical portion).
+////
+//// Meetings are the plain-mutable exception: their rows are updated in place, with
+//// only `audit_id` linking each edit back to its `event_log` entry.
 
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}

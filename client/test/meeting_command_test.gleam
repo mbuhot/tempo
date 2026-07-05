@@ -43,6 +43,39 @@ pub fn build_cancel_command_rejects_missing_id_test() {
   assert ui.build_command(ui.OpCancelMeeting, form) |> result.is_error
 }
 
+pub fn build_add_attendee_command_test() {
+  let form =
+    ui.blank_op_form(ui.OpAddAttendee, calendar.Date(2026, calendar.July, 10))
+    |> ui.update_op_form(ui.FMeetingId, "7")
+    |> ui.update_op_form(ui.FEngineerId, "3")
+    |> ui.update_op_form(ui.FAttendance, "optional")
+  assert ui.build_command(ui.OpAddAttendee, form)
+    == Ok(
+      gateway.MeetingCommand(meeting_command.AddAttendee(
+        meeting_id: 7,
+        engineer_id: 3,
+        attendance: meeting_command.Optional,
+      )),
+    )
+}
+
+pub fn build_remove_attendee_command_test() {
+  let form =
+    ui.blank_op_form(
+      ui.OpRemoveAttendee,
+      calendar.Date(2026, calendar.July, 10),
+    )
+    |> ui.update_op_form(ui.FMeetingId, "7")
+    |> ui.update_op_form(ui.FEngineerId, "3")
+  assert ui.build_command(ui.OpRemoveAttendee, form)
+    == Ok(
+      gateway.MeetingCommand(meeting_command.RemoveAttendee(
+        meeting_id: 7,
+        engineer_id: 3,
+      )),
+    )
+}
+
 pub fn build_schedule_command_from_a_valid_form_test() {
   let form =
     meetings.CreateForm(
