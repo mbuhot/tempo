@@ -17,18 +17,12 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{PayrollCommand} as gateway
-import shared/money.{type Money}
+import shared/money
 import shared/payroll/command.{type PayrollCommand, RunPayroll}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 import tempo/server/payroll/sql
 import tempo/server/repository
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// Route a payroll command to its operation, returning the audit entry and the facts
 /// it records. Exhaustive over `PayrollCommand`.
@@ -59,7 +53,7 @@ pub fn run_payroll(
       fact.PayrollLine(
         run_id:,
         engineer_id: fact.EngineerId(line.engineer_id),
-        amount: money(line.amount),
+        amount: money.trusted_from_string(line.amount),
         days: line.days,
       )
     })
@@ -74,9 +68,9 @@ pub fn run_payroll(
         run_id:,
         engineer_id: fact.EngineerId(segment.engineer_id),
         level: segment.level,
-        monthly_salary: money(segment.monthly_salary),
+        monthly_salary: money.trusted_from_string(segment.monthly_salary),
         days: segment.days,
-        amount: money(segment.amount),
+        amount: money.trusted_from_string(segment.amount),
       )
     })
   Ok(Recorded(

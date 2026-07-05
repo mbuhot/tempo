@@ -24,17 +24,11 @@ import shared/client/view.{
   type ClientProjectRow, type ContractRow, ClientDetail, ClientList,
   ClientListRow, ClientProfile, ClientProjectRow, ContractRow,
 }
-import shared/money.{type Money}
+import shared/money
 import shared/pagination
 import tempo/server/client/sql
 import tempo/server/context.{type Context}
 import tempo/server/web/cursor.{type NameIdBound, NameIdBound}
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// One keyset page of the clients list as-of `as_of` (issue #12): each client with
 /// its `since`, project count, and active flag, starting strictly after `after` at
@@ -137,7 +131,7 @@ fn client_project_row_to_shared(
   ClientProjectRow(
     project_id: row.project_id,
     title: row.title,
-    budget: money(row.budget),
+    budget: money.trusted_from_string(row.budget),
     target_completion: row.target_completion,
     valid_from: row.valid_from,
     valid_to: row.valid_to,

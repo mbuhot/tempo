@@ -18,12 +18,6 @@ import tempo/server/async.{type AsyncQuery}
 import tempo/server/context.{type Context, query_timeout}
 import tempo/server/pnl/sql
 
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
-
 /// The P&L statement for an as-of date (FR-F7/FR-F8). The "month" is the calendar
 /// month containing `as_of`; "year-to-date" runs from Jan 1 of that year to the
 /// end of that month. Per-engineer rows are the MONTH breakdown (revenue, cost,
@@ -67,8 +61,8 @@ pub fn pnl(context: Context, as_of: Date) -> Result(Pnl, pog.QueryError) {
 /// (0 when revenue is 0), utilization % = utilization_days / employed_days (0 when
 /// employed_days is 0). Margin and utilization are expressed as percentages.
 fn raw_row_to_pnl_row(row: sql.PnlRowsRow) -> PnlRow {
-  let revenue = money(row.revenue)
-  let cost = money(row.cost)
+  let revenue = money.trusted_from_string(row.revenue)
+  let cost = money.trusted_from_string(row.cost)
   let profit = money.subtract(revenue, cost)
   PnlRow(
     engineer: row.engineer,
@@ -84,8 +78,10 @@ fn raw_row_to_pnl_row(row: sql.PnlRowsRow) -> PnlRow {
 /// sum of the breakdown, so the rows reconcile to the totals exactly).
 fn totals(rows: List(sql.PnlRowsRow)) -> #(Money, Money) {
   #(
-    money.sum(list.map(rows, fn(row) { money(row.revenue) })),
-    money.sum(list.map(rows, fn(row) { money(row.cost) })),
+    money.sum(
+      list.map(rows, fn(row) { money.trusted_from_string(row.revenue) }),
+    ),
+    money.sum(list.map(rows, fn(row) { money.trusted_from_string(row.cost) })),
   )
 }
 

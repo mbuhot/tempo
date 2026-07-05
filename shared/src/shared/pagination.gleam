@@ -13,9 +13,11 @@
 
 import gleam/bit_array
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 /// The version tag stamped at the head of every cursor's plaintext, so an older
@@ -111,5 +113,24 @@ pub fn paginate(
         Error(Nil) -> #(rows, None)
       }
     False -> #(rows, None)
+  }
+}
+
+/// Encode a simple integer row-offset as an opaque cursor, for list endpoints
+/// whose keyset is just "how many rows have been returned so far".
+pub fn encode_offset(offset: Int) -> String {
+  encode_cursor([int.to_string(offset)])
+}
+
+/// Decode an offset cursor back into the row count to skip; `None` (first page)
+/// and any malformed token both fall back to `0`.
+pub fn decode_offset(cursor: Option(String)) -> Int {
+  case cursor {
+    None -> 0
+    Some(token) ->
+      case decode_cursor(token, 1) {
+        Ok([text]) -> result.unwrap(int.parse(text), 0)
+        _ -> 0
+      }
   }
 }

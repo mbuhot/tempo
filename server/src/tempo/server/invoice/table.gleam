@@ -19,7 +19,7 @@ import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
 import shared/invoice/status.{Draft, Issued, Paid}
-import shared/money.{type Money}
+import shared/money
 import shared/pagination
 import shared/table/cell.{
   type Chip, Category, Chip, ChipsCell, DateCell, EntityCell, EnumCell,
@@ -53,13 +53,13 @@ pub fn invoice_table(
 ) -> Result(TableResponse, pog.QueryError) {
   use options <- result.try(filter_options(context, as_of))
   let schema = invoice_schema(options)
-  let offset = decode_offset(applied.cursor)
+  let offset = pagination.decode_offset(applied.cursor)
   let limit = applied.page_size
   use returned <- result.map(run_list(context, as_of, applied, limit, offset))
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
-    True -> Some(encode_offset(offset + limit))
+    True -> Some(pagination.encode_offset(offset + limit))
     False -> None
   }
   TableResponse(
@@ -394,23 +394,6 @@ fn sort_column(key: String) -> String {
   }
 }
 
-// --- cursor (offset) --------------------------------------------------------
-
-fn encode_offset(offset: Int) -> String {
-  pagination.encode_cursor([int.to_string(offset)])
-}
-
-fn decode_offset(cursor: Option(String)) -> Int {
-  case cursor {
-    None -> 0
-    Some(token) ->
-      case pagination.decode_cursor(token, 1) {
-        Ok([text]) -> result.unwrap(int.parse(text), 0)
-        _ -> 0
-      }
-  }
-}
-
 // --- row to cells -----------------------------------------------------------
 
 fn row_to_table_row(row: ListRow) -> Row {
@@ -425,7 +408,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("client", TextCell(row.client)),
       #("engineers", ChipsCell(list.map(row.engineers, to_chip))),
       #("billing_month", DateCell(Some(row.billing_from))),
-      #("total", MoneyCell(parse_money(row.total))),
+      #("total", MoneyCell(money.trusted_from_string(row.total))),
       #(
         "status",
         EnumCell(label: capitalize(row.status), tone: status_tone(row.status)),
@@ -462,9 +445,4 @@ fn capitalize(text: String) -> String {
     Ok(#(head, tail)) -> string.uppercase(head) <> tail
     Error(Nil) -> text
   }
-}
-
-fn parse_money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
 }

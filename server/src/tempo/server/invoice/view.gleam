@@ -14,18 +14,11 @@ import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, Invoice, InvoiceDetail,
   InvoiceLine,
 } as _
-import shared/money.{type Money}
+import shared/money
 import shared/pagination
 import tempo/server/context.{type Context}
 import tempo/server/invoice/sql
 import tempo/server/web/cursor.{type DateIdBound, DateIdBound}
-
-/// Parse a money amount from a trusted SQL `numeric::text` column. The DB enforces
-/// `numeric(_, 2)`, so the parse never fails in practice.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// List one keyset page of invoices with each row's status AS OF `as_of` and its
 /// line total (FR-F1/FR-F4), starting strictly after `after` and at most `limit`
@@ -65,7 +58,7 @@ fn list_row_to_invoice(row: sql.InvoiceListRow) -> Invoice {
     billing_from: row.billing_from,
     billing_to: row.billing_to,
     status: status(row.status),
-    total: money(row.total),
+    total: money.trusted_from_string(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,
   )
@@ -107,7 +100,7 @@ fn header_row_to_invoice(row: sql.InvoiceHeaderRow) -> Invoice {
     billing_from: row.billing_from,
     billing_to: row.billing_to,
     status: status(row.status),
-    total: money(row.total),
+    total: money.trusted_from_string(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,
   )
@@ -117,8 +110,8 @@ fn lines_row_to_invoice_line(row: sql.InvoiceLinesRow) -> InvoiceLine {
   InvoiceLine(
     engineer: row.engineer,
     level: row.level,
-    day_rate: money(row.day_rate),
+    day_rate: money.trusted_from_string(row.day_rate),
     days: row.days,
-    amount: money(row.amount),
+    amount: money.trusted_from_string(row.amount),
   )
 }

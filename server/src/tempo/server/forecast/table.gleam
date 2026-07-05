@@ -22,7 +22,7 @@ import gleam/dict
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date, Date}
@@ -56,14 +56,14 @@ pub fn forecast_table(
   applied: Applied,
 ) -> Result(TableResponse, pog.QueryError) {
   let schema = forecast_schema()
-  let offset = decode_offset(applied.cursor)
+  let offset = pagination.decode_offset(applied.cursor)
   let limit = applied.page_size
   use returned <- result.try(run_list(context, as_of, applied, limit, offset))
   use summary <- result.map(forecast_read.forecast(context, as_of))
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
-    True -> Some(encode_offset(offset + limit))
+    True -> Some(pagination.encode_offset(offset + limit))
     False -> None
   }
   TableResponse(
@@ -355,33 +355,16 @@ fn sort_column(key: String) -> String {
   }
 }
 
-// --- cursor (offset) --------------------------------------------------------
-
-fn encode_offset(offset: Int) -> String {
-  pagination.encode_cursor([int.to_string(offset)])
-}
-
-fn decode_offset(cursor: Option(String)) -> Int {
-  case cursor {
-    None -> 0
-    Some(token) ->
-      case pagination.decode_cursor(token, 1) {
-        Ok([text]) -> result.unwrap(int.parse(text), 0)
-        _ -> 0
-      }
-  }
-}
-
 // --- row to cells -----------------------------------------------------------
 
 fn row_to_table_row(row: ListRow) -> Row {
-  let profit = parse_money(row.profit)
+  let profit = money.trusted_from_string(row.profit)
   Row(
     id: iso_date(row.month),
     cells: dict.from_list([
       #("month", DateCell(Some(row.month))),
-      #("revenue", MoneyCell(parse_money(row.revenue))),
-      #("cost", MoneyCell(parse_money(row.cost))),
+      #("revenue", MoneyCell(money.trusted_from_string(row.revenue))),
+      #("cost", MoneyCell(money.trusted_from_string(row.cost))),
       #("profit", SignedMoneyCell(amount: profit, tone: profit_tone(profit))),
       #("margin", PercentCell(row.margin)),
     ]),
@@ -396,11 +379,6 @@ fn profit_tone(profit: Money) -> Tone {
     True -> Positive
     False -> Critical
   }
-}
-
-fn parse_money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
 }
 
 /// The month start as an ISO "YYYY-MM-DD" string, the row's stable unique id.

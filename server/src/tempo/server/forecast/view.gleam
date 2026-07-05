@@ -14,15 +14,9 @@ import pog
 import shared/forecast/view.{
   type Forecast, type ForecastMonth, Forecast, ForecastMonth,
 } as _
-import shared/money.{type Money}
+import shared/money
 import tempo/server/context.{type Context}
 import tempo/server/forecast/sql
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// The forward P&L from committed demand (`GET /api/forecast?as_of=`); one
 /// `ForecastMonth` per calendar month from the as-of month to the cliff, with the
@@ -36,8 +30,8 @@ pub fn forecast(
 }
 
 fn forecast_row_to_month(row: sql.ForecastRow) -> ForecastMonth {
-  let revenue = money(row.revenue)
-  let cost = money(row.cost)
+  let revenue = money.trusted_from_string(row.revenue)
+  let cost = money.trusted_from_string(row.cost)
   let profit = money.subtract(revenue, cost)
   ForecastMonth(
     month: row.month,

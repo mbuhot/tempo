@@ -7,7 +7,7 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/money.{type Money}
+import shared/money
 import shared/settings/view.{
   type LeavePolicyRow, type RateCardRow, type SalaryRow, type Settings,
   LeavePolicyRow, RateCardRow, SalaryRow, Settings,
@@ -16,12 +16,6 @@ import tempo/server/context.{type Context}
 import tempo/server/leave/sql as leave_sql
 import tempo/server/rate_card/sql as rate_card_sql
 import tempo/server/salary/sql as salary_sql
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// The settings as-of `as_of`: the current rate card, salaries, and leave policy.
 pub fn read(context: Context, as_of: Date) -> Result(Settings, pog.QueryError) {
@@ -37,11 +31,17 @@ pub fn read(context: Context, as_of: Date) -> Result(Settings, pog.QueryError) {
 }
 
 fn rate_card_row_to_shared(row: rate_card_sql.RateCardListRow) -> RateCardRow {
-  RateCardRow(level: row.level, day_rate: money(row.day_rate))
+  RateCardRow(
+    level: row.level,
+    day_rate: money.trusted_from_string(row.day_rate),
+  )
 }
 
 fn salary_row_to_shared(row: salary_sql.SalaryListRow) -> SalaryRow {
-  SalaryRow(level: row.level, monthly_salary: money(row.monthly_salary))
+  SalaryRow(
+    level: row.level,
+    monthly_salary: money.trusted_from_string(row.monthly_salary),
+  )
 }
 
 fn leave_policy_row_to_shared(

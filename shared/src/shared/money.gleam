@@ -40,6 +40,13 @@ pub fn from_string(text: String) -> Result(Money, Nil) {
   |> result.map(quantize)
 }
 
+/// Parse a trusted, server-generated SQL `numeric::text` column into `Money`;
+/// a parse failure is a violated invariant and crashes.
+pub fn trusted_from_string(text: String) -> Money {
+  let assert Ok(amount) = from_string(text)
+  amount
+}
+
 /// Render `Money` as a plain decimal string at the cent scale (`"1234.50"`).
 pub fn to_string(money: Money) -> String {
   bigdecimal.to_plain_string(money.amount)

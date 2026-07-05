@@ -93,7 +93,7 @@ pub fn payroll_table(
     |> filter_rows(applied.filters)
     |> sort_rows(applied.sort)
 
-  let offset = decode_offset(applied.cursor)
+  let offset = pagination.decode_offset(applied.cursor)
   let limit = applied.page_size
   let page_rows =
     rows
@@ -101,7 +101,7 @@ pub fn payroll_table(
     |> list.take(limit)
     |> list.map(fn(built) { built.row })
   let next_cursor = case list.length(rows) > offset + limit {
-    True -> Some(encode_offset(offset + limit))
+    True -> Some(pagination.encode_offset(offset + limit))
     False -> None
   }
   TableResponse(
@@ -491,21 +491,6 @@ fn row_id(line: PayrollLine) -> String {
 
 fn child_id(segment: PayrollSegment) -> String {
   "level-" <> int.to_string(segment.level)
-}
-
-fn encode_offset(offset: Int) -> String {
-  pagination.encode_cursor([int.to_string(offset)])
-}
-
-fn decode_offset(cursor: Option(String)) -> Int {
-  case cursor {
-    None -> 0
-    Some(token) ->
-      case pagination.decode_cursor(token, 1) {
-        Ok([text]) -> result.unwrap(int.parse(text), 0)
-        _ -> 0
-      }
-  }
 }
 
 // --- helpers ----------------------------------------------------------------

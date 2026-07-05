@@ -23,17 +23,11 @@ import shared/invoice/command.{
   type InvoiceCommand, DraftInvoice, IssueInvoice, PayInvoice,
 }
 import shared/invoice/status.{type InvoiceStatus, Draft, Issued, Paid}
-import shared/money.{type Money}
+import shared/money
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/sql
 import tempo/server/operation.{type OperationError, Event, InvalidValue}
 import tempo/server/repository
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// Route an invoice command to its operation, returning the audit entry and the
 /// facts it records. Exhaustive over `InvoiceCommand`.
@@ -75,9 +69,9 @@ pub fn draft_invoice(
         invoice_id:,
         engineer_id: fact.EngineerId(line.engineer_id),
         level: line.level,
-        day_rate: money(line.day_rate),
+        day_rate: money.trusted_from_string(line.day_rate),
         days: line.days,
-        amount: money(line.amount),
+        amount: money.trusted_from_string(line.amount),
       )
     })
   Ok(Recorded(

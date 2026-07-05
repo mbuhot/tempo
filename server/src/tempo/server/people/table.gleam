@@ -26,7 +26,7 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/access
 import shared/level
-import shared/money.{type Money}
+import shared/money
 import shared/pagination
 import shared/table/cell.{
   type Cell, EntityCell, EnumCell, MoneyCell, NumberCell, PercentCell,
@@ -60,7 +60,7 @@ pub fn people_table(
 ) -> Result(TableResponse, pog.QueryError) {
   use options <- result.try(filter_options(context, as_of))
   let schema = people_schema(options)
-  let offset = decode_offset(applied.cursor)
+  let offset = pagination.decode_offset(applied.cursor)
   let limit = applied.page_size
   use returned <- result.try(run_list(context, as_of, applied, limit, offset))
   // In-progress onboardings are not engineers yet, so they ride atop the FIRST page
@@ -72,7 +72,7 @@ pub fn people_table(
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
-    True -> Some(encode_offset(offset + limit))
+    True -> Some(pagination.encode_offset(offset + limit))
     False -> None
   }
   let rows =
@@ -405,23 +405,6 @@ fn sort_column(key: String) -> String {
   }
 }
 
-// --- cursor (offset) --------------------------------------------------------
-
-fn encode_offset(offset: Int) -> String {
-  pagination.encode_cursor([int.to_string(offset)])
-}
-
-fn decode_offset(cursor: Option(String)) -> Int {
-  case cursor {
-    None -> 0
-    Some(token) ->
-      case pagination.decode_cursor(token, 1) {
-        Ok([text]) -> result.unwrap(int.parse(text), 0)
-        _ -> 0
-      }
-  }
-}
-
 // --- row to cells -----------------------------------------------------------
 
 fn row_to_table_row(row: ListRow) -> Row {
@@ -441,7 +424,7 @@ fn row_to_table_row(row: ListRow) -> Row {
       #("status", status_cell(row.status)),
       #("allocated", PercentCell(row.allocated *. 100.0)),
       #("annual_leave", NumberCell(row.annual_leave)),
-      #("day_rate", MoneyCell(parse_money(row.day_rate))),
+      #("day_rate", MoneyCell(money.trusted_from_string(row.day_rate))),
     ]),
     children: [],
     detail: None,
@@ -470,9 +453,4 @@ fn initials(name: String) -> String {
   |> list.take(2)
   |> string.concat
   |> string.uppercase
-}
-
-fn parse_money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
 }

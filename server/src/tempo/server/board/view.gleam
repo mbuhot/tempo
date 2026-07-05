@@ -20,17 +20,11 @@ import shared/board/view.{
   BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as _
 import shared/leave/view.{type LeaveBalance, LeaveBalance} as _
-import shared/money.{type Money}
+import shared/money
 import tempo/server/async.{type AsyncQuery}
 import tempo/server/board/sql as board_sql
 import tempo/server/context.{type Context, query_timeout}
 import tempo/server/leave/sql as leave_sql
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// Compute the board snapshot for a date: spawn the three engagement queries, the
 /// unstaffed-projects query, and the leave balances CONCURRENTLY against the pool,
@@ -103,7 +97,7 @@ fn board_row_to_shared(row: board_sql.BoardEngagedRow) -> BoardRow {
       project: row.project,
       client: row.client,
       fraction: row.fraction,
-      day_rate: money(row.day_rate),
+      day_rate: money.trusted_from_string(row.day_rate),
       valid_from: row.valid_from,
       valid_to: row.valid_to,
     ),

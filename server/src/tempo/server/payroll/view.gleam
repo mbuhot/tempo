@@ -11,19 +11,13 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
-import shared/money.{type Money}
+import shared/money
 import shared/payroll/view.{
   type Payroll, type PayrollLine, type PayrollRunInfo, type PayrollSegment,
   Payroll, PayrollLine, PayrollRunInfo, PayrollSegment,
 } as _
 import tempo/server/context.{type Context}
 import tempo/server/payroll/sql
-
-/// Parse a money amount from a trusted SQL `numeric::text` column.
-fn money(text: String) -> Money {
-  let assert Ok(amount) = money.from_string(text)
-  amount
-}
 
 /// The month's payroll panel (`GET /api/payroll?from=&to=`): one `PayrollLine`
 /// per engineer present on either side of the reconciliation — the LIVE recompute
@@ -60,8 +54,8 @@ pub fn payroll(
         PayrollSegment(
           level: row.level,
           days: row.days,
-          monthly_salary: money(row.monthly_salary),
-          amount: money(row.amount),
+          monthly_salary: money.trusted_from_string(row.monthly_salary),
+          amount: money.trusted_from_string(row.amount),
         ),
       )
     })
@@ -72,8 +66,8 @@ pub fn payroll(
         PayrollSegment(
           level: row.level,
           days: row.days,
-          monthly_salary: money(row.monthly_salary),
-          amount: money(row.amount),
+          monthly_salary: money.trusted_from_string(row.monthly_salary),
+          amount: money.trusted_from_string(row.amount),
         ),
       )
     })
@@ -129,9 +123,9 @@ fn payroll_row_to_line(
   PayrollLine(
     engineer_id: row.engineer_id,
     engineer: row.engineer,
-    preview_amount: money(row.preview_amount),
+    preview_amount: money.trusted_from_string(row.preview_amount),
     preview_days: row.preview_days,
-    paid_amount: option.map(row.paid_amount, money),
+    paid_amount: option.map(row.paid_amount, money.trusted_from_string),
     paid_days: row.paid_days,
     preview_segments: dict.get(preview_by_engineer, row.engineer_id)
       |> result.unwrap([]),

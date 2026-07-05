@@ -50,13 +50,13 @@ pub fn client_table(
   applied: Applied,
 ) -> Result(TableResponse, pog.QueryError) {
   let schema = client_schema()
-  let offset = decode_offset(applied.cursor)
+  let offset = pagination.decode_offset(applied.cursor)
   let limit = applied.page_size
   use returned <- result.map(run_list(context, as_of, applied, limit, offset))
   let fetched = returned.rows
   let page_rows = list.take(fetched, limit)
   let next_cursor = case list.length(fetched) > limit {
-    True -> Some(encode_offset(offset + limit))
+    True -> Some(pagination.encode_offset(offset + limit))
     False -> None
   }
   TableResponse(
@@ -229,23 +229,6 @@ fn sort_column(key: String) -> String {
     "projects" -> "page.projects"
     "status" -> "page.status"
     _ -> "page.name"
-  }
-}
-
-// --- cursor (offset) --------------------------------------------------------
-
-fn encode_offset(offset: Int) -> String {
-  pagination.encode_cursor([int.to_string(offset)])
-}
-
-fn decode_offset(cursor: Option(String)) -> Int {
-  case cursor {
-    None -> 0
-    Some(token) ->
-      case pagination.decode_cursor(token, 1) {
-        Ok([text]) -> result.unwrap(int.parse(text), 0)
-        _ -> 0
-      }
   }
 }
 
