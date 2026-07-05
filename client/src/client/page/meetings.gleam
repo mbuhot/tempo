@@ -18,6 +18,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 import gleam/time/calendar.{type Date}
@@ -29,6 +30,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
+import shared/access as perm
+import shared/command as gateway
+import shared/location/view.{type EngineerLocation, engineer_location_decoder} as location_view
 import shared/meeting/command.{Optional, Required}
 import shared/meeting/view.{
   type AttendeeRecord, type MeetingRecord, meeting_record_decoder,
@@ -40,12 +44,58 @@ pub type State {
   MeetingsFailed(detail: String)
 }
 
+/// One row of the create form's attendee list: an engineer plus the
+/// `Attendance` they are invited with.
+pub type Attendee {
+  Attendee(engineer_id: Int, attendance: command.Attendance)
+}
+
+/// Names a slot of the bespoke `CreateForm` — the create form's own field
+/// enum, distinct from `ui.OpField` since `ScheduleMeeting` is built directly
+/// rather than through the scalar op-form engine.
+pub type CreateField {
+  CreateTitle
+  CreateTimezone
+  CreateDate
+  CreateStartsAt
+  CreateDurationMinutes
+  CreateLocation
+  CreateClientId
+  CreateProjectId
+}
+
+/// The "Schedule meeting" create form: scalar fields plus a repeated
+/// attendee list built by searching the engineer roster.
+pub type CreateForm {
+  CreateForm(
+    title: String,
+    timezone: String,
+    date: String,
+    starts_at: String,
+    duration_minutes: String,
+    location: String,
+    client_id: String,
+    project_id: String,
+    attendees: List(Attendee),
+    query: String,
+    error: Option(String),
+  )
+}
+
 pub type Model {
-  Model(as_of: Date, actor: String, state: State, op: Option(ui.OpState))
+  Model(
+    as_of: Date,
+    actor: String,
+    state: State,
+    op: Option(ui.OpState),
+    roster: List(EngineerLocation),
+    create: Option(CreateForm),
+  )
 }
 
 pub type Msg {
   Fetched(as_of: Date, result: Result(List(MeetingRecord), rsvp.Error(String)))
+  RosterFetched(result: Result(List(EngineerLocation), rsvp.Error(String)))
   RescheduleOpened(permit: ui.Permit, record: MeetingRecord)
   CancelOpened(permit: ui.Permit, meeting_id: Int)
   AddAttendeeOpened(permit: ui.Permit, meeting_id: Int)
@@ -54,10 +104,28 @@ pub type Msg {
   OpFieldEdited(field: ui.OpField, value: String)
   OpSubmitted
   OperationReturned(result: Result(Nil, rsvp.Error(String)))
+  CreateOpened
+  CreateCancelled
+  CreateFieldEdited(field: CreateField, value: String)
+  AttendeeQueryChanged(query: String)
+  AttendeeAdded(engineer_id: Int)
+  AttendeeRemoved(engineer_id: Int)
+  AttendanceSet(engineer_id: Int, attendance: command.Attendance)
+  CreateSubmitted
 }
 
 pub fn init(_route, as_of: Date, actor: String) -> #(Model, Effect(Msg)) {
-  #(Model(as_of:, actor:, state: MeetingsLoading, op: None), fetch(as_of))
+  #(
+    Model(
+      as_of:,
+      actor:,
+      state: MeetingsLoading,
+      op: None,
+      roster: [],
+      create: None,
+    ),
+    effect.batch([fetch(as_of), fetch_roster(as_of)]),
+  )
 }
 
 pub fn refetch(
@@ -65,7 +133,10 @@ pub fn refetch(
   as_of: Date,
   actor: String,
 ) -> #(Model, Effect(Msg)) {
-  #(Model(..model, as_of:, actor:), fetch(as_of))
+  #(
+    Model(..model, as_of:, actor:),
+    effect.batch([fetch(as_of), fetch_roster(as_of)]),
+  )
 }
 
 fn fetch(as_of: Date) -> Effect(Msg) {
@@ -73,6 +144,16 @@ fn fetch(as_of: Date) -> Effect(Msg) {
     "/api/meetings?as_of=" <> time.iso_date(as_of),
     decode.list(meeting_record_decoder()),
     fn(result) { Fetched(as_of:, result:) },
+  )
+}
+
+/// The engineer roster (every engineer plus their location as-of `as_of`) the
+/// create form's attendee search filters over.
+fn fetch_roster(as_of: Date) -> Effect(Msg) {
+  api.get(
+    "/api/locations?as_of=" <> time.iso_date(as_of),
+    decode.list(engineer_location_decoder()),
+    RosterFetched,
   )
 }
 
@@ -89,6 +170,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
           #(Model(..model, state:), effect.none(), [])
         }
       }
+
+    RosterFetched(result:) -> {
+      let roster = result |> result.unwrap([])
+      #(Model(..model, roster:), effect.none(), [])
+    }
 
     RescheduleOpened(permit:, record:) -> {
       let kind = ui.permit_kind(permit)
@@ -192,14 +278,105 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       case result {
         Ok(_events) -> {
           let #(refreshed, fetch_effect) =
-            refetch(Model(..model, op: None), model.as_of, model.actor)
+            refetch(
+              Model(..model, op: None, create: None),
+              model.as_of,
+              model.actor,
+            )
           #(refreshed, fetch_effect, [OperationCommitted])
         }
         Error(error) -> #(
-          set_op_error(model, api.describe_error(error)),
+          set_error(model, api.describe_error(error)),
           effect.none(),
           [],
         )
+      }
+
+    CreateOpened -> #(
+      Model(..model, create: Some(blank_create_form())),
+      effect.none(),
+      [],
+    )
+
+    CreateCancelled -> #(Model(..model, create: None), effect.none(), [])
+
+    CreateFieldEdited(field:, value:) ->
+      case model.create {
+        Some(form) -> #(
+          Model(
+            ..model,
+            create: Some(
+              CreateForm(..update_create_field(form, field, value), error: None),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    AttendeeQueryChanged(query:) ->
+      case model.create {
+        Some(form) -> #(
+          Model(..model, create: Some(CreateForm(..form, query:))),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    AttendeeAdded(engineer_id:) ->
+      case model.create {
+        Some(form) -> #(
+          Model(..model, create: Some(add_attendee(form, engineer_id))),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    AttendeeRemoved(engineer_id:) ->
+      case model.create {
+        Some(form) -> #(
+          Model(..model, create: Some(remove_attendee(form, engineer_id))),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    AttendanceSet(engineer_id:, attendance:) ->
+      case model.create {
+        Some(form) -> #(
+          Model(
+            ..model,
+            create: Some(set_attendance(form, engineer_id, attendance)),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    CreateSubmitted ->
+      case model.create {
+        Some(form) ->
+          case build_schedule_command(form) {
+            Ok(command) -> #(
+              model,
+              api.submit_operation(command, OperationReturned),
+              [],
+            )
+            Error(message) -> #(
+              Model(
+                ..model,
+                create: Some(CreateForm(..form, error: Some(message))),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
       }
   }
 }
@@ -214,6 +391,17 @@ fn open_op(model: Model, permit: ui.Permit, meeting_id: Int) -> Model {
   Model(..model, op: Some(ui.OpState(kind:, form:, error: None)))
 }
 
+/// Surface a rejection on whichever modal is open — the bespoke create form
+/// takes priority since it and the granular op-form modal are never open
+/// together.
+fn set_error(model: Model, message: String) -> Model {
+  case model.create {
+    Some(form) ->
+      Model(..model, create: Some(CreateForm(..form, error: Some(message))))
+    None -> set_op_error(model, message)
+  }
+}
+
 /// Surface a rejection on the open op form, leaving its typed fields intact.
 fn set_op_error(model: Model, message: String) -> Model {
   case model.op {
@@ -221,6 +409,142 @@ fn set_op_error(model: Model, message: String) -> Model {
       Model(..model, op: Some(ui.OpState(kind:, form:, error: Some(message))))
     None -> model
   }
+}
+
+// --- Create form --------------------------------------------------------
+
+/// A blank "Schedule meeting" form, opened by the "New meeting" launcher.
+fn blank_create_form() -> CreateForm {
+  CreateForm(
+    title: "",
+    timezone: "",
+    date: "",
+    starts_at: "",
+    duration_minutes: "",
+    location: "",
+    client_id: "",
+    project_id: "",
+    attendees: [],
+    query: "",
+    error: None,
+  )
+}
+
+/// Fold a `CreateFieldEdited` edit into the matching `CreateForm` slot.
+fn update_create_field(
+  form: CreateForm,
+  field: CreateField,
+  value: String,
+) -> CreateForm {
+  case field {
+    CreateTitle -> CreateForm(..form, title: value)
+    CreateTimezone -> CreateForm(..form, timezone: value)
+    CreateDate -> CreateForm(..form, date: value)
+    CreateStartsAt -> CreateForm(..form, starts_at: value)
+    CreateDurationMinutes -> CreateForm(..form, duration_minutes: value)
+    CreateLocation -> CreateForm(..form, location: value)
+    CreateClientId -> CreateForm(..form, client_id: value)
+    CreateProjectId -> CreateForm(..form, project_id: value)
+  }
+}
+
+/// Append `engineer_id` as a `Required` attendee, unless already present.
+fn add_attendee(form: CreateForm, engineer_id: Int) -> CreateForm {
+  case list.any(form.attendees, fn(a) { a.engineer_id == engineer_id }) {
+    True -> form
+    False ->
+      CreateForm(
+        ..form,
+        attendees: list.append(form.attendees, [
+          Attendee(engineer_id:, attendance: Required),
+        ]),
+        query: "",
+      )
+  }
+}
+
+/// Drop `engineer_id` from the attendee list.
+fn remove_attendee(form: CreateForm, engineer_id: Int) -> CreateForm {
+  CreateForm(
+    ..form,
+    attendees: list.filter(form.attendees, fn(a) {
+      a.engineer_id != engineer_id
+    }),
+  )
+}
+
+/// Set `engineer_id`'s `Attendance`, leaving every other row untouched.
+fn set_attendance(
+  form: CreateForm,
+  engineer_id: Int,
+  attendance: command.Attendance,
+) -> CreateForm {
+  CreateForm(
+    ..form,
+    attendees: list.map(form.attendees, fn(a) {
+      case a.engineer_id == engineer_id {
+        True -> Attendee(..a, attendance:)
+        False -> a
+      }
+    }),
+  )
+}
+
+/// The pure, testable heart of the create form: validate + assemble a
+/// `ScheduleMeeting` command, or report the first thing missing.
+pub fn build_schedule_command(
+  form: CreateForm,
+) -> Result(gateway.Command, String) {
+  use duration <- result.try(
+    int.parse(form.duration_minutes)
+    |> result.replace_error("duration must be a number"),
+  )
+  use date <- result.try(parse_date(form.date))
+  case form.title, form.timezone, form.attendees {
+    "", _, _ -> Error("title is required")
+    _, "", _ -> Error("timezone is required")
+    _, _, [] -> Error("add at least one attendee")
+    title, timezone, attendees ->
+      Ok(
+        gateway.MeetingCommand(command.ScheduleMeeting(
+          title:,
+          timezone:,
+          date:,
+          starts_at: form.starts_at,
+          duration_minutes: duration,
+          location: optional_text(form.location),
+          client_id: optional_int(form.client_id),
+          project_id: optional_int(form.project_id),
+          attendees: list.map(attendees, fn(a) {
+            #(a.engineer_id, a.attendance)
+          }),
+        )),
+      )
+  }
+}
+
+/// `""` (after trimming) becomes `None`; anything else is `Some(trimmed)`.
+fn optional_text(raw: String) -> Option(String) {
+  case string.trim(raw) {
+    "" -> None
+    trimmed -> Some(trimmed)
+  }
+}
+
+/// `""` (after trimming) becomes `None`; a non-numeric value also becomes
+/// `None` — the surrounding form leaves this field blank rather than reject.
+fn optional_int(raw: String) -> Option(Int) {
+  case string.trim(raw) {
+    "" -> None
+    trimmed -> int.parse(trimmed) |> option.from_result
+  }
+}
+
+/// Parse a `YYYY-MM-DD` field into a `calendar.Date`, or a message naming the
+/// expected shape.
+fn parse_date(raw: String) -> Result(Date, String) {
+  time.parse_iso_date(string.trim(raw))
+  |> result.replace_error("date must be YYYY-MM-DD")
 }
 
 // --- Time formatting ---------------------------------------------------------
@@ -276,13 +600,28 @@ pub fn view(
   let _ = as_of
   html.div([], [
     view_op_modal(model.op),
+    view_create_modal(model.create, model.roster),
     ui.list_page(
       title: "Meetings",
       blurb: "Every upcoming meeting as of the rail date, with each attendee's local wall-clock time.",
-      actions: [],
+      actions: view_actions(permissions),
       body: view_body(model.state, permissions),
     ),
   ])
+}
+
+fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
+  case set.contains(permissions, perm.meeting_manage) {
+    True -> [
+      ui.button(
+        label: "New meeting",
+        kind: ui.Primary,
+        size: ui.Medium,
+        on_press: CreateOpened,
+      ),
+    ]
+    False -> []
+  }
 }
 
 fn view_body(state: State, permissions: Set(String)) -> Element(Msg) {
@@ -551,4 +890,200 @@ fn attendance_select(selected: String) -> Element(Msg) {
       ],
     ),
   ])
+}
+
+// --- Create form ------------------------------------------------------------
+
+fn view_create_modal(
+  create: Option(CreateForm),
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  case create {
+    None -> element.none()
+    Some(form) ->
+      ui.modal(
+        title: "Schedule meeting",
+        error: option.unwrap(form.error, ""),
+        body: view_create_fields(form, roster),
+        on_cancel: CreateCancelled,
+        on_confirm: CreateSubmitted,
+        confirm_label: "Schedule",
+      )
+  }
+}
+
+fn view_create_fields(
+  form: CreateForm,
+  roster: List(EngineerLocation),
+) -> List(Element(Msg)) {
+  [
+    create_field("Title", CreateTitle, form.title, "text"),
+    create_field("Timezone (IANA TZID)", CreateTimezone, form.timezone, "text"),
+    create_field("Date", CreateDate, form.date, "date"),
+    create_field("Start (HH:MM)", CreateStartsAt, form.starts_at, "text"),
+    create_field(
+      "Duration (minutes)",
+      CreateDurationMinutes,
+      form.duration_minutes,
+      "text",
+    ),
+    create_field("Location (optional)", CreateLocation, form.location, "text"),
+    create_field("Client id (optional)", CreateClientId, form.client_id, "text"),
+    create_field(
+      "Project id (optional)",
+      CreateProjectId,
+      form.project_id,
+      "text",
+    ),
+    view_attendee_builder(form, roster),
+  ]
+}
+
+fn create_field(
+  label: String,
+  field: CreateField,
+  value: String,
+  input_type: String,
+) -> Element(Msg) {
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text(label)]),
+    html.input([
+      attribute.type_(input_type),
+      attribute.attribute("aria-label", label),
+      attribute.value(value),
+      event.on_input(fn(value) { CreateFieldEdited(field, value) }),
+    ]),
+  ])
+}
+
+/// The repeated-attendee builder: a name search over the roster, an "Add"
+/// control per match not already on the list, and the current attendee rows
+/// each with a required/optional select and a remove button.
+fn view_attendee_builder(
+  form: CreateForm,
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  html.div([attribute.class("attendee-builder")], [
+    html.label([attribute.class("op-form__field")], [
+      html.span([], [html.text("Search engineers")]),
+      html.input([
+        attribute.type_("text"),
+        attribute.attribute("aria-label", "Search engineers"),
+        attribute.value(form.query),
+        event.on_input(AttendeeQueryChanged),
+      ]),
+    ]),
+    view_roster_matches(form, roster),
+    view_current_attendees(form.attendees, roster),
+  ])
+}
+
+fn view_roster_matches(
+  form: CreateForm,
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  let query = string.trim(form.query) |> string.lowercase
+  case query {
+    "" -> element.none()
+    _ ->
+      html.div(
+        [attribute.class("attendee-builder__matches")],
+        roster
+          |> list.filter(fn(entry) {
+            !list.any(form.attendees, fn(a) {
+              a.engineer_id == entry.engineer_id
+            })
+            && string.contains(string.lowercase(entry.name), query)
+          })
+          |> list.map(view_roster_match),
+      )
+  }
+}
+
+fn view_roster_match(entry: EngineerLocation) -> Element(Msg) {
+  let location_view.EngineerLocation(engineer_id:, name:, ..) = entry
+  html.div([attribute.class("attendee-builder__match")], [
+    html.span([], [html.text(name)]),
+    ui.button(
+      label: "Add",
+      kind: ui.Ghost,
+      size: ui.Small,
+      on_press: AttendeeAdded(engineer_id),
+    ),
+  ])
+}
+
+fn view_current_attendees(
+  attendees: List(Attendee),
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  html.div(
+    [attribute.class("attendee-builder__rows")],
+    list.map(attendees, view_current_attendee(_, roster)),
+  )
+}
+
+fn view_current_attendee(
+  attendee: Attendee,
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  let Attendee(engineer_id:, attendance:) = attendee
+  html.div([attribute.class("attendee-builder__row")], [
+    html.span([], [html.text(roster_name(roster, engineer_id))]),
+    create_attendance_select(engineer_id, attendance),
+    ui.button(
+      label: "Remove",
+      kind: ui.Ghost,
+      size: ui.Small,
+      on_press: AttendeeRemoved(engineer_id),
+    ),
+  ])
+}
+
+fn roster_name(roster: List(EngineerLocation), engineer_id: Int) -> String {
+  roster
+  |> list.find(fn(entry) { entry.engineer_id == engineer_id })
+  |> result.map(fn(entry) { entry.name })
+  |> result.unwrap("Engineer #" <> int.to_string(engineer_id))
+}
+
+fn create_attendance_select(
+  engineer_id: Int,
+  selected: command.Attendance,
+) -> Element(Msg) {
+  let selected_value = case selected {
+    Required -> "required"
+    Optional -> "optional"
+  }
+  html.select(
+    [
+      attribute.attribute("aria-label", "Attendance"),
+      event.on_change(fn(value) {
+        AttendanceSet(engineer_id, attendance_from_string(value))
+      }),
+    ],
+    [
+      html.option(
+        [
+          attribute.value("required"),
+          attribute.selected(selected_value == "required"),
+        ],
+        "Required",
+      ),
+      html.option(
+        [
+          attribute.value("optional"),
+          attribute.selected(selected_value == "optional"),
+        ],
+        "Optional",
+      ),
+    ],
+  )
+}
+
+fn attendance_from_string(raw: String) -> command.Attendance {
+  case raw {
+    "optional" -> Optional
+    _ -> Required
+  }
 }

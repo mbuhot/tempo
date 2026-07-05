@@ -1,5 +1,6 @@
 import client/page/meetings
 import client/ui
+import gleam/option
 import gleam/result
 import gleam/time/calendar
 import shared/command as gateway
@@ -40,4 +41,62 @@ pub fn build_cancel_command_rejects_missing_id_test() {
   let form =
     ui.blank_op_form(ui.OpCancelMeeting, calendar.Date(2026, calendar.July, 10))
   assert ui.build_command(ui.OpCancelMeeting, form) |> result.is_error
+}
+
+pub fn build_schedule_command_from_a_valid_form_test() {
+  let form =
+    meetings.CreateForm(
+      title: "Kickoff",
+      timezone: "Europe/London",
+      date: "2026-07-10",
+      starts_at: "09:30",
+      duration_minutes: "45",
+      location: "",
+      client_id: "",
+      project_id: "3",
+      attendees: [
+        meetings.Attendee(1, meeting_command.Required),
+        meetings.Attendee(2, meeting_command.Optional),
+      ],
+      query: "",
+      error: option.None,
+    )
+  assert meetings.build_schedule_command(form)
+    == Ok(
+      gateway.MeetingCommand(
+        meeting_command.ScheduleMeeting(
+          title: "Kickoff",
+          timezone: "Europe/London",
+          date: calendar.Date(2026, calendar.July, 10),
+          starts_at: "09:30",
+          duration_minutes: 45,
+          location: option.None,
+          client_id: option.None,
+          project_id: option.Some(3),
+          attendees: [
+            #(1, meeting_command.Required),
+            #(2, meeting_command.Optional),
+          ],
+        ),
+      ),
+    )
+}
+
+pub fn build_schedule_command_requires_an_attendee_test() {
+  let form =
+    meetings.CreateForm(
+      title: "Kickoff",
+      timezone: "Europe/London",
+      date: "2026-07-10",
+      starts_at: "09:30",
+      duration_minutes: "45",
+      location: "",
+      client_id: "",
+      project_id: "",
+      attendees: [],
+      query: "",
+      error: option.None,
+    )
+  assert meetings.build_schedule_command(form)
+    == Error("add at least one attendee")
 }
