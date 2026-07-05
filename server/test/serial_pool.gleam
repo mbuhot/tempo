@@ -12,7 +12,8 @@
 //// a time; waiters block inside `:global` holding NO connection, and `:global`
 //// auto-releases a held lock if its requester process dies, so a panicking test
 //// cannot wedge the lock. `reset/0` truncates every table (except the migration
-//// tracker) and re-seeds the base cast, so each body starts from the same slate.
+//// tracker and the `holiday_region` reference catalog) and re-seeds the base
+//// cast, so each body starts from the same slate.
 ////
 //// Like the other pools, the name is a fixed atom built from a constant string so
 //// `start`/`db` independently derive the SAME `process.Name`.

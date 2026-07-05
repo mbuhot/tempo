@@ -1,5 +1,5 @@
 import gleam/json
-import gleam/option.{None, Some}
+import gleam/option.{Some}
 import gleam/time/calendar.{Date}
 import shared/schedule/view
 
