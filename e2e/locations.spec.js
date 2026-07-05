@@ -48,17 +48,17 @@ test("an admin sets an engineer's location", async ({ page }) => {
     .click();
 
   await expect(page.getByLabel("Country")).toBeVisible();
-  await page.getByLabel("Country").fill("JP");
+  await page.getByLabel("Country").fill("GB");
   await page.getByLabel("Region").fill("");
-  await page.getByLabel("Timezone (IANA TZID)").fill("Asia/Tokyo");
+  await page.getByLabel("Timezone (IANA TZID)").fill("Europe/London");
   await page.getByLabel("Effective").fill("2026-12-15");
   await confirmOp(page, "Set location");
   await expect(opModal(page)).toHaveCount(0);
 
   await scrubTo(page, "2026-12-15");
   const relocatedRow = rosterRow(page, "Marcus Chen");
-  await expect(relocatedRow).toContainText("JP");
-  await expect(relocatedRow).toContainText("Asia/Tokyo");
-  await expect(relocatedRow).toContainText("UTC+09:00");
+  await expect(relocatedRow).toContainText("GB");
+  await expect(relocatedRow).toContainText("Europe/London");
+  await expect(relocatedRow).toContainText("UTC+00:00");
   await expect(relocatedRow).toContainText("15 Dec 2026");
 });

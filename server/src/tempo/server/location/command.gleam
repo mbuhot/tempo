@@ -1,5 +1,7 @@
 //// Write handler for engineer location. `set_location` validates the TZID against
-//// pg_timezone_names before recording, so an unknown zone is a clean InvalidValue.
+//// pg_timezone_names and the (country, region) pair against holiday_region before
+//// recording, so an unknown zone or region is a clean InvalidValue rather than a
+//// constraint violation from the FK on engineer_location.
 
 import gleam/int
 import gleam/option.{type Option}
@@ -7,6 +9,7 @@ import gleam/time/calendar.{type Date}
 import pog
 import shared/command as gateway
 import shared/location/command.{type LocationCommand, SetEngineerLocation}
+import tempo/server/availability/sql as availability_sql
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/location/sql as location_sql
 import tempo/server/operation.{type OperationError, Event}
@@ -32,7 +35,8 @@ pub fn route(
 }
 
 /// Record an engineer's location from `effective` onward, once its IANA TZID is
-/// confirmed against `pg_timezone_names`.
+/// confirmed against `pg_timezone_names` and its (country, region) pair is confirmed
+/// against `holiday_region`.
 pub fn set_location(
   conn: pog.Connection,
   command: LocationCommand,
@@ -44,7 +48,13 @@ pub fn set_location(
 ) -> Result(Recorded, OperationError) {
   use valid <- operation.try(location_sql.timezone_valid(conn, timezone))
   let assert [check] = valid.rows
-  case check.valid {
+  use known <- operation.try(availability_sql.holiday_region_exists(
+    conn,
+    country,
+    option.unwrap(region, ""),
+  ))
+  let assert [region_check] = known.rows
+  case check.valid && region_check.known {
     False -> Error(operation.InvalidValue)
     True ->
       Ok(

@@ -91,6 +91,25 @@ pub fn set_location_rejects_an_unknown_timezone_test() {
   assert outcome == Error(operation.InvalidValue)
 }
 
+pub fn set_location_rejects_an_unknown_region_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn)
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.LocationCommand(location_command.SetEngineerLocation(
+          engineer_id:,
+          country: "JP",
+          region: None,
+          timezone: "Asia/Tokyo",
+          effective: Date(2026, June, 1),
+        )),
+      )
+    })
+  assert outcome == Error(operation.InvalidValue)
+}
+
 fn priya(entries: List(EngineerLocation)) -> EngineerLocation {
   let assert Ok(entry) = list.find(entries, fn(e) { e.name == "Priya Sharma" })
   entry
