@@ -482,6 +482,8 @@ th.num {
 }
 .modal__body {
     padding: var(--space-lg);
+    max-height: 90vh;
+    overflow-y: auto;
 }
 .modal__footer {
     display: flex;

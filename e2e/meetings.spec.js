@@ -23,12 +23,6 @@ function meetingRow(page, title) {
   return page.getByRole("row", { name: new RegExp(escapeRegExp(title)) });
 }
 
-// The bespoke "Schedule meeting" form has more fields (and a repeated
-// attendee list) than the standard viewport's height fits alongside its
-// footer buttons, so the schedule/reschedule/cancel test runs in a taller
-// viewport.
-test.use({ viewport: { width: 1280, height: 1600 } });
-
 test("the Meetings page lists an upcoming meeting with each attendee's local time", async ({
   page,
 }) => {
