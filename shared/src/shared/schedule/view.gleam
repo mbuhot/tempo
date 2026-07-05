@@ -27,7 +27,12 @@ pub type CellState {
 /// One engineer's row in a project's timeline: their label and one `CellState`
 /// per week column.
 pub type EngineerLane {
-  EngineerLane(engineer_id: Int, name: String, level: Int, cells: List(CellState))
+  EngineerLane(
+    engineer_id: Int,
+    name: String,
+    level: Int,
+    cells: List(CellState),
+  )
 }
 
 /// What a requirement gap line demands: a plain level headcount, or a named
@@ -241,8 +246,12 @@ fn seat_decoder() -> Decoder(Seat) {
 }
 
 fn encode_capability_coverage(coverage: CapabilityCoverage) -> Json {
-  let CapabilityCoverage(capability_id:, name:, target_level:, team_proficiency:) =
-    coverage
+  let CapabilityCoverage(
+    capability_id:,
+    name:,
+    target_level:,
+    team_proficiency:,
+  ) = coverage
   json.object([
     #("capability_id", json.int(capability_id)),
     #("name", json.string(name)),
