@@ -143,8 +143,7 @@ pub fn hand_off_requested_while_a_save_is_in_flight_defers_the_commit_test() {
   let saving_model = blurred_full_name(loaded_model())
   assert saving_model.save_status == wizard.Saving(1)
 
-  let #(queued_model, _, _) =
-    wizard.update(saving_model, wizard.HandOffClicked)
+  let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
   assert queued_model.save_status == wizard.SavingThenHandOff(1)
 
   let #(flushed_model, _, _) =
@@ -162,8 +161,7 @@ pub fn hand_off_with_no_saves_in_flight_dispatches_immediately_test() {
 
 pub fn a_failed_save_with_a_queued_hand_off_cancels_it_and_records_the_error_test() {
   let saving_model = blurred_full_name(loaded_model())
-  let #(queued_model, _, _) =
-    wizard.update(saving_model, wizard.HandOffClicked)
+  let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
   assert queued_model.save_status == wizard.SavingThenHandOff(1)
 
   let #(failed_model, _, _) =

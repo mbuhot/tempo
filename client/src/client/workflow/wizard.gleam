@@ -156,8 +156,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       )
 
     Saved(Ok(_)) -> {
-      let #(save_status, dispatch_hand_off) =
-        save_succeeded(model.save_status)
+      let #(save_status, dispatch_hand_off) = save_succeeded(model.save_status)
       let model = Model(..model, save_status:)
       case dispatch_hand_off {
         True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
