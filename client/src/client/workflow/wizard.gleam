@@ -5,10 +5,10 @@
 //// `model.step` (Next also persists the open step) — so there is no URL per step;
 //// the draft is durable in the DB and reopened by resuming from the People list.
 //// The schema drives rendering generically; field values autosave on blur with a
-//// no-op guard; undo/redo is a per-step buffer that re-saves. Hand-off waits for any
-//// in-flight autosaves to land before it fires, so a blur-then-hand-off gesture can't
-//// commit against stale stored values; a save that comes back an error cancels the
-//// queued hand-off instead.
+//// no-op guard; undo/redo is a per-step buffer that re-saves. Hand-off and Finish both
+//// wait for any in-flight autosaves to land before they fire, so a blur-then-advance
+//// gesture can't commit against stale stored values; a save that comes back an error
+//// cancels the queued hand-off/commit instead.
 
 import client/api
 import client/focus
@@ -56,12 +56,18 @@ pub type Model {
   )
 }
 
-/// In-flight field saves for the current step, and whether a hand-off request is
-/// queued behind them.
+/// In-flight field saves for the current step, and whether an advance (hand-off or
+/// commit) is queued behind them.
 pub type SaveStatus {
   AllSaved
   Saving(pending: Int)
-  SavingThenHandOff(pending: Int)
+  SavingThenAdvance(pending: Int, then: QueuedAdvance)
+}
+
+/// The step-ending action deferred behind a `SavingThenAdvance`.
+pub type QueuedAdvance {
+  QueuedHandOff
+  QueuedCommit
 }
 
 pub type Msg {
@@ -156,11 +162,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       )
 
     Saved(Ok(_)) -> {
-      let #(save_status, dispatch_hand_off) = save_succeeded(model.save_status)
+      let #(save_status, dispatch_advance) = save_succeeded(model.save_status)
       let model = Model(..model, save_status:)
-      case dispatch_hand_off {
-        True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
-        False -> working(model)
+      case dispatch_advance {
+        Some(QueuedHandOff) -> #(
+          model,
+          wapi.hand_off(model.instance_id, HandedOff),
+          Working,
+        )
+        Some(QueuedCommit) -> #(model, commit_effect(model), Working)
+        None -> working(model)
       }
     }
     Saved(Error(error)) ->
@@ -199,7 +210,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       working(Model(..model, error: api.describe_error(error)))
 
     HandOffClicked -> {
-      let #(save_status, dispatch_now) = request_hand_off(model.save_status)
+      let #(save_status, dispatch_now) =
+        request_advance(model.save_status, QueuedHandOff)
       let model = Model(..model, save_status:)
       case dispatch_now {
         True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
@@ -210,15 +222,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
     HandedOff(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
 
-    CommitClicked -> #(
-      model,
-      case model.kind {
-        wkind.CreateProject ->
-          wapi.commit_project(model.instance_id, CommitReturned)
-        wkind.OnboardEngineer -> wapi.commit(model.instance_id, CommitReturned)
-      },
-      Working,
-    )
+    CommitClicked -> {
+      let #(save_status, dispatch_now) =
+        request_advance(model.save_status, QueuedCommit)
+      let model = Model(..model, save_status:)
+      case dispatch_now {
+        True -> #(model, commit_effect(model), Working)
+        False -> working(model)
+      }
+    }
     CommitReturned(Ok(_)) -> #(model, effect.none(), Committed)
     CommitReturned(Error(error)) ->
       working(Model(..model, error: api.describe_error(error)))
@@ -235,17 +247,20 @@ fn save_dispatched(status: SaveStatus) -> SaveStatus {
   case status {
     AllSaved -> Saving(1)
     Saving(pending) -> Saving(pending + 1)
-    SavingThenHandOff(pending) -> SavingThenHandOff(pending + 1)
+    SavingThenAdvance(pending, then) -> SavingThenAdvance(pending + 1, then)
   }
 }
 
-fn save_succeeded(status: SaveStatus) -> #(SaveStatus, Bool) {
+fn save_succeeded(status: SaveStatus) -> #(SaveStatus, Option(QueuedAdvance)) {
   case status {
-    Saving(1) -> #(AllSaved, False)
-    Saving(pending) -> #(Saving(pending - 1), False)
-    SavingThenHandOff(1) -> #(AllSaved, True)
-    SavingThenHandOff(pending) -> #(SavingThenHandOff(pending - 1), False)
-    AllSaved -> #(AllSaved, False)
+    Saving(1) -> #(AllSaved, None)
+    Saving(pending) -> #(Saving(pending - 1), None)
+    SavingThenAdvance(1, then) -> #(AllSaved, Some(then))
+    SavingThenAdvance(pending, then) -> #(
+      SavingThenAdvance(pending - 1, then),
+      None,
+    )
+    AllSaved -> #(AllSaved, None)
   }
 }
 
@@ -253,17 +268,33 @@ fn save_failed(status: SaveStatus) -> SaveStatus {
   case status {
     Saving(1) -> AllSaved
     Saving(pending) -> Saving(pending - 1)
-    SavingThenHandOff(1) -> AllSaved
-    SavingThenHandOff(pending) -> Saving(pending - 1)
+    SavingThenAdvance(1, _) -> AllSaved
+    SavingThenAdvance(pending, _) -> Saving(pending - 1)
     AllSaved -> AllSaved
   }
 }
 
-fn request_hand_off(status: SaveStatus) -> #(SaveStatus, Bool) {
+fn request_advance(
+  status: SaveStatus,
+  advance: QueuedAdvance,
+) -> #(SaveStatus, Bool) {
   case status {
     AllSaved -> #(AllSaved, True)
-    Saving(pending) -> #(SavingThenHandOff(pending), False)
-    SavingThenHandOff(pending) -> #(SavingThenHandOff(pending), False)
+    Saving(pending) -> #(SavingThenAdvance(pending, advance), False)
+    SavingThenAdvance(pending, _) -> #(
+      SavingThenAdvance(pending, advance),
+      False,
+    )
+  }
+}
+
+/// The commit effect for the draft's kind — the journaled command that turns it into
+/// real domain facts.
+fn commit_effect(model: Model) -> Effect(Msg) {
+  case model.kind {
+    wkind.CreateProject ->
+      wapi.commit_project(model.instance_id, CommitReturned)
+    wkind.OnboardEngineer -> wapi.commit(model.instance_id, CommitReturned)
   }
 }
 

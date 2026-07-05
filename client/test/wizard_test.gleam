@@ -144,7 +144,8 @@ pub fn hand_off_requested_while_a_save_is_in_flight_defers_the_commit_test() {
   assert saving_model.save_status == wizard.Saving(1)
 
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
-  assert queued_model.save_status == wizard.SavingThenHandOff(1)
+  assert queued_model.save_status
+    == wizard.SavingThenAdvance(1, wizard.QueuedHandOff)
 
   let #(flushed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Ok(Nil)))
@@ -162,7 +163,41 @@ pub fn hand_off_with_no_saves_in_flight_dispatches_immediately_test() {
 pub fn a_failed_save_with_a_queued_hand_off_cancels_it_and_records_the_error_test() {
   let saving_model = blurred_full_name(loaded_model())
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
-  assert queued_model.save_status == wizard.SavingThenHandOff(1)
+  assert queued_model.save_status
+    == wizard.SavingThenAdvance(1, wizard.QueuedHandOff)
+
+  let #(failed_model, _, _) =
+    wizard.update(queued_model, wizard.Saved(Error(rsvp.NetworkError)))
+  assert failed_model.save_status == wizard.AllSaved
+  assert failed_model.error == "could not reach the API"
+}
+
+pub fn commit_requested_while_a_save_is_in_flight_defers_the_commit_test() {
+  let saving_model = blurred_full_name(loaded_model())
+  assert saving_model.save_status == wizard.Saving(1)
+
+  let #(queued_model, _, _) = wizard.update(saving_model, wizard.CommitClicked)
+  assert queued_model.save_status
+    == wizard.SavingThenAdvance(1, wizard.QueuedCommit)
+
+  let #(flushed_model, _, _) =
+    wizard.update(queued_model, wizard.Saved(Ok(Nil)))
+  assert flushed_model.save_status == wizard.AllSaved
+}
+
+pub fn commit_with_no_saves_in_flight_dispatches_immediately_test() {
+  let model = loaded_model()
+  assert model.save_status == wizard.AllSaved
+
+  let #(after_commit, _, _) = wizard.update(model, wizard.CommitClicked)
+  assert after_commit.save_status == wizard.AllSaved
+}
+
+pub fn a_failed_save_with_a_queued_commit_cancels_it_and_records_the_error_test() {
+  let saving_model = blurred_full_name(loaded_model())
+  let #(queued_model, _, _) = wizard.update(saving_model, wizard.CommitClicked)
+  assert queued_model.save_status
+    == wizard.SavingThenAdvance(1, wizard.QueuedCommit)
 
   let #(failed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Error(rsvp.NetworkError)))
