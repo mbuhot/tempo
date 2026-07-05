@@ -161,3 +161,13 @@ pub fn locations() -> Element(msg) {
     circle("12", "10", "3"),
   ])
 }
+
+/// `calendar`
+pub fn meetings() -> Element(msg) {
+  icon([
+    rect("3", "4", "18", "18", "2"),
+    path("M8 2v4"),
+    path("M16 2v4"),
+    path("M3 10h18"),
+  ])
+}
