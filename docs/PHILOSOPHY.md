@@ -32,6 +32,7 @@ The system grows by adding concepts. Each addition is a new directory with a sma
 - Split a file before it reaches a thousand lines; the split boundary is a domain idea with a name.
 - Split a directory before its file listing stops telling the story; every file's purpose should be obvious from its name and location.
 - Cross-cutting modules (`wire`, `access/policy`, `repository`) stay few, small, and domain-neutral.
+- Sanctioned exception: `repository.gleam` grows with every concept because it is the one place a fact's write semantic lives. Its job is mechanical fact→SQL mapping with near-zero logic, so it scales by organization — one clearly divided section per concept — while keeping the one-seam property.
 - Prune machinery that stops earning its keep. Infrastructure must justify itself continuously.
 
 ## Make the machine enforce the rules

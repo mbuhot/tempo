@@ -625,6 +625,7 @@ pub fn write(
     SkillRetired(skill_id: SkillId(skill_id), from:) ->
       record_skill_retirement(conn, skill_id, from)
 
+    // --- engineer skills --------------------------------------------------------
     EngineerSkillAssessed(
       engineer_id: EngineerId(engineer_id),
       skill_id: SkillId(skill_id),
@@ -641,6 +642,7 @@ pub fn write(
       )
       |> require_covering_version
 
+    // --- location ---------------------------------------------------------------
     EngineerLocated(
       engineer_id: EngineerId(engineer_id),
       country:,
@@ -659,6 +661,7 @@ pub fn write(
       )
       |> operation.run
 
+    // --- meetings ---------------------------------------------------------------
     MeetingScheduled(
       meeting_id: MeetingId(meeting_id),
       date:,
