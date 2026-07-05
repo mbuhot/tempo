@@ -164,6 +164,7 @@ pub type Msg {
   BackClicked
   TabClicked(tab: Tab)
   OpOpened(permit: ops.Permit)
+  FocusBlockRemoveOpened(permit: ops.Permit, focus_block_id: Int)
   OpCancelled
   OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
@@ -388,6 +389,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             error: None,
           )),
         ),
+        effect.none(),
+        [],
+      )
+    }
+
+    FocusBlockRemoveOpened(permit:, focus_block_id:) -> {
+      let kind = ops.permit_kind(permit)
+      let form =
+        ops.blank_op_form(kind, model.as_of)
+        |> ops.update_op_form(ops.FEngineerId, int.to_string(model.engineer_id))
+        |> ops.update_op_form(ops.FFocusBlockId, int.to_string(focus_block_id))
+      #(
+        Model(..model, op: Some(ops.OpState(kind:, form:, error: None))),
         effect.none(),
         [],
       )
@@ -824,6 +838,12 @@ fn prefill_location(
           |> ops.update_op_form(ops.FCountry, country)
           |> ops.update_op_form(ops.FRegion, option.unwrap(region, ""))
           |> ops.update_op_form(ops.FTimezone, timezone)
+        None -> form
+      }
+    ops.OpAddFocusBlock, LocationLoaded(records:) ->
+      case covering_location(records, as_of) {
+        Some(LocationRecord(timezone:, ..)) ->
+          ops.update_op_form(form, ops.FTimezone, timezone)
         None -> form
       }
     _, _ -> form

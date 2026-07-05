@@ -129,6 +129,18 @@ fn op_fields(
       text_field("Timezone (IANA TZID)", ops.FTimezone, form.timezone),
       date_field("Effective", ops.FEffective, form.effective),
     ]
+    ops.OpAddFocusBlock -> [
+      date_field("Date", ops.FEffective, form.effective),
+      text_field("Start (HH:MM)", ops.FStartsAt, form.starts_at),
+      number_field(
+        "Duration (minutes)",
+        ops.FDurationMinutes,
+        form.duration_minutes,
+      ),
+      text_field("Timezone (IANA TZID)", ops.FTimezone, form.timezone),
+      text_field("Title", ops.FTitle, form.title),
+    ]
+    ops.OpRemoveFocusBlock -> []
     _ -> [number_field("Engineer id", ops.FEngineerId, form.engineer_id)]
   }
 }
@@ -278,6 +290,8 @@ fn op_title(kind: ops.OpKind) -> String {
     ops.OpUpdateEmergency -> "Update emergency contact"
     ops.OpAssessSkill -> "Assess skill"
     ops.OpSetLocation -> "Set location"
+    ops.OpAddFocusBlock -> "Add focus block"
+    ops.OpRemoveFocusBlock -> "Remove focus block"
     _ -> "Operation"
   }
 }
@@ -295,6 +309,8 @@ fn op_verb(kind: ops.OpKind) -> String {
     ops.OpUpdateEmergency -> "Save emergency"
     ops.OpAssessSkill -> "Record assessment"
     ops.OpSetLocation -> "Set location"
+    ops.OpAddFocusBlock -> "Add"
+    ops.OpRemoveFocusBlock -> "Remove"
     _ -> "Confirm"
   }
 }

@@ -20,6 +20,7 @@ import lustre/element/html
 import lustre/event
 import shared/access/policy
 import shared/allocation/command as allocation_command
+import shared/availability/command as availability_command
 import shared/client/command as client_command
 import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
@@ -73,6 +74,8 @@ pub type OpKind {
   OpCancelMeeting
   OpAddAttendee
   OpRemoveAttendee
+  OpAddFocusBlock
+  OpRemoveFocusBlock
 }
 
 /// The shared command key a launcher's op resolves to — so the client gates each
@@ -113,6 +116,8 @@ fn op_command_key(kind: OpKind) -> policy.CommandKey {
     OpCancelMeeting -> policy.ManageMeeting
     OpAddAttendee -> policy.ManageMeeting
     OpRemoveAttendee -> policy.ManageMeeting
+    OpAddFocusBlock -> policy.ManageAvailability
+    OpRemoveFocusBlock -> policy.ManageAvailability
   }
 }
 
@@ -235,6 +240,7 @@ pub type OpField {
   FStartsAt
   FDurationMinutes
   FAttendance
+  FFocusBlockId
 }
 
 /// The raw text typed into an operation's fields, shared across every kind (each
@@ -282,6 +288,7 @@ pub type OpForm {
     starts_at: String,
     duration_minutes: String,
     attendance: String,
+    focus_block_id: String,
   )
 }
 
@@ -344,6 +351,7 @@ pub fn blank_op_form(
     starts_at: "",
     duration_minutes: "60",
     attendance: "required",
+    focus_block_id: "",
   )
 }
 
@@ -390,6 +398,7 @@ pub fn update_op_form(form: OpForm, field: OpField, value: String) -> OpForm {
     FStartsAt -> OpForm(..form, starts_at: value)
     FDurationMinutes -> OpForm(..form, duration_minutes: value)
     FAttendance -> OpForm(..form, attendance: value)
+    FFocusBlockId -> OpForm(..form, focus_block_id: value)
   }
 }
 
@@ -822,6 +831,40 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
         gateway.MeetingCommand(meeting_command.RemoveAttendee(
           meeting_id:,
           engineer_id:,
+        )),
+      )
+    }
+    OpAddFocusBlock -> {
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      use date <- result.try(require_date(form.effective, "date"))
+      use starts_at <- result.try(require_text(form.starts_at, "start time"))
+      use duration_minutes <- result.try(require_int(
+        form.duration_minutes,
+        "duration",
+      ))
+      use timezone <- result.try(require_text(form.timezone, "timezone"))
+      use title <- result.try(require_text(form.title, "title"))
+      Ok(
+        gateway.AvailabilityCommand(availability_command.AddFocusBlock(
+          engineer_id:,
+          date:,
+          starts_at:,
+          duration_minutes:,
+          timezone:,
+          title:,
+        )),
+      )
+    }
+    OpRemoveFocusBlock -> {
+      use engineer_id <- result.try(require_int(form.engineer_id, "engineer id"))
+      use focus_block_id <- result.try(require_int(
+        form.focus_block_id,
+        "focus block id",
+      ))
+      Ok(
+        gateway.AvailabilityCommand(availability_command.RemoveFocusBlock(
+          engineer_id:,
+          focus_block_id:,
         )),
       )
     }

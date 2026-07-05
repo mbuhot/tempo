@@ -1,4 +1,5 @@
 import client/page/people/detail/update as detail_update
+import client/ui/ops
 import gleam/option.{None, Some}
 import gleam/time/calendar
 import shared/availability/command as availability_command
@@ -67,4 +68,46 @@ pub fn build_week_command_rejects_a_bad_date_test() {
     )
   assert detail_update.build_week_command(1, form)
     == Error("effective date must be YYYY-MM-DD")
+}
+
+pub fn build_add_focus_block_command_test() {
+  let form =
+    ops.blank_op_form(
+      ops.OpAddFocusBlock,
+      calendar.Date(2026, calendar.July, 6),
+    )
+    |> ops.update_op_form(ops.FEngineerId, "2")
+    |> ops.update_op_form(ops.FEffective, "2026-07-08")
+    |> ops.update_op_form(ops.FStartsAt, "13:00")
+    |> ops.update_op_form(ops.FDurationMinutes, "90")
+    |> ops.update_op_form(ops.FTimezone, "America/Los_Angeles")
+    |> ops.update_op_form(ops.FTitle, "Design deep-dive")
+  assert ops.build_command(ops.OpAddFocusBlock, form)
+    == Ok(
+      gateway.AvailabilityCommand(availability_command.AddFocusBlock(
+        engineer_id: 2,
+        date: calendar.Date(2026, calendar.July, 8),
+        starts_at: "13:00",
+        duration_minutes: 90,
+        timezone: "America/Los_Angeles",
+        title: "Design deep-dive",
+      )),
+    )
+}
+
+pub fn build_remove_focus_block_command_test() {
+  let form =
+    ops.blank_op_form(
+      ops.OpRemoveFocusBlock,
+      calendar.Date(2026, calendar.July, 6),
+    )
+    |> ops.update_op_form(ops.FEngineerId, "2")
+    |> ops.update_op_form(ops.FFocusBlockId, "7")
+  assert ops.build_command(ops.OpRemoveFocusBlock, form)
+    == Ok(
+      gateway.AvailabilityCommand(availability_command.RemoveFocusBlock(
+        engineer_id: 2,
+        focus_block_id: 7,
+      )),
+    )
 }

@@ -9,12 +9,12 @@ import client/page/people/detail/update.{
   type AvailabilityData, type DayEdit, type LocationData, type Model, type Msg,
   type SkillsData, type Tab, type TimesheetData, type WeekForm,
   AvailabilityFailed, AvailabilityLoaded, AvailabilityLoading, BackClicked,
-  CellEdited, DayEdit, DetailFailed, DetailLoaded, DetailLoading, LocationFailed,
-  LocationLoaded, LocationLoading, Overview, Skills, SkillsFailed, SkillsLoaded,
-  SkillsLoading, TabClicked, TimesheetFailed, TimesheetLoaded, TimesheetLoading,
-  TimesheetSubmitted, WeekCancelled, WeekDayToggled, WeekEffectiveEdited,
-  WeekEndsEdited, WeekOpened, WeekStartsEdited, WeekSubmitted, covering_location,
-  covers_as_of, weekday_name,
+  CellEdited, DayEdit, DetailFailed, DetailLoaded, DetailLoading,
+  FocusBlockRemoveOpened, LocationFailed, LocationLoaded, LocationLoading,
+  Overview, Skills, SkillsFailed, SkillsLoaded, SkillsLoading, TabClicked,
+  TimesheetFailed, TimesheetLoaded, TimesheetLoading, TimesheetSubmitted,
+  WeekCancelled, WeekDayToggled, WeekEffectiveEdited, WeekEndsEdited, WeekOpened,
+  WeekStartsEdited, WeekSubmitted, covering_location, covers_as_of, weekday_name,
 }
 import client/page/people/timesheet as timesheet_grid
 import client/time
@@ -34,7 +34,6 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/access as perm
 import shared/allocation/view.{AllocationRow} as allocation_view
 import shared/availability/view.{
   type DaySlot, type EngineerHoliday, type FocusBlockRecord, DaySlot,
@@ -401,17 +400,22 @@ fn availability_panel(
   permissions: Set(String),
   own: Bool,
 ) -> Element(Msg) {
-  let launcher = case may_manage_availability(permissions, own) {
-    True -> [
-      atoms.button(
-        label: "Edit hours",
-        kind: atoms.Ghost,
-        size: atoms.Small,
-        on_press: WeekOpened,
-      ),
-    ]
-    False -> []
-  }
+  let edit_hours =
+    ops.when_permitted(
+      ops.permit(permissions, own:, kind: ops.OpAddFocusBlock),
+      fn(_granted) {
+        atoms.button(
+          label: "Edit hours",
+          kind: atoms.Ghost,
+          size: atoms.Small,
+          on_press: WeekOpened,
+        )
+      },
+    )
+  let launcher = [
+    edit_hours,
+    op_launch(permissions, own, ops.OpAddFocusBlock, "Add focus block", True),
+  ]
   let body = case availability {
     AvailabilityLoading -> [atoms.empty_state("Loading availability…")]
     AvailabilityFailed(message:) -> [
@@ -419,18 +423,11 @@ fn availability_panel(
     ]
     AvailabilityLoaded(record:) -> [
       week_grid(record.week),
-      focus_block_list(record.focus_blocks),
+      focus_block_list(record.focus_blocks, permissions, own),
       holiday_strip(record.holidays),
     ]
   }
   atoms.panel(title: "Availability", count: "", right: launcher, body:)
-}
-
-/// Whether the viewer may open the weekly-hours editor: `availability.manage.any`
-/// unconditionally, or `availability.manage.own` when viewing their own record.
-fn may_manage_availability(permissions: Set(String), own: Bool) -> Bool {
-  set.contains(permissions, perm.availability_manage_any)
-  || { own && set.contains(permissions, perm.availability_manage_own) }
 }
 
 fn week_grid(week: List(DaySlot)) -> Element(Msg) {
@@ -454,24 +451,45 @@ fn day_slot_label(starts: Option(String), ends: Option(String)) -> String {
   }
 }
 
-fn focus_block_list(focus_blocks: List(FocusBlockRecord)) -> Element(Msg) {
+fn focus_block_list(
+  focus_blocks: List(FocusBlockRecord),
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
   case focus_blocks {
     [] -> element.none()
     blocks ->
       html.div([attribute.class("pad-block kv")], [
         html.span([attribute.class("eyebrow")], [html.text("Focus blocks")]),
-        ..list.map(blocks, focus_block_row)
+        ..list.map(blocks, focus_block_row(_, permissions, own))
       ])
   }
 }
 
-fn focus_block_row(record: FocusBlockRecord) -> Element(Msg) {
-  let FocusBlockRecord(title:, starts_at:, offset_minutes:, ..) = record
+fn focus_block_row(
+  record: FocusBlockRecord,
+  permissions: Set(String),
+  own: Bool,
+) -> Element(Msg) {
+  let FocusBlockRecord(id:, title:, starts_at:, offset_minutes:, ..) = record
   let time_label = case offset_minutes {
     Some(offset) -> local_time(starts_at, offset)
     None -> starts_at
   }
-  atoms.kv(key: title, value: time_label, mono: True)
+  html.div([attribute.class("list-row")], [
+    atoms.kv(key: title, value: time_label, mono: True),
+    ops.when_permitted(
+      ops.permit(permissions, own:, kind: ops.OpRemoveFocusBlock),
+      fn(granted) {
+        atoms.button(
+          label: "Remove",
+          kind: atoms.Ghost,
+          size: atoms.Small,
+          on_press: FocusBlockRemoveOpened(permit: granted, focus_block_id: id),
+        )
+      },
+    ),
+  ])
 }
 
 fn holiday_strip(holidays: List(EngineerHoliday)) -> Element(Msg) {
