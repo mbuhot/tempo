@@ -261,7 +261,30 @@
 .schedule-seat__fraction {
     color: var(--color-muted);
 }
-.schedule-seat__nominate {
+.schedule-seat__fraction-input {
+    width: var(--size-control);
+    height: var(--size-control);
+    text-align: center;
+    font-family: var(--mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-accent);
+    background: transparent;
+    border: var(--border-thin) solid transparent;
+    border-radius: var(--radius-sm);
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+.schedule-seat__fraction-input:hover {
+    border-color: var(--color-border);
+}
+.schedule-seat__fraction-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    background: var(--color-surface);
+    box-shadow: 0 0 0 var(--space-2xs) var(--color-accent-soft);
+}
+.schedule-seat__action {
     margin-left: auto;
 }
 .schedule-seat__remove {

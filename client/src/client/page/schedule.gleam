@@ -13,6 +13,7 @@ import client/page.{type OutMsg}
 import client/route.{type Route}
 import client/scheduler
 import client/time
+import client/ui
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
@@ -99,6 +100,8 @@ pub type Msg {
   )
   CandidatePicked(candidate: schedule_view.Candidate)
   PickerClosed
+  RollOffDrafted(engineer_id: Int)
+  FractionChanged(engineer_id: Int, value: String)
   DraftRemoved(index: Int)
   PreviewSettled(token: Int)
   Previewed(
@@ -328,6 +331,29 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         })
       #(Model(..model, inspector:), effect.none(), [])
     }
+    RollOffDrafted(engineer_id:) ->
+      draft_team_change(model, engineer_id, fn(project_id) {
+        command.AllocationCommand(allocation_command.RollOff(
+          engineer_id:,
+          project_id:,
+          effective: model.as_of,
+        ))
+      })
+    FractionChanged(engineer_id:, value:) ->
+      case parse_team_fraction(value) {
+        Error(Nil) -> #(model, effect.none(), [])
+        Ok(fraction) ->
+          draft_team_change(model, engineer_id, fn(project_id) {
+            command.AllocationCommand(
+              allocation_command.ChangeAllocationFraction(
+                engineer_id:,
+                project_id:,
+                fraction:,
+                effective: model.as_of,
+              ),
+            )
+          })
+      }
     DraftRemoved(index:) ->
       schedule_preview_or_clear(
         Model(..model, scenario: remove_at(model.scenario, index)),
@@ -454,6 +480,57 @@ fn schedule_reschedule_draft(
   }
 }
 
+fn draft_team_change(
+  model: Model,
+  engineer_id: Int,
+  build_draft: fn(Int) -> Command,
+) -> #(Model, Effect(Msg), List(OutMsg)) {
+  case model.selected {
+    None -> #(model, effect.none(), [])
+    Some(project_id) -> {
+      let draft = build_draft(project_id)
+      let scenario =
+        model.scenario
+        |> list.filter(fn(existing) {
+          !is_team_draft_for(existing, project_id, engineer_id)
+        })
+        |> list.append([draft])
+      schedule_preview_or_clear(Model(..model, scenario:, preview_on: True))
+    }
+  }
+}
+
+fn is_team_draft_for(
+  draft: Command,
+  project_id: Int,
+  engineer_id: Int,
+) -> Bool {
+  case draft {
+    command.AllocationCommand(allocation_command.ChangeAllocationFraction(
+      project_id: draft_project,
+      engineer_id: draft_engineer,
+      ..,
+    )) -> draft_project == project_id && draft_engineer == engineer_id
+    command.AllocationCommand(allocation_command.RollOff(
+      project_id: draft_project,
+      engineer_id: draft_engineer,
+      ..,
+    )) -> draft_project == project_id && draft_engineer == engineer_id
+    _ -> False
+  }
+}
+
+fn parse_team_fraction(raw: String) -> Result(Float, Nil) {
+  case float.parse(raw) {
+    Ok(value) -> Ok(float.clamp(value, min: 0.0, max: 1.0))
+    Error(Nil) ->
+      case int.parse(raw) {
+        Ok(value) -> Ok(float.clamp(int.to_float(value), min: 0.0, max: 1.0))
+        Error(Nil) -> Error(Nil)
+      }
+  }
+}
+
 fn is_reschedule_for(draft: Command, project_id: Int) -> Bool {
   case draft {
     command.EngagementCommand(engagement_command.RescheduleProject(
@@ -539,7 +616,7 @@ fn view_loaded(
         [attribute.class("schedule-projects")],
         list.map(projects, view_project(model, weeks, _)),
       ),
-      view_inspector(model, projects, permissions),
+      view_inspector(model, weeks, projects, permissions),
     ]),
   ])
 }
@@ -872,6 +949,7 @@ fn week_label(date: Date) -> String {
 
 fn view_inspector(
   model: Model,
+  weeks: List(Date),
   projects: List(schedule_view.ProjectSchedule),
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -881,7 +959,7 @@ fn view_inspector(
         list.find(projects, fn(project) { project.project_id == project_id })
       {
         Ok(project) ->
-          view_inspector_panel(model, project, inspector, permissions)
+          view_inspector_panel(model, weeks, project, inspector, permissions)
         Error(Nil) -> element.none()
       }
     _, _ -> element.none()
@@ -890,6 +968,7 @@ fn view_inspector(
 
 fn view_inspector_panel(
   model: Model,
+  weeks: List(Date),
   project: schedule_view.ProjectSchedule,
   inspector: Inspector,
   permissions: Set(String),
@@ -913,7 +992,7 @@ fn view_inspector_panel(
         ]),
       ]),
       view_run_row(inspector, project.annotation),
-      view_team_section(model, project, permissions),
+      view_team_section(model, weeks, project, permissions),
       view_capabilities_section(project.capabilities),
     ],
   )
@@ -955,20 +1034,139 @@ fn view_inspector_annotation(annotation: Option(String)) -> Element(Msg) {
   }
 }
 
+/// One inspector team roster row: an allocated engineer, their level and fraction.
+pub type TeamRow {
+  TeamRow(engineer_id: Int, name: String, level: Int, fraction: Float)
+}
+
+/// One row per engineer lane on the project, fraction from the lane's cells at `as_of`.
+pub fn team_rows(
+  weeks: List(Date),
+  project: schedule_view.ProjectSchedule,
+  as_of: Date,
+) -> List(TeamRow) {
+  list.map(project.lanes, fn(lane) {
+    TeamRow(
+      engineer_id: lane.engineer_id,
+      name: lane.name,
+      level: lane.level,
+      fraction: current_fraction(weeks, lane, as_of),
+    )
+  })
+}
+
+fn current_fraction(
+  weeks: List(Date),
+  lane: schedule_view.EngineerLane,
+  as_of: Date,
+) -> Float {
+  let upcoming =
+    list.zip(weeks, lane.cells)
+    |> list.filter(fn(pair) {
+      time.date_to_day_index(pair.0) >= time.date_to_day_index(as_of)
+    })
+    |> list.find_map(fn(pair) { working_fraction(pair.1) })
+  case upcoming {
+    Ok(fraction) -> fraction
+    Error(Nil) -> max_working_fraction(lane.cells)
+  }
+}
+
+fn working_fraction(cell: schedule_view.CellState) -> Result(Float, Nil) {
+  case cell {
+    schedule_view.Working(fraction:, ..) -> Ok(fraction)
+    _ -> Error(Nil)
+  }
+}
+
+fn max_working_fraction(cells: List(schedule_view.CellState)) -> Float {
+  cells
+  |> list.filter_map(working_fraction)
+  |> list.fold(0.0, float.max)
+}
+
 fn view_team_section(
   model: Model,
+  weeks: List(Date),
   project: schedule_view.ProjectSchedule,
   permissions: Set(String),
 ) -> Element(Msg) {
   html.div([attribute.class("schedule-seats")], [
     html.div([attribute.class("schedule-seats__title")], [html.text("Team")]),
     element.fragment(
+      team_rows(weeks, project, model.as_of)
+      |> list.map(fn(row) { view_team_row(permissions, row) }),
+    ),
+    element.fragment(
       project.team
       |> list.index_map(fn(seat, index) { #(index, seat) })
       |> list.map(fn(pair) { view_seat(model, permissions, pair.0, pair.1) }),
     ),
     view_drafted_seats(model, project.project_id),
+    view_drafted_team_ops(model, project.project_id, project.lanes),
   ])
+}
+
+fn view_team_row(permissions: Set(String), row: TeamRow) -> Element(Msg) {
+  html.div([attribute.class("schedule-seat schedule-seat--filled")], [
+    ui.avatar(
+      name: row.name,
+      category: row.engineer_id,
+      class: "avatar avatar--chip",
+    ),
+    html.span([attribute.class("schedule-seat__level")], [
+      html.text("L" <> int.to_string(row.level)),
+    ]),
+    html.span([attribute.class("schedule-seat__name")], [html.text(row.name)]),
+    view_team_fraction(permissions, row.engineer_id, row.name, row.fraction),
+    view_roll_off_button(permissions, row.engineer_id),
+  ])
+}
+
+fn view_team_fraction(
+  permissions: Set(String),
+  engineer_id: Int,
+  name: String,
+  fraction: Float,
+) -> Element(Msg) {
+  case set.contains(permissions, perm.allocation_manage) {
+    False ->
+      html.span([attribute.class("schedule-seat__fraction")], [
+        html.text(pct(fraction)),
+      ])
+    True ->
+      html.input([
+        attribute.class("schedule-seat__fraction-input"),
+        attribute.type_("number"),
+        attribute.attribute("min", "0"),
+        attribute.attribute("max", "1"),
+        attribute.attribute("step", "0.05"),
+        attribute.attribute("aria-label", "Allocation fraction for " <> name),
+        attribute.value(fraction_input_text(fraction)),
+        event.on_change(fn(value) { FractionChanged(engineer_id:, value:) }),
+      ])
+  }
+}
+
+fn fraction_input_text(value: Float) -> String {
+  float.to_string(float.to_precision(value, 2))
+}
+
+fn view_roll_off_button(
+  permissions: Set(String),
+  engineer_id: Int,
+) -> Element(Msg) {
+  case set.contains(permissions, perm.allocation_manage) {
+    False -> element.none()
+    True ->
+      html.button(
+        [
+          attribute.class("btn btn--ghost btn--sm schedule-seat__action"),
+          event.on_click(RollOffDrafted(engineer_id:)),
+        ],
+        [html.text("Roll off")],
+      )
+  }
 }
 
 fn view_seat(
@@ -978,16 +1176,7 @@ fn view_seat(
   seat: schedule_view.Seat,
 ) -> Element(Msg) {
   case seat {
-    schedule_view.FilledSeat(level:, name:, fraction:, ..) ->
-      html.div([attribute.class("schedule-seat schedule-seat--filled")], [
-        html.span([attribute.class("schedule-seat__level")], [
-          html.text("L" <> int.to_string(level)),
-        ]),
-        html.span([attribute.class("schedule-seat__name")], [html.text(name)]),
-        html.span([attribute.class("schedule-seat__fraction")], [
-          html.text(pct(fraction)),
-        ]),
-      ])
+    schedule_view.FilledSeat(..) -> element.none()
     schedule_view.OpenSeat(level:, fraction:) ->
       html.div([attribute.class("schedule-seat schedule-seat--open")], [
         html.span([attribute.class("schedule-seat__level")], [
@@ -1013,7 +1202,7 @@ fn view_nominate_button(
     True ->
       html.button(
         [
-          attribute.class("btn btn--ghost btn--sm schedule-seat__nominate"),
+          attribute.class("btn btn--ghost btn--sm schedule-seat__action"),
           event.on_click(NominateOpened(index:, level:, fraction:)),
         ],
         [html.text("Nominate")],
@@ -1127,6 +1316,75 @@ fn view_drafted_seat(index: Int, fraction: Float) -> Element(Msg) {
   html.div([attribute.class("schedule-seat schedule-seat--draft")], [
     html.span([attribute.class("schedule-seat__fraction")], [
       html.text(pct(fraction) <> " drafted"),
+    ]),
+    html.button(
+      [
+        attribute.class("schedule-seat__remove"),
+        event.on_click(DraftRemoved(index:)),
+      ],
+      [html.text("✕")],
+    ),
+  ])
+}
+
+fn view_drafted_team_ops(
+  model: Model,
+  project_id: Int,
+  lanes: List(schedule_view.EngineerLane),
+) -> Element(Msg) {
+  case model.preview_on {
+    False -> element.none()
+    True ->
+      element.fragment(
+        model.scenario
+        |> list.index_map(fn(draft, index) { #(index, draft) })
+        |> list.filter_map(fn(pair) {
+          drafted_team_op_for(pair, project_id, lanes)
+        })
+        |> list.map(fn(pair) { view_drafted_team_op(pair.0, pair.1) }),
+      )
+  }
+}
+
+fn drafted_team_op_for(
+  pair: #(Int, Command),
+  project_id: Int,
+  lanes: List(schedule_view.EngineerLane),
+) -> Result(#(Int, String), Nil) {
+  case pair.1 {
+    command.AllocationCommand(allocation_command.RollOff(
+      project_id: draft_project,
+      engineer_id:,
+      ..,
+    ))
+      if draft_project == project_id
+    -> Ok(#(pair.0, "Roll off " <> lane_name(lanes, engineer_id)))
+    command.AllocationCommand(allocation_command.ChangeAllocationFraction(
+      project_id: draft_project,
+      engineer_id:,
+      fraction:,
+      ..,
+    ))
+      if draft_project == project_id
+    -> Ok(#(pair.0, pct(fraction) <> " for " <> lane_name(lanes, engineer_id)))
+    _ -> Error(Nil)
+  }
+}
+
+fn lane_name(
+  lanes: List(schedule_view.EngineerLane),
+  engineer_id: Int,
+) -> String {
+  lanes
+  |> list.find(fn(lane) { lane.engineer_id == engineer_id })
+  |> result.map(fn(lane) { lane.name })
+  |> result.unwrap("")
+}
+
+fn view_drafted_team_op(index: Int, label: String) -> Element(Msg) {
+  html.div([attribute.class("schedule-seat schedule-seat--draft")], [
+    html.span([attribute.class("schedule-seat__fraction")], [
+      html.text(label <> " drafted"),
     ]),
     html.button(
       [
