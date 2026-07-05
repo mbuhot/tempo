@@ -24,7 +24,7 @@ import shared/command.{
   type Command, type Event, AllocationCommand, CapabilityCommand,
   ClientDetailsCommand, EngagementCommand, EngineerCommand,
   EngineerDetailsCommand, EngineerSkillCommand, InvoiceCommand, LeaveCommand,
-  LocationCommand, PayrollCommand, ProjectCapabilityCommand,
+  LocationCommand, MeetingCommand, PayrollCommand, ProjectCapabilityCommand,
   ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
@@ -41,6 +41,7 @@ import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/command as invoice
 import tempo/server/leave/command as leave
 import tempo/server/location/command as location
+import tempo/server/meeting/command as meeting
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll/command as payroll
 import tempo/server/project_capability/command as project_capability
@@ -139,5 +140,6 @@ fn route(
     SkillCommand(command) -> skill.route(conn, command)
     EngineerSkillCommand(command) -> engineer_skill.route(command)
     LocationCommand(command) -> location.route(conn, command)
+    MeetingCommand(command) -> meeting.route(conn, command)
   }
 }

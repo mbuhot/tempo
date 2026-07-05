@@ -81,6 +81,9 @@ pub const skills_assess = "skills.assess"
 /// Set any engineer's location (country/region/timezone over time).
 pub const location_manage = "location.manage"
 
+/// Schedule/reschedule/cancel a meeting and manage its attendees.
+pub const meeting_manage = "meeting.manage"
+
 // --- Role names --------------------------------------------------------------
 
 pub const role_engineer = "engineer"
@@ -101,6 +104,6 @@ pub fn all() -> List(String) {
     engineer_terminate, allocation_manage, engagement_manage, project_manage,
     project_create_confirm, client_manage, salary_set, ratecard_manage,
     invoice_manage, payroll_run, roles_manage, skills_manage, skills_assess,
-    location_manage,
+    location_manage, meeting_manage,
   ]
 }

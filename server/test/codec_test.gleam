@@ -36,6 +36,7 @@ import shared/leave/command as leave_command
 import shared/leave/view.{LeaveBalance} as _
 import shared/location/command as location_command
 import shared/location/view as location_view
+import shared/meeting/command.{Optional, Required} as meeting_command
 import shared/money
 import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as payroll_view
@@ -1470,6 +1471,34 @@ pub fn command_set_location_round_trips_test() {
       timezone: "Europe/London",
       effective: Date(2026, July, 1),
     ))
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+// --- MeetingCommand (Command) -------------------------------------------
+
+pub fn command_schedule_meeting_round_trips_test() {
+  let original =
+    gateway.MeetingCommand(
+      meeting_command.ScheduleMeeting(
+        title: "Sprint kickoff",
+        timezone: "Europe/London",
+        date: Date(2026, July, 10),
+        starts_at: "09:30",
+        duration_minutes: 45,
+        location: Some("https://meet.example/abc"),
+        client_id: None,
+        project_id: Some(3),
+        attendees: [#(1, Required), #(2, Optional)],
+      ),
+    )
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_cancel_meeting_round_trips_test() {
+  let original =
+    gateway.MeetingCommand(meeting_command.CancelMeeting(meeting_id: 5))
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
 }
