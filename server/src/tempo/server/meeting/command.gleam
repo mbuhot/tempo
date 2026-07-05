@@ -1,5 +1,7 @@
 //// Write handler for meetings. schedule validates the TZID and mints a meeting id, then
-//// records its detail and attendees as facts; the plain-mutable edits record one fact each.
+//// records its subject, an open booking, and its attendees as facts; reschedule and
+//// cancel each record a booking transition (the repository closes and, for reschedule,
+//// re-opens the booking fact).
 
 import gleam/int
 import gleam/list
@@ -13,8 +15,9 @@ import shared/meeting/command.{
   RemoveAttendee, Required, RescheduleMeeting, ScheduleMeeting,
 }
 import tempo/server/fact.{
-  type Recorded, MeetingAttendeeAdded, MeetingAttendeeRemoved, MeetingCancelled,
-  MeetingId, MeetingRescheduled, MeetingScheduled, Recorded,
+  type Recorded, MeetingAttendeeAdded, MeetingAttendeeRemoved,
+  MeetingBookingOpened, MeetingCancelled, MeetingId, MeetingRescheduled,
+  MeetingSubjectSet, Recorded,
 }
 import tempo/server/meeting/sql as meeting_sql
 import tempo/server/operation.{type OperationError, Event}
@@ -82,8 +85,9 @@ fn attendance_tag(attendance: Attendance) -> String {
   }
 }
 
-/// Mint the meeting id and record its detail plus one `MeetingAttendeeAdded` per
-/// attendee, once its IANA TZID is confirmed against `pg_timezone_names`.
+/// Mint the meeting id and record its subject, an open booking, and one
+/// `MeetingAttendeeAdded` per attendee, once its IANA TZID is confirmed against
+/// `pg_timezone_names`.
 fn schedule(
   conn: pog.Connection,
   command: MeetingCommand,
@@ -104,17 +108,21 @@ fn schedule(
     True -> {
       use meeting_id <- result.try(repository.create_meeting(conn))
       let MeetingId(id) = meeting_id
-      let detail =
-        MeetingScheduled(
+      let subject =
+        MeetingSubjectSet(
+          meeting_id: MeetingId(id),
+          title:,
+          client_id:,
+          project_id:,
+        )
+      let booking =
+        MeetingBookingOpened(
           meeting_id: MeetingId(id),
           date:,
           starts_at:,
           duration_minutes:,
           timezone:,
-          title:,
           location:,
-          client_id:,
-          project_id:,
         )
       let attendee_facts =
         list.map(attendees, fn(pair) {
@@ -140,7 +148,7 @@ fn schedule(
               <> ")",
             payload: gateway.encode_command(gateway.MeetingCommand(command)),
           ),
-          facts: [detail, ..attendee_facts],
+          facts: [subject, booking, ..attendee_facts],
         ),
       )
     }

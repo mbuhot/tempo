@@ -1309,6 +1309,40 @@ standing vocabulary, not scoped to any other temporal fact).
 
 ---
 
+## ADR-050 — Meeting booking as a Change-pattern fact over real time
+**Status:** Accepted
+
+**Context.** `meeting_detail` was one wide mutable row lumping the subject (title, client, project),
+the schedule (instant range, timezone, location), and the lifecycle (a `status` string). Reschedule
+overwrote the schedule columns in place and cancel overwrote `status` in place, so nothing preserved a
+meeting's prior booking. That history has business meaning: a notice-window billing policy needs to
+know what the plan *was* at a given moment, not just what it is now.
+
+**Decision.** Split the anchor's facts into `meeting_subject` (title/client/project — mutable, an
+ordinary correction) and `meeting_booking`. `meeting_booking` carries two ranges: `occupies`, the
+instant span the meeting occupies (a `tstzrange`, since the meeting is a genuine instant, not a
+calendar day); and `booked_during`, the window over which that `occupies` value stood as the live
+plan. This is the Change pattern already used for `engineer_role`/`rate_card`, applied for the first
+time over **real** time instead of valid time: a schedule opens `booked_during`; a reschedule closes it
+and opens a successor at the new `occupies`; a cancel closes it with no successor. Both the close and
+the reopen stamp `booked_during` with `clock_timestamp()` rather than `now()`, since `now()` is fixed
+for the whole transaction and a reschedule's close-then-open would otherwise collapse onto the same
+instant. Status is derived, never stored: `upper_inf(booked_during)` is scheduled; every booking closed
+with no successor is cancelled; a closed booking with a successor is rescheduled.
+
+**Alternatives.** Keeping a `status` column and appending a history table alongside it (rejected —
+two sources of truth for the same fact; the derived read is one predicate over data already needed for
+the booking itself). Versioning `meeting_detail` as a single valid-time fact keyed on the meeting's own
+schedule date (rejected — the range that matters for billing is *when the booking stood*, not *when
+the meeting itself occurs*, which `occupies` already answers; conflating the two would make the earlier
+booking unrecoverable once rescheduled).
+
+**Consequence.** This sets up a future `booking_policy(notice_hours, effective_during)` (versioned like
+`leave_policy`), and reconciliation reading `booked_during @> (lower(occupies) - notice_window)` to
+surface a billable late cancellation/reschedule — deferred to a separate issue; not implemented here.
+
+---
+
 ## Documentation format
 **Status:** Accepted
 

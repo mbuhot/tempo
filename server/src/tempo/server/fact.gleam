@@ -21,8 +21,12 @@
 //// open-ended change and `Some` the bounded form (assign vs re-fraction; revise vs
 //// surgical portion).
 ////
-//// Meetings are the plain-mutable exception: their rows are updated in place, with
-//// only `audit_id` linking each edit back to its `event_log` entry.
+//// Meetings hold two ranges over the same anchor: `meeting_subject` is a mutable
+//// correction (title/client/project), and `meeting_booking` is a Change-pattern fact
+//// over REAL time — `occupies` is the wall-clock span the meeting takes place;
+//// `booked_during` is the real-clock window during which that `occupies` value stood as
+//// the live plan. A reschedule closes the current booking and opens its successor; a
+//// cancel just closes it. Status is derived from `booked_during`, never stored.
 
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
@@ -303,21 +307,25 @@ pub type Fact {
   )
 
   // --- meeting -------------------------------------------------------------------
-  /// A meeting's detail (composed instant range, title, location, client/project) as
-  /// scheduled. Plain mutable row; a reschedule is `MeetingRescheduled`, a cancel is
-  /// `MeetingCancelled`.
-  MeetingScheduled(
+  /// The meeting's subject: title, client, project. Mutable correction.
+  MeetingSubjectSet(
+    meeting_id: MeetingId,
+    title: String,
+    client_id: Option(Int),
+    project_id: Option(Int),
+  )
+  /// A new booking opens: the meeting occupies the composed instant range from now
+  /// onward, until closed by a reschedule or a cancel.
+  MeetingBookingOpened(
     meeting_id: MeetingId,
     date: Date,
     starts_at: String,
     duration_minutes: Int,
     timezone: String,
-    title: String,
     location: Option(String),
-    client_id: Option(Int),
-    project_id: Option(Int),
   )
-  /// The meeting moves in place to a new date/start/duration/timezone.
+  /// The meeting moves: its current booking closes and a successor opens at the new
+  /// date/start/duration/timezone (its location carries forward unchanged).
   MeetingRescheduled(
     meeting_id: MeetingId,
     date: Date,
@@ -325,7 +333,7 @@ pub type Fact {
     duration_minutes: Int,
     timezone: String,
   )
-  /// The meeting is cancelled.
+  /// The meeting is cancelled: its current booking closes with no successor.
   MeetingCancelled(meeting_id: MeetingId)
   /// An engineer is added (or re-marked) as an attendee of the meeting.
   MeetingAttendeeAdded(

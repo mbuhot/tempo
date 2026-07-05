@@ -504,6 +504,30 @@ subject valid then); `GET /api/events` lists the journal; the financial reads ar
 builds a `Command` (operations console or timesheet), posts it, decodes the returned events, and on
 success refetches the relevant reads (board / timesheet form / roster / events) — reads being trivial.
 
+## 5b. Meetings — a booking over real time
+
+A meeting anchor carries two fact tables. `meeting_subject` (title, client, project) is a mutable
+correction, edit-grouped the ordinary way. `meeting_booking` is a Change-pattern temporal fact, but over
+**real time** rather than valid time — the first table in the schema built this way. It holds two
+ranges: `occupies`, the wall-clock instant span the meeting takes place (a `tstzrange`, since the
+domain is genuinely instantaneous across time zones, not date-granular), and `booked_during`, the
+real-clock window over which that `occupies` value stood as the live plan. A booking opens
+`booked_during` at the real-clock instant it is recorded and leaves it open; a reschedule closes the
+current booking and opens a successor at the new `occupies`; a cancel just closes it, with no
+successor.
+
+Status is derived, never stored: scheduled is a booking with `upper_inf(booked_during)`; cancelled is
+every booking for the meeting closed with no successor; rescheduled is a closed booking that has one.
+The close/reopen both stamp `booked_during` with `clock_timestamp()`, not `now()` — `now()` is fixed at
+transaction start, so a reschedule's close-then-open inside one transaction would otherwise stamp both
+halves with the same instant and collapse the history it exists to preserve.
+
+This shape is a deliberate setup for a future notice-window billing policy: a client can be held liable
+for a meeting cancelled or rescheduled inside a notice period, which is answerable as a standard as-of
+read — `booked_during @> (lower(occupies) - notice_window)` finds the booking that stood as the plan at
+the notice deadline, regardless of what happened to it afterward. That policy is not implemented yet
+(see ADR-050).
+
 ## 6. Squirrel integration
 
 - `.sql` query sources live in `server/src/tempo/server/sql/`; `cd server && gleam run -m squirrel`

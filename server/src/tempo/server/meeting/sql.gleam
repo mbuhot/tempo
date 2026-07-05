@@ -76,9 +76,10 @@ pub type MeetingAttendeesAsofRow {
   )
 }
 
-/// meeting_attendees_asof.sql — attendees of the scheduled meetings ending on/after $1,
-/// each with name and their location-tz-as-of-$1 local UTC offset at the meeting start.
-/// Unlocated attendees have NULL timezone/offset. $1 = as_of date.
+/// meeting_attendees_asof.sql — attendees of the currently-live meetings ending on/after
+/// $1, each with name and their location-tz-as-of-$1 local UTC offset at the meeting
+/// start. Unlocated attendees have NULL timezone/offset. "Live" is the open booking
+/// (`upper_inf(booked_during)`). $1 = as_of date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -104,24 +105,25 @@ pub fn meeting_attendees_asof(
     ))
   }
 
-  "-- meeting_attendees_asof.sql — attendees of the scheduled meetings ending on/after $1,
--- each with name and their location-tz-as-of-$1 local UTC offset at the meeting start.
--- Unlocated attendees have NULL timezone/offset. $1 = as_of date.
+  "-- meeting_attendees_asof.sql — attendees of the currently-live meetings ending on/after
+-- $1, each with name and their location-tz-as-of-$1 local UTC offset at the meeting
+-- start. Unlocated attendees have NULL timezone/offset. \"Live\" is the open booking
+-- (`upper_inf(booked_during)`). $1 = as_of date.
 SELECT a.meeting_id AS meeting_id,
        a.engineer_id AS engineer_id,
        ec.name AS name,
        a.attendance AS attendance,
        loc.timezone AS timezone,
        CASE WHEN loc.timezone IS NULL THEN NULL
-            ELSE ((extract(epoch from (lower(d.meeting_at) AT TIME ZONE loc.timezone))
-                   - extract(epoch from (lower(d.meeting_at) AT TIME ZONE 'UTC'))) / 60)::int
+            ELSE ((extract(epoch from (lower(b.occupies) AT TIME ZONE loc.timezone))
+                   - extract(epoch from (lower(b.occupies) AT TIME ZONE 'UTC'))) / 60)::int
        END AS \"local_offset_minutes?\"
 FROM meeting_attendee a
-JOIN meeting_detail d ON d.meeting_id = a.meeting_id AND d.status = 'scheduled'
+JOIN meeting_booking b ON b.meeting_id = a.meeting_id AND upper_inf(b.booked_during)
 JOIN engineer_current ec ON ec.id = a.engineer_id
 LEFT JOIN engineer_location loc
        ON loc.engineer_id = a.engineer_id AND loc.located_during @> $1::date
-WHERE upper(d.meeting_at) >= $1::date
+WHERE upper(b.occupies) >= $1::date
 ORDER BY a.meeting_id, ec.name;
 "
   |> pog.query
@@ -130,39 +132,140 @@ ORDER BY a.meeting_id, ec.name;
   |> pog.execute(db)
 }
 
-/// A row you get from running the `meeting_cancel` query
-/// defined in `./src/tempo/server/meeting/sql/meeting_cancel.sql`.
+/// A row you get from running the `meeting_booking_close` query
+/// defined in `./src/tempo/server/meeting/sql/meeting_booking_close.sql`.
 ///
 /// > 🐿️ This type definition was generated automatically using v4.7.0 of the
 /// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub type MeetingCancelRow {
-  MeetingCancelRow(meeting_id: Int)
+pub type MeetingBookingCloseRow {
+  MeetingBookingCloseRow(meeting_id: Int, location: Option(String))
 }
 
-/// meeting_cancel.sql — mark a meeting cancelled. $1 meeting_id, $2 audit_id.
+/// meeting_booking_close.sql — close the meeting's currently open booking (a cancel, or
+/// the first half of a reschedule) at $2, the real-clock instant of this write (text,
+/// from meeting_clock_now.sql). No `@>` filter: closes whatever open tail exists.
+/// RETURNING empty means no booking was open (already cancelled, or the meeting doesn't
+/// exist) — the repository rejects that as NoSuchVersion. RETURNING `location` carries
+/// the closed booking's location forward into a reschedule's successor row, since
+/// RescheduleMeeting doesn't itself carry a location.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn meeting_cancel(
+pub fn meeting_booking_close(
   db: pog.Connection,
   meeting_id: Int,
-  audit_id: Int,
-) -> Result(pog.Returned(MeetingCancelRow), pog.QueryError) {
+  arg_2: String,
+) -> Result(pog.Returned(MeetingBookingCloseRow), pog.QueryError) {
   let decoder = {
     use meeting_id <- decode.field(0, decode.int)
-    decode.success(MeetingCancelRow(meeting_id:))
+    use location <- decode.field(1, decode.optional(decode.string))
+    decode.success(MeetingBookingCloseRow(meeting_id:, location:))
   }
 
-  "-- meeting_cancel.sql — mark a meeting cancelled. $1 meeting_id, $2 audit_id.
-UPDATE meeting_detail SET status = 'cancelled', audit_id = $2
-WHERE meeting_id = $1
-RETURNING meeting_id;
+  "-- meeting_booking_close.sql — close the meeting's currently open booking (a cancel, or
+-- the first half of a reschedule) at $2, the real-clock instant of this write (text,
+-- from meeting_clock_now.sql). No `@>` filter: closes whatever open tail exists.
+-- RETURNING empty means no booking was open (already cancelled, or the meeting doesn't
+-- exist) — the repository rejects that as NoSuchVersion. RETURNING `location` carries
+-- the closed booking's location forward into a reschedule's successor row, since
+-- RescheduleMeeting doesn't itself carry a location.
+DELETE FROM meeting_booking
+   FOR PORTION OF booked_during FROM ($2::text)::timestamptz TO NULL
+ WHERE meeting_id = $1
+RETURNING meeting_id, location;
 "
   |> pog.query
   |> pog.parameter(pog.int(meeting_id))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// meeting_booking_open.sql — open a new booking: the instant range the meeting occupies,
+/// live from $7 onward. $1 meeting_id, $2 date, $3 starts_at (HH:MM), $4
+/// duration_minutes, $5 timezone, $6 location ('' = null), $7 the real-clock instant this
+/// booking becomes live (text, from meeting_clock_now.sql), $8 audit_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn meeting_booking_open(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  arg_6: String,
+  arg_7: String,
+  arg_8: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "-- meeting_booking_open.sql — open a new booking: the instant range the meeting occupies,
+-- live from $7 onward. $1 meeting_id, $2 date, $3 starts_at (HH:MM), $4
+-- duration_minutes, $5 timezone, $6 location ('' = null), $7 the real-clock instant this
+-- booking becomes live (text, from meeting_clock_now.sql), $8 audit_id.
+INSERT INTO meeting_booking (meeting_id, occupies, meeting_tz, location, booked_during, audit_id)
+VALUES (
+  $1,
+  tstzrange(
+    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5),
+    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5) + ($4::text || ' minutes')::interval,
+    '[)'),
+  $5,
+  nullif($6, ''),
+  tstzrange(($7::text)::timestamptz, NULL, '[)'),
+  $8);
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.text(arg_6))
+  |> pog.parameter(pog.text(arg_7))
+  |> pog.parameter(pog.int(arg_8))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `meeting_clock_now` query
+/// defined in `./src/tempo/server/meeting/sql/meeting_clock_now.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type MeetingClockNowRow {
+  MeetingClockNowRow(at: String)
+}
+
+/// meeting_clock_now.sql — the real wall-clock instant for a booking transition,
+/// rendered to text at the boundary. `clock_timestamp()`, not `now()`: `now()` is frozen
+/// at transaction start, so a close-then-open within one transaction would stamp both
+/// halves with the identical instant.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn meeting_clock_now(
+  db: pog.Connection,
+) -> Result(pog.Returned(MeetingClockNowRow), pog.QueryError) {
+  let decoder = {
+    use at <- decode.field(0, decode.string)
+    decode.success(MeetingClockNowRow(at:))
+  }
+
+  "-- meeting_clock_now.sql — the real wall-clock instant for a booking transition,
+-- rendered to text at the boundary. `clock_timestamp()`, not `now()`: `now()` is frozen
+-- at transaction start, so a close-then-open within one transaction would stamp both
+-- halves with the identical instant.
+SELECT clock_timestamp()::text AS at;
+"
+  |> pog.query
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -198,105 +301,33 @@ INSERT INTO meeting DEFAULT VALUES RETURNING id;
   |> pog.execute(db)
 }
 
-/// meeting_detail_insert.sql — insert a meeting's detail. $1 meeting_id, $2 date,
-/// $3 starts_at (HH:MM), $4 duration_minutes, $5 timezone, $6 title, $7 location ('' = null),
-/// $8 client_id (0 = null), $9 project_id (0 = null), $10 audit_id.
+/// meeting_subject_insert.sql — insert a meeting's subject (title, client, project).
+/// $1 meeting_id, $2 title, $3 client_id (0 = null), $4 project_id (0 = null), $5 audit_id.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
-pub fn meeting_detail_insert(
+pub fn meeting_subject_insert(
   db: pog.Connection,
   arg_1: Int,
   arg_2: String,
-  arg_3: String,
-  arg_4: String,
-  arg_5: String,
-  arg_6: String,
-  arg_7: String,
-  arg_8: Int,
-  arg_9: Int,
-  arg_10: Int,
+  arg_3: Int,
+  arg_4: Int,
+  arg_5: Int,
 ) -> Result(pog.Returned(Nil), pog.QueryError) {
   let decoder = decode.map(decode.dynamic, fn(_) { Nil })
 
-  "-- meeting_detail_insert.sql — insert a meeting's detail. $1 meeting_id, $2 date,
--- $3 starts_at (HH:MM), $4 duration_minutes, $5 timezone, $6 title, $7 location ('' = null),
--- $8 client_id (0 = null), $9 project_id (0 = null), $10 audit_id.
-INSERT INTO meeting_detail
-  (meeting_id, meeting_at, meeting_tz, title, location, status, client_id, project_id, audit_id)
-VALUES (
-  $1,
-  tstzrange(
-    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5),
-    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5) + ($4::text || ' minutes')::interval,
-    '[)'),
-  $5, $6, nullif($7, ''), 'scheduled', nullif($8, 0), nullif($9, 0), $10);
+  "-- meeting_subject_insert.sql — insert a meeting's subject (title, client, project).
+-- $1 meeting_id, $2 title, $3 client_id (0 = null), $4 project_id (0 = null), $5 audit_id.
+INSERT INTO meeting_subject (meeting_id, title, client_id, project_id, audit_id)
+VALUES ($1, $2, nullif($3, 0), nullif($4, 0), $5);
 "
   |> pog.query
   |> pog.parameter(pog.int(arg_1))
   |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.text(arg_6))
-  |> pog.parameter(pog.text(arg_7))
-  |> pog.parameter(pog.int(arg_8))
-  |> pog.parameter(pog.int(arg_9))
-  |> pog.parameter(pog.int(arg_10))
-  |> pog.returning(decoder)
-  |> pog.execute(db)
-}
-
-/// A row you get from running the `meeting_reschedule` query
-/// defined in `./src/tempo/server/meeting/sql/meeting_reschedule.sql`.
-///
-/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
-/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub type MeetingRescheduleRow {
-  MeetingRescheduleRow(meeting_id: Int)
-}
-
-/// meeting_reschedule.sql — move a meeting in place. $1 meeting_id, $2 date, $3 starts_at,
-/// $4 duration_minutes, $5 timezone, $6 audit_id. RETURNING gates a missing meeting.
-///
-/// > 🐿️ This function was generated automatically using v4.7.0 of
-/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
-///
-pub fn meeting_reschedule(
-  db: pog.Connection,
-  meeting_id: Int,
-  arg_2: String,
-  arg_3: String,
-  arg_4: String,
-  arg_5: String,
-  audit_id: Int,
-) -> Result(pog.Returned(MeetingRescheduleRow), pog.QueryError) {
-  let decoder = {
-    use meeting_id <- decode.field(0, decode.int)
-    decode.success(MeetingRescheduleRow(meeting_id:))
-  }
-
-  "-- meeting_reschedule.sql — move a meeting in place. $1 meeting_id, $2 date, $3 starts_at,
--- $4 duration_minutes, $5 timezone, $6 audit_id. RETURNING gates a missing meeting.
-UPDATE meeting_detail SET
-  meeting_at = tstzrange(
-    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5),
-    (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5) + ($4::text || ' minutes')::interval,
-    '[)'),
-  meeting_tz = $5,
-  audit_id   = $6
-WHERE meeting_id = $1
-RETURNING meeting_id;
-"
-  |> pog.query
-  |> pog.parameter(pog.int(meeting_id))
-  |> pog.parameter(pog.text(arg_2))
-  |> pog.parameter(pog.text(arg_3))
-  |> pog.parameter(pog.text(arg_4))
-  |> pog.parameter(pog.text(arg_5))
-  |> pog.parameter(pog.int(audit_id))
+  |> pog.parameter(pog.int(arg_3))
+  |> pog.parameter(pog.int(arg_4))
+  |> pog.parameter(pog.int(arg_5))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }
@@ -321,9 +352,10 @@ pub type MeetingsUpcomingRow {
   )
 }
 
-/// meetings_upcoming.sql — scheduled meetings ending on/after $1, earliest first. Times
-/// cross the wire as ISO-8601 UTC strings; canonical_offset_minutes is meeting_tz's UTC
-/// offset (minutes east) at the meeting start. $1 = as_of date.
+/// meetings_upcoming.sql — currently-live meetings ending on/after $1, earliest first.
+/// "Live" is derived, not stored: `upper_inf(b.booked_during)` is the open booking, i.e.
+/// scheduled. Times cross the wire as ISO-8601 UTC strings; canonical_offset_minutes is
+/// meeting_tz's UTC offset (minutes east) at the meeting start. $1 = as_of date.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -355,24 +387,26 @@ pub fn meetings_upcoming(
     ))
   }
 
-  "-- meetings_upcoming.sql — scheduled meetings ending on/after $1, earliest first. Times
--- cross the wire as ISO-8601 UTC strings; canonical_offset_minutes is meeting_tz's UTC
--- offset (minutes east) at the meeting start. $1 = as_of date.
+  "-- meetings_upcoming.sql — currently-live meetings ending on/after $1, earliest first.
+-- \"Live\" is derived, not stored: `upper_inf(b.booked_during)` is the open booking, i.e.
+-- scheduled. Times cross the wire as ISO-8601 UTC strings; canonical_offset_minutes is
+-- meeting_tz's UTC offset (minutes east) at the meeting start. $1 = as_of date.
 SELECT m.id AS meeting_id,
-       d.title AS title,
-       d.meeting_tz AS meeting_tz,
-       to_char(lower(d.meeting_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS starts_at,
-       to_char(upper(d.meeting_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS ends_at,
-       ((extract(epoch from (lower(d.meeting_at) AT TIME ZONE d.meeting_tz))
-         - extract(epoch from (lower(d.meeting_at) AT TIME ZONE 'UTC'))) / 60)::int AS canonical_offset_minutes,
-       d.location AS location,
-       d.client_id AS client_id,
-       d.project_id AS project_id
-FROM meeting_detail d
-JOIN meeting m ON m.id = d.meeting_id
-WHERE d.status = 'scheduled'
-  AND upper(d.meeting_at) >= $1::date
-ORDER BY lower(d.meeting_at), m.id;
+       s.title AS title,
+       b.meeting_tz AS meeting_tz,
+       to_char(lower(b.occupies) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS starts_at,
+       to_char(upper(b.occupies) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS ends_at,
+       ((extract(epoch from (lower(b.occupies) AT TIME ZONE b.meeting_tz))
+         - extract(epoch from (lower(b.occupies) AT TIME ZONE 'UTC'))) / 60)::int AS canonical_offset_minutes,
+       b.location AS location,
+       s.client_id AS client_id,
+       s.project_id AS project_id
+FROM meeting_booking b
+JOIN meeting m ON m.id = b.meeting_id
+JOIN meeting_subject s ON s.meeting_id = b.meeting_id
+WHERE upper_inf(b.booked_during)
+  AND upper(b.occupies) >= $1::date
+ORDER BY lower(b.occupies), m.id;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))

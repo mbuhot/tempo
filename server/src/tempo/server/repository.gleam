@@ -55,11 +55,12 @@ import tempo/server/fact.{
   EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerLocated,
   EngineerOffProject, EngineerOnLeave, EngineerSkillAssessed,
   EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
-  MeetingAttendeeAdded, MeetingAttendeeRemoved, MeetingCancelled, MeetingId,
-  MeetingRescheduled, MeetingScheduled, PayrollLine, PayrollLineSegment,
-  PayrollPeriod, PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
-  ProjectProfile, ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard,
-  Salary, SkillId, SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
+  MeetingAttendeeAdded, MeetingAttendeeRemoved, MeetingBookingOpened,
+  MeetingCancelled, MeetingId, MeetingRescheduled, MeetingSubjectSet,
+  PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId,
+  ProjectCapabilityRequired, ProjectId, ProjectPlan, ProjectProfile,
+  ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard, Salary, SkillId,
+  SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -91,7 +92,7 @@ pub fn create_engineer(
   Ok(EngineerId(row.id))
 }
 
-/// Mint a new meeting identity row; its detail and attendees follow as facts.
+/// Mint a new meeting identity row; its subject, booking, and attendees follow as facts.
 pub fn create_meeting(
   conn: pog.Connection,
 ) -> Result(MeetingId, OperationError) {
@@ -662,31 +663,44 @@ pub fn write(
       |> operation.run
 
     // --- meetings ---------------------------------------------------------------
-    MeetingScheduled(
+    MeetingSubjectSet(
+      meeting_id: MeetingId(meeting_id),
+      title:,
+      client_id:,
+      project_id:,
+    ) ->
+      meeting_sql.meeting_subject_insert(
+        conn,
+        meeting_id,
+        title,
+        option.unwrap(client_id, 0),
+        option.unwrap(project_id, 0),
+        audit_id,
+      )
+      |> operation.run
+
+    MeetingBookingOpened(
       meeting_id: MeetingId(meeting_id),
       date:,
       starts_at:,
       duration_minutes:,
       timezone:,
-      title:,
       location:,
-      client_id:,
-      project_id:,
-    ) ->
-      meeting_sql.meeting_detail_insert(
+    ) -> {
+      use at <- result.try(meeting_clock_now(conn))
+      meeting_sql.meeting_booking_open(
         conn,
         meeting_id,
         operation.iso(date),
         starts_at,
         int.to_string(duration_minutes),
         timezone,
-        title,
         option.unwrap(location, ""),
-        option.unwrap(client_id, 0),
-        option.unwrap(project_id, 0),
+        at,
         audit_id,
       )
       |> operation.run
+    }
 
     MeetingRescheduled(
       meeting_id: MeetingId(meeting_id),
@@ -694,21 +708,36 @@ pub fn write(
       starts_at:,
       duration_minutes:,
       timezone:,
-    ) ->
-      meeting_sql.meeting_reschedule(
+    ) -> {
+      use at <- result.try(meeting_clock_now(conn))
+      use closed <- operation.try(meeting_sql.meeting_booking_close(
         conn,
         meeting_id,
-        operation.iso(date),
-        starts_at,
-        int.to_string(duration_minutes),
-        timezone,
-        audit_id,
-      )
-      |> require_covering_version
+        at,
+      ))
+      case closed.rows {
+        [] -> Error(operation.NoSuchVersion)
+        [row, ..] ->
+          meeting_sql.meeting_booking_open(
+            conn,
+            meeting_id,
+            operation.iso(date),
+            starts_at,
+            int.to_string(duration_minutes),
+            timezone,
+            option.unwrap(row.location, ""),
+            at,
+            audit_id,
+          )
+          |> operation.run
+      }
+    }
 
-    MeetingCancelled(meeting_id: MeetingId(meeting_id)) ->
-      meeting_sql.meeting_cancel(conn, meeting_id, audit_id)
+    MeetingCancelled(meeting_id: MeetingId(meeting_id)) -> {
+      use at <- result.try(meeting_clock_now(conn))
+      meeting_sql.meeting_booking_close(conn, meeting_id, at)
       |> require_covering_version
+    }
 
     MeetingAttendeeAdded(
       meeting_id: MeetingId(meeting_id),
@@ -727,6 +756,16 @@ pub fn write(
       meeting_sql.meeting_attendee_delete(conn, meeting_id, engineer_id)
       |> operation.run
   }
+}
+
+/// The real-clock instant a booking transition takes effect. `clock_timestamp()`
+/// (via `meeting_sql.meeting_clock_now`), not `now()`: `now()` is frozen at
+/// transaction start, so a reschedule's close-then-open would stamp both halves
+/// with the identical instant.
+fn meeting_clock_now(conn: pog.Connection) -> Result(String, OperationError) {
+  use returned <- operation.try(meeting_sql.meeting_clock_now(conn))
+  let assert [row] = returned.rows
+  Ok(row.at)
 }
 
 /// Assert a temporal write (`salary`/`rate_card` revise, `engineer_role` promote,

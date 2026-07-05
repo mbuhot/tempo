@@ -567,13 +567,19 @@ WITH e AS (
      '{"title":"July all-hands","timezone":"Europe/London","date":"2026-07-10","starts_at":"09:00","duration_minutes":60,"location":null,"client_id":null,"project_id":null,"attendees":[{"engineer_id":1,"attendance":"required"},{"engineer_id":2,"attendance":"optional"},{"engineer_id":3,"attendance":"required"}]}')
   RETURNING id),
 m AS (INSERT INTO meeting DEFAULT VALUES RETURNING id),
+s AS (
+  INSERT INTO meeting_subject (meeting_id, title, client_id, project_id, audit_id)
+  SELECT m.id, 'July all-hands', NULL, NULL, e.id
+  FROM m, e RETURNING meeting_id),
 d AS (
-  INSERT INTO meeting_detail (meeting_id, meeting_at, meeting_tz, title, location, status, client_id, project_id, audit_id)
-  SELECT m.id,
+  INSERT INTO meeting_booking (meeting_id, occupies, meeting_tz, location, booked_during, audit_id)
+  SELECT s.meeting_id,
     tstzrange(('2026-07-10 09:00'::timestamp AT TIME ZONE 'Europe/London'),
               ('2026-07-10 09:00'::timestamp AT TIME ZONE 'Europe/London') + interval '60 minutes', '[)'),
-    'Europe/London', 'July all-hands', NULL, 'scheduled', NULL, NULL, e.id
-  FROM m, e RETURNING meeting_id)
+    'Europe/London', NULL,
+    tstzrange('2026-06-01'::timestamptz, NULL, '[)'),
+    e.id
+  FROM s, e RETURNING meeting_id)
 INSERT INTO meeting_attendee (meeting_id, engineer_id, attendance)
 SELECT d.meeting_id, v.engineer_id, v.attendance
 FROM d, (VALUES (1, 'required'), (2, 'optional'), (3, 'required')) AS v(engineer_id, attendance);
@@ -585,13 +591,19 @@ WITH e AS (
      '{"title":"LA client sync","timezone":"America/Los_Angeles","date":"2026-06-20","starts_at":"14:00","duration_minutes":30,"location":null,"client_id":null,"project_id":null,"attendees":[{"engineer_id":2,"attendance":"required"}]}')
   RETURNING id),
 m AS (INSERT INTO meeting DEFAULT VALUES RETURNING id),
+s AS (
+  INSERT INTO meeting_subject (meeting_id, title, client_id, project_id, audit_id)
+  SELECT m.id, 'LA client sync', NULL, NULL, e.id
+  FROM m, e RETURNING meeting_id),
 d AS (
-  INSERT INTO meeting_detail (meeting_id, meeting_at, meeting_tz, title, location, status, client_id, project_id, audit_id)
-  SELECT m.id,
+  INSERT INTO meeting_booking (meeting_id, occupies, meeting_tz, location, booked_during, audit_id)
+  SELECT s.meeting_id,
     tstzrange(('2026-06-20 14:00'::timestamp AT TIME ZONE 'America/Los_Angeles'),
               ('2026-06-20 14:00'::timestamp AT TIME ZONE 'America/Los_Angeles') + interval '30 minutes', '[)'),
-    'America/Los_Angeles', 'LA client sync', NULL, 'scheduled', NULL, NULL, e.id
-  FROM m, e RETURNING meeting_id)
+    'America/Los_Angeles', NULL,
+    tstzrange('2026-06-01'::timestamptz, NULL, '[)'),
+    e.id
+  FROM s, e RETURNING meeting_id)
 INSERT INTO meeting_attendee (meeting_id, engineer_id, attendance)
 SELECT d.meeting_id, v.engineer_id, v.attendance
 FROM d, (VALUES (2, 'required')) AS v(engineer_id, attendance);
