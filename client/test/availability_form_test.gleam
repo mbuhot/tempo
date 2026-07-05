@@ -1,3 +1,4 @@
+import client/page/locations
 import client/page/people/detail/update as detail_update
 import client/ui/ops
 import gleam/option.{None, Some}
@@ -110,4 +111,34 @@ pub fn build_remove_focus_block_command_test() {
         focus_block_id: 7,
       )),
     )
+}
+
+pub fn parse_holiday_lines_accepts_valid_lines_test() {
+  let text =
+    "AU,AU-NSW,2026-10-05,Labour Day\nGB,,2026-08-31,Summer Bank Holiday\n"
+  assert locations.parse_holiday_lines(text)
+    == Ok([
+      availability_command.HolidayRow(
+        "AU",
+        "AU-NSW",
+        calendar.Date(2026, calendar.October, 5),
+        "Labour Day",
+      ),
+      availability_command.HolidayRow(
+        "GB",
+        "",
+        calendar.Date(2026, calendar.August, 31),
+        "Summer Bank Holiday",
+      ),
+    ])
+}
+
+pub fn parse_holiday_lines_rejects_a_malformed_line_test() {
+  assert locations.parse_holiday_lines("AU,AU-NSW,not-a-date,Labour Day")
+    == Error("line 1: date must be YYYY-MM-DD")
+}
+
+pub fn parse_holiday_lines_rejects_empty_input_test() {
+  assert locations.parse_holiday_lines("\n\n")
+    == Error("no holiday lines found")
 }
