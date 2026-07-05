@@ -607,3 +607,47 @@ d AS (
 INSERT INTO meeting_attendee (meeting_id, engineer_id, attendance)
 SELECT d.meeting_id, v.engineer_id, v.attendance
 FROM d, (VALUES (2, 'required')) AS v(engineer_id, attendance);
+
+-- Seed availability (scheduling Phase B): default 9-17 Mon-Fri for all engineers,
+-- Priya drops Fridays from 2026-07-01, one Marcus focus block, and 2026 holidays
+-- for the three seeded regions.
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2024-01-01', 'seed', 'set_work_schedule', 'Seed default 9-17 Mon-Fri for engineers 1-3', '{}')
+  RETURNING id)
+INSERT INTO work_schedule (engineer_id, weekday, valid_at, starts, ends, audit_id)
+SELECT eng.engineer_id, wd.weekday, daterange('2024-01-01', NULL, '[)'), '09:00'::time, '17:00'::time, e.id
+FROM e,
+     (VALUES (1), (2), (3)) AS eng(engineer_id),
+     (VALUES (0), (1), (2), (3), (4)) AS wd(weekday);
+
+INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+  ('2026-06-20', 'seed', 'set_work_schedule', 'Priya drops Fridays from 2026-07-01', '{}');
+DELETE FROM work_schedule
+   FOR PORTION OF valid_at FROM '2026-07-01' TO NULL
+ WHERE engineer_id = 1 AND weekday = 4;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-06-10', 'seed', 'add_focus_block', 'Added focus block "Deep work: incident review" for engineer 2 on 2026-06-22', '{}')
+  RETURNING id)
+INSERT INTO focus_block (engineer_id, busy_at, title, audit_id)
+SELECT 2,
+  tstzrange(('2026-06-22 13:00'::timestamp AT TIME ZONE 'America/Los_Angeles'),
+            ('2026-06-22 13:00'::timestamp AT TIME ZONE 'America/Los_Angeles') + interval '120 minutes', '[)'),
+  'Deep work: incident review', e.id
+FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-05', 'seed', 'import_holidays', 'Imported 5 public holidays for AU/US/GB 2026', '{}')
+  RETURNING id)
+INSERT INTO holiday (country, region, holiday_on, name, audit_id)
+SELECT v.country, v.region, v.holiday_on::date, v.name, e.id
+FROM e, (VALUES
+  ('AU', '', '2026-12-25', 'Christmas Day'),
+  ('AU', 'AU-NSW', '2026-10-05', 'Labour Day'),
+  ('US', '', '2026-11-26', 'Thanksgiving'),
+  ('US', 'US-CA', '2026-09-09', 'California Admission Day'),
+  ('GB', '', '2026-08-31', 'Summer Bank Holiday')
+) AS v(country, region, holiday_on, name);

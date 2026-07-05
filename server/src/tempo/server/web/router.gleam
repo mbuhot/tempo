@@ -19,6 +19,7 @@ import gleam/option
 import gleam/result
 import shared/access
 import simplifile
+import tempo/server/availability/http as availability_http
 import tempo/server/board/http as board
 import tempo/server/capability/http as capability_http
 import tempo/server/client/http as clients
@@ -207,6 +208,14 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "locations"] -> {
       use _principal <- guard.require(context, access.read_engineers)
       location_http.handle_listing(request, context)
+    }
+    ["api", "engineers", id, "availability"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      availability_http.handle_availability(request, context, id)
+    }
+    ["api", "holidays"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      availability_http.handle_holidays(request, context)
     }
     ["api", "clients"] -> {
       use _principal <- guard.require(context, access.read_projects)

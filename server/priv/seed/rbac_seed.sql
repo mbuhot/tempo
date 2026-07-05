@@ -34,7 +34,10 @@ INSERT INTO permission (key, description) VALUES
   ('skills.manage',       'Edit the capability and skill taxonomy'),
   ('skills.assess',       'Record engineer skill assessments'),
   ('location.manage',     'Set any engineer''s location (country/region/timezone)'),
-  ('meeting.manage',      'Schedule/reschedule/cancel a meeting and manage its attendees');
+  ('meeting.manage',      'Schedule/reschedule/cancel a meeting and manage its attendees'),
+  ('availability.manage.own', 'Set one''s own working hours and focus blocks'),
+  ('availability.manage.any', 'Set any engineer''s working hours and focus blocks'),
+  ('holiday.manage',      'Import and maintain public holidays');
 
 INSERT INTO role (name, description) VALUES
   ('engineer', 'Submit timesheets and manage your own profile'),
@@ -50,6 +53,7 @@ FROM (VALUES
   ('engineer', 'profile.update.own'),
   ('engineer', 'timesheet.log.own'),
   ('engineer', 'leave.take.own'),
+  ('engineer', 'availability.manage.own'),
 
   ('manager', 'read.projects'),
   ('manager', 'read.engineers'),
@@ -68,6 +72,7 @@ FROM (VALUES
   ('manager', 'skills.assess'),
   ('manager', 'location.manage'),
   ('manager', 'meeting.manage'),
+  ('manager', 'availability.manage.any'),
 
   ('finance', 'read.projects'),
   ('finance', 'read.engineers'),
@@ -104,7 +109,10 @@ FROM (VALUES
   ('owner', 'skills.manage'),
   ('owner', 'skills.assess'),
   ('owner', 'location.manage'),
-  ('owner', 'meeting.manage')
+  ('owner', 'meeting.manage'),
+  ('owner', 'availability.manage.own'),
+  ('owner', 'availability.manage.any'),
+  ('owner', 'holiday.manage')
 ) AS m(role, permission);
 
 INSERT INTO user_role (account_id, role, held_during, audit_id)

@@ -20,6 +20,7 @@ import gleam/string
 import gleam/time/calendar
 import pog
 import shared/access
+import shared/availability/view.{type AvailabilityRecord, type HolidayListing} as availability_view
 import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
@@ -1500,6 +1501,99 @@ pub fn meetings_forbidden_for_unauthorized_role_is_403_test() {
   assert decode_error_code(response) == "forbidden"
 }
 
+// --- GET /api/engineers/:id/availability, GET /api/holidays -----------------
+
+// As of 2026-07-05, Priya (id 1) has her seeded default 9-17 Mon-Thu, her Friday
+// dropped from 2026-07-01, no hours on the weekend, and (relocated to London from
+// 2026-07-01) the seeded GB "Summer Bank Holiday" among her upcoming holidays.
+pub fn availability_returns_priyas_weekly_grid_and_holidays_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/1/availability?as_of=2026-07-05")
+    |> read()
+
+  assert response.status == 200
+
+  let record = decode_availability(response)
+  assert list.length(record.week) == 7
+
+  let assert Ok(monday) = list.find(record.week, fn(slot) { slot.weekday == 0 })
+  assert monday.starts == option.Some("09:00")
+  assert monday.ends == option.Some("17:00")
+
+  let assert Ok(friday) = list.find(record.week, fn(slot) { slot.weekday == 4 })
+  assert friday.starts == option.None
+  assert friday.ends == option.None
+
+  let assert Ok(saturday) =
+    list.find(record.week, fn(slot) { slot.weekday == 5 })
+  assert saturday.starts == option.None
+
+  let assert Ok(sunday) = list.find(record.week, fn(slot) { slot.weekday == 6 })
+  assert sunday.starts == option.None
+
+  assert list.any(record.holidays, fn(holiday) {
+    holiday.name == "Summer Bank Holiday"
+  })
+}
+
+// As of 2026-06-16, Marcus's (id 2) seeded focus block reads its America/Los_Angeles
+// PDT offset, and his Los Angeles holidays include both the nationwide and
+// California-specific rows.
+pub fn availability_returns_marcuss_focus_block_and_holidays_test() {
+  let response =
+    simulate.request(http.Get, "/api/engineers/2/availability?as_of=2026-06-16")
+    |> read()
+
+  assert response.status == 200
+
+  let record = decode_availability(response)
+
+  let assert Ok(block) =
+    list.find(record.focus_blocks, fn(block) {
+      block.title == "Deep work: incident review"
+    })
+  assert block.offset_minutes == option.Some(-420)
+
+  assert list.any(record.holidays, fn(holiday) {
+    holiday.name == "California Admission Day"
+  })
+  assert list.any(record.holidays, fn(holiday) {
+    holiday.name == "Thanksgiving"
+  })
+}
+
+// The 5 seeded 2026 holidays, each paired with its region's display name.
+pub fn holidays_listing_includes_region_names_test() {
+  let response =
+    simulate.request(http.Get, "/api/holidays?as_of=2026-07-05")
+    |> read()
+
+  assert response.status == 200
+
+  let listings = decode_holiday_listings(response)
+  assert list.length(listings) == 5
+
+  let assert Ok(labour_day) =
+    list.find(listings, fn(listing) {
+      listing.holiday_on == calendar.Date(2026, calendar.October, 5)
+    })
+  assert labour_day.region_name == "New South Wales"
+}
+
+// A principal without read.engineers is refused the holidays read with 403.
+pub fn holidays_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+
+  let #(login_request, login_response) = sign_in(context, "Priya Sharma")
+  let response =
+    simulate.request(http.Get, "/api/holidays?as_of=2026-07-05")
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "forbidden"
+}
+
 // --- static / fallthrough ---------------------------------------------------
 
 // An unknown NON-API path serves the SPA shell (200), so client routes like
@@ -1612,6 +1706,20 @@ fn decode_meetings(response) -> List(MeetingRecord) {
     simulate.read_body(response)
     |> json.parse(decode.list(meeting_view.meeting_record_decoder()))
   meetings
+}
+
+fn decode_availability(response) -> AvailabilityRecord {
+  let assert Ok(record) =
+    simulate.read_body(response)
+    |> json.parse(availability_view.availability_record_decoder())
+  record
+}
+
+fn decode_holiday_listings(response) -> List(HolidayListing) {
+  let assert Ok(listings) =
+    simulate.read_body(response)
+    |> json.parse(decode.list(availability_view.holiday_listing_decoder()))
+  listings
 }
 
 fn decode_taxonomy_snapshot(response) -> TaxonomySnapshot {
