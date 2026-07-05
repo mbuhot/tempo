@@ -47,6 +47,19 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   await page.getByLabel("Bank").fill("ANZ");
   await page.getByLabel("Account number").fill("00112233");
   await page.getByLabel("Account name").fill("E Onboard");
+  // The wizard autosaves a field on blur. Handing off in the same click that blurs
+  // the last field can close the modal before the account-name save is sent,
+  // leaving the draft without a value the commit requires (422). Blur explicitly
+  // and wait for THAT field's save to land before handing off.
+  await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().includes("/values") &&
+        r.request().method() === "POST" &&
+        (r.request().postData() ?? "").includes("account_name"),
+    ),
+    page.getByLabel("Account name").blur(),
+  ]);
   await page.getByRole("button", { name: /Hand off for approval/ }).click();
 
   // The modal closes and the draft shows as a row in the People list.

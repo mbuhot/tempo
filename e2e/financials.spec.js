@@ -259,10 +259,13 @@ test("running payroll materializes the run and shows each engineer's paid amount
   // Aug 2026", the Run-payroll launcher gone, the preview "to pay" note replaced by
   // a "<total> paid" note, and each employed engineer showing a PAID dollar amount.
   // We assert the run/materialisation transition, not reconciled-vs-variance: on the
-  // shared append-only DB a concurrent spec's open-ended promotion (e.g. Priya → L6
-  // from Jun 1) can back-date a variance over any later month after its run, so
-  // "reconciled" is not stable here — Beat 3 exercises the variance path
-  // deterministically instead.
+  // shared append-only DB a concurrent spec's back-dated fact (an open-ended
+  // promotion, or an engineer onboarded from 2026-07-13 by onboarding.spec after a
+  // prior run already materialized August) makes the DEFAULT mode unstable — a run
+  // outgrown by later facts opens on Reconciliation, not Paid. So we select the
+  // Paid mode tab explicitly: the frozen paid lines are immutable once run, making
+  // the paid-side assertions stable across re-runs. Beat 3 exercises the variance
+  // path deterministically instead.
   await openPayrollTab(page);
   await scrubTo(page, "2026-08-15");
   await ensurePayrollRun(page, "Aug 2026", "2026-08-01", "2026-08-31");
@@ -270,6 +273,7 @@ test("running payroll materializes the run and shows each engineer's paid amount
   await expect(
     page.getByRole("heading", { name: "Payroll · Aug 2026" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Paid", exact: true }).click();
   await expect(page.getByText(/\$[\d,]+ paid/)).toBeVisible();
   await expect(page.getByText(/to pay/)).toHaveCount(0);
   await expect(
