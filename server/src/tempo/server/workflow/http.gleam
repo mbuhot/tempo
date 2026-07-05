@@ -12,6 +12,7 @@ import gleam/http
 import gleam/json
 import gleam/option.{None, Some}
 import shared/access
+import shared/workflow/kind as wkind
 import shared/workflow/schema as wschema
 import shared/workflow/value.{type FieldValue}
 import shared/workflow/view
@@ -68,7 +69,7 @@ pub fn handle_instance(
     Ok(None) -> wisp.not_found()
     Error(error) -> error_response(error)
     Ok(Some(found)) ->
-      case registry.schema_for(found.kind, ctx) {
+      case registry.schema_for(wkind.to_string(found.kind), ctx) {
         Error(_) -> wisp.not_found()
         Ok(schema) -> {
           let ids = registry.step_ids(schema)
@@ -160,11 +161,12 @@ fn start_response(
   case registry.schema_for(kind, ctx) {
     Error(_) ->
       response.error_response(400, "unknown_kind", "unknown workflow kind")
-    Ok(schema) ->
+    Ok(schema) -> {
+      let assert Ok(workflow_kind) = wkind.from_string(kind)
       case
         instance.start(
           ctx.db,
-          kind,
+          workflow_kind,
           principal.account_id,
           registry.first_step(schema),
         )
@@ -175,13 +177,14 @@ fn start_response(
           )
         Error(error) -> error_response(error)
       }
+    }
   }
 }
 
 fn handoff_action(ctx: Context, id: String) -> wisp.Response {
   case instance.load(ctx.db, id) {
     Ok(Some(found)) ->
-      case registry.schema_for(found.kind, ctx) {
+      case registry.schema_for(wkind.to_string(found.kind), ctx) {
         Ok(schema) ->
           void_response(instance.hand_off(
             ctx.db,

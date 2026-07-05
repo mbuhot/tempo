@@ -63,7 +63,7 @@ fn loaded_model() -> wizard.Model {
   let draft =
     view.DraftView(
       instance_id: "1",
-      kind: "onboard_engineer",
+      kind: kind.OnboardEngineer,
       status: "draft",
       current_step: "identity",
       can_act: True,

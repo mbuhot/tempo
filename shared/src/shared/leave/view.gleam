@@ -6,6 +6,7 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
+import shared/leave/kind.{type LeaveKind} as leave_kind
 import shared/wire
 
 /// An engineer's leave balances (days accrued − taken) for a date — the board
@@ -17,7 +18,7 @@ pub type LeaveBalance {
 /// One row of an engineer's leave history: a leave `kind` over the leave window
 /// `[valid_from, valid_to)`.
 pub type LeaveRecord {
-  LeaveRecord(kind: String, valid_from: Date, valid_to: Date)
+  LeaveRecord(kind: LeaveKind, valid_from: Date, valid_to: Date)
 }
 
 /// Encode a `LeaveBalance` as a JSON object.
@@ -42,7 +43,7 @@ pub fn leave_balance_decoder() -> Decoder(LeaveBalance) {
 pub fn encode_leave_record(record: LeaveRecord) -> Json {
   let LeaveRecord(kind:, valid_from:, valid_to:) = record
   json.object([
-    #("kind", json.string(kind)),
+    #("kind", json.string(leave_kind.to_string(kind))),
     #("valid_from", wire.encode_date(valid_from)),
     #("valid_to", wire.encode_date(valid_to)),
   ])
@@ -50,7 +51,8 @@ pub fn encode_leave_record(record: LeaveRecord) -> Json {
 
 /// Decode a `LeaveRecord` from a JSON object.
 pub fn leave_record_decoder() -> Decoder(LeaveRecord) {
-  use kind <- decode.field("kind", decode.string)
+  use kind_text <- decode.field("kind", decode.string)
+  let assert Ok(kind) = leave_kind.from_string(kind_text)
   use valid_from <- decode.field("valid_from", wire.date_decoder())
   use valid_to <- decode.field("valid_to", wire.date_decoder())
   decode.success(LeaveRecord(kind:, valid_from:, valid_to:))

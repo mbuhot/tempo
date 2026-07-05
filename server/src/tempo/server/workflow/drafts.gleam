@@ -8,6 +8,7 @@ import gleam/dynamic/decode
 import gleam/option.{None, Some}
 import gleam/result
 import pog
+import shared/workflow/kind.{type WorkflowKind} as wkind
 import tempo/server/auth
 import tempo/server/context.{type Context}
 
@@ -22,7 +23,7 @@ pub type DraftRow {
 /// step value used as the row's display label.
 pub type DraftSource {
   DraftSource(
-    kind: String,
+    kind: WorkflowKind,
     commit_permission: String,
     step_id: String,
     value_path: String,
@@ -78,7 +79,7 @@ SELECT i.id,
   LEFT JOIN workflow_step_value v
     ON v.instance_id = i.id AND v.step_id = '" <> source.step_id <> "'
        AND upper_inf(v.recorded_during)
- WHERE i.kind = '" <> source.kind <> "'
+ WHERE i.kind = '" <> wkind.to_string(source.kind) <> "'
    AND i.status IN ('draft', 'awaiting_finance')
    AND (i.owner_id = $1 OR ($2 AND i.status = 'awaiting_finance'))
  ORDER BY i.created_at

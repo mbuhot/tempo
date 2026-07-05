@@ -45,6 +45,7 @@ import shared/engineer/view.{
   type EngineerDetail, Employment, EngineerBanking, EngineerContact,
   EngineerDetail, EngineerEmergency,
 } as engineer_view
+import shared/leave/kind as leave_kind
 import shared/leave/view.{LeaveBalance} as leave_view
 import shared/location/view.{type LocationRecord, LocationRecord} as location_view
 import shared/money
@@ -456,7 +457,8 @@ fn project_refs(model: Model) -> List(Ref) {
 fn blank_form(model: Model, kind: ui.OpKind) -> ui.OpForm {
   let form = ui.blank_op_form(kind, model.as_of)
   let form = case kind {
-    ui.OpTakeLeave -> ui.update_op_form(form, ui.FKind, "annual")
+    ui.OpTakeLeave ->
+      ui.update_op_form(form, ui.FKind, leave_kind.to_string(leave_kind.Annual))
     _ -> form
   }
   let form =
@@ -1457,14 +1459,15 @@ fn op_fields(
 /// than free text. Defaults to "annual" when the slot is blank.
 fn leave_kind_field(selected: String) -> Element(Msg) {
   let selected = case selected {
-    "" -> "annual"
+    "" -> leave_kind.to_string(leave_kind.Annual)
     other -> other
   }
   let options =
-    list.map(["annual", "sick", "parental", "unpaid"], fn(kind) {
+    list.map(leave_kind.all(), fn(kind) {
+      let value = leave_kind.to_string(kind)
       html.option(
-        [attribute.value(kind), attribute.selected(kind == selected)],
-        string.capitalise(kind),
+        [attribute.value(value), attribute.selected(value == selected)],
+        string.capitalise(value),
       )
     })
   html.label([attribute.class("op-form__field")], [

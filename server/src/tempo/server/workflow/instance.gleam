@@ -10,7 +10,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import pog
-import shared/workflow/kind as wkind
+import shared/workflow/kind.{type WorkflowKind, CreateProject, OnboardEngineer} as wkind
 import shared/workflow/value.{type FieldValue}
 import shared/workflow/view.{
   type DraftSummary, type DraftView, type StepStatus, Active, Done, DraftSummary,
@@ -31,7 +31,7 @@ pub type Status {
 pub type Instance {
   Instance(
     id: String,
-    kind: String,
+    kind: WorkflowKind,
     status: Status,
     owner_id: Int,
     assignee_id: Option(Int),
@@ -39,12 +39,20 @@ pub type Instance {
   )
 }
 
+/// Parse a status guarded by the DB's `workflow_instance_status_check` — an
+/// unrecognised value is a violated invariant, not a silent default.
 pub fn status_from_string(text: String) -> Status {
   case text {
+    "draft" -> Draft
     "awaiting_finance" -> AwaitingFinance
     "committed" -> Committed
     "cancelled" -> Cancelled
-    _ -> Draft
+    _ ->
+      panic as {
+        "workflow status check constraint violated: unrecognised status '"
+        <> text
+        <> "' from DB"
+      }
   }
 }
 
@@ -57,17 +65,24 @@ pub fn status_to_string(status: Status) -> String {
   }
 }
 
+/// Parse a kind written by `start` (via `wkind.to_string`) — an unrecognised value
+/// is a violated invariant, not a silent default.
+fn kind_from_string(text: String) -> WorkflowKind {
+  let assert Ok(kind) = wkind.from_string(text)
+  kind
+}
+
 /// Open a new draft of `kind`, owned by `owner_id`, at its `first_step`. Returns the
 /// generated instance id.
 pub fn start(
   conn: pog.Connection,
-  kind kind: String,
+  kind kind: WorkflowKind,
   owner_id owner_id: Int,
   first_step first_step: String,
 ) -> Result(String, OperationError) {
   use returned <- operation.try(sql.instance_start(
     conn,
-    kind,
+    wkind.to_string(kind),
     owner_id,
     first_step,
   ))
@@ -135,7 +150,7 @@ pub fn load(
       Ok(
         Some(Instance(
           id: row.id,
-          kind: row.kind,
+          kind: kind_from_string(row.kind),
           status: status_from_string(row.status),
           owner_id: row.owner_id,
           assignee_id: row.assignee_id,
@@ -198,13 +213,18 @@ pub fn list_for(
   ))
   returned.rows
   |> list.map(fn(row) {
+    let kind = kind_from_string(row.kind)
+    let status = status_from_string(row.status)
     DraftSummary(
       instance_id: row.id,
-      kind: row.kind,
+      kind:,
       status: row.status,
-      title: title_for(row.kind),
+      title: title_for(kind),
       current_step: row.current_step,
-      awaiting_me: row.status == "awaiting_finance" && can_commit,
+      awaiting_me: case status {
+        AwaitingFinance -> can_commit
+        Draft | Committed | Cancelled -> False
+      },
     )
   })
   |> Ok
@@ -220,11 +240,10 @@ fn acts_now(instance: Instance, me: Int, can_commit: Bool) -> Bool {
   }
 }
 
-fn title_for(kind_string: String) -> String {
-  case wkind.from_string(kind_string) {
-    Ok(wkind.OnboardEngineer) -> "Onboard engineer"
-    Ok(wkind.CreateProject) -> "Create a project"
-    Error(_) -> kind_string
+fn title_for(kind: WorkflowKind) -> String {
+  case kind {
+    OnboardEngineer -> "Onboard engineer"
+    CreateProject -> "Create a project"
   }
 }
 

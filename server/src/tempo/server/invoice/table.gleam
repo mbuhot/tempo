@@ -18,6 +18,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
+import shared/invoice/status.{Draft, Issued, Paid}
 import shared/money.{type Money}
 import shared/pagination
 import shared/table/cell.{
@@ -143,9 +144,9 @@ pub fn invoice_schema(options: FilterOptions) -> Schema {
         hideable: True,
         filter: Some(
           SelectFilter(multi: True, options: [
-            FilterOption(value: "draft", label: "Draft"),
-            FilterOption(value: "issued", label: "Issued"),
-            FilterOption(value: "paid", label: "Paid"),
+            FilterOption(value: status.to_string(Draft), label: "Draft"),
+            FilterOption(value: status.to_string(Issued), label: "Issued"),
+            FilterOption(value: status.to_string(Paid), label: "Paid"),
           ]),
         ),
       ),
@@ -447,11 +448,12 @@ fn initials(name: String) -> String {
   |> string.uppercase
 }
 
-fn status_tone(status: String) -> Tone {
-  case status {
-    "issued" -> Warning
-    "paid" -> Positive
-    _ -> Neutral
+fn status_tone(status_text: String) -> Tone {
+  let assert Ok(parsed) = status.from_string(status_text)
+  case parsed {
+    Draft -> Neutral
+    Issued -> Warning
+    Paid -> Positive
   }
 }
 

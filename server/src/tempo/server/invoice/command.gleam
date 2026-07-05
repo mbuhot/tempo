@@ -22,6 +22,7 @@ import shared/command.{InvoiceCommand} as gateway
 import shared/invoice/command.{
   type InvoiceCommand, DraftInvoice, IssueInvoice, PayInvoice,
 }
+import shared/invoice/status.{type InvoiceStatus, Draft, Issued, Paid}
 import shared/money.{type Money}
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/sql
@@ -98,7 +99,7 @@ pub fn draft_invoice(
           from: billing_from,
           to: billing_to,
         ),
-        fact.InvoiceInStatus(invoice_id:, status: "draft", from: billing_from),
+        fact.InvoiceInStatus(invoice_id:, status: Draft, from: billing_from),
       ],
       line_facts,
     ]),
@@ -113,7 +114,7 @@ pub fn issue_invoice(
   invoice_id invoice_id: Int,
   at at: Date,
 ) -> Result(Recorded, OperationError) {
-  use _ <- result.try(validate_invoice_status(conn, invoice_id, "draft", at))
+  use _ <- result.try(validate_invoice_status(conn, invoice_id, Draft, at))
   Ok(
     Recorded(
       entry: Event(
@@ -127,7 +128,7 @@ pub fn issue_invoice(
       facts: [
         fact.InvoiceInStatus(
           invoice_id: fact.InvoiceId(invoice_id),
-          status: "issued",
+          status: Issued,
           from: at,
         ),
       ],
@@ -143,7 +144,7 @@ pub fn pay_invoice(
   invoice_id invoice_id: Int,
   at at: Date,
 ) -> Result(Recorded, OperationError) {
-  use _ <- result.try(validate_invoice_status(conn, invoice_id, "issued", at))
+  use _ <- result.try(validate_invoice_status(conn, invoice_id, Issued, at))
   Ok(
     Recorded(
       entry: Event(
@@ -157,7 +158,7 @@ pub fn pay_invoice(
       facts: [
         fact.InvoiceInStatus(
           invoice_id: fact.InvoiceId(invoice_id),
-          status: "paid",
+          status: Paid,
           from: at,
         ),
       ],
@@ -176,12 +177,15 @@ pub fn pay_invoice(
 fn validate_invoice_status(
   conn: pog.Connection,
   invoice_id: Int,
-  expected: String,
+  expected: InvoiceStatus,
   at: Date,
 ) -> Result(Nil, OperationError) {
   use _ <- operation.try(sql.invoice_lock(conn, invoice_id))
   use current <- operation.try(sql.invoice_status_current(conn, invoice_id, at))
-  case list.map(current.rows, fn(row) { row.status }) == [expected] {
+  case
+    list.map(current.rows, fn(row) { row.status })
+    == [status.to_string(expected)]
+  {
     True -> Ok(Nil)
     False -> Error(InvalidValue)
   }

@@ -158,7 +158,7 @@ fn project_draft_rows(
   drafts.rows(
     context,
     drafts.DraftSource(
-      kind: wkind.to_string(wkind.CreateProject),
+      kind: wkind.CreateProject,
       commit_permission: access.project_create_confirm,
       step_id: "description",
       value_path: "{title,value}",

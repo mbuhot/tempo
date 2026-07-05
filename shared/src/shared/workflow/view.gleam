@@ -6,6 +6,7 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
+import shared/workflow/kind.{type WorkflowKind}
 import shared/workflow/value.{type FieldValue}
 
 /// Where a step sits relative to the open one: already completed, the current
@@ -25,7 +26,7 @@ pub type StepStatus {
 pub type DraftView {
   DraftView(
     instance_id: String,
-    kind: String,
+    kind: WorkflowKind,
     status: String,
     current_step: String,
     can_act: Bool,
@@ -38,7 +39,7 @@ pub type DraftView {
 pub type DraftSummary {
   DraftSummary(
     instance_id: String,
-    kind: String,
+    kind: WorkflowKind,
     status: String,
     title: String,
     current_step: String,
@@ -67,7 +68,7 @@ fn step_status_from_string(text: String) -> StepStatus {
 pub fn encode_draft(draft: DraftView) -> Json {
   json.object([
     #("instance_id", json.string(draft.instance_id)),
-    #("kind", json.string(draft.kind)),
+    #("kind", json.string(kind.to_string(draft.kind))),
     #("status", json.string(draft.status)),
     #("current_step", json.string(draft.current_step)),
     #("can_act", json.bool(draft.can_act)),
@@ -92,7 +93,8 @@ fn encode_step_status(statuses: Dict(String, StepStatus)) -> Json {
 
 pub fn draft_decoder() -> Decoder(DraftView) {
   use instance_id <- decode.field("instance_id", decode.string)
-  use kind <- decode.field("kind", decode.string)
+  use kind_text <- decode.field("kind", decode.string)
+  let assert Ok(kind) = kind.from_string(kind_text)
   use status <- decode.field("status", decode.string)
   use current_step <- decode.field("current_step", decode.string)
   use can_act <- decode.field("can_act", decode.bool)
@@ -121,7 +123,7 @@ pub fn draft_decoder() -> Decoder(DraftView) {
 pub fn encode_summary(summary: DraftSummary) -> Json {
   json.object([
     #("instance_id", json.string(summary.instance_id)),
-    #("kind", json.string(summary.kind)),
+    #("kind", json.string(kind.to_string(summary.kind))),
     #("status", json.string(summary.status)),
     #("title", json.string(summary.title)),
     #("current_step", json.string(summary.current_step)),
@@ -131,7 +133,8 @@ pub fn encode_summary(summary: DraftSummary) -> Json {
 
 pub fn summary_decoder() -> Decoder(DraftSummary) {
   use instance_id <- decode.field("instance_id", decode.string)
-  use kind <- decode.field("kind", decode.string)
+  use kind_text <- decode.field("kind", decode.string)
+  let assert Ok(kind) = kind.from_string(kind_text)
   use status <- decode.field("status", decode.string)
   use title <- decode.field("title", decode.string)
   use current_step <- decode.field("current_step", decode.string)

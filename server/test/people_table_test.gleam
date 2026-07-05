@@ -23,6 +23,7 @@ import shared/table/query.{
 }
 import shared/table/response.{type Row}
 import shared/table/sort.{type Sort, Asc, Desc, Sort}
+import shared/workflow/kind.{OnboardEngineer}
 import tempo/server/auth.{Principal}
 import tempo/server/context.{type Context, Context}
 import tempo/server/people/table as people_table
@@ -332,7 +333,7 @@ pub fn own_onboarding_draft_is_hidden_from_other_viewers_test() {
   rolling_back(fn(conn) {
     let #(owner, other) = two_account_ids(conn)
     let assert Ok(draft_id) =
-      instance.start(conn, flow.kind, owner, flow.first_step)
+      instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
     let assert Ok(for_owner) =
       people_table.people_table(
@@ -359,7 +360,7 @@ pub fn awaiting_finance_draft_is_visible_only_to_committers_test() {
   rolling_back(fn(conn) {
     let #(owner, other) = two_account_ids(conn)
     let assert Ok(draft_id) =
-      instance.start(conn, flow.kind, owner, flow.first_step)
+      instance.start(conn, OnboardEngineer, owner, flow.first_step)
     let assert Ok(_) = instance.hand_off(conn, draft_id, "payroll")
 
     let committer = viewer_ctx(conn, other, [access.engineer_onboard_commit])

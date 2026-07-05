@@ -13,9 +13,12 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
-import gleam/time/calendar.{August, Date, January, July, June, May, September}
+import gleam/time/calendar.{
+  August, Date, January, July, June, March, May, September,
+}
 import shared/allocation/command as allocation_command
 import shared/board/view.{
   BoardRow, BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
@@ -31,9 +34,11 @@ import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/forecast/view.{Forecast, ForecastMonth} as forecast_view
 import shared/invoice/command as invoice_command
+import shared/invoice/status.{Draft, Issued, Paid}
 import shared/invoice/view.{Invoice, InvoiceDetail, InvoiceLine} as invoice_view
 import shared/leave/command as leave_command
-import shared/leave/view.{LeaveBalance} as _
+import shared/leave/kind.{Annual, Parental, Sick, Unpaid}
+import shared/leave/view.{LeaveBalance, LeaveRecord} as leave_view
 import shared/location/command as location_command
 import shared/location/view as location_view
 import shared/meeting/command.{Optional, Required} as meeting_command
@@ -508,6 +513,45 @@ pub fn command_take_leave_round_trips_test() {
     == original
 }
 
+// --- LeaveRecord ---------------------------------------------------------------
+// Every `LeaveKind` variant round-trips through the leave-history record, proving
+// the closed vocabulary survives the wire ("annual" | "sick" | "parental" |
+// "unpaid").
+
+pub fn leave_record_round_trips_for_every_kind_test() {
+  let originals = [
+    LeaveRecord(
+      kind: Annual,
+      valid_from: Date(2026, June, 8),
+      valid_to: Date(2026, June, 22),
+    ),
+    LeaveRecord(
+      kind: Sick,
+      valid_from: Date(2026, March, 3),
+      valid_to: Date(2026, March, 5),
+    ),
+    LeaveRecord(
+      kind: Parental,
+      valid_from: Date(2026, September, 1),
+      valid_to: Date(2027, January, 1),
+    ),
+    LeaveRecord(
+      kind: Unpaid,
+      valid_from: Date(2026, August, 1),
+      valid_to: Date(2026, August, 8),
+    ),
+  ]
+
+  assert list.map(originals, fn(original) {
+      round_trip(
+        original,
+        leave_view.encode_leave_record,
+        leave_view.leave_record_decoder(),
+      )
+    })
+    == originals
+}
+
 pub fn command_log_timesheet_round_trips_test() {
   let original =
     gateway.TimesheetCommand(timesheet_command.LogTimesheet(
@@ -940,7 +984,7 @@ pub fn invoice_round_trips_test() {
       client: "Northwind Trading",
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
-      status: "issued",
+      status: Issued,
       total: money_of("26400.00"),
       issued_at: Some(Date(2026, July, 5)),
       paid_at: None,
@@ -964,10 +1008,34 @@ pub fn invoice_draft_zero_total_round_trips_test() {
       client: "Globex Corporation",
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
-      status: "draft",
+      status: Draft,
       total: money_of("0.00"),
       issued_at: None,
       paid_at: None,
+    )
+
+  assert round_trip(
+      original,
+      invoice_view.encode_invoice,
+      invoice_view.invoice_decoder(),
+    )
+    == original
+}
+
+// A paid invoice — the third and final `InvoiceStatus` variant — round-trips too,
+// so all three wire strings ("draft" | "issued" | "paid") are exercised.
+pub fn invoice_paid_round_trips_test() {
+  let original =
+    Invoice(
+      id: 9,
+      project: "Ledger Migration",
+      client: "Globex Corporation",
+      billing_from: Date(2026, May, 1),
+      billing_to: Date(2026, June, 1),
+      status: Paid,
+      total: money_of("13200.00"),
+      issued_at: Some(Date(2026, June, 3)),
+      paid_at: Some(Date(2026, June, 20)),
     )
 
   assert round_trip(
@@ -1011,7 +1079,7 @@ pub fn invoice_detail_round_trips_test() {
         client: "Northwind Trading",
         billing_from: Date(2026, June, 1),
         billing_to: Date(2026, July, 1),
-        status: "issued",
+        status: Issued,
         total: money_of("26400.00"),
         issued_at: Some(Date(2026, July, 5)),
         paid_at: None,
@@ -1053,7 +1121,7 @@ pub fn invoice_detail_empty_round_trips_test() {
         client: "Globex Corporation",
         billing_from: Date(2026, June, 1),
         billing_to: Date(2026, July, 1),
-        status: "draft",
+        status: Draft,
         total: money_of("0.00"),
         issued_at: None,
         paid_at: None,

@@ -10,6 +10,7 @@ import gleam/time/calendar.{Date, December, January, July}
 import pog
 import shared/money
 import shared/workflow/command.{CreateProject}
+import shared/workflow/kind.{CreateProject as ProjectKind}
 import shared/workflow/value.{
   BoolValue, DateValue, IntValue, MoneyValue, RowsValue, TextValue,
 }
@@ -19,7 +20,6 @@ import tempo/server/fact.{
 }
 import tempo/server/workflow/commit
 import tempo/server/workflow/instance
-import tempo/server/workflow/project_schema
 import test_pool
 
 fn rolling_back(body: fn(pog.Connection) -> a) -> a {
@@ -64,7 +64,7 @@ fn fill_project_draft(
   owner: Int,
   client_field_value: String,
 ) -> String {
-  let assert Ok(id) = instance.start(conn, project_schema.kind, owner, "client")
+  let assert Ok(id) = instance.start(conn, ProjectKind, owner, "client")
   save_step(conn, id, "client", [#("client", TextValue(client_field_value))])
   save_step(conn, id, "description", [
     #("title", TextValue("Website Rebuild")),

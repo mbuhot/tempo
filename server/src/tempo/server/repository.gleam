@@ -37,6 +37,7 @@ import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command.{type Event}
+import shared/invoice/status as invoice_status
 import shared/money
 import tempo/server/allocation/sql as allocation_sql
 import tempo/server/capability/sql as capability_sql
@@ -482,7 +483,13 @@ pub fn write(
         invoice_id,
         from,
       ))
-      invoice_sql.invoice_status_open(conn, invoice_id, status, from, audit_id)
+      invoice_sql.invoice_status_open(
+        conn,
+        invoice_id,
+        invoice_status.to_string(status),
+        from,
+        audit_id,
+      )
       |> operation.run
     }
 

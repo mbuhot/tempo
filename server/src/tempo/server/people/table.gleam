@@ -94,7 +94,7 @@ fn onboarding_draft_rows(
   drafts.rows(
     context,
     drafts.DraftSource(
-      kind: wkind.to_string(wkind.OnboardEngineer),
+      kind: wkind.OnboardEngineer,
       commit_permission: access.engineer_onboard_commit,
       step_id: "identity",
       value_path: "{full_name,value}",

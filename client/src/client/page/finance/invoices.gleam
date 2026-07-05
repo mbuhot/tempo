@@ -35,6 +35,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
+import shared/invoice/status.{Draft, Issued, Paid}
 import shared/invoice/view.{type InvoiceDetail, type InvoiceLine} as invoice_view
 import shared/money
 import shared/roster/view.{type Ref, type Roster} as roster_view
@@ -480,7 +481,7 @@ fn draft_button(actions: Actions(msg)) -> Element(msg) {
 pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
   let invoice = detail.invoice
   let action = case invoice.status {
-    "draft" ->
+    Draft ->
       ui.when_permitted(actions.issue, fn(granted) {
         ui.button(
           label: "Issue",
@@ -489,7 +490,7 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
           on_press: actions.to_open_for(granted, invoice.id),
         )
       })
-    "issued" ->
+    Issued ->
       ui.when_permitted(actions.pay, fn(granted) {
         ui.button(
           label: "Mark paid",
@@ -498,7 +499,7 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
           on_press: actions.to_open_for(granted, invoice.id),
         )
       })
-    _ -> element.none()
+    Paid -> element.none()
   }
   let line_rows = list.map(detail.lines, invoice_line_row)
   html.div([], [
@@ -507,7 +508,7 @@ pub fn detail(detail: InvoiceDetail, actions: Actions(msg)) -> Element(msg) {
     ]),
     ui.panel(
       title: "Invoice #" <> int.to_string(invoice.id),
-      count: invoice.status,
+      count: status.to_string(invoice.status),
       right: [action],
       body: [
         html.div([attribute.class("pad-detail")], [

@@ -8,6 +8,7 @@ import gleam/option.{Some}
 import gleam/time/calendar.{Date, July}
 import pog
 import shared/workflow/command.{CommitOnboarding}
+import shared/workflow/kind.{OnboardEngineer}
 import shared/workflow/value.{BoolValue, DateValue, TextValue}
 import tempo/server/fact.{
   EngineerAtLevel, EngineerBankingDetails, EngineerContactDetails,
@@ -46,7 +47,8 @@ fn save_step(conn, id, step, fields) {
 /// Start an onboarding draft and fill every required field + confirm payroll. Leaves
 /// the instance a `draft` (no hand-off).
 fn fill_complete(conn: pog.Connection, owner: Int) -> String {
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
   save_step(conn, id, "identity", [
     #("full_name", TextValue("Aisha Okafor")),
     #("work_email", TextValue("aisha@example.com")),
@@ -122,7 +124,8 @@ pub fn commit_from_draft_without_handoff_succeeds_test() {
 pub fn commit_refused_when_incomplete_test() {
   use conn <- rolling_back
   let owner = account_id(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   assert commit.route(conn, CommitOnboarding(id))
     == Error(operation.InvalidValue)

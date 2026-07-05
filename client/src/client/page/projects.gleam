@@ -57,6 +57,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import rsvp
+import shared/invoice/status as invoice_status
 import shared/invoice/view.{type Invoice} as _
 import shared/money
 import shared/project/view.{
@@ -1337,7 +1338,12 @@ fn invoice_row(invoice: Invoice) -> Element(Msg) {
       html.td([attribute.class("num")], [
         html.text(ui.money(money.to_float(invoice.total))),
       ]),
-      html.td([], [ui.pill(variant: invoice.status, label: invoice.status)]),
+      html.td([], [
+        ui.pill(
+          variant: invoice_status.to_string(invoice.status),
+          label: invoice_status.to_string(invoice.status),
+        ),
+      ]),
     ],
   )
 }

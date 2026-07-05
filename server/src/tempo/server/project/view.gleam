@@ -19,6 +19,7 @@ import gleam/list
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
+import shared/invoice/status as invoice_status
 import shared/invoice/view.{type Invoice, Invoice} as _
 import shared/money.{type Money}
 import shared/pagination
@@ -199,13 +200,14 @@ fn requirement_to_shared(
 }
 
 fn invoice_to_shared(row: sql.ProjectInvoicesRow) -> Invoice {
+  let assert Ok(status) = invoice_status.from_string(row.status)
   Invoice(
     id: row.id,
     project: row.project,
     client: row.client,
     billing_from: row.billing_from,
     billing_to: row.billing_to,
-    status: row.status,
+    status:,
     total: money(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,

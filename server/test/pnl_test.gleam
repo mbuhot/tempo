@@ -30,6 +30,7 @@ import pog
 import serial_pool
 import shared/command as gateway
 import shared/invoice/command as invoice_command
+import shared/invoice/status.{Draft, Issued}
 import shared/invoice/view.{type Invoice, Invoice, InvoiceDetail, InvoiceLine} as _
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
@@ -150,7 +151,7 @@ pub fn list_invoices_shows_status_and_total_test() {
       client: "Globex Corporation",
       billing_from: Date(2026, June, 1),
       billing_to: Date(2026, July, 1),
-      status: "issued",
+      status: Issued,
       total: money_of("84000.00"),
       issued_at: Some(Date(2026, June, 10)),
       paid_at: None,
@@ -158,7 +159,7 @@ pub fn list_invoices_shows_status_and_total_test() {
 
   let ledger = invoice_for(invoices, "Ledger Migration")
   assert ledger.client == "Northwind Trading"
-  assert ledger.status == "issued"
+  assert ledger.status == Issued
   assert ledger.total == money_of("18000.00")
 }
 
@@ -189,8 +190,8 @@ pub fn list_invoices_status_is_as_of_the_date_test() {
       )
     })
 
-  assert before_issue == "draft"
-  assert after_issue == "issued"
+  assert before_issue == Draft
+  assert after_issue == Issued
 }
 
 // Keyset pagination (#12): with three June invoices drafted, a limit-2 first page
@@ -254,7 +255,7 @@ pub fn invoice_detail_returns_header_and_lines_test() {
 
   let InvoiceDetail(invoice:, lines:) = detail
   assert invoice.project == "Data Platform"
-  assert invoice.status == "issued"
+  assert invoice.status == Issued
   assert invoice.total == money_of("84000.00")
   assert lines
     == [

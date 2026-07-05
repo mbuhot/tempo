@@ -26,6 +26,7 @@
 
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/invoice/status.{type InvoiceStatus}
 import shared/money.{type Money}
 import tempo/server/operation.{type Event}
 
@@ -212,7 +213,7 @@ pub type Fact {
   )
   /// The invoice is in `status` from `from` onward (the prior status is capped at
   /// `from`).
-  InvoiceInStatus(invoice_id: InvoiceId, status: String, from: Date)
+  InvoiceInStatus(invoice_id: InvoiceId, status: InvoiceStatus, from: Date)
   /// A billed line on an invoice: the engineer, level, agreed day rate, days, and
   /// amount.
   InvoiceLine(

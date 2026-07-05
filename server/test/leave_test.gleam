@@ -18,7 +18,7 @@ import shared/engineer/command as engineer_command
 import shared/leave/command as leave_command
 import tempo/server/command
 import tempo/server/leave/sql
-import tempo/server/operation.{InsufficientLeaveBalance}
+import tempo/server/operation.{InsufficientLeaveBalance, InvalidValue}
 import test_pool
 
 /// Run `body` inside a transaction, then roll back, smuggling its return value out.
@@ -154,6 +154,26 @@ pub fn take_leave_exceeding_balance_is_rejected_test() {
       )
     let assert Error(InsufficientLeaveBalance(kind:, ..)) = result
     assert kind == "annual"
+  })
+}
+
+// A kind outside the closed vocabulary (`shared/leave/kind.gleam`) trips the DB's
+// `leave_kind_check` CHECK constraint, classified into InvalidValue at the seam —
+// it never reaches the balance guard (an unpolicied kind would otherwise pass).
+pub fn take_leave_rejects_an_unknown_kind_test() {
+  rolling_back(fn(conn) {
+    let result =
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.LeaveCommand(leave_command.TakeLeave(
+          1,
+          "sabbatical",
+          Date(2026, January, 1),
+          Date(2026, January, 31),
+        )),
+      )
+    assert result == Error(InvalidValue)
   })
 }
 

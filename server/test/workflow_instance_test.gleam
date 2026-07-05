@@ -7,6 +7,7 @@ import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{Some}
 import pog
+import shared/workflow/kind.{OnboardEngineer}
 import shared/workflow/value.{TextValue}
 import shared/workflow/view.{Active, Done, Pending}
 import tempo/server/workflow/instance.{AwaitingFinance}
@@ -36,7 +37,8 @@ fn two_account_ids(conn: pog.Connection) -> #(Int, Int) {
 pub fn save_then_draft_view_shows_value_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(_) =
     instance.save_step(
@@ -80,7 +82,8 @@ fn step_version_count(
 pub fn unchanged_value_records_no_new_version_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let step_values = dict.from_list([#("full_name", TextValue("Aisha"))])
   let assert Ok(_) = instance.save_step(conn, id, "identity", step_values)
@@ -92,7 +95,8 @@ pub fn unchanged_value_records_no_new_version_test() {
 pub fn latest_value_wins_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(_) =
     instance.save_step(
@@ -119,7 +123,8 @@ pub fn latest_value_wins_test() {
 pub fn complete_step_advances_and_marks_status_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(_) = instance.complete_step(conn, id, "level")
 
@@ -135,7 +140,8 @@ pub fn complete_step_advances_and_marks_status_test() {
 pub fn hand_off_queues_for_finance_test() {
   use conn <- rolling_back
   let #(owner, finance) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(_) = instance.hand_off(conn, id, "payroll")
 
@@ -156,7 +162,8 @@ pub fn hand_off_queues_for_finance_test() {
 pub fn list_for_returns_owned_draft_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(summaries) = instance.list_for(conn, owner, False)
   let ids = list.map(summaries, fn(summary) { summary.instance_id })
@@ -166,7 +173,8 @@ pub fn list_for_returns_owned_draft_test() {
 pub fn list_for_shows_finance_queue_only_to_committers_test() {
   use conn <- rolling_back
   let #(owner, finance) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
   let assert Ok(_) = instance.hand_off(conn, id, "payroll")
 
   let assert Ok(for_committer) = instance.list_for(conn, finance, True)
@@ -182,7 +190,8 @@ pub fn list_for_shows_finance_queue_only_to_committers_test() {
 pub fn saving_same_step_twice_accumulates_fields_test() {
   use conn <- rolling_back
   let #(owner, _) = two_account_ids(conn)
-  let assert Ok(id) = instance.start(conn, flow.kind, owner, flow.first_step)
+  let assert Ok(id) =
+    instance.start(conn, OnboardEngineer, owner, flow.first_step)
 
   let assert Ok(_) =
     instance.save_step(

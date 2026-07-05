@@ -9,6 +9,7 @@ import gleam/option.{type Option}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
+import shared/invoice/status as invoice_status
 import shared/invoice/view.{
   type Invoice, type InvoiceDetail, type InvoiceLine, Invoice, InvoiceDetail,
   InvoiceLine,
@@ -63,11 +64,18 @@ fn list_row_to_invoice(row: sql.InvoiceListRow) -> Invoice {
     client: row.client,
     billing_from: row.billing_from,
     billing_to: row.billing_to,
-    status: row.status,
+    status: status(row.status),
     total: money(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,
   )
+}
+
+/// Parse an invoice status from a trusted SQL column, guarded by the DB's
+/// `invoice_status_status_check` — an unrecognised value is a violated invariant.
+fn status(text: String) -> invoice_status.InvoiceStatus {
+  let assert Ok(parsed) = invoice_status.from_string(text)
+  parsed
 }
 
 /// One invoice's detail (`GET /api/invoices/:id`): the header (status AS OF
@@ -98,7 +106,7 @@ fn header_row_to_invoice(row: sql.InvoiceHeaderRow) -> Invoice {
     client: row.client,
     billing_from: row.billing_from,
     billing_to: row.billing_to,
-    status: row.status,
+    status: status(row.status),
     total: money(row.total),
     issued_at: row.issued_at,
     paid_at: row.paid_at,

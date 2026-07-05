@@ -28,6 +28,7 @@ import shared/engineer/view.{
   EngineerBanking, EngineerContact, EngineerDetail, EngineerEmergency,
   RoleVersion,
 } as _
+import shared/leave/kind.{type LeaveKind, Annual, Sick} as leave_kind
 import shared/leave/view.{
   type LeaveBalance, type LeaveRecord, LeaveBalance, LeaveRecord,
 } as _
@@ -84,11 +85,21 @@ pub fn detail(
     async.start(fn() { leave_sql.leave_history(context.db, engineer_id) })
   let annual: AsyncQuery(leave_sql.LeaveBalanceRow) =
     async.start(fn() {
-      leave_sql.leave_balance(context.db, engineer_id, "annual", as_of)
+      leave_sql.leave_balance(
+        context.db,
+        engineer_id,
+        leave_kind.to_string(Annual),
+        as_of,
+      )
     })
   let sick: AsyncQuery(leave_sql.LeaveBalanceRow) =
     async.start(fn() {
-      leave_sql.leave_balance(context.db, engineer_id, "sick", as_of)
+      leave_sql.leave_balance(
+        context.db,
+        engineer_id,
+        leave_kind.to_string(Sick),
+        as_of,
+      )
     })
 
   let contact = async.await(contact, query_timeout)
@@ -228,9 +239,16 @@ fn allocation_to_shared(
   )
 }
 
+/// Parse a leave kind from a trusted SQL column, guarded by the DB's `leave_kind_check`
+/// — an unrecognised value is a violated invariant.
+fn leave_record_kind(text: String) -> LeaveKind {
+  let assert Ok(kind) = leave_kind.from_string(text)
+  kind
+}
+
 fn leave_record_to_shared(row: leave_sql.LeaveHistoryRow) -> LeaveRecord {
   LeaveRecord(
-    kind: row.kind,
+    kind: leave_record_kind(row.kind),
     valid_from: row.valid_from,
     valid_to: row.valid_to,
   )

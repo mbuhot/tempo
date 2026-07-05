@@ -8,6 +8,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
+import shared/invoice/status.{type InvoiceStatus} as invoice_status
 import shared/money.{type Money}
 import shared/pagination
 import shared/wire
@@ -26,7 +27,7 @@ pub type Invoice {
     client: String,
     billing_from: Date,
     billing_to: Date,
-    status: String,
+    status: InvoiceStatus,
     total: Money,
     issued_at: Option(Date),
     paid_at: Option(Date),
@@ -78,7 +79,7 @@ pub fn encode_invoice(invoice: Invoice) -> Json {
     #("client", json.string(client)),
     #("billing_from", wire.encode_date(billing_from)),
     #("billing_to", wire.encode_date(billing_to)),
-    #("status", json.string(status)),
+    #("status", json.string(invoice_status.to_string(status))),
     #("total", money.encode(total)),
     #("issued_at", wire.encode_option_date(issued_at)),
     #("paid_at", wire.encode_option_date(paid_at)),
@@ -92,7 +93,8 @@ pub fn invoice_decoder() -> Decoder(Invoice) {
   use client <- decode.field("client", decode.string)
   use billing_from <- decode.field("billing_from", wire.date_decoder())
   use billing_to <- decode.field("billing_to", wire.date_decoder())
-  use status <- decode.field("status", decode.string)
+  use status_text <- decode.field("status", decode.string)
+  let assert Ok(status) = invoice_status.from_string(status_text)
   use total <- decode.field("total", money.decoder())
   use issued_at <- decode.field("issued_at", wire.option_date_decoder())
   use paid_at <- decode.field("paid_at", wire.option_date_decoder())

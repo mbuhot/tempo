@@ -7,6 +7,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{Date, June}
 import shared/money
+import shared/workflow/kind.{OnboardEngineer}
 import shared/workflow/value.{
   BoolValue, DateValue, IntValue, MoneyValue, PersonValue, RowsValue, TextValue,
 }
@@ -61,7 +62,7 @@ pub fn draft_round_trips_test() {
   let draft =
     DraftView(
       instance_id: "wf-1",
-      kind: "onboard_engineer",
+      kind: OnboardEngineer,
       status: "draft",
       current_step: "employment",
       can_act: True,
@@ -123,7 +124,7 @@ pub fn summary_round_trips_test() {
   let summary =
     DraftSummary(
       instance_id: "wf-1",
-      kind: "onboard_engineer",
+      kind: OnboardEngineer,
       status: "awaiting_finance",
       title: "Onboard Aisha Okafor",
       current_step: "payroll",
