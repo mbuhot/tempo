@@ -2465,6 +2465,88 @@ pub fn promote_outside_employment_is_rejected_test() {
   assert outcome == Error(operation.NoSuchVersion)
 }
 
+// change_allocation_fraction with no covering allocation at the effective date
+// is rejected (require_covering_version's NoSuchVersion): the FOR PORTION OF
+// UPDATE matches zero rows, so rather than journalling a fraction change that
+// was never written to allocation it fails with a typed error and the
+// transaction is undone. The engineer/project are set up but never assigned.
+pub fn change_allocation_fraction_with_no_covering_allocation_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id =
+        employed_engineer_on_project(
+          conn,
+          "Katherine Coleman",
+          "Langley",
+          90_040,
+          80_040,
+        )
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.AllocationCommand(allocation_command.ChangeAllocationFraction(
+          engineer_id,
+          80_040,
+          1.0,
+          Date(2026, July, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
+// roll_off with no allocation at all on or after the effective date is
+// rejected (require_covering_version's NoSuchVersion): allocation_close's
+// DELETE FOR PORTION OF matches zero rows, so rather than journalling a
+// roll-off that closed nothing it fails with a typed error and the
+// transaction is undone.
+pub fn roll_off_with_no_allocation_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id =
+        employed_engineer_on_project(
+          conn,
+          "Mary Golda Ross",
+          "Lockheed",
+          90_041,
+          80_041,
+        )
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.AllocationCommand(allocation_command.RollOff(
+          engineer_id,
+          80_041,
+          Date(2026, October, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
+// terminate_employment for an engineer with no employment row is rejected
+// (require_covering_version's NoSuchVersion): employment_close's DELETE FOR
+// PORTION OF matches zero rows, so rather than journalling a departure that
+// never happened it fails with a typed error and the transaction is undone.
+pub fn terminate_employment_with_no_employment_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let engineer_id = insert_engineer(conn, "Christine Darden")
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.EngineerCommand(engineer_command.TerminateEmployment(
+          engineer_id,
+          Date(2026, September, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /// The id of the contract minted for `client_id` (used after sign_contract mints

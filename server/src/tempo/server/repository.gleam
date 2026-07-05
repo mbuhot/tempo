@@ -311,7 +311,7 @@ pub fn write(
             fraction,
             audit_id,
           )
-          |> operation.run
+          |> require_covering_version
       }
 
     EngineerOffProject(
@@ -320,7 +320,7 @@ pub fn write(
       from:,
     ) ->
       allocation_sql.allocation_close(conn, engineer_id, project_id, from)
-      |> operation.run
+      |> require_covering_version
 
     EngineerOnLeave(engineer_id: EngineerId(engineer_id), kind:, from:, to:) ->
       leave_sql.leave_take(conn, engineer_id, kind, from, to, audit_id)
@@ -720,9 +720,10 @@ pub fn write(
 }
 
 /// Assert a temporal write (`salary`/`rate_card` revise, `engineer_role` promote,
-/// `engineer_skill` assess) actually matched a covering row: its `RETURNING` rows
-/// are empty exactly when no version (or no employment) covered the effective
-/// date, so the write's `FOR PORTION OF` clause or `FROM employment` join matched
+/// `engineer_skill` assess, `allocation` change/close, `employment` close)
+/// actually matched a covering row: its `RETURNING` rows are empty exactly
+/// when no version (or no employment/allocation) covered the effective date,
+/// so the write's `FOR PORTION OF` clause or `FROM employment` join matched
 /// nothing. A bare `operation.run` discards the rows and reports `Ok` for that
 /// no-op, journalling a change that never happened; this rejects it as a typed
 /// `NoSuchVersion` so the caller's transaction rolls the journal entry back too.
@@ -893,7 +894,8 @@ fn record_departure(
     engineer_id,
     from,
   ))
-  engineer_sql.employment_close(conn, engineer_id, from) |> operation.run
+  engineer_sql.employment_close(conn, engineer_id, from)
+  |> require_covering_version
 }
 
 /// Record a capability's retirement from `from`: cap its skill mappings first,

@@ -9,6 +9,16 @@ import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import pog
 
+/// A row you get from running the `employment_close` query
+/// defined in `./src/tempo/server/engineer/sql/employment_close.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EmploymentCloseRow {
+  EmploymentCloseRow(closed: Int)
+}
+
 /// employment_close.sql — terminate an engineer's employment from a date.
 ///
 /// Close/cascade pattern. DELETE FOR PORTION OF intersects [$end, ∞) with the
@@ -18,15 +28,22 @@ import pog
 /// filter — intentionally broad across the engineer's employment.
 /// $1 = engineer_id, $2 = end date.
 ///
+/// With no employment row for the engineer the DELETE matches nothing and
+/// RETURNING yields zero rows; the repository rejects that (NoSuchVersion)
+/// rather than journalling a departure that never happened.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn employment_close(
   db: pog.Connection,
-  arg_1: Int,
+  engineer_id: Int,
   arg_2: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(EmploymentCloseRow), pog.QueryError) {
+  let decoder = {
+    use closed <- decode.field(0, decode.int)
+    decode.success(EmploymentCloseRow(closed:))
+  }
 
   "-- employment_close.sql — terminate an engineer's employment from a date.
 --
@@ -36,12 +53,17 @@ pub fn employment_close(
 -- must already be capped to $end or the PERIOD FKs would block this. No @>
 -- filter — intentionally broad across the engineer's employment.
 -- $1 = engineer_id, $2 = end date.
+--
+-- With no employment row for the engineer the DELETE matches nothing and
+-- RETURNING yields zero rows; the repository rejects that (NoSuchVersion)
+-- rather than journalling a departure that never happened.
 DELETE FROM employment
    FOR PORTION OF employed_during FROM $2::date TO NULL
- WHERE engineer_id = $1;
+ WHERE engineer_id = $1
+RETURNING 1 AS closed;
 "
   |> pog.query
-  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(engineer_id))
   |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)

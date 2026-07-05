@@ -3,7 +3,12 @@
 -- [row.lower, $3) leftover at the old fraction keeping its original audit_id. The
 -- `@> $3` filter excludes a scheduled future version. $1 = engineer_id,
 -- $2 = project_id, $3 = effective, $4 = new fraction, $5 = audit_id.
+--
+-- With no covering allocation the UPDATE matches nothing and RETURNING yields
+-- zero rows; the repository rejects that (NoSuchVersion) rather than
+-- journalling a silent no-op.
 UPDATE allocation
    FOR PORTION OF allocated_during FROM $3::date TO NULL
    SET fraction = $4, audit_id = $5
- WHERE engineer_id = $1 AND project_id = $2 AND allocated_during @> $3::date;
+ WHERE engineer_id = $1 AND project_id = $2 AND allocated_during @> $3::date
+RETURNING 1 AS changed;

@@ -43,11 +43,25 @@ VALUES ($1, $2, $4, daterange($3::date, $5::date, '[)'), $6);
   |> pog.execute(db)
 }
 
+/// A row you get from running the `allocation_change_fraction` query
+/// defined in `./src/tempo/server/allocation/sql/allocation_change_fraction.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type AllocationChangeFractionRow {
+  AllocationChangeFractionRow(changed: Int)
+}
+
 /// allocation_change_fraction.sql — Change: re-fraction from a date onward. FOR
 /// PORTION OF sets the new fraction + audit_id on [$3, row.upper); PG re-inserts the
 /// [row.lower, $3) leftover at the old fraction keeping its original audit_id. The
 /// `@> $3` filter excludes a scheduled future version. $1 = engineer_id,
 /// $2 = project_id, $3 = effective, $4 = new fraction, $5 = audit_id.
+///
+/// With no covering allocation the UPDATE matches nothing and RETURNING yields
+/// zero rows; the repository rejects that (NoSuchVersion) rather than
+/// journalling a silent no-op.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -59,18 +73,26 @@ pub fn allocation_change_fraction(
   arg_3: Date,
   arg_4: Float,
   audit_id: Int,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(AllocationChangeFractionRow), pog.QueryError) {
+  let decoder = {
+    use changed <- decode.field(0, decode.int)
+    decode.success(AllocationChangeFractionRow(changed:))
+  }
 
   "-- allocation_change_fraction.sql — Change: re-fraction from a date onward. FOR
 -- PORTION OF sets the new fraction + audit_id on [$3, row.upper); PG re-inserts the
 -- [row.lower, $3) leftover at the old fraction keeping its original audit_id. The
 -- `@> $3` filter excludes a scheduled future version. $1 = engineer_id,
 -- $2 = project_id, $3 = effective, $4 = new fraction, $5 = audit_id.
+--
+-- With no covering allocation the UPDATE matches nothing and RETURNING yields
+-- zero rows; the repository rejects that (NoSuchVersion) rather than
+-- journalling a silent no-op.
 UPDATE allocation
    FOR PORTION OF allocated_during FROM $3::date TO NULL
    SET fraction = $4, audit_id = $5
- WHERE engineer_id = $1 AND project_id = $2 AND allocated_during @> $3::date;
+ WHERE engineer_id = $1 AND project_id = $2 AND allocated_during @> $3::date
+RETURNING 1 AS changed;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
@@ -80,6 +102,16 @@ UPDATE allocation
   |> pog.parameter(pog.int(audit_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
+}
+
+/// A row you get from running the `allocation_close` query
+/// defined in `./src/tempo/server/allocation/sql/allocation_close.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type AllocationCloseRow {
+  AllocationCloseRow(closed: Int)
 }
 
 /// allocation_close.sql — Close: cap one allocation at an end date.
@@ -92,16 +124,23 @@ UPDATE allocation
 ///
 /// $1 = engineer_id, $2 = project_id, $3 = end day (scalar date, cast in SQL).
 ///
+/// With no allocation on or after $3 the DELETE matches nothing and RETURNING
+/// yields zero rows; the repository rejects that (NoSuchVersion) rather than
+/// journalling a silent no-op.
+///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
 ///
 pub fn allocation_close(
   db: pog.Connection,
   engineer_id: Int,
-  arg_2: Int,
+  project_id: Int,
   arg_3: Date,
-) -> Result(pog.Returned(Nil), pog.QueryError) {
-  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+) -> Result(pog.Returned(AllocationCloseRow), pog.QueryError) {
+  let decoder = {
+    use closed <- decode.field(0, decode.int)
+    decode.success(AllocationCloseRow(closed:))
+  }
 
   "-- allocation_close.sql — Close: cap one allocation at an end date.
 --
@@ -112,13 +151,18 @@ pub fn allocation_close(
 -- closes whatever future portion exists from $3 onward.
 --
 -- $1 = engineer_id, $2 = project_id, $3 = end day (scalar date, cast in SQL).
+--
+-- With no allocation on or after $3 the DELETE matches nothing and RETURNING
+-- yields zero rows; the repository rejects that (NoSuchVersion) rather than
+-- journalling a silent no-op.
 DELETE FROM allocation
    FOR PORTION OF allocated_during FROM $3::date TO NULL
- WHERE engineer_id = $1 AND project_id = $2;
+ WHERE engineer_id = $1 AND project_id = $2
+RETURNING 1 AS closed;
 "
   |> pog.query
   |> pog.parameter(pog.int(engineer_id))
-  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.int(project_id))
   |> pog.parameter(pog.calendar_date(arg_3))
   |> pog.returning(decoder)
   |> pog.execute(db)
