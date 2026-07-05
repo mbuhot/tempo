@@ -1,4 +1,6 @@
 import client/page/schedule
+import client/page/schedule/inspector
+import client/page/schedule/scenario
 import gleam/option.{None, Some}
 import gleam/time/calendar.{Date}
 import shared/allocation/command as allocation_command
@@ -23,10 +25,10 @@ fn stale_fetch_schedule() -> schedule_view.Schedule {
 }
 
 fn model_with_active_scenario() -> schedule.Model {
-  schedule.Model(
+  scenario.Model(
     as_of: Date(2026, calendar.June, 15),
     actor: "Priya Sharma",
-    state: schedule.Loaded(previewed_schedule()),
+    state: scenario.Loaded(previewed_schedule()),
     scenario: [
       command.EngagementCommand(engagement_command.RescheduleProject(
         project_id: 500,
@@ -49,16 +51,16 @@ pub fn a_stale_plain_fetch_does_not_clobber_an_active_preview_test() {
   let #(updated, _, _) =
     schedule.update(
       model,
-      schedule.Fetched(as_of: model.as_of, result: Ok(stale_fetch_schedule())),
+      scenario.Fetched(as_of: model.as_of, result: Ok(stale_fetch_schedule())),
     )
-  assert updated.state == schedule.Loaded(previewed_schedule())
+  assert updated.state == scenario.Loaded(previewed_schedule())
 }
 
 fn model_with_selected_project() -> schedule.Model {
-  schedule.Model(
+  scenario.Model(
     as_of: Date(2026, calendar.June, 15),
     actor: "Priya Sharma",
-    state: schedule.Loading,
+    state: scenario.Loading,
     scenario: [],
     preview_on: False,
     selected: Some(500),
@@ -73,7 +75,7 @@ fn model_with_selected_project() -> schedule.Model {
 pub fn drafting_a_roll_off_adds_it_to_the_scenario_and_bumps_the_preview_test() {
   let model = model_with_selected_project()
   let #(updated, _, _) =
-    schedule.update(model, schedule.RollOffDrafted(engineer_id: 42))
+    schedule.update(model, scenario.RollOffDrafted(engineer_id: 42))
   assert updated.scenario
     == [
       command.AllocationCommand(allocation_command.RollOff(
@@ -91,7 +93,7 @@ pub fn editing_a_fraction_drafts_a_change_and_a_second_edit_replaces_it_test() {
   let #(first_edit, _, _) =
     schedule.update(
       model,
-      schedule.FractionChanged(engineer_id: 42, value: "0.6"),
+      scenario.FractionChanged(engineer_id: 42, value: "0.6"),
     )
   assert first_edit.scenario
     == [
@@ -106,7 +108,7 @@ pub fn editing_a_fraction_drafts_a_change_and_a_second_edit_replaces_it_test() {
   let #(second_edit, _, _) =
     schedule.update(
       first_edit,
-      schedule.FractionChanged(engineer_id: 42, value: "0.4"),
+      scenario.FractionChanged(engineer_id: 42, value: "0.4"),
     )
   assert second_edit.scenario
     == [
@@ -144,9 +146,9 @@ fn project_with_lane_and_no_requirement_lines() -> schedule_view.ProjectSchedule
 pub fn a_lane_engineer_appears_as_a_team_row_with_zero_requirement_lines_test() {
   let weeks = [Date(2026, calendar.June, 15)]
   let project = project_with_lane_and_no_requirement_lines()
-  assert schedule.team_rows(weeks, project, Date(2026, calendar.June, 15))
+  assert inspector.team_rows(weeks, project, Date(2026, calendar.June, 15))
     == [
-      schedule.TeamRow(
+      inspector.TeamRow(
         engineer_id: 88,
         name: "Priya Sharma",
         level: 4,
