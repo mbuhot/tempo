@@ -33,7 +33,10 @@ module.exports = defineConfig({
   },
   webServer: {
     command: "cd ../server && gleam run",
-    env: { TEMPO_DB_NAME: "tempo_e2e", TEMPO_PORT: "8001" },
+    env: {
+      TEMPO_DB_NAME: process.env.TEMPO_DB_NAME ?? "tempo_e2e",
+      TEMPO_PORT: "8001",
+    },
     url: baseURL,
     reuseExistingServer: false,
     timeout: 120000,

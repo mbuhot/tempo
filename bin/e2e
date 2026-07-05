@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Run the Playwright e2e suite against its OWN database (tempo_e2e), kept separate
-# from dev (tempo) and the gleam suite (tempo_test).
+# Run the Playwright e2e suite against its OWN database (tempo_e2e, suffixed per
+# git worktree by bin/worktree-db-suffix), kept separate from dev (tempo), the
+# gleam suite (tempo_test*), and other checkouts' e2e runs.
 #
 # Brings tempo_e2e to the demo state, then runs Playwright (which launches the server
 # against tempo_e2e itself — see e2e/playwright.config.js):
@@ -12,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export TEMPO_DB_NAME=tempo_e2e
+export TEMPO_DB_NAME="tempo_e2e$(bin/worktree-db-suffix)"
 
 bin/ensure-db "$TEMPO_DB_NAME"
 bin/migrate

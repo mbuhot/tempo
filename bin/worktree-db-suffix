@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Print a per-worktree database-name suffix (empty in the main checkout) so each
+# git worktree gets its own isolated test/e2e databases (see bin/test, bin/e2e).
+# A worktree is detected by `.git` being a file (gitfile pointer); the suffix is
+# the worktree directory name with every non-alphanumeric character mapped to _.
+set -euo pipefail
+
+top="$(git rev-parse --show-toplevel)"
+if [ -f "$top/.git" ]; then
+  name="$(basename "$top")"
+  printf '_%s' "${name//[^a-zA-Z0-9]/_}"
+fi

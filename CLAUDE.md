@@ -12,6 +12,8 @@
 - DB runs on host port **5435** (the 5434 Docker proxy is wedged). Export `TEMPO_DB_PORT=5435` for `bin/migrate`, `bin/test`, `bin/serve`. `bin/squirrel` hardcodes its URL — run it with `DATABASE_URL=postgres://tempo:tempo@127.0.0.1:5435/tempo`.
 - `bin/migrate` applies migrations; `bin/squirrel` regenerates typed SQL by introspecting the live DB — **migrate before squirrel**.
 - `bin/test` (DB `tempo_test`, base seed), `bin/e2e` (DB `tempo_e2e`, base + financials seed, **rebuilds the client bundle first**), `bin/serve` (:8000), `bin/build` (client bundle + Sass), `bin/reseed` (destructive full reset).
+- **Git worktrees get isolated test/e2e DBs**: `bin/worktree-db-suffix` appends the sanitized worktree dir name (`tempo_test_<worktree>`, `tempo_e2e_<worktree>`), so worktree runs coexist with other checkouts. In a worktree also export `COMPOSE_PROJECT_NAME=tempo` (compose derives its project from the dir name, which breaks `bin/ensure-db`). `bin/seed` no-ops on a non-empty DB — to pick up seed changes, `DROP DATABASE <isolated name> WITH (FORCE)` and re-run.
+- Run server tests via `bin/test` (or with `TEMPO_DB_NAME` exported) — bare `gleam test` connects to the dev DB `tempo` and fails on demo data.
 - Migration files: `server/priv/migrations/YYYYMMDDHHMMSS_name.sql`.
 
 # Temporal facts
