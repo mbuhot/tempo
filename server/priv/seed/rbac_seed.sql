@@ -33,7 +33,8 @@ INSERT INTO permission (key, description) VALUES
   ('roles.manage',        'Grant and revoke user roles'),
   ('skills.manage',       'Edit the capability and skill taxonomy'),
   ('skills.assess',       'Record engineer skill assessments'),
-  ('location.manage',     'Set any engineer''s location (country/region/timezone)');
+  ('location.manage',     'Set any engineer''s location (country/region/timezone)'),
+  ('meeting.manage',      'Schedule/reschedule/cancel a meeting and manage its attendees');
 
 INSERT INTO role (name, description) VALUES
   ('engineer', 'Submit timesheets and manage your own profile'),
@@ -66,6 +67,7 @@ FROM (VALUES
   ('manager', 'skills.manage'),
   ('manager', 'skills.assess'),
   ('manager', 'location.manage'),
+  ('manager', 'meeting.manage'),
 
   ('finance', 'read.projects'),
   ('finance', 'read.engineers'),
@@ -101,7 +103,8 @@ FROM (VALUES
   ('owner', 'roles.manage'),
   ('owner', 'skills.manage'),
   ('owner', 'skills.assess'),
-  ('owner', 'location.manage')
+  ('owner', 'location.manage'),
+  ('owner', 'meeting.manage')
 ) AS m(role, permission);
 
 INSERT INTO user_role (account_id, role, held_during, audit_id)

@@ -28,6 +28,7 @@ import tempo/server/engineer_skill/http as engineer_skill_http
 import tempo/server/forecast/http as forecast
 import tempo/server/invoice/http as invoices
 import tempo/server/location/http as location_http
+import tempo/server/meeting/http as meeting_http
 import tempo/server/payroll/http as payroll
 import tempo/server/people/http as people
 import tempo/server/pnl/http as pnl
@@ -250,6 +251,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
     ["api", "settings", "leave-policy", "table"] -> {
       use _principal <- guard.require(context, access.read_finances)
       settings.handle_leave_policy_table(request, context)
+    }
+    ["api", "meetings"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      meeting_http.handle_listing(request, context)
     }
     // An unmatched /api/* path is a genuine 404; every other path serves the SPA
     // shell so the client-side router (lustre/modem) can resolve it — the

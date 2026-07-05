@@ -27,6 +27,7 @@ import shared/engineer/command as engineer_command
 import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/view.{type InvoicePage} as invoice_view
+import shared/meeting/view.{type MeetingRecord} as meeting_view
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
@@ -1456,6 +1457,49 @@ pub fn settings_without_as_of_is_bad_request_test() {
   assert response.status == 400
 }
 
+// --- GET /api/meetings --------------------------------------------------------
+
+// As of 2026-07-05, the seeded "July all-hands" (2026-07-10 09:00 Europe/London) is
+// upcoming. Its canonical offset is London's July BST offset (+60); Priya (id 1,
+// relocated to London from 2026-07-01) reads the same +60 local offset, and Marcus
+// (id 2, Los Angeles) reads PDT's -420.
+pub fn meetings_upcoming_includes_seeded_all_hands_test() {
+  let response =
+    simulate.request(http.Get, "/api/meetings?as_of=2026-07-05")
+    |> read()
+
+  assert response.status == 200
+
+  let meetings = decode_meetings(response)
+  let assert Ok(all_hands) =
+    list.find(meetings, fn(meeting) { meeting.title == "July all-hands" })
+
+  assert all_hands.canonical_offset_minutes == 60
+
+  let assert Ok(priya) =
+    list.find(all_hands.attendees, fn(attendee) { attendee.engineer_id == 1 })
+  assert priya.timezone == option.Some("Europe/London")
+  assert priya.local_offset_minutes == option.Some(60)
+
+  let assert Ok(marcus) =
+    list.find(all_hands.attendees, fn(attendee) { attendee.engineer_id == 2 })
+  assert marcus.local_offset_minutes == option.Some(-420)
+}
+
+// A principal without read.engineers is refused the meetings read with 403.
+pub fn meetings_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+
+  let #(login_request, login_response) = sign_in(context, "Priya Sharma")
+  let response =
+    simulate.request(http.Get, "/api/meetings?as_of=2026-07-05")
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "forbidden"
+}
+
 // --- static / fallthrough ---------------------------------------------------
 
 // An unknown NON-API path serves the SPA shell (200), so client routes like
@@ -1561,6 +1605,13 @@ fn decode_settings(response) -> Settings {
     simulate.read_body(response)
     |> json.parse(settings_view.settings_decoder())
   settings
+}
+
+fn decode_meetings(response) -> List(MeetingRecord) {
+  let assert Ok(meetings) =
+    simulate.read_body(response)
+    |> json.parse(decode.list(meeting_view.meeting_record_decoder()))
+  meetings
 }
 
 fn decode_taxonomy_snapshot(response) -> TaxonomySnapshot {
