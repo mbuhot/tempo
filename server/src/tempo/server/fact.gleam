@@ -343,4 +343,37 @@ pub type Fact {
   )
   /// An attendee is removed from the meeting.
   MeetingAttendeeRemoved(meeting_id: MeetingId, engineer_id: Int)
+
+  // --- availability ---------------------------------------------------------------
+  /// The engineer's working hours on `weekday` (0=Mon) from `from` onward (change
+  /// from a date onward; a re-schedule re-opens it).
+  WorkHoursSet(
+    engineer_id: EngineerId,
+    weekday: Int,
+    from: Date,
+    starts: String,
+    ends: String,
+  )
+  /// The engineer's working hours on `weekday` are cleared from `from`: that
+  /// weekday's span is capped there.
+  WorkDayCleared(engineer_id: EngineerId, weekday: Int, from: Date)
+  /// A focus block occupies the engineer's calendar for `duration_minutes` from
+  /// `starts_at` on `date` (composed in `timezone`).
+  FocusBlockAdded(
+    engineer_id: EngineerId,
+    date: Date,
+    starts_at: String,
+    duration_minutes: Int,
+    timezone: String,
+    title: String,
+  )
+  /// A focus block is removed.
+  FocusBlockRemoved(engineer_id: EngineerId, focus_block_id: Int)
+  /// A holiday is imported for a country/region (`region` `""` is nationwide).
+  HolidayImported(
+    country: String,
+    region: String,
+    holiday_on: Date,
+    name: String,
+  )
 }

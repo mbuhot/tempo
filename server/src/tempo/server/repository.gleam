@@ -40,6 +40,7 @@ import shared/command.{type Event}
 import shared/invoice/status as invoice_status
 import shared/money
 import tempo/server/allocation/sql as allocation_sql
+import tempo/server/availability/sql as availability_sql
 import tempo/server/capability/sql as capability_sql
 import tempo/server/client/sql as client_sql
 import tempo/server/engineer/sql as engineer_sql
@@ -54,13 +55,14 @@ import tempo/server/fact.{
   EngineerBankingDetails, EngineerContactDetails, EngineerDeparted,
   EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerLocated,
   EngineerOffProject, EngineerOnLeave, EngineerSkillAssessed,
-  EngineerWorkedHours, InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject,
-  MeetingAttendeeAdded, MeetingAttendeeRemoved, MeetingBookingOpened,
-  MeetingCancelled, MeetingId, MeetingRescheduled, MeetingSubjectSet,
-  PayrollLine, PayrollLineSegment, PayrollPeriod, PayrollRunId,
-  ProjectCapabilityRequired, ProjectId, ProjectPlan, ProjectProfile,
-  ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard, Salary, SkillId,
-  SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
+  EngineerWorkedHours, FocusBlockAdded, FocusBlockRemoved, HolidayImported,
+  InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject, MeetingAttendeeAdded,
+  MeetingAttendeeRemoved, MeetingBookingOpened, MeetingCancelled, MeetingId,
+  MeetingRescheduled, MeetingSubjectSet, PayrollLine, PayrollLineSegment,
+  PayrollPeriod, PayrollRunId, ProjectCapabilityRequired, ProjectId, ProjectPlan,
+  ProjectProfile, ProjectRequirement, ProjectRescheduled, ProjectRun, RateCard,
+  Salary, SkillId, SkillProfile, SkillRetired, UserRoleGranted, UserRoleRevoked,
+  WorkDayCleared, WorkHoursSet,
 }
 import tempo/server/invoice/sql as invoice_sql
 import tempo/server/leave/sql as leave_sql
@@ -754,6 +756,63 @@ pub fn write(
 
     MeetingAttendeeRemoved(meeting_id: MeetingId(meeting_id), engineer_id:) ->
       meeting_sql.meeting_attendee_delete(conn, meeting_id, engineer_id)
+      |> operation.run
+
+    WorkHoursSet(
+      engineer_id: EngineerId(engineer_id),
+      weekday:,
+      from:,
+      starts:,
+      ends:,
+    ) ->
+      availability_sql.work_schedule_upsert(
+        conn,
+        engineer_id,
+        weekday,
+        from,
+        starts,
+        ends,
+        audit_id,
+      )
+      |> operation.run
+
+    WorkDayCleared(engineer_id: EngineerId(engineer_id), weekday:, from:) ->
+      availability_sql.work_schedule_clear(conn, engineer_id, weekday, from)
+      |> operation.run
+
+    FocusBlockAdded(
+      engineer_id: EngineerId(engineer_id),
+      date:,
+      starts_at:,
+      duration_minutes:,
+      timezone:,
+      title:,
+    ) ->
+      availability_sql.focus_block_insert(
+        conn,
+        engineer_id,
+        operation.iso(date),
+        starts_at,
+        int.to_string(duration_minutes),
+        timezone,
+        title,
+        audit_id,
+      )
+      |> operation.run
+
+    FocusBlockRemoved(engineer_id: EngineerId(engineer_id), focus_block_id:) ->
+      availability_sql.focus_block_delete(conn, focus_block_id, engineer_id)
+      |> require_covering_version
+
+    HolidayImported(country:, region:, holiday_on:, name:) ->
+      availability_sql.holiday_upsert(
+        conn,
+        country,
+        region,
+        holiday_on,
+        name,
+        audit_id,
+      )
       |> operation.run
   }
 }
