@@ -161,11 +161,16 @@ actually built, including the temporal foreign keys. This section is the *why*; 
 for the current column-level shape.
 
 Every entity is an **ID-ONLY anchor** — a durable referent with nothing but a primary key — and all of
-its attributes live in **edit-grouped fact tables** that reference the anchor's PK. There is no
-`updated_at` and no in-place mutation anywhere: a change is a new row (or a `FOR PORTION OF` split).
-Each fact is valid over a `daterange` period **named for the predicate it asserts** (ADR-018) rather
-than a uniform `valid_at`. A single append-only `event_log` table records system-time provenance
-*beside* the facts (§5a, ADR-021). The `PERIOD` foreign keys and `WITHOUT OVERLAPS` / `EXCLUDE`
+its attributes live in **edit-grouped fact tables** that reference the anchor's PK. A fact row is our
+recording of valid-time truth: fallible, and corrected when wrong. A change or back-dated correction
+rewrites fact rows through the write seam (a `FOR PORTION OF` split, a delete-then-insert). Each fact
+is valid over a `daterange` period **named for the predicate it asserts** (ADR-018) rather than a
+uniform `valid_at`. A single append-only `event_log` table records who made each change, when, and
+why, beside the facts (§5a, ADR-021) — it exists for audit and human understanding. Transaction-time
+reconstruction of the database is a job for the Postgres transaction log. Where a correction has
+financial consequences, immutable **ledgers** (invoice subject/lines, payroll runs) record what was
+actually issued or paid, and **reconciliation** recomputes from the current facts and surfaces any
+discrepancy to the operator (§12). The `PERIOD` foreign keys and `WITHOUT OVERLAPS` / `EXCLUDE`
 constraints carry **explicit names** so a violation classifies to a typed domain error (ADR-022).
 
 The anchors are `engineer`, `client`, `contract`, `project`, `invoice`, and `payroll_run` — all
