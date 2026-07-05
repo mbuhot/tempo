@@ -8,6 +8,7 @@ const {
   confirmOp,
   rosterRow,
   escapeRegExp,
+  filterTableByText,
 } = require("./helpers");
 
 // Behaviour-driven coverage of the Finance invoice lifecycle (PRD-financials §6) on
@@ -247,6 +248,7 @@ test("an un-run month previews the employed engineers as not-yet-run rather than
   await expect(page.getByText("to pay", { exact: false })).toBeVisible();
   await expect(page.getByText("0 employed")).toHaveCount(0);
   for (const name of EMPLOYED) {
+    await filterTableByText(page, "Engineer", name);
     await expect(page.getByRole("row", { name: new RegExp(name) })).toBeVisible();
   }
 });
@@ -280,6 +282,7 @@ test("running payroll materializes the run and shows each engineer's paid amount
     page.getByRole("button", { name: "Run payroll", exact: true }),
   ).toHaveCount(0);
   for (const name of EMPLOYED) {
+    await filterTableByText(page, "Engineer", name);
     const row = page.getByRole("row", { name: new RegExp(name) });
     await expect(row).toBeVisible();
     await expect(row).toContainText(/\$[\d,]+/);
@@ -328,6 +331,7 @@ test("back-dating a promotion into a run month surfaces the back-pay owed", asyn
   // "should be" ($20,000 — a full September at the L7 salary) — strictly above
   // whatever was paid at her pre-promotion level, the visible back-pay correction.
   await expect(page.getByText(/⚠ \$[\d,]+ back-pay owed/)).toBeVisible();
+  await filterTableByText(page, "Engineer", "Priya Sharma");
   await expect(
     page.getByRole("row", { name: /Priya Sharma/ }),
   ).toContainText("$20,000");
@@ -369,6 +373,7 @@ test("a mid-month promotion discloses the per-level pay breakdown in the payroll
 
   // Expanding Marcus's line — via the disclosure toggle in his row — reveals the two
   // salary-level sub-rows.
+  await filterTableByText(page, "Engineer", "Marcus Chen");
   await page
     .getByRole("row", { name: /Marcus Chen/ })
     .getByRole("button", { name: "▸" })

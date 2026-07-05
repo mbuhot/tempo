@@ -154,6 +154,29 @@ async function confirmOp(page, verb) {
   await opModal(page).getByRole("button", { name: verb, exact: true }).click();
 }
 
+// Filter a generic data table's TextFilter column (labelled `label`, e.g.
+// "Engineer" on the payroll table) down to rows whose value contains `value`.
+// Opens the column's filter popover if not already open, sets its "Contains…"
+// input, then closes the popover again (toggling the same filter button — the
+// applied filter survives the close) so its full-viewport backdrop no longer
+// intercepts clicks elsewhere on the page. The toggle is dispatched rather than
+// mouse-clicked: once a filter is active the button's accessible name grows an
+// inline "✕" clear affordance next to the count, and a real click lands wherever
+// the button's centre falls, which can be on that clear icon instead of the
+// label — dispatching targets the button node itself, so it always fires the
+// button's own toggle handler. Narrows an append-only, ever-growing table to
+// the row a test cares about regardless of how many pages of other rows now
+// precede it.
+async function filterTableByText(page, label, value) {
+  const filterButton = page.getByRole("button", { name: label });
+  const input = page.getByPlaceholder("Contains…");
+  if (!(await input.isVisible().catch(() => false))) {
+    await filterButton.dispatchEvent("click");
+  }
+  await input.fill(value);
+  await filterButton.dispatchEvent("click");
+}
+
 // The invoices-table row for an invoice id ("#<id>" shown in its first cell).
 function invoiceRowById(page, id) {
   return page.getByRole("row", { name: new RegExp(`#${id}\\b`) });
@@ -183,6 +206,7 @@ module.exports = {
   navigateTo,
   clickContent,
   rosterRow,
+  filterTableByText,
   invoiceRowById,
   visibleInvoiceIds,
   escapeRegExp,
