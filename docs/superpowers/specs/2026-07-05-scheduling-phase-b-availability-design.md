@@ -83,7 +83,7 @@ New concept `availability` (`shared/availability/command.gleam`, `server/.../ava
 |---|---|---|
 | `SetWorkSchedule` | `engineer_id: Int`, `effective: Date`, `days: List(#(Int, Option(#(String, String))))` — exactly 7 entries, weekdays 0–6 each once, times `"HH:MM"` | Per weekday: `DELETE FOR PORTION OF valid_at FROM effective TO NULL`, then INSERT `[effective, ∞)` when `Some(starts, ends)`. Malformed grid (≠7 entries, duplicate weekday, `starts >= ends`, unparseable time) → `InvalidValue`. |
 | `AddFocusBlock` | `engineer_id, date, starts_at "HH:MM", duration_minutes, timezone, title` | TZID validated against `pg_timezone_names`; `busy_at` composed with the Phase C `tstzrange` expression. |
-| `RemoveFocusBlock` | `focus_block_id: Int` | DELETE by id; empty RETURNING → `NoSuchVersion`. |
+| `RemoveFocusBlock` | `engineer_id: Int`, `focus_block_id: Int` | DELETE by `(id, engineer_id)`; empty RETURNING → `NoSuchVersion`. The command carries `engineer_id` because `policy.target` is a pure command→engineer mapping for the `Owned` check, and the SQL pair-match makes the claimed owner enforced. |
 | `ImportHolidays` | `rows: List(#(String, String, Date, String))` — country, region (`''` = nationwide), date, name | Pre-check every `(country, region)` exists in `holiday_region`, else `InvalidValue` naming the offender; then upsert `ON CONFLICT (country, region, holiday_on) DO UPDATE SET name`. |
 
 **Facts** stay row-level (one `repository.write` per row): `SetWorkSchedule` → 7× `WorkHoursSet(engineer_id, weekday, effective, starts, ends)` / `WorkDayCleared(engineer_id, weekday, effective)`; `AddFocusBlock` → `FocusBlockAdded(…)`; `RemoveFocusBlock` → `FocusBlockRemoved(id)`; `ImportHolidays` → N× `HolidayImported(country, region, date, name)`.
