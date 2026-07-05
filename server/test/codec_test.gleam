@@ -24,13 +24,12 @@ import shared/board/view.{
   BoardRow, BoardSnapshot, OnLeave, OnProject, Unassigned, UnstaffedProject,
 } as board_view
 import shared/capability/command as capability_command
+import shared/client/command as client_command
 import shared/client/view.{ClientProfile} as client_view
-import shared/client_details/command as client_details_command
 import shared/command as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer/view.{EngineerBanking, EngineerContact, EngineerEmergency} as engineer_view
-import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/forecast/view.{Forecast, ForecastMonth} as forecast_view
 import shared/invoice/command as invoice_command
@@ -46,9 +45,9 @@ import shared/money
 import shared/payroll/command as payroll_command
 import shared/payroll/view.{Payroll, PayrollLine, PayrollRunInfo, PayrollSegment} as payroll_view
 import shared/pnl/view.{Pnl, PnlRow} as pnl_view
+import shared/project/command as project_command
 import shared/project/view.{ProjectRequirement} as project_view
 import shared/project_capability/command as project_capability_command
-import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/roster/view.{Ref, Roster} as roster_view
 import shared/salary/command as salary_command
@@ -669,16 +668,14 @@ pub fn command_terminate_employment_round_trips_test() {
 
 pub fn command_update_contact_details_round_trips_test() {
   let original =
-    gateway.EngineerDetailsCommand(
-      engineer_details_command.UpdateContactDetails(
-        engineer_id: 1,
-        name: "Priya Sharma",
-        email: "priya.sharma@alembic.com.au",
-        phone: "+61 400 000 001",
-        postal_address: "1 Demo St, Brisbane",
-        effective: Date(2026, July, 1),
-      ),
-    )
+    gateway.EngineerCommand(engineer_command.UpdateContactDetails(
+      engineer_id: 1,
+      name: "Priya Sharma",
+      email: "priya.sharma@alembic.com.au",
+      phone: "+61 400 000 001",
+      postal_address: "1 Demo St, Brisbane",
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
@@ -686,16 +683,14 @@ pub fn command_update_contact_details_round_trips_test() {
 
 pub fn command_update_banking_details_round_trips_test() {
   let original =
-    gateway.EngineerDetailsCommand(
-      engineer_details_command.UpdateBankingDetails(
-        engineer_id: 2,
-        bank: "Big Bank",
-        branch: "062",
-        account_no: "00123452",
-        account_name: "Marcus Chen",
-        effective: Date(2026, July, 1),
-      ),
-    )
+    gateway.EngineerCommand(engineer_command.UpdateBankingDetails(
+      engineer_id: 2,
+      bank: "Big Bank",
+      branch: "062",
+      account_no: "00123452",
+      account_name: "Marcus Chen",
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
@@ -703,16 +698,14 @@ pub fn command_update_banking_details_round_trips_test() {
 
 pub fn command_update_emergency_contact_round_trips_test() {
   let original =
-    gateway.EngineerDetailsCommand(
-      engineer_details_command.UpdateEmergencyContact(
-        engineer_id: 3,
-        relation: "spouse",
-        name: "Sam Okafor",
-        phone: "+61 400 999 003",
-        email: "sam.okafor@example.com",
-        effective: Date(2026, July, 1),
-      ),
-    )
+    gateway.EngineerCommand(engineer_command.UpdateEmergencyContact(
+      engineer_id: 3,
+      relation: "spouse",
+      name: "Sam Okafor",
+      phone: "+61 400 999 003",
+      email: "sam.okafor@example.com",
+      effective: Date(2026, July, 1),
+    ))
 
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
@@ -723,7 +716,7 @@ pub fn command_update_emergency_contact_round_trips_test() {
 // variant and field.
 pub fn command_update_client_profile_round_trips_test() {
   let original =
-    gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
+    gateway.ClientCommand(client_command.UpdateClientProfile(
       client_id: 1,
       name: "Northwind Trading",
       effective: Date(2026, July, 1),
@@ -1392,15 +1385,13 @@ pub fn engineer_emergency_round_trips_test() {
 
 pub fn command_set_project_requirement_round_trips_test() {
   let original =
-    gateway.ProjectRequirementCommand(
-      project_requirement_command.SetProjectRequirement(
-        project_id: 500,
-        level: 3,
-        quantity: 2.0,
-        valid_from: Date(2026, August, 1),
-        valid_to: Date(2027, January, 1),
-      ),
-    )
+    gateway.ProjectCommand(project_command.SetProjectRequirement(
+      project_id: 500,
+      level: 3,
+      quantity: 2.0,
+      valid_from: Date(2026, August, 1),
+      valid_to: Date(2027, January, 1),
+    ))
 
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original

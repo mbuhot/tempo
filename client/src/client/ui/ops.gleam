@@ -20,11 +20,10 @@ import lustre/element/html
 import lustre/event
 import shared/access/policy
 import shared/allocation/command as allocation_command
-import shared/client_details/command as client_details_command
+import shared/client/command as client_command
 import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
-import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
@@ -32,9 +31,8 @@ import shared/location/command as location_command
 import shared/meeting/command as meeting_command
 import shared/money
 import shared/payroll/command as payroll_command
+import shared/project/command as project_command
 import shared/project_capability/command as project_capability_command
-import shared/project_details/command as project_details_command
-import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/roster/view.{type Ref}
 import shared/salary/command as salary_command
@@ -472,16 +470,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.EngineerDetailsCommand(
-          engineer_details_command.UpdateContactDetails(
-            engineer_id:,
-            name:,
-            email:,
-            phone:,
-            postal_address:,
-            effective:,
-          ),
-        ),
+        gateway.EngineerCommand(engineer_command.UpdateContactDetails(
+          engineer_id:,
+          name:,
+          email:,
+          phone:,
+          postal_address:,
+          effective:,
+        )),
       )
     }
     OpUpdateBanking -> {
@@ -498,16 +494,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.EngineerDetailsCommand(
-          engineer_details_command.UpdateBankingDetails(
-            engineer_id:,
-            bank:,
-            branch:,
-            account_no:,
-            account_name:,
-            effective:,
-          ),
-        ),
+        gateway.EngineerCommand(engineer_command.UpdateBankingDetails(
+          engineer_id:,
+          bank:,
+          branch:,
+          account_no:,
+          account_name:,
+          effective:,
+        )),
       )
     }
     OpUpdateEmergency -> {
@@ -518,16 +512,14 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use email <- result.try(require_text(form.emergency_email, "email"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.EngineerDetailsCommand(
-          engineer_details_command.UpdateEmergencyContact(
-            engineer_id:,
-            relation:,
-            name:,
-            phone:,
-            email:,
-            effective:,
-          ),
-        ),
+        gateway.EngineerCommand(engineer_command.UpdateEmergencyContact(
+          engineer_id:,
+          relation:,
+          name:,
+          phone:,
+          email:,
+          effective:,
+        )),
       )
     }
     OpLogWeek -> {
@@ -555,7 +547,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use name <- result.try(require_text(form.name, "name"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
+        gateway.ClientCommand(client_command.UpdateClientProfile(
           client_id:,
           name:,
           effective:,
@@ -612,14 +604,12 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use summary <- result.try(require_text(form.summary, "summary"))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.ProjectDetailsCommand(
-          project_details_command.UpdateProjectProfile(
-            project_id:,
-            title:,
-            summary:,
-            effective:,
-          ),
-        ),
+        gateway.ProjectCommand(project_command.UpdateProjectProfile(
+          project_id:,
+          title:,
+          summary:,
+          effective:,
+        )),
       )
     }
     OpUpdateProjectPlan -> {
@@ -631,7 +621,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       ))
       use effective <- result.try(require_date(form.effective, "effective"))
       Ok(
-        gateway.ProjectDetailsCommand(project_details_command.UpdateProjectPlan(
+        gateway.ProjectCommand(project_command.UpdateProjectPlan(
           project_id:,
           budget:,
           target_completion:,
@@ -722,15 +712,13 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
       use valid_from <- result.try(require_date(form.valid_from, "valid from"))
       use valid_to <- result.try(require_date(form.valid_to, "valid to"))
       Ok(
-        gateway.ProjectRequirementCommand(
-          project_requirement_command.SetProjectRequirement(
-            project_id:,
-            level:,
-            quantity:,
-            valid_from:,
-            valid_to:,
-          ),
-        ),
+        gateway.ProjectCommand(project_command.SetProjectRequirement(
+          project_id:,
+          level:,
+          quantity:,
+          valid_from:,
+          valid_to:,
+        )),
       )
     }
     OpSetProjectCapability -> {

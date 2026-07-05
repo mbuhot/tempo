@@ -1,5 +1,5 @@
-//// Domain: the client-details aggregate — the single edit-grouped fact that hangs
-//// off the client anchor (its profile, which is just the NAME). `command.route`
+//// Domain: the client aggregate — the single edit-grouped fact that hangs off the
+//// client anchor (its profile, which is just the NAME). `command.route`
 //// destructures the UpdateClientProfile command and calls the operation here with
 //// its already-narrowed fields; the operation returns the audit entry and the
 //// `Fact`s it records, and `command.dispatch` hands both to `repository` in ONE
@@ -10,18 +10,14 @@
 
 import gleam/int
 import gleam/time/calendar.{type Date}
-import shared/client_details/command.{
-  type ClientDetailsCommand, UpdateClientProfile,
-}
-import shared/command.{ClientDetailsCommand} as gateway
+import shared/client/command.{type ClientCommand, UpdateClientProfile}
+import shared/command.{ClientCommand} as gateway
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
 
-/// Route a client-details command to its operation, returning the audit entry and
-/// the facts it records. Exhaustive over `ClientDetailsCommand`.
-pub fn route(
-  command: ClientDetailsCommand,
-) -> Result(Recorded, OperationError) {
+/// Route a client command to its operation, returning the audit entry and the
+/// facts it records. Exhaustive over `ClientCommand`.
+pub fn route(command: ClientCommand) -> Result(Recorded, OperationError) {
   case command {
     UpdateClientProfile(client_id:, name:, effective:) ->
       update_client_profile(command, client_id:, name:, effective:)
@@ -30,7 +26,7 @@ pub fn route(
 
 /// Record a new client profile from `effective` onward, with its journal entry.
 pub fn update_client_profile(
-  command: ClientDetailsCommand,
+  command: ClientCommand,
   client_id client_id: Int,
   name name: String,
   effective effective: Date,
@@ -45,7 +41,7 @@ pub fn update_client_profile(
           <> name
           <> ") from "
           <> operation.iso(effective),
-        payload: gateway.encode_command(ClientDetailsCommand(command)),
+        payload: gateway.encode_command(ClientCommand(command)),
       ),
       facts: [
         fact.ClientProfile(

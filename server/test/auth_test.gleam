@@ -9,11 +9,10 @@ import gleam/time/calendar
 import shared/access
 import shared/capability/command as capability_command
 import shared/command.{
-  CapabilityCommand, EngineerCommand, EngineerDetailsCommand,
-  EngineerSkillCommand, PayrollCommand, SalaryCommand, SkillCommand,
+  CapabilityCommand, EngineerCommand, EngineerSkillCommand, PayrollCommand,
+  SalaryCommand, SkillCommand,
 }
 import shared/engineer/command as engineer_command
-import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
@@ -43,7 +42,7 @@ fn principal_with(
 }
 
 fn update_contact(engineer_id: Int) -> command.Command {
-  EngineerDetailsCommand(engineer_details_command.UpdateContactDetails(
+  EngineerCommand(engineer_command.UpdateContactDetails(
     engineer_id:,
     name: "A",
     email: "a@x",

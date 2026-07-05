@@ -1,16 +1,18 @@
-//// The project-details aggregate's write command type and its JSON codec (the two
-//// edit-grouped facts: profile = title + summary; plan = budget + target_completion).
-//// `encode` tags each variant by its `op`; `decoder` returns the field decoder for
-//// an `op` this aggregate owns (`Error(Nil)` for any other), so
-//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
+//// The project aggregate's write command type and its JSON codec: the two
+//// edit-grouped facts (profile = title + summary; plan = budget +
+//// target_completion) plus the capacity-requirement demand (a project's demand
+//// for FTE at a level over a bounded window). `encode` tags each variant by its
+//// `op`; `decoder` returns the field decoder for an `op` this aggregate owns
+//// (`Error(Nil)` for any other), so `shared/command.command_decoder` can
+//// dispatch by tag and wrap as `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
 import shared/money.{type Money}
-import shared/wire.{date_decoder, encode_date}
+import shared/wire.{date_decoder, encode_date, lenient_float_decoder}
 
-pub type ProjectDetailsCommand {
+pub type ProjectCommand {
   /// Record a new profile for a project effective from a date: close the
   /// `project_profile` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `title`/`summary` (a temporal Change on the
@@ -32,10 +34,20 @@ pub type ProjectDetailsCommand {
     target_completion: Date,
     effective: Date,
   )
+  /// Set a project's capacity requirement (demand) at a level for a bounded
+  /// window: a FOR-PORTION-OF write on `(project_id, level)`, splitting the
+  /// requirement row into before/during/after. `quantity` is fractional FTE.
+  SetProjectRequirement(
+    project_id: Int,
+    level: Int,
+    quantity: Float,
+    valid_from: Date,
+    valid_to: Date,
+  )
 }
 
-/// Encode a `ProjectDetailsCommand` as a tagged JSON object keyed by `op`.
-pub fn encode(command: ProjectDetailsCommand) -> Json {
+/// Encode a `ProjectCommand` as a tagged JSON object keyed by `op`.
+pub fn encode(command: ProjectCommand) -> Json {
   case command {
     UpdateProjectProfile(project_id:, title:, summary:, effective:) ->
       json.object([
@@ -53,12 +65,27 @@ pub fn encode(command: ProjectDetailsCommand) -> Json {
         #("target_completion", encode_date(target_completion)),
         #("effective", encode_date(effective)),
       ])
+    SetProjectRequirement(
+      project_id:,
+      level:,
+      quantity:,
+      valid_from:,
+      valid_to:,
+    ) ->
+      json.object([
+        #("op", json.string("set_project_requirement")),
+        #("project_id", json.int(project_id)),
+        #("level", json.int(level)),
+        #("quantity", json.float(quantity)),
+        #("valid_from", encode_date(valid_from)),
+        #("valid_to", encode_date(valid_to)),
+      ])
   }
 }
 
-/// The field decoder for a project-details `op`, or `Error(Nil)` for an op this
+/// The field decoder for a project `op`, or `Error(Nil)` for an op this
 /// aggregate does not own (so the top-level dispatcher can try the next group).
-pub fn decoder(op: String) -> Result(Decoder(ProjectDetailsCommand), Nil) {
+pub fn decoder(op: String) -> Result(Decoder(ProjectCommand), Nil) {
   case op {
     "update_project_profile" ->
       Ok({
@@ -87,6 +114,21 @@ pub fn decoder(op: String) -> Result(Decoder(ProjectDetailsCommand), Nil) {
           budget:,
           target_completion:,
           effective:,
+        ))
+      })
+    "set_project_requirement" ->
+      Ok({
+        use project_id <- decode.field("project_id", decode.int)
+        use level <- decode.field("level", decode.int)
+        use quantity <- decode.field("quantity", lenient_float_decoder())
+        use valid_from <- decode.field("valid_from", date_decoder())
+        use valid_to <- decode.field("valid_to", date_decoder())
+        decode.success(SetProjectRequirement(
+          project_id:,
+          level:,
+          quantity:,
+          valid_from:,
+          valid_to:,
         ))
       })
     _ -> Error(Nil)

@@ -21,21 +21,19 @@
 import gleam/result
 import pog
 import shared/command.{
-  type Command, type Event, AllocationCommand, CapabilityCommand,
-  ClientDetailsCommand, EngagementCommand, EngineerCommand,
-  EngineerDetailsCommand, EngineerSkillCommand, InvoiceCommand, LeaveCommand,
-  LocationCommand, MeetingCommand, PayrollCommand, ProjectCapabilityCommand,
-  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
+  type Command, type Event, AllocationCommand, CapabilityCommand, ClientCommand,
+  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
+  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
+  ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import tempo/server/allocation/command as allocation
 import tempo/server/auth.{type Principal, Forbidden}
 import tempo/server/capability/command as capability
-import tempo/server/client_details/command as client_details
+import tempo/server/client/command as client
 import tempo/server/context.{type Context}
 import tempo/server/engagement/command as engagement
 import tempo/server/engineer/command as engineer
-import tempo/server/engineer_details/command as engineer_details
 import tempo/server/engineer_skill/command as engineer_skill
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/invoice/command as invoice
@@ -44,9 +42,8 @@ import tempo/server/location/command as location
 import tempo/server/meeting/command as meeting
 import tempo/server/operation.{type OperationError}
 import tempo/server/payroll/command as payroll
+import tempo/server/project/command as project
 import tempo/server/project_capability/command as project_capability
-import tempo/server/project_details/command as project_details
-import tempo/server/project_requirement/command as project_requirement
 import tempo/server/rate_card/command as rate_card
 import tempo/server/repository
 import tempo/server/role/command as role
@@ -125,14 +122,12 @@ fn route(
     EngagementCommand(command) -> engagement.route(conn, command)
     LeaveCommand(command) -> leave.route(conn, command)
     TimesheetCommand(command) -> timesheet.route(command)
-    EngineerDetailsCommand(command) -> engineer_details.route(command)
-    ClientDetailsCommand(command) -> client_details.route(command)
-    ProjectDetailsCommand(command) -> project_details.route(command)
+    ClientCommand(command) -> client.route(command)
+    ProjectCommand(command) -> project.route(command)
     RateCardCommand(command) -> rate_card.route(command)
     SalaryCommand(command) -> salary.route(command)
     InvoiceCommand(command) -> invoice.route(conn, command)
     PayrollCommand(command) -> payroll.route(conn, command)
-    ProjectRequirementCommand(command) -> project_requirement.route(command)
     ProjectCapabilityCommand(command) -> project_capability.route(command)
     RoleCommand(command) -> role.route(command)
     WorkflowCommand(command) -> workflow_commit.route(conn, command)

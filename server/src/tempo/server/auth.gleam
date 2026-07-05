@@ -18,15 +18,15 @@ import shared/access
 import shared/access/policy
 import shared/capability/command as capability_command
 import shared/command.{
-  type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
-  EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  EngineerSkillCommand, InvoiceCommand, LeaveCommand, LocationCommand,
-  MeetingCommand, PayrollCommand, ProjectCapabilityCommand,
-  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
+  type Command, AllocationCommand, CapabilityCommand, ClientCommand,
+  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
+  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
+  ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
+import shared/project/command as project_command
 import shared/role/command as role_command
 import shared/skill/command as skill_command
 import shared/workflow/command as workflow_command
@@ -108,14 +108,21 @@ fn command_tag(command: Command) -> String {
     EngineerCommand(engineer_command.Promote(..)) -> "promote"
     EngineerCommand(engineer_command.TerminateEmployment(..)) ->
       "terminate_employment"
-    EngineerDetailsCommand(_) -> "update_profile"
+    EngineerCommand(engineer_command.UpdateContactDetails(..)) ->
+      "update_profile"
+    EngineerCommand(engineer_command.UpdateBankingDetails(..)) ->
+      "update_profile"
+    EngineerCommand(engineer_command.UpdateEmergencyContact(..)) ->
+      "update_profile"
     AllocationCommand(_) -> "manage_allocation"
     EngagementCommand(_) -> "manage_engagement"
     LeaveCommand(_) -> "take_leave"
     TimesheetCommand(_) -> "log_timesheet"
-    ClientDetailsCommand(_) -> "update_client"
-    ProjectDetailsCommand(_) -> "manage_project"
-    ProjectRequirementCommand(_) -> "set_project_requirement"
+    ClientCommand(_) -> "update_client"
+    ProjectCommand(project_command.UpdateProjectProfile(..)) -> "manage_project"
+    ProjectCommand(project_command.UpdateProjectPlan(..)) -> "manage_project"
+    ProjectCommand(project_command.SetProjectRequirement(..)) ->
+      "set_project_requirement"
     ProjectCapabilityCommand(_) -> "set_project_capability"
     RateCardCommand(_) -> "manage_rate_card"
     SalaryCommand(_) -> "set_salary"

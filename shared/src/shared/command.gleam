@@ -11,10 +11,9 @@ import gleam/option.{type Option}
 import gleam/result
 import shared/allocation/command as allocation_command
 import shared/capability/command as capability_command
-import shared/client_details/command as client_details_command
+import shared/client/command as client_command
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
-import shared/engineer_details/command as engineer_details_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/command as invoice_command
 import shared/leave/command as leave_command
@@ -22,9 +21,8 @@ import shared/location/command as location_command
 import shared/meeting/command as meeting_command
 import shared/pagination
 import shared/payroll/command as payroll_command
+import shared/project/command as project_command
 import shared/project_capability/command as project_capability_command
-import shared/project_details/command as project_details_command
-import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/role/command as role_command
 import shared/salary/command as salary_command
@@ -57,16 +55,12 @@ pub type Command {
   EngagementCommand(engagement_command.EngagementCommand)
   LeaveCommand(leave_command.LeaveCommand)
   TimesheetCommand(timesheet_command.TimesheetCommand)
-  EngineerDetailsCommand(engineer_details_command.EngineerDetailsCommand)
-  ClientDetailsCommand(client_details_command.ClientDetailsCommand)
-  ProjectDetailsCommand(project_details_command.ProjectDetailsCommand)
+  ClientCommand(client_command.ClientCommand)
+  ProjectCommand(project_command.ProjectCommand)
   RateCardCommand(rate_card_command.RateCardCommand)
   SalaryCommand(salary_command.SalaryCommand)
   InvoiceCommand(invoice_command.InvoiceCommand)
   PayrollCommand(payroll_command.PayrollCommand)
-  ProjectRequirementCommand(
-    project_requirement_command.ProjectRequirementCommand,
-  )
   ProjectCapabilityCommand(project_capability_command.ProjectCapabilityCommand)
   RoleCommand(role_command.RoleCommand)
   WorkflowCommand(workflow_command.WorkflowCommand)
@@ -86,15 +80,12 @@ pub fn encode_command(command: Command) -> Json {
     EngagementCommand(command) -> engagement_command.encode(command)
     LeaveCommand(command) -> leave_command.encode(command)
     TimesheetCommand(command) -> timesheet_command.encode(command)
-    EngineerDetailsCommand(command) -> engineer_details_command.encode(command)
-    ClientDetailsCommand(command) -> client_details_command.encode(command)
-    ProjectDetailsCommand(command) -> project_details_command.encode(command)
+    ClientCommand(command) -> client_command.encode(command)
+    ProjectCommand(command) -> project_command.encode(command)
     RateCardCommand(command) -> rate_card_command.encode(command)
     SalaryCommand(command) -> salary_command.encode(command)
     InvoiceCommand(command) -> invoice_command.encode(command)
     PayrollCommand(command) -> payroll_command.encode(command)
-    ProjectRequirementCommand(command) ->
-      project_requirement_command.encode(command)
     ProjectCapabilityCommand(command) ->
       project_capability_command.encode(command)
     RoleCommand(command) -> role_command.encode(command)
@@ -117,17 +108,12 @@ fn grouped_command_decoder(op: String) -> Result(Decoder(Command), Nil) {
   use <- try_group(engagement_command.decoder(op), EngagementCommand)
   use <- try_group(leave_command.decoder(op), LeaveCommand)
   use <- try_group(timesheet_command.decoder(op), TimesheetCommand)
-  use <- try_group(engineer_details_command.decoder(op), EngineerDetailsCommand)
-  use <- try_group(client_details_command.decoder(op), ClientDetailsCommand)
-  use <- try_group(project_details_command.decoder(op), ProjectDetailsCommand)
+  use <- try_group(client_command.decoder(op), ClientCommand)
+  use <- try_group(project_command.decoder(op), ProjectCommand)
   use <- try_group(rate_card_command.decoder(op), RateCardCommand)
   use <- try_group(salary_command.decoder(op), SalaryCommand)
   use <- try_group(invoice_command.decoder(op), InvoiceCommand)
   use <- try_group(payroll_command.decoder(op), PayrollCommand)
-  use <- try_group(
-    project_requirement_command.decoder(op),
-    ProjectRequirementCommand,
-  )
   use <- try_group(
     project_capability_command.decoder(op),
     ProjectCapabilityCommand,

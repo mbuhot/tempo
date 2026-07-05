@@ -31,15 +31,15 @@ import gleam/time/calendar.{
 import pog
 import shared/allocation/command as allocation_command
 import shared/capability/command as capability_command
-import shared/client_details/command as client_details_command
+import shared/client/command as client_command
 import shared/command.{type Command} as gateway
 import shared/engagement/command as engagement_command
 import shared/engineer/command as engineer_command
 import shared/engineer_skill/command as engineer_skill_command
 import shared/money.{type Money}
+import shared/project/command as project_command
 import shared/project_capability/command as project_capability_command
 import shared/project_capability/view.{CoverageEngineer, CoverageRequirement}
-import shared/project_requirement/command as project_requirement_command
 import shared/rate_card/command as rate_card_command
 import shared/salary/command as salary_command
 import shared/skill/command as skill_command
@@ -1241,15 +1241,13 @@ pub fn set_project_requirement_for_portion_splits_three_ways_test() {
       // Set 1 FTE for the bounded window [Apr, Jul) only.
       apply(
         conn,
-        gateway.ProjectRequirementCommand(
-          project_requirement_command.SetProjectRequirement(
-            80_020,
-            3,
-            1.0,
-            Date(2026, April, 1),
-            Date(2026, July, 1),
-          ),
-        ),
+        gateway.ProjectCommand(project_command.SetProjectRequirement(
+          80_020,
+          3,
+          1.0,
+          Date(2026, April, 1),
+          Date(2026, July, 1),
+        )),
       )
       read_periods(
         conn,
@@ -1736,7 +1734,7 @@ pub fn update_client_profile_changes_name_and_journals_test() {
       // Re-state the name from Apr — splits the open-ended Initech row at Apr.
       apply(
         conn,
-        gateway.ClientDetailsCommand(client_details_command.UpdateClientProfile(
+        gateway.ClientCommand(client_command.UpdateClientProfile(
           client_id,
           "Initrode",
           Date(2026, April, 1),

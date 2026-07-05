@@ -1,4 +1,4 @@
-//// The client-details aggregate's write command type and its JSON codec (the single
+//// The client aggregate's write command type and its JSON codec (the single
 //// edit-grouped profile fact: the client's name). `encode` tags the variant by its
 //// `op`; `decoder` returns the field decoder for an `op` this aggregate owns
 //// (`Error(Nil)` for any other), so `shared/command.command_decoder` can dispatch
@@ -9,7 +9,7 @@ import gleam/json.{type Json}
 import gleam/time/calendar.{type Date}
 import shared/wire.{date_decoder, encode_date}
 
-pub type ClientDetailsCommand {
+pub type ClientCommand {
   /// Record a new profile for a client effective from a date: close the
   /// `client_profile` row covering `effective` and open a new full row
   /// `[effective, NULL)` carrying `name` (a temporal Change on the append-only
@@ -18,8 +18,8 @@ pub type ClientDetailsCommand {
   UpdateClientProfile(client_id: Int, name: String, effective: Date)
 }
 
-/// Encode a `ClientDetailsCommand` as a tagged JSON object keyed by `op`.
-pub fn encode(command: ClientDetailsCommand) -> Json {
+/// Encode a `ClientCommand` as a tagged JSON object keyed by `op`.
+pub fn encode(command: ClientCommand) -> Json {
   case command {
     UpdateClientProfile(client_id:, name:, effective:) ->
       json.object([
@@ -31,9 +31,9 @@ pub fn encode(command: ClientDetailsCommand) -> Json {
   }
 }
 
-/// The field decoder for a client-details `op`, or `Error(Nil)` for an op this
-/// aggregate does not own (so the top-level dispatcher can try the next group).
-pub fn decoder(op: String) -> Result(Decoder(ClientDetailsCommand), Nil) {
+/// The field decoder for a client `op`, or `Error(Nil)` for an op this aggregate
+/// does not own (so the top-level dispatcher can try the next group).
+pub fn decoder(op: String) -> Result(Decoder(ClientCommand), Nil) {
   case op {
     "update_client_profile" ->
       Ok({

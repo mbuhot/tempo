@@ -15,15 +15,13 @@ import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 import shared/access
 import shared/command.{
-  type Command, AllocationCommand, CapabilityCommand, ClientDetailsCommand,
-  EngagementCommand, EngineerCommand, EngineerDetailsCommand,
-  EngineerSkillCommand, InvoiceCommand, LeaveCommand, LocationCommand,
-  MeetingCommand, PayrollCommand, ProjectCapabilityCommand,
-  ProjectDetailsCommand, ProjectRequirementCommand, RateCardCommand, RoleCommand,
+  type Command, AllocationCommand, CapabilityCommand, ClientCommand,
+  EngagementCommand, EngineerCommand, EngineerSkillCommand, InvoiceCommand,
+  LeaveCommand, LocationCommand, MeetingCommand, PayrollCommand,
+  ProjectCapabilityCommand, ProjectCommand, RateCardCommand, RoleCommand,
   SalaryCommand, SkillCommand, TimesheetCommand, WorkflowCommand,
 }
 import shared/engineer/command as engineer_command
-import shared/engineer_details/command as engineer_details_command
 import shared/leave/command as leave_command
 import shared/timesheet/command as timesheet_command
 import shared/workflow/command as workflow_command
@@ -100,14 +98,16 @@ pub fn key(command: Command) -> CommandKey {
     EngineerCommand(engineer_command.OnboardEngineer(..)) -> Onboard
     EngineerCommand(engineer_command.Promote(..)) -> Promote
     EngineerCommand(engineer_command.TerminateEmployment(..)) -> Terminate
-    EngineerDetailsCommand(_) -> UpdateProfile
+    EngineerCommand(engineer_command.UpdateContactDetails(..)) -> UpdateProfile
+    EngineerCommand(engineer_command.UpdateBankingDetails(..)) -> UpdateProfile
+    EngineerCommand(engineer_command.UpdateEmergencyContact(..)) ->
+      UpdateProfile
     AllocationCommand(_) -> ManageAllocation
     EngagementCommand(_) -> ManageEngagement
     LeaveCommand(_) -> TakeLeave
     TimesheetCommand(_) -> LogTimesheet
-    ClientDetailsCommand(_) -> UpdateClient
-    ProjectDetailsCommand(_) -> ManageProject
-    ProjectRequirementCommand(_) -> ManageProject
+    ClientCommand(_) -> UpdateClient
+    ProjectCommand(_) -> ManageProject
     ProjectCapabilityCommand(_) -> ManageProject
     RateCardCommand(_) -> ManageRateCard
     SalaryCommand(_) -> SetSalary
@@ -129,7 +129,7 @@ pub fn key(command: Command) -> CommandKey {
 /// command carries. The server pairs this with the principal's linked engineer.
 pub fn target(command: Command) -> Option(Int) {
   case command {
-    EngineerDetailsCommand(details) -> Some(engineer_details_target(details))
+    EngineerCommand(details) -> engineer_target(details)
     LeaveCommand(leave_command.TakeLeave(engineer_id:, ..)) -> Some(engineer_id)
     TimesheetCommand(entry) -> Some(timesheet_target(entry))
     _ -> None
@@ -152,16 +152,15 @@ pub fn satisfies(
   }
 }
 
-fn engineer_details_target(
-  command: engineer_details_command.EngineerDetailsCommand,
-) -> Int {
+fn engineer_target(command: engineer_command.EngineerCommand) -> Option(Int) {
   case command {
-    engineer_details_command.UpdateContactDetails(engineer_id:, ..) ->
-      engineer_id
-    engineer_details_command.UpdateBankingDetails(engineer_id:, ..) ->
-      engineer_id
-    engineer_details_command.UpdateEmergencyContact(engineer_id:, ..) ->
-      engineer_id
+    engineer_command.UpdateContactDetails(engineer_id:, ..) -> Some(engineer_id)
+    engineer_command.UpdateBankingDetails(engineer_id:, ..) -> Some(engineer_id)
+    engineer_command.UpdateEmergencyContact(engineer_id:, ..) ->
+      Some(engineer_id)
+    engineer_command.OnboardEngineer(..) -> None
+    engineer_command.Promote(..) -> None
+    engineer_command.TerminateEmployment(..) -> None
   }
 }
 
