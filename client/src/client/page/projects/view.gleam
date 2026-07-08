@@ -648,14 +648,22 @@ fn recommendations_status_panel(message: String) -> Element(Msg) {
 }
 
 /// One gap's section: the panel badged with the capability it addresses,
-/// listing the top 4 ranked recommendations (or "No suitable candidates.").
+/// listing the top 4 ready-now recommendations followed by all growth
+/// (mentorship) recommendations (or "No suitable candidates."), so a deep
+/// ready-now bench never crowds growth rows out of view. Rank numbers
+/// continue through this displayed order.
 fn gap_panel(
   gap: GapRecommendations,
   permissions: Set(String),
 ) -> Element(Msg) {
   let GapRecommendations(capability_name:, target_level:, recommendations:, ..) =
     gap
-  let body = case list.take(recommendations, 4) {
+  let #(ready_now, growth) =
+    list.partition(recommendations, fn(recommendation) {
+      recommendation.pairing == None
+    })
+  let displayed = list.append(list.take(ready_now, 4), growth)
+  let body = case displayed {
     [] -> [atoms.empty_state(message: "No suitable candidates.")]
     rows ->
       list.index_map(rows, fn(recommendation, index) {
