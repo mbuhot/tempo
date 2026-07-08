@@ -261,6 +261,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_finances)
       settings.handle_leave_policy_table(request, context)
     }
+    ["api", "meetings", "find-a-time", "project-team"] -> {
+      use _principal <- guard.require(context, access.read_engineers)
+      meeting_http.handle_project_team(request, context)
+    }
     ["api", "meetings", "find-a-time"] -> {
       use _principal <- guard.require(context, access.read_engineers)
       meeting_http.handle_find_time(request, context)

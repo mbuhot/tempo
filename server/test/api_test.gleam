@@ -1568,6 +1568,23 @@ pub fn find_a_time_with_unknown_timezone_is_bad_request_test() {
   assert response.status == 400
 }
 
+// --- GET /api/meetings/find-a-time/project-team ------------------------------
+
+// Project 300 (seeded) has engineers 2 (Marcus) and 3 (Aisha) allocated across
+// 2025-01-01..2027-01-01, so an as-of read on the seed "now" returns exactly
+// that pair — the "Fill from project" wizard affordance's data source.
+pub fn find_a_time_project_team_returns_the_seeded_allocation_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/meetings/find-a-time/project-team?project_id=300&as_of=2026-06-15",
+    )
+    |> read()
+
+  assert response.status == 200
+  assert decode_int_list(response) == [2, 3]
+}
+
 // --- GET /api/engineers/:id/availability, GET /api/holidays -----------------
 
 // As of 2026-07-05, Priya (id 1) has her seeded default 9-17 Mon-Thu, her Friday
@@ -1780,6 +1797,13 @@ fn decode_candidate_slots(response) -> List(CandidateSlot) {
     simulate.read_body(response)
     |> json.parse(decode.list(meeting_view.candidate_slot_decoder()))
   slots
+}
+
+fn decode_int_list(response) -> List(Int) {
+  let assert Ok(ids) =
+    simulate.read_body(response)
+    |> json.parse(decode.list(decode.int))
+  ids
 }
 
 fn decode_availability(response) -> AvailabilityRecord {

@@ -106,6 +106,7 @@ pub fn find_time(
     sql.timezone_valid(context.db, timezone)
     |> result.map_error(FindTimeQueryFailed),
   )
+  let #(required, optional) = dedupe_participants(required, optional)
   let assert [check] = valid.rows
   case check.valid {
     False -> Error(UnknownTimezone)
@@ -128,6 +129,32 @@ pub fn find_time(
   }
 }
 
+/// Dedupe `required` (a repeated id would otherwise inflate the SQL coverage
+/// guard's expected count and fail it closed, i.e. zero slots) and drop from
+/// `optional` any id already required, so the two lists partition the
+/// participants disjointly before they reach the query.
+fn dedupe_participants(
+  required: List(Int),
+  optional: List(Int),
+) -> #(List(Int), List(Int)) {
+  let required = list.unique(required)
+  let optional =
+    list.unique(optional)
+    |> list.filter(fn(id) { !list.contains(required, id) })
+  #(required, optional)
+}
+
+/// The distinct engineers allocated to `project_id` as-of `as_of` — the "Fill
+/// from project" affordance in the find-a-time wizard.
+pub fn project_team(
+  context: Context,
+  project_id: Int,
+  as_of: Date,
+) -> Result(List(Int), pog.QueryError) {
+  use rows <- result.map(sql.project_team_asof(context.db, project_id, as_of))
+  list.map(rows.rows, fn(row) { row.engineer_id })
+}
+
 fn ids_to_text(ids: List(Int)) -> String {
   ids
   |> list.map(int.to_string)
@@ -146,19 +173,25 @@ fn accumulate_slot(
   row: sql.FindATimeRow,
 ) -> List(CandidateSlot) {
   case acc {
-    [CandidateSlot(starts_at:, ends_at:, attendees:), ..rest]
+    [
+      CandidateSlot(starts_at:, ends_at:, attendees:, viewer_offset_minutes:),
+      ..rest
+    ]
       if starts_at == row.starts_at && ends_at == row.ends_at
     -> [
-      CandidateSlot(starts_at:, ends_at:, attendees: [
+      CandidateSlot(starts_at:, ends_at:, viewer_offset_minutes:, attendees: [
         row_to_slot_attendee(row),
         ..attendees
       ]),
       ..rest
     ]
     _ -> [
-      CandidateSlot(starts_at: row.starts_at, ends_at: row.ends_at, attendees: [
-        row_to_slot_attendee(row),
-      ]),
+      CandidateSlot(
+        starts_at: row.starts_at,
+        ends_at: row.ends_at,
+        viewer_offset_minutes: row.viewer_offset_minutes,
+        attendees: [row_to_slot_attendee(row)],
+      ),
       ..acc
     ]
   }

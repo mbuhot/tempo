@@ -24,6 +24,7 @@ pub fn candidate_slot_codec_round_trip_test() {
           offset_minutes: None,
         ),
       ],
+      viewer_offset_minutes: 60,
     )
   let round_tripped =
     view.encode_candidate_slot(slot)

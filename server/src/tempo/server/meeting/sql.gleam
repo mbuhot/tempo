@@ -226,6 +226,7 @@ pub type FindATimeRow {
     attendance: String,
     timezone: Option(String),
     offset_minutes: Option(Int),
+    viewer_offset_minutes: Int,
   )
 }
 
@@ -245,6 +246,12 @@ pub type FindATimeRow {
 /// date, $2 to date, $3 viewer timezone, $4 duration minutes, $5 required engineer
 /// ids (comma-separated text), $6 optional engineer ids (comma-separated text, ''
 /// = none), $7 excluded meeting id (0 = none, e.g. the meeting being rescheduled).
+/// viewer_offset_minutes is $3's UTC offset (minutes east) at the slot start, the
+/// same epoch-subtraction formula as the per-attendee offset below — the wizard
+/// has no timezone library, so the server ships the offset it needs to convert a
+/// chosen slot back into a viewer-local `date` + `starts_at` for the booking
+/// command. Always resolvable ($3 is validated before this query runs), so unlike
+/// the per-attendee offset it is NOT nullable.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -267,6 +274,7 @@ pub fn find_a_time(
     use attendance <- decode.field(4, decode.string)
     use timezone <- decode.field(5, decode.optional(decode.string))
     use offset_minutes <- decode.field(6, decode.optional(decode.int))
+    use viewer_offset_minutes <- decode.field(7, decode.int)
     decode.success(FindATimeRow(
       starts_at:,
       ends_at:,
@@ -275,6 +283,7 @@ pub fn find_a_time(
       attendance:,
       timezone:,
       offset_minutes:,
+      viewer_offset_minutes:,
     ))
   }
 
@@ -294,6 +303,12 @@ pub fn find_a_time(
 -- date, $2 to date, $3 viewer timezone, $4 duration minutes, $5 required engineer
 -- ids (comma-separated text), $6 optional engineer ids (comma-separated text, ''
 -- = none), $7 excluded meeting id (0 = none, e.g. the meeting being rescheduled).
+-- viewer_offset_minutes is $3's UTC offset (minutes east) at the slot start, the
+-- same epoch-subtraction formula as the per-attendee offset below — the wizard
+-- has no timezone library, so the server ships the offset it needs to convert a
+-- chosen slot back into a viewer-local `date` + `starts_at` for the booking
+-- command. Always resolvable ($3 is validated before this query runs), so unlike
+-- the per-attendee offset it is NOT nullable.
 WITH params AS (
   SELECT tstzrange(
            ($1::date::text || ' 00:00')::timestamp AT TIME ZONE $3,
@@ -399,7 +414,9 @@ SELECT to_char(lower(s.win) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'
        CASE WHEN loc.timezone IS NULL THEN NULL
             ELSE ((extract(epoch from (lower(s.win) AT TIME ZONE loc.timezone))
                    - extract(epoch from (lower(s.win) AT TIME ZONE 'UTC'))) / 60)::int
-       END AS \"offset_minutes?\"
+       END AS \"offset_minutes?\",
+       ((extract(epoch from (lower(s.win) AT TIME ZONE $3))
+         - extract(epoch from (lower(s.win) AT TIME ZONE 'UTC'))) / 60)::int AS viewer_offset_minutes
 FROM slot s
 CROSS JOIN attendee a
 JOIN engineer_current ec ON ec.id = a.engineer_id
@@ -858,6 +875,48 @@ ORDER BY lower(b.occupies), m.id;
 "
   |> pog.query
   |> pog.parameter(pog.calendar_date(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `project_team_asof` query
+/// defined in `./src/tempo/server/meeting/sql/project_team_asof.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type ProjectTeamAsofRow {
+  ProjectTeamAsofRow(engineer_id: Int)
+}
+
+/// project_team_asof.sql — the distinct engineers allocated to project $1 as-of
+/// date $2 (the "Fill from project" affordance in the find-a-time wizard, per the
+/// design doc's participant table). $1 = project_id, $2 = as-of date.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn project_team_asof(
+  db: pog.Connection,
+  project_id: Int,
+  arg_2: Date,
+) -> Result(pog.Returned(ProjectTeamAsofRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    decode.success(ProjectTeamAsofRow(engineer_id:))
+  }
+
+  "-- project_team_asof.sql — the distinct engineers allocated to project $1 as-of
+-- date $2 (the \"Fill from project\" affordance in the find-a-time wizard, per the
+-- design doc's participant table). $1 = project_id, $2 = as-of date.
+SELECT DISTINCT engineer_id
+FROM allocation
+WHERE project_id = $1 AND allocated_during @> $2::date
+ORDER BY engineer_id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(project_id))
+  |> pog.parameter(pog.calendar_date(arg_2))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

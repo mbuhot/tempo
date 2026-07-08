@@ -112,6 +112,7 @@ pub type CandidateSlot {
     starts_at: String,
     ends_at: String,
     attendees: List(SlotAttendee),
+    viewer_offset_minutes: Int,
   )
 }
 
@@ -146,11 +147,13 @@ pub fn slot_attendee_decoder() -> Decoder(SlotAttendee) {
 }
 
 pub fn encode_candidate_slot(slot: CandidateSlot) -> Json {
-  let CandidateSlot(starts_at:, ends_at:, attendees:) = slot
+  let CandidateSlot(starts_at:, ends_at:, attendees:, viewer_offset_minutes:) =
+    slot
   json.object([
     #("starts_at", json.string(starts_at)),
     #("ends_at", json.string(ends_at)),
     #("attendees", json.array(attendees, encode_slot_attendee)),
+    #("viewer_offset_minutes", json.int(viewer_offset_minutes)),
   ])
 }
 
@@ -161,7 +164,13 @@ pub fn candidate_slot_decoder() -> Decoder(CandidateSlot) {
     "attendees",
     decode.list(slot_attendee_decoder()),
   )
-  decode.success(CandidateSlot(starts_at:, ends_at:, attendees:))
+  use viewer_offset_minutes <- decode.field("viewer_offset_minutes", decode.int)
+  decode.success(CandidateSlot(
+    starts_at:,
+    ends_at:,
+    attendees:,
+    viewer_offset_minutes:,
+  ))
 }
 
 pub fn meeting_record_decoder() -> Decoder(MeetingRecord) {

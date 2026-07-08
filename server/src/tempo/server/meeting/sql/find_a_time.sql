@@ -14,6 +14,12 @@
 -- date, $2 to date, $3 viewer timezone, $4 duration minutes, $5 required engineer
 -- ids (comma-separated text), $6 optional engineer ids (comma-separated text, ''
 -- = none), $7 excluded meeting id (0 = none, e.g. the meeting being rescheduled).
+-- viewer_offset_minutes is $3's UTC offset (minutes east) at the slot start, the
+-- same epoch-subtraction formula as the per-attendee offset below — the wizard
+-- has no timezone library, so the server ships the offset it needs to convert a
+-- chosen slot back into a viewer-local `date` + `starts_at` for the booking
+-- command. Always resolvable ($3 is validated before this query runs), so unlike
+-- the per-attendee offset it is NOT nullable.
 WITH params AS (
   SELECT tstzrange(
            ($1::date::text || ' 00:00')::timestamp AT TIME ZONE $3,
@@ -119,7 +125,9 @@ SELECT to_char(lower(s.win) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS
        CASE WHEN loc.timezone IS NULL THEN NULL
             ELSE ((extract(epoch from (lower(s.win) AT TIME ZONE loc.timezone))
                    - extract(epoch from (lower(s.win) AT TIME ZONE 'UTC'))) / 60)::int
-       END AS "offset_minutes?"
+       END AS "offset_minutes?",
+       ((extract(epoch from (lower(s.win) AT TIME ZONE $3))
+         - extract(epoch from (lower(s.win) AT TIME ZONE 'UTC'))) / 60)::int AS viewer_offset_minutes
 FROM slot s
 CROSS JOIN attendee a
 JOIN engineer_current ec ON ec.id = a.engineer_id

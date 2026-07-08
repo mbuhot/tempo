@@ -345,6 +345,43 @@ pub fn exclude_vacates_the_meetings_own_slot_test() {
   })
 }
 
+pub fn a_duplicate_required_id_does_not_fail_the_coverage_guard_test() {
+  rolling_back(fn(conn) {
+    let assert Ok(deduped) =
+      meeting_view.find_time(
+        ctx(conn),
+        Date(2026, calendar.June, 15),
+        Date(2026, calendar.June, 19),
+        "Europe/London",
+        60,
+        [2, 2],
+        [],
+        0,
+      )
+    let assert Ok(single) =
+      meeting_view.find_time(
+        ctx(conn),
+        Date(2026, calendar.June, 15),
+        Date(2026, calendar.June, 19),
+        "Europe/London",
+        60,
+        [2],
+        [],
+        0,
+      )
+    assert spans(deduped) == spans(single)
+    assert deduped != []
+  })
+}
+
+pub fn project_team_for_project_300_returns_its_two_engineers_test() {
+  rolling_back(fn(conn) {
+    let assert Ok(team) =
+      meeting_view.project_team(ctx(conn), 300, Date(2026, calendar.June, 15))
+    assert team == [2, 3]
+  })
+}
+
 pub fn a_scheduled_meeting_is_busy_and_a_cancelled_one_is_not_test() {
   rolling_back(fn(conn) {
     let assert Ok(_) =
