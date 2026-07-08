@@ -144,6 +144,10 @@ pub type Fact {
   /// A level's billable day rate. `None` revises it from `from` onward; `Some(to)`
   /// is a bounded surgical edit over `[from, to)`.
   RateCard(level: Int, day_rate: Money, from: Date, to: Option(Date))
+  /// A contract's own negotiated day rate for a level, from `from` onward —
+  /// billing prefers this over `RateCard` when it covers the contract's agreed
+  /// date.
+  ContractRate(contract_id: Int, level: Int, day_rate: Money, from: Date)
   /// A level's monthly salary from `from` onward.
   Salary(level: Int, monthly_salary: Money, from: Date)
 

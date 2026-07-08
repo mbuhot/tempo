@@ -1,8 +1,10 @@
 //// The rate-card aggregate's write command type and its JSON codec (a level's day
-//// rate versioned over time: the open-ended revise and the bounded surgical adjust).
-//// `encode` tags each variant by its `op`; `decoder` returns the field decoder for
-//// an `op` this aggregate owns (`Error(Nil)` for any other), so
-//// `shared/command.command_decoder` can dispatch by tag and wrap as `Command`.
+//// rate versioned over time: the open-ended revise and the bounded surgical adjust;
+//// plus a contract's own negotiated rate for a level, versioned the same way but
+//// scoped to that one contract). `encode` tags each variant by its `op`; `decoder`
+//// returns the field decoder for an `op` this aggregate owns (`Error(Nil)` for any
+//// other), so `shared/command.command_decoder` can dispatch by tag and wrap as
+//// `Command`.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
@@ -20,6 +22,15 @@ pub type RateCardCommand {
     day_rate: Money,
     valid_from: Date,
     valid_to: Date,
+  )
+  /// Negotiate a contract's own day rate for a level, effective from a date onward
+  /// — billing prefers this over the firm-wide rate card when it covers the
+  /// contract's agreed date.
+  SetContractRate(
+    contract_id: Int,
+    level: Int,
+    day_rate: Money,
+    effective: Date,
   )
 }
 
@@ -40,6 +51,14 @@ pub fn encode(command: RateCardCommand) -> Json {
         #("day_rate", money.encode(day_rate)),
         #("valid_from", encode_date(valid_from)),
         #("valid_to", encode_date(valid_to)),
+      ])
+    SetContractRate(contract_id:, level:, day_rate:, effective:) ->
+      json.object([
+        #("op", json.string("set_contract_rate")),
+        #("contract_id", json.int(contract_id)),
+        #("level", json.int(level)),
+        #("day_rate", money.encode(day_rate)),
+        #("effective", encode_date(effective)),
       ])
   }
 }
@@ -66,6 +85,19 @@ pub fn decoder(op: String) -> Result(Decoder(RateCardCommand), Nil) {
           day_rate:,
           valid_from:,
           valid_to:,
+        ))
+      })
+    "set_contract_rate" ->
+      Ok({
+        use contract_id <- decode.field("contract_id", decode.int)
+        use level <- decode.field("level", decode.int)
+        use day_rate <- decode.field("day_rate", money.decoder())
+        use effective <- decode.field("effective", date_decoder())
+        decode.success(SetContractRate(
+          contract_id:,
+          level:,
+          day_rate:,
+          effective:,
         ))
       })
     _ -> Error(Nil)

@@ -51,10 +51,10 @@ import tempo/server/fact.{
   type InvoiceId, type MeetingId, type PayrollRunId, type ProjectId,
   type SkillId, CapabilityId, CapabilityProfile, CapabilityRetired,
   CapabilitySkillRemoved, CapabilitySkillSet, ClientId, ClientProfile,
-  ContractId, ContractTerms, EngineerAllocatedToProject, EngineerAtLevel,
-  EngineerBankingDetails, EngineerContactDetails, EngineerDeparted,
-  EngineerEmergencyContact, EngineerEmployed, EngineerId, EngineerLocated,
-  EngineerOffProject, EngineerOnLeave, EngineerSkillAssessed,
+  ContractId, ContractRate, ContractTerms, EngineerAllocatedToProject,
+  EngineerAtLevel, EngineerBankingDetails, EngineerContactDetails,
+  EngineerDeparted, EngineerEmergencyContact, EngineerEmployed, EngineerId,
+  EngineerLocated, EngineerOffProject, EngineerOnLeave, EngineerSkillAssessed,
   EngineerWorkedHours, FocusBlockAdded, FocusBlockRemoved, HolidayImported,
   InvoiceId, InvoiceInStatus, InvoiceLine, InvoiceSubject, MeetingAttendeeAdded,
   MeetingAttendeeRemoved, MeetingBookingOpened, MeetingCancelled, MeetingId,
@@ -353,6 +353,17 @@ pub fn write(
           )
           |> operation.run
       }
+
+    ContractRate(contract_id:, level:, day_rate:, from:) ->
+      rate_card_sql.contract_rate_upsert(
+        conn,
+        contract_id,
+        level,
+        money.to_string(day_rate),
+        from,
+        audit_id,
+      )
+      |> require_covering_version
 
     Salary(level:, monthly_salary:, from:) ->
       salary_sql.salary_revise(

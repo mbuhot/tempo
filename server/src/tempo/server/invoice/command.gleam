@@ -7,8 +7,10 @@
 ////
 //// `draft_invoice` reserves the invoice id, computes its lines (one per (engineer,
 //// level) who worked the project that month, at the CONTRACT-agreed rate —
-//// `invoice_billing_lines` resolves `rate_card` as of the contract's signing date,
-//// FR-F2), and records the anchor, subject, opening `draft` status, and one line per
+//// `invoice_billing_lines` resolves the contract's own negotiated `contract_rate`
+//// as of the contract's signing date when one covers it, else the firm-wide
+//// `rate_card` at that same date, FR-F2), and records the anchor, subject, opening
+//// `draft` status, and one line per
 //// row. `issue_invoice`/`pay_invoice` guard that the status in effect at `at` is the
 //// expected predecessor (else `InvalidValue`) then record the next `InvoiceInStatus`
 //// (the repository caps the prior status where the next begins).

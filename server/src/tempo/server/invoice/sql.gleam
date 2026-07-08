@@ -34,11 +34,13 @@ pub type InvoiceBillingLinesRow {
 /// (date, exclusive). The month range is built in SQL as daterange($2, $3, '[)'),
 /// so only scalar dates cross the Squirrel boundary.
 ///
-/// The agreed rate (FR-F2). The day_rate is rate_card[level] AS OF
-/// lower(contract.term) — the contract's signing date — NOT as-of the billing
-/// month. If the rate card has been revised since the contract was signed, the
-/// invoice still bills the older agreed rate. `agreed_date` is computed once from
-/// the contract active over the month (project ⊂ contract, both overlapping the
+/// The agreed rate (FR-F2, issue #31). The day_rate is the contract's own
+/// negotiated `contract_rate[level]` AS OF lower(contract.term) — the contract's
+/// signing date — when a row covers it, otherwise the firm-wide `rate_card[level]`
+/// at that same date. Either way it is NOT as-of the billing month: if either rate
+/// source has been revised since the contract was signed, the invoice still bills
+/// the older agreed rate. `agreed_date`/`contract_id` are computed once from the
+/// contract active over the month (project ⊂ contract, both overlapping the
 /// month) and pinned for every line.
 ///
 /// Day counting. A daterange's day count is upper - lower (integer days; PG returns
@@ -64,7 +66,8 @@ pub type InvoiceBillingLinesRow {
 /// * Calendar days, not business days: "working days in the month" is the day
 /// width of the intersection, matching the day-count convention used elsewhere.
 /// * rate_card has a version covering agreed_date for every billed level (true in
-/// the seed: the baseline rate card opens at the earliest contract date).
+/// the seed: the baseline rate card opens at the earliest contract date), so the
+/// coalesce to rate_card always has a fallback to land on.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -100,11 +103,13 @@ pub fn invoice_billing_lines(
 -- (date, exclusive). The month range is built in SQL as daterange($2, $3, '[)'),
 -- so only scalar dates cross the Squirrel boundary.
 --
--- The agreed rate (FR-F2). The day_rate is rate_card[level] AS OF
--- lower(contract.term) — the contract's signing date — NOT as-of the billing
--- month. If the rate card has been revised since the contract was signed, the
--- invoice still bills the older agreed rate. `agreed_date` is computed once from
--- the contract active over the month (project ⊂ contract, both overlapping the
+-- The agreed rate (FR-F2, issue #31). The day_rate is the contract's own
+-- negotiated `contract_rate[level]` AS OF lower(contract.term) — the contract's
+-- signing date — when a row covers it, otherwise the firm-wide `rate_card[level]`
+-- at that same date. Either way it is NOT as-of the billing month: if either rate
+-- source has been revised since the contract was signed, the invoice still bills
+-- the older agreed rate. `agreed_date`/`contract_id` are computed once from the
+-- contract active over the month (project ⊂ contract, both overlapping the
 -- month) and pinned for every line.
 --
 -- Day counting. A daterange's day count is upper - lower (integer days; PG returns
@@ -130,15 +135,17 @@ pub fn invoice_billing_lines(
 --   * Calendar days, not business days: \"working days in the month\" is the day
 --     width of the intersection, matching the day-count convention used elsewhere.
 --   * rate_card has a version covering agreed_date for every billed level (true in
---     the seed: the baseline rate card opens at the earliest contract date).
+--     the seed: the baseline rate card opens at the earliest contract date), so the
+--     coalesce to rate_card always has a fallback to land on.
 WITH params AS (
   SELECT
     $1::int AS project_id,
     daterange($2::date, $3::date, '[)') AS month
 ),
 agreed AS (
-  -- the contract active over the month, and its agreed date = lower(term)
-  SELECT lower(contract_terms.term) AS agreed_date
+  -- the contract active over the month, its id, and its agreed date = lower(term)
+  SELECT lower(contract_terms.term) AS agreed_date,
+         project_run.contract_id   AS contract_id
   FROM params
   JOIN project_run    ON project_run.project_id = params.project_id
                      AND project_run.active_during && params.month
@@ -165,18 +172,22 @@ SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
   sub.level,
-  rate_card.day_rate::text AS day_rate,
+  coalesce(contract_rate.day_rate, rate_card.day_rate)::text AS day_rate,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
     AS days,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period))
-      * rate_card.day_rate)::text AS amount
+      * coalesce(contract_rate.day_rate, rate_card.day_rate))::text AS amount
 FROM sub
 CROSS JOIN agreed
 JOIN engineer_current engineer ON engineer.id = sub.engineer_id
 JOIN rate_card ON rate_card.level = sub.level
               AND rate_card.effective_during @> agreed.agreed_date
+LEFT JOIN contract_rate ON contract_rate.contract_id = agreed.contract_id
+                       AND contract_rate.level = sub.level
+                       AND contract_rate.effective_during @> agreed.agreed_date
 WHERE NOT isempty(sub.sub_period)
-GROUP BY sub.engineer_id, engineer.name, sub.level, rate_card.day_rate
+GROUP BY sub.engineer_id, engineer.name, sub.level, rate_card.day_rate,
+         contract_rate.day_rate
 ORDER BY engineer.name, sub.level;
 "
   |> pog.query

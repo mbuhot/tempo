@@ -6,7 +6,9 @@
 ////
 //// `revise_rate_card` re-rates from a date onward (`to: None`, the repository's
 //// change); `adjust_rate_for_portion` is the bounded surgical edit (`to: Some`,
-//// splitting the covering version into before/during/after).
+//// splitting the covering version into before/during/after); `set_contract_rate`
+//// negotiates one contract's own rate for a level, which billing prefers over
+//// the firm-wide rate card when it covers the contract's agreed date.
 
 import gleam/int
 import gleam/option.{None, Some}
@@ -14,7 +16,7 @@ import gleam/time/calendar.{type Date}
 import shared/command.{RateCardCommand} as gateway
 import shared/money.{type Money}
 import shared/rate_card/command.{
-  type RateCardCommand, AdjustRateForPortion, ReviseRateCard,
+  type RateCardCommand, AdjustRateForPortion, ReviseRateCard, SetContractRate,
 }
 import tempo/server/fact.{type Recorded, Recorded}
 import tempo/server/operation.{type OperationError, Event}
@@ -33,6 +35,8 @@ pub fn route(command: RateCardCommand) -> Result(Recorded, OperationError) {
         valid_from:,
         valid_to:,
       )
+    SetContractRate(contract_id:, level:, day_rate:, effective:) ->
+      set_contract_rate(command, contract_id:, level:, day_rate:, effective:)
   }
 }
 
@@ -83,6 +87,36 @@ pub fn adjust_rate_for_portion(
       ),
       facts: [
         fact.RateCard(level:, day_rate:, from: valid_from, to: Some(valid_to)),
+      ],
+    ),
+  )
+}
+
+/// Negotiate contract `contract_id`'s own day rate for a level from `effective`
+/// onward, with the journal entry.
+pub fn set_contract_rate(
+  command: RateCardCommand,
+  contract_id contract_id: Int,
+  level level: Int,
+  day_rate day_rate: Money,
+  effective effective: Date,
+) -> Result(Recorded, OperationError) {
+  Ok(
+    Recorded(
+      entry: Event(
+        operation: "set_contract_rate",
+        summary: "Set contract "
+          <> int.to_string(contract_id)
+          <> " L"
+          <> int.to_string(level)
+          <> " rate to "
+          <> money.to_string(day_rate)
+          <> " from "
+          <> operation.iso(effective),
+        payload: gateway.encode_command(RateCardCommand(command)),
+      ),
+      facts: [
+        fact.ContractRate(contract_id:, level:, day_rate:, from: effective),
       ],
     ),
   )

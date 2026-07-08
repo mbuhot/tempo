@@ -20,7 +20,9 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
-import gleam/time/calendar.{type Date, August, Date, July, June, March}
+import gleam/time/calendar.{
+  type Date, August, Date, January, July, June, March, October, September,
+}
 import pog
 import shared/command.{type Command} as gateway
 import shared/invoice/command as invoice_command
@@ -524,6 +526,345 @@ pub fn draft_invoice_bills_the_agreed_rate_after_a_later_revision_test() {
         Date(2026, July, 1),
       )),
     )
+}
+
+// --- SetContractRate — a contract's own negotiated rate (issue #31) ----------
+
+/// Read a contract's negotiated rate versions for a level back as
+/// `(day_rate, from, to)` ordered by start; an open-ended upper renders as "".
+fn read_contract_rate(
+  conn: pog.Connection,
+  contract_id: Int,
+  level: Int,
+) -> List(#(String, String, String)) {
+  let decoder = {
+    use day_rate <- decode.field(0, decode.string)
+    use from <- decode.field(1, decode.string)
+    use to <- decode.field(2, decode.string)
+    decode.success(#(day_rate, from, to))
+  }
+  let assert Ok(returned) =
+    pog.query(
+      "SELECT day_rate::text, lower(effective_during)::text,
+              coalesce(upper(effective_during)::text, '')
+         FROM contract_rate WHERE contract_id = $1 AND level = $2
+        ORDER BY lower(effective_during)",
+    )
+    |> pog.parameter(pog.int(contract_id))
+    |> pog.parameter(pog.int(level))
+    |> pog.returning(decoder)
+    |> pog.execute(on: conn)
+  returned.rows
+}
+
+/// Insert a bare contract + its signed term (no engineer, project, or rate card) —
+/// the fixture the write-shape and rejection tests need, since they exercise
+/// `SetContractRate` in isolation from billing.
+fn contract_with_term(
+  conn: pog.Connection,
+  contract_id: Int,
+  client_name: String,
+  term_from: String,
+  term_to: String,
+) -> Nil {
+  let client_id = insert_client(conn, client_name)
+  exec(
+    conn,
+    "INSERT INTO contract (id) VALUES (" <> int.to_string(contract_id) <> ")",
+  )
+  exec(
+    conn,
+    "INSERT INTO contract_terms (contract_id, client_id, term) VALUES ("
+      <> int.to_string(contract_id)
+      <> ", "
+      <> int.to_string(client_id)
+      <> ", daterange('"
+      <> term_from
+      <> "', '"
+      <> term_to
+      <> "'))",
+  )
+}
+
+// SetContractRate negotiates a day rate for a level scoped to ONE contract;
+// DraftInvoice prefers it over the firm-wide rate_card when a row covers the
+// contract's agreed date (2026-01-01 in the billing fixture).
+pub fn set_contract_rate_takes_precedence_over_the_rate_card_test() {
+  let lines =
+    rolling_back(fn(conn) {
+      let _engineer_id =
+        billing_fixture(
+          conn,
+          "Katherine Johnson",
+          "Orbital Dynamics",
+          90_201,
+          80_201,
+          "800.00",
+        )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_201,
+          1,
+          money_of("650.00"),
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_201,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      let invoice_id = invoice_id_for_project(conn, 80_201)
+      read_invoice_lines(conn, invoice_id)
+    })
+
+  // The negotiated 650/day, not the rate card's 800: 650 × 30 days = 19500.
+  assert lines == [Line("Katherine Johnson", 1, 650.0, 30.0, 19_500.0)]
+}
+
+// A second fixture contract with no negotiated rate keeps billing the firm-wide
+// rate_card while the first (negotiated) contract bills its own 650 — the
+// negotiation is scoped to the ONE contract, not global.
+pub fn set_contract_rate_is_scoped_to_its_own_contract_test() {
+  let #(negotiated_lines, fallback_lines) =
+    rolling_back(fn(conn) {
+      let _negotiated_engineer =
+        billing_fixture(
+          conn,
+          "Ada Lovelace",
+          "Babbage Engines",
+          90_203,
+          80_203,
+          "800.00",
+        )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_203,
+          1,
+          money_of("650.00"),
+          Date(2026, January, 1),
+        )),
+      )
+      let _fallback_engineer =
+        billing_fixture(
+          conn,
+          "Edsger Dijkstra",
+          "THE Systems",
+          90_204,
+          80_204,
+          "800.00",
+        )
+
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_203,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_204,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      let negotiated_invoice_id = invoice_id_for_project(conn, 80_203)
+      let fallback_invoice_id = invoice_id_for_project(conn, 80_204)
+      #(
+        read_invoice_lines(conn, negotiated_invoice_id),
+        read_invoice_lines(conn, fallback_invoice_id),
+      )
+    })
+
+  assert negotiated_lines == [Line("Ada Lovelace", 1, 650.0, 30.0, 19_500.0)]
+  assert fallback_lines == [Line("Edsger Dijkstra", 1, 800.0, 30.0, 24_000.0)]
+}
+
+// Once an invoice is drafted its lines are a frozen snapshot: a LATER
+// SetContractRate (from a date after the agreed one) and a LATER ReviseRateCard
+// (also after the agreed date) change neither the already-drafted June lines nor
+// a fresh September draft — the September invoice still resolves the contract
+// rate covering the agreed date (2026-01-01), which the later SetContractRate
+// left untouched.
+pub fn contract_rate_freezes_billing_at_the_agreed_date_test() {
+  let #(june_lines, june_lines_after_revisions, september_lines) =
+    rolling_back(fn(conn) {
+      let _engineer_id =
+        billing_fixture(
+          conn,
+          "Grace Hopper",
+          "Mark Computers",
+          90_202,
+          80_202,
+          "800.00",
+        )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_202,
+          1,
+          money_of("650.00"),
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_202,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      let june_invoice_id = invoice_id_for_project(conn, 80_202)
+      let june_lines = read_invoice_lines(conn, june_invoice_id)
+
+      // Both AFTER the agreed date (2026-01-01) — neither should move billing.
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_202,
+          1,
+          money_of("700.00"),
+          Date(2026, August, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.ReviseRateCard(
+          1,
+          money_of("9999.00"),
+          Date(2026, March, 1),
+        )),
+      )
+      let june_lines_after_revisions = read_invoice_lines(conn, june_invoice_id)
+
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_202,
+          Date(2026, September, 1),
+          Date(2026, October, 1),
+        )),
+      )
+      let september_invoice_id = invoice_id_for_project(conn, 80_202)
+      let september_lines = read_invoice_lines(conn, september_invoice_id)
+
+      #(june_lines, june_lines_after_revisions, september_lines)
+    })
+
+  assert june_lines == [Line("Grace Hopper", 1, 650.0, 30.0, 19_500.0)]
+  // Unchanged by the later contract-rate negotiation and rate-card revision.
+  assert june_lines_after_revisions == june_lines
+  // September still resolves the rate covering the agreed date, not the 700
+  // negotiated from August.
+  assert september_lines == [Line("Grace Hopper", 1, 650.0, 30.0, 19_500.0)]
+}
+
+// SetContractRate applied twice (later effective date second) is the same
+// delete-then-insert Change as engineer_role_upsert: the first row is clipped to
+// where the second starts, and the second is opened out to the covering term's
+// own end (2027-01-01) — never past it.
+pub fn set_contract_rate_twice_clips_the_first_to_the_seconds_start_test() {
+  let #(rates, journal) =
+    rolling_back(fn(conn) {
+      contract_with_term(
+        conn,
+        90_205,
+        "Vector Systems",
+        "2026-01-01",
+        "2027-01-01",
+      )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_205,
+          1,
+          money_of("650.00"),
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_205,
+          1,
+          money_of("700.00"),
+          Date(2026, August, 1),
+        )),
+      )
+      #(read_contract_rate(conn, 90_205, 1), read_journal(conn))
+    })
+
+  // 650 clipped to [Jan,Aug), 700 opened [Aug, term end 2027-01-01).
+  assert rates
+    == [
+      #("650.00", "2026-01-01", "2026-08-01"),
+      #("700.00", "2026-08-01", "2027-01-01"),
+    ]
+  // Newest-first: the second negotiation, then the first.
+  let assert [second, first] = journal
+  assert first.actor == "tester"
+  assert first.operation == "set_contract_rate"
+  assert first.summary == "Set contract 90205 L1 rate to 650.00 from 2026-01-01"
+  assert json.parse(first.payload, gateway.command_decoder())
+    == Ok(
+      gateway.RateCardCommand(rate_card_command.SetContractRate(
+        90_205,
+        1,
+        money_of("650.00"),
+        Date(2026, January, 1),
+      )),
+    )
+  assert second.actor == "tester"
+  assert second.operation == "set_contract_rate"
+  assert second.summary
+    == "Set contract 90205 L1 rate to 700.00 from 2026-08-01"
+  assert json.parse(second.payload, gateway.command_decoder())
+    == Ok(
+      gateway.RateCardCommand(rate_card_command.SetContractRate(
+        90_205,
+        1,
+        money_of("700.00"),
+        Date(2026, August, 1),
+      )),
+    )
+}
+
+// SetContractRate on a date no signed term covers is REJECTED (NoSuchVersion,
+// the same idiom engineer_role_upsert/revise_rate_card use): the term CTE finds
+// no covering row, so the INSERT ... SELECT matches zero rows rather than
+// journalling a negotiated rate that landed outside any signed term.
+pub fn set_contract_rate_outside_the_signed_term_is_rejected_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      contract_with_term(
+        conn,
+        90_206,
+        "Halted Ventures",
+        "2026-01-01",
+        "2027-01-01",
+      )
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_206,
+          1,
+          money_of("650.00"),
+          Date(2027, June, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.NoSuchVersion)
 }
 
 // --- Issue / Pay — the temporal status lifecycle (FR-F3, FR-F4) --------------

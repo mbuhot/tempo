@@ -638,6 +638,19 @@ pub fn command_adjust_rate_for_portion_round_trips_test() {
     == original
 }
 
+pub fn command_set_contract_rate_round_trips_test() {
+  let original =
+    gateway.RateCardCommand(rate_card_command.SetContractRate(
+      contract_id: 90_101,
+      level: 1,
+      day_rate: money_of("650.00"),
+      effective: Date(2026, July, 1),
+    ))
+
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
 pub fn command_roll_off_round_trips_test() {
   let original =
     gateway.AllocationCommand(allocation_command.RollOff(

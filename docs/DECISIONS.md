@@ -1343,6 +1343,33 @@ surface a billable late cancellation/reschedule — deferred to a separate issue
 
 ---
 
+## ADR-051 — Per-contract negotiated rates take precedence over the rate card
+**Status:** Accepted
+
+**Context.** Every engagement billed at the firm-wide `rate_card`, versioned by level alone. A contract
+that negotiates its own day rate for a level had nowhere to live: the only way to reflect it was to
+revise the shared rate card, which would also move every OTHER contract's bill.
+
+**Decision.** A new `contract_rate(contract_id, level, day_rate, effective_during)` table, versioned the
+same way as `rate_card` (a Change: `SetContractRate` revises a level's rate for the contract from a date
+onward). Its `PERIOD` foreign key pins every version inside that contract's own signed term
+(`contract_terms`), so a negotiated rate cannot outlive the term it was struck under; the delete-then-insert
+upsert clips the version covering the effective date to the term's own end, keeping the "open-ended from
+here" semantics of a Change while satisfying the containment. `invoice_billing_lines` resolves the rate for
+a (contract, level) at the agreed date by preferring `contract_rate` when a row covers it, falling back to
+`rate_card` otherwise — `coalesce(contract_rate.day_rate, rate_card.day_rate)` — keeping the existing
+freeze-at-agreed-date semantics (FR-F2) for both sources. `SetContractRate` joins the existing
+`RateCardCommand` group, so it inherits the `ratecard.manage` permission automatically with no new policy,
+auth, or client wiring.
+
+**Alternatives.** A per-contract override table with no temporal versioning (rejected — a contract's
+negotiated rate can itself be renegotiated mid-term, and losing that history loses the same freeze
+guarantee `rate_card` already gives every other bill). Scoping the override to the client rather than the
+contract (rejected — the issue is explicitly a per-contract negotiation; a client can hold several
+contracts at different rates).
+
+---
+
 ## Documentation format
 **Status:** Accepted
 
