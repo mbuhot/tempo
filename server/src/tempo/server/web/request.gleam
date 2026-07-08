@@ -11,6 +11,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import gleam/time/calendar.{type Date}
 import shared/wire
 import wisp
@@ -104,4 +105,41 @@ pub fn optional_int_from_query(
 /// boundary and the JSON boundary share one validation.
 pub fn parse_iso(text: String) -> Result(Date, Nil) {
   wire.parse_iso_date(text)
+}
+
+/// Read a REQUIRED comma-separated list of integer ids (e.g. `required=1,2,3`).
+/// Missing or empty is a 400 (the caller must name at least one id); any piece
+/// that fails to parse is a 400 naming that piece.
+pub fn ids_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Result(List(Int), String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> Error("missing query parameter '" <> name <> "'")
+    Ok("") -> Error("missing query parameter '" <> name <> "'")
+    Ok(text) -> parse_ids(text, name)
+  }
+}
+
+/// Read an OPTIONAL comma-separated list of integer ids (e.g. `optional=4,5`).
+/// An absent or empty parameter is `Ok([])` (no optional attendees); a
+/// present-but-malformed piece is `Error(detail)` for a 400.
+pub fn optional_ids_from_query(
+  request: wisp.Request,
+  name: String,
+) -> Result(List(Int), String) {
+  case list.key_find(wisp.get_query(request), name) {
+    Error(Nil) -> Ok([])
+    Ok("") -> Ok([])
+    Ok(text) -> parse_ids(text, name)
+  }
+}
+
+fn parse_ids(text: String, name: String) -> Result(List(Int), String) {
+  text
+  |> string.split(",")
+  |> list.try_map(fn(piece) {
+    int.parse(string.trim(piece))
+    |> result.replace_error("invalid id '" <> piece <> "' for '" <> name <> "'")
+  })
 }

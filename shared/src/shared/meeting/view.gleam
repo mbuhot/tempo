@@ -97,6 +97,73 @@ pub fn encode_meeting_record(record: MeetingRecord) -> Json {
   ])
 }
 
+pub type SlotAttendee {
+  SlotAttendee(
+    engineer_id: Int,
+    name: String,
+    attendance: Attendance,
+    timezone: Option(String),
+    offset_minutes: Option(Int),
+  )
+}
+
+pub type CandidateSlot {
+  CandidateSlot(
+    starts_at: String,
+    ends_at: String,
+    attendees: List(SlotAttendee),
+  )
+}
+
+pub fn encode_slot_attendee(attendee: SlotAttendee) -> Json {
+  let SlotAttendee(engineer_id:, name:, attendance:, timezone:, offset_minutes:) =
+    attendee
+  json.object([
+    #("engineer_id", json.int(engineer_id)),
+    #("name", json.string(name)),
+    #("attendance", encode_attendance(attendance)),
+    #("timezone", json.nullable(timezone, json.string)),
+    #("offset_minutes", json.nullable(offset_minutes, json.int)),
+  ])
+}
+
+pub fn slot_attendee_decoder() -> Decoder(SlotAttendee) {
+  use engineer_id <- decode.field("engineer_id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use attendance <- decode.field("attendance", attendance_decoder())
+  use timezone <- decode.field("timezone", decode.optional(decode.string))
+  use offset_minutes <- decode.field(
+    "offset_minutes",
+    decode.optional(decode.int),
+  )
+  decode.success(SlotAttendee(
+    engineer_id:,
+    name:,
+    attendance:,
+    timezone:,
+    offset_minutes:,
+  ))
+}
+
+pub fn encode_candidate_slot(slot: CandidateSlot) -> Json {
+  let CandidateSlot(starts_at:, ends_at:, attendees:) = slot
+  json.object([
+    #("starts_at", json.string(starts_at)),
+    #("ends_at", json.string(ends_at)),
+    #("attendees", json.array(attendees, encode_slot_attendee)),
+  ])
+}
+
+pub fn candidate_slot_decoder() -> Decoder(CandidateSlot) {
+  use starts_at <- decode.field("starts_at", decode.string)
+  use ends_at <- decode.field("ends_at", decode.string)
+  use attendees <- decode.field(
+    "attendees",
+    decode.list(slot_attendee_decoder()),
+  )
+  decode.success(CandidateSlot(starts_at:, ends_at:, attendees:))
+}
+
 pub fn meeting_record_decoder() -> Decoder(MeetingRecord) {
   use meeting_id <- decode.field("meeting_id", decode.int)
   use title <- decode.field("title", decode.string)

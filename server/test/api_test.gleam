@@ -28,7 +28,7 @@ import shared/engineer/command as engineer_command
 import shared/engineer/view.{type EngineerDetail} as engineer_view
 import shared/engineer_skill/command as engineer_skill_command
 import shared/invoice/view.{type InvoicePage} as invoice_view
-import shared/meeting/view.{type MeetingRecord} as meeting_view
+import shared/meeting/view.{type CandidateSlot, type MeetingRecord} as meeting_view
 import shared/money.{type Money}
 import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
@@ -1501,6 +1501,73 @@ pub fn meetings_forbidden_for_unauthorized_role_is_403_test() {
   assert decode_error_code(response) == "forbidden"
 }
 
+// --- GET /api/meetings/find-a-time ------------------------------------------
+
+// Sydney and LA only overlap for the last hour of Priya's (id 1) work day / the
+// first hour of Marcus's (id 2) — required=[1,2], 2026-06-15..2026-06-19 viewed in
+// Europe/London, 60-minute slots. A signed-in read returns 200 and the exact set
+// of candidate slots the finder computes, decoded back through the shared codec.
+pub fn find_a_time_signed_in_read_returns_candidate_slots_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Europe%2FLondon&duration=60&required=1,2",
+    )
+    |> read()
+
+  assert response.status == 200
+
+  let slots = decode_candidate_slots(response)
+  assert list.map(slots, fn(slot) { #(slot.starts_at, slot.ends_at) })
+    == [
+      #("2026-06-15T23:00:00Z", "2026-06-16T00:00:00Z"),
+      #("2026-06-16T23:00:00Z", "2026-06-17T00:00:00Z"),
+      #("2026-06-17T23:00:00Z", "2026-06-18T00:00:00Z"),
+      #("2026-06-18T23:00:00Z", "2026-06-19T00:00:00Z"),
+    ]
+}
+
+// A principal without read.engineers is refused the finder read with 403.
+pub fn find_a_time_forbidden_for_unauthorized_role_is_403_test() {
+  let context = ctx()
+
+  let #(login_request, login_response) = sign_in(context, "Priya Sharma")
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Europe%2FLondon&duration=60&required=1,2",
+    )
+    |> simulate.session(login_request, login_response)
+    |> router.handle_request(context)
+
+  assert response.status == 403
+  assert decode_error_code(response) == "forbidden"
+}
+
+// A missing `required` is a 400, not a 500.
+pub fn find_a_time_without_required_is_bad_request_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Europe%2FLondon&duration=60",
+    )
+    |> read()
+
+  assert response.status == 400
+}
+
+// An unrecognised timezone is a 400.
+pub fn find_a_time_with_unknown_timezone_is_bad_request_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Mars%2FOlympus_Mons&duration=60&required=1,2",
+    )
+    |> read()
+
+  assert response.status == 400
+}
+
 // --- GET /api/engineers/:id/availability, GET /api/holidays -----------------
 
 // As of 2026-07-05, Priya (id 1) has her seeded default 9-17 Mon-Thu, her Friday
@@ -1706,6 +1773,13 @@ fn decode_meetings(response) -> List(MeetingRecord) {
     simulate.read_body(response)
     |> json.parse(decode.list(meeting_view.meeting_record_decoder()))
   meetings
+}
+
+fn decode_candidate_slots(response) -> List(CandidateSlot) {
+  let assert Ok(slots) =
+    simulate.read_body(response)
+    |> json.parse(decode.list(meeting_view.candidate_slot_decoder()))
+  slots
 }
 
 fn decode_availability(response) -> AvailabilityRecord {
