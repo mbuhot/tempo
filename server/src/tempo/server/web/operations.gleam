@@ -12,9 +12,9 @@
 //// event in a one-element JSON array — the authoritative record of what was
 //// written, and the stable wire shape the client decodes (it also refetches
 //// /api/events). A malformed body is a 400; a rejected operation maps by its
-//// `OperationError`: `Unauthorized` → 403, `ContainmentViolated`/`OverlappingFact`
-//// → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422, `DatabaseError` → 500
-//// (503 when the cause is a saturated connection pool).
+//// `OperationError`: `Unauthorized` → 403, `ContainmentViolated`/`OverlappingFact`/
+//// `SlotTaken` → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422,
+//// `DatabaseError` → 500 (503 when the cause is a saturated connection pool).
 
 import gleam/dynamic/decode
 import gleam/float
@@ -28,7 +28,7 @@ import tempo/server/context.{type Context}
 import tempo/server/operation.{
   type OperationError, ContainmentViolated, DatabaseError, EngineerNotEmployed,
   InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
-  ProjectNotRunning, ProjectPinned, Unauthorized,
+  ProjectNotRunning, ProjectPinned, SlotTaken, Unauthorized,
 }
 import tempo/server/web/guard
 import tempo/server/web/response
@@ -153,6 +153,12 @@ pub fn error_response(error: OperationError) -> wisp.Response {
         409,
         "project_pinned",
         "project has logged time or invoices; reschedule is pinned",
+      )
+    SlotTaken ->
+      response.error_response(
+        409,
+        "slot_taken",
+        "a required attendee is no longer free for that window",
       )
     DatabaseError(error) -> response.db_error_response(error)
   }

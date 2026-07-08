@@ -1539,21 +1539,85 @@ pub fn command_set_location_round_trips_test() {
 
 pub fn command_schedule_meeting_round_trips_test() {
   let original =
-    gateway.MeetingCommand(
-      meeting_command.ScheduleMeeting(
-        title: "Sprint kickoff",
-        timezone: "Europe/London",
-        date: Date(2026, July, 10),
-        starts_at: "09:30",
-        duration_minutes: 45,
-        location: Some("https://meet.example/abc"),
-        client_id: None,
-        project_id: Some(3),
-        attendees: [#(1, Required), #(2, Optional)],
-      ),
-    )
+    gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+      title: "Sprint kickoff",
+      timezone: "Europe/London",
+      date: Date(2026, July, 10),
+      starts_at: "09:30",
+      duration_minutes: 45,
+      location: Some("https://meet.example/abc"),
+      client_id: None,
+      project_id: Some(3),
+      attendees: [#(1, Required), #(2, Optional)],
+      check: meeting_command.AllowOverlap,
+    ))
   assert round_trip(original, gateway.encode_command, gateway.command_decoder())
     == original
+}
+
+pub fn command_schedule_meeting_require_free_round_trips_test() {
+  let original =
+    gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+      title: "Sprint kickoff",
+      timezone: "Europe/London",
+      date: Date(2026, July, 10),
+      starts_at: "09:30",
+      duration_minutes: 45,
+      location: Some("https://meet.example/abc"),
+      client_id: None,
+      project_id: Some(3),
+      attendees: [#(1, Required), #(2, Optional)],
+      check: meeting_command.RequireFree,
+    ))
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_reschedule_meeting_round_trips_test() {
+  let original =
+    gateway.MeetingCommand(meeting_command.RescheduleMeeting(
+      meeting_id: 5,
+      timezone: "Europe/London",
+      date: Date(2026, July, 11),
+      starts_at: "14:00",
+      duration_minutes: 30,
+      check: meeting_command.RequireFree,
+    ))
+  assert round_trip(original, gateway.encode_command, gateway.command_decoder())
+    == original
+}
+
+pub fn command_schedule_meeting_missing_check_field_defaults_to_allow_overlap_test() {
+  let payload =
+    json.object([
+      #("op", json.string("schedule_meeting")),
+      #("title", json.string("Sprint kickoff")),
+      #("timezone", json.string("Europe/London")),
+      #("date", json.string("2026-07-10")),
+      #("starts_at", json.string("09:30")),
+      #("duration_minutes", json.int(45)),
+      #("location", json.null()),
+      #("client_id", json.null()),
+      #("project_id", json.null()),
+      #("attendees", json.array([], fn(x) { x })),
+    ])
+  let assert Ok(decoded) =
+    payload
+    |> json.to_string
+    |> json.parse(gateway.command_decoder())
+  assert decoded
+    == gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+      title: "Sprint kickoff",
+      timezone: "Europe/London",
+      date: Date(2026, July, 10),
+      starts_at: "09:30",
+      duration_minutes: 45,
+      location: None,
+      client_id: None,
+      project_id: None,
+      attendees: [],
+      check: meeting_command.AllowOverlap,
+    ))
 }
 
 pub fn command_cancel_meeting_round_trips_test() {

@@ -510,6 +510,7 @@ pub fn build_schedule_command(
           attendees: list.map(attendees, fn(attendee) {
             #(attendee.engineer_id, attendee.attendance)
           }),
+          check: command.AllowOverlap,
         )),
       )
   }

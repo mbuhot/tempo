@@ -802,6 +802,7 @@ pub fn build_command(kind: OpKind, form: OpForm) -> Result(Command, String) {
           date:,
           starts_at:,
           duration_minutes:,
+          check: meeting_command.AllowOverlap,
         )),
       )
     }

@@ -301,19 +301,18 @@ pub fn exclude_vacates_the_meetings_own_slot_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Full day sync",
-            timezone: "America/Los_Angeles",
-            date: Date(2026, calendar.June, 23),
-            starts_at: "09:00",
-            duration_minutes: 480,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(2, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Full day sync",
+          timezone: "America/Los_Angeles",
+          date: Date(2026, calendar.June, 23),
+          starts_at: "09:00",
+          duration_minutes: 480,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(2, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Full day sync")
 
@@ -352,19 +351,18 @@ pub fn a_scheduled_meeting_is_busy_and_a_cancelled_one_is_not_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Midday sync",
-            timezone: "America/Los_Angeles",
-            date: Date(2026, calendar.June, 23),
-            starts_at: "12:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(2, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Midday sync",
+          timezone: "America/Los_Angeles",
+          date: Date(2026, calendar.June, 23),
+          starts_at: "12:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(2, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Midday sync")
 

@@ -12,6 +12,16 @@ pub type Attendance {
   Optional
 }
 
+/// Whether a schedule/reschedule must hold the required attendees free for the
+/// window. `RequireFree` is the finder's booking path (Stage 3): the command
+/// handler locks the required attendees and re-checks availability against
+/// now-committed state, failing as `SlotTaken` if any collide. `AllowOverlap` is
+/// the manual create/reschedule path: overlaps stay legal, as today.
+pub type BookingCheck {
+  RequireFree
+  AllowOverlap
+}
+
 pub type MeetingCommand {
   ScheduleMeeting(
     title: String,
@@ -23,6 +33,7 @@ pub type MeetingCommand {
     client_id: Option(Int),
     project_id: Option(Int),
     attendees: List(#(Int, Attendance)),
+    check: BookingCheck,
   )
   RescheduleMeeting(
     meeting_id: Int,
@@ -30,6 +41,7 @@ pub type MeetingCommand {
     date: Date,
     starts_at: String,
     duration_minutes: Int,
+    check: BookingCheck,
   )
   CancelMeeting(meeting_id: Int)
   AddAttendee(meeting_id: Int, engineer_id: Int, attendance: Attendance)
@@ -65,6 +77,21 @@ fn attendee_decoder() -> Decoder(#(Int, Attendance)) {
   decode.success(#(engineer_id, attendance))
 }
 
+pub fn encode_booking_check(check: BookingCheck) -> Json {
+  case check {
+    RequireFree -> json.string("require_free")
+    AllowOverlap -> json.string("allow_overlap")
+  }
+}
+
+pub fn booking_check_decoder() -> Decoder(BookingCheck) {
+  use raw <- decode.then(decode.string)
+  case raw {
+    "require_free" -> decode.success(RequireFree)
+    _ -> decode.success(AllowOverlap)
+  }
+}
+
 pub fn encode(command: MeetingCommand) -> Json {
   case command {
     ScheduleMeeting(
@@ -77,6 +104,7 @@ pub fn encode(command: MeetingCommand) -> Json {
       client_id:,
       project_id:,
       attendees:,
+      check:,
     ) ->
       json.object([
         #("op", json.string("schedule_meeting")),
@@ -89,6 +117,7 @@ pub fn encode(command: MeetingCommand) -> Json {
         #("client_id", json.nullable(client_id, json.int)),
         #("project_id", json.nullable(project_id, json.int)),
         #("attendees", json.array(attendees, encode_attendee)),
+        #("check", encode_booking_check(check)),
       ])
     RescheduleMeeting(
       meeting_id:,
@@ -96,6 +125,7 @@ pub fn encode(command: MeetingCommand) -> Json {
       date:,
       starts_at:,
       duration_minutes:,
+      check:,
     ) ->
       json.object([
         #("op", json.string("reschedule_meeting")),
@@ -104,6 +134,7 @@ pub fn encode(command: MeetingCommand) -> Json {
         #("date", encode_date(date)),
         #("starts_at", json.string(starts_at)),
         #("duration_minutes", json.int(duration_minutes)),
+        #("check", encode_booking_check(check)),
       ])
     CancelMeeting(meeting_id:) ->
       json.object([
@@ -145,6 +176,11 @@ pub fn decoder(op: String) -> Result(Decoder(MeetingCommand), Nil) {
           "attendees",
           decode.list(attendee_decoder()),
         )
+        use check <- decode.optional_field(
+          "check",
+          AllowOverlap,
+          booking_check_decoder(),
+        )
         decode.success(ScheduleMeeting(
           title:,
           timezone:,
@@ -155,6 +191,7 @@ pub fn decoder(op: String) -> Result(Decoder(MeetingCommand), Nil) {
           client_id:,
           project_id:,
           attendees:,
+          check:,
         ))
       })
     "reschedule_meeting" ->
@@ -164,12 +201,18 @@ pub fn decoder(op: String) -> Result(Decoder(MeetingCommand), Nil) {
         use date <- decode.field("date", date_decoder())
         use starts_at <- decode.field("starts_at", decode.string)
         use duration_minutes <- decode.field("duration_minutes", decode.int)
+        use check <- decode.optional_field(
+          "check",
+          AllowOverlap,
+          booking_check_decoder(),
+        )
         decode.success(RescheduleMeeting(
           meeting_id:,
           timezone:,
           date:,
           starts_at:,
           duration_minutes:,
+          check:,
         ))
       })
     "cancel_meeting" ->

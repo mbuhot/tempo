@@ -9,6 +9,208 @@ import gleam/option.{type Option}
 import gleam/time/calendar.{type Date}
 import pog
 
+/// A row you get from running the `booking_conflicts` query
+/// defined in `./src/tempo/server/meeting/sql/booking_conflicts.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type BookingConflictsRow {
+  BookingConflictsRow(engineer_id: Int)
+}
+
+/// booking_conflicts.sql — inside the booking transaction, AFTER engineer_lock.sql
+/// has taken its row lock: recompute each required attendee's availability against
+/// now-committed state and report which ones no longer hold the window free. Same
+/// algorithm as find_a_time.sql (free = work_schedule hours in the engineer's own
+/// as-of TZID, minus busy = live bookings ∪ focus blocks ∪ leave days ∪ holidays)
+/// but for ONE fixed window instead of a search span: $2/$3/$4/$5 pin the window
+/// the same way meeting_booking_open.sql does, and the candidate-day span is the
+/// window's own UTC dates ±2 (wide enough to cover any attendee's TZID offset).
+/// Returns one row per required engineer whose available multirange does NOT
+/// contain (`@>`) the window — the conflicted attendees the caller must fail the
+/// operation for. An engineer with no location on the window's date has no free
+/// hours at all, so it always comes back conflicted. Empty result = safe to book.
+/// $1 required engineer ids (comma-separated text), $2 date, $3 starts_at (HH:MM),
+/// $4 duration minutes, $5 timezone, $6 excluded meeting id (0 = none, e.g. the
+/// meeting being rescheduled — vacates its own current booking).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn booking_conflicts(
+  db: pog.Connection,
+  arg_1: String,
+  arg_2: String,
+  arg_3: String,
+  arg_4: String,
+  arg_5: String,
+  arg_6: Int,
+) -> Result(pog.Returned(BookingConflictsRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    decode.success(BookingConflictsRow(engineer_id:))
+  }
+
+  "-- booking_conflicts.sql — inside the booking transaction, AFTER engineer_lock.sql
+-- has taken its row lock: recompute each required attendee's availability against
+-- now-committed state and report which ones no longer hold the window free. Same
+-- algorithm as find_a_time.sql (free = work_schedule hours in the engineer's own
+-- as-of TZID, minus busy = live bookings ∪ focus blocks ∪ leave days ∪ holidays)
+-- but for ONE fixed window instead of a search span: $2/$3/$4/$5 pin the window
+-- the same way meeting_booking_open.sql does, and the candidate-day span is the
+-- window's own UTC dates ±2 (wide enough to cover any attendee's TZID offset).
+-- Returns one row per required engineer whose available multirange does NOT
+-- contain (`@>`) the window — the conflicted attendees the caller must fail the
+-- operation for. An engineer with no location on the window's date has no free
+-- hours at all, so it always comes back conflicted. Empty result = safe to book.
+-- $1 required engineer ids (comma-separated text), $2 date, $3 starts_at (HH:MM),
+-- $4 duration minutes, $5 timezone, $6 excluded meeting id (0 = none, e.g. the
+-- meeting being rescheduled — vacates its own current booking).
+WITH params AS (
+  SELECT tstzrange(
+           (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5),
+           (($2::text || ' ' || $3::text)::timestamp AT TIME ZONE $5) + ($4::text || ' minutes')::interval,
+           '[)') AS occupies
+),
+attendee AS (
+  SELECT trim(x)::bigint AS engineer_id
+    FROM unnest(string_to_array($1, ',')) AS x
+),
+days AS (
+  SELECT d::date AS day
+    FROM generate_series(
+           (lower((SELECT occupies FROM params)) AT TIME ZONE 'UTC')::date - 2,
+           (upper((SELECT occupies FROM params)) AT TIME ZONE 'UTC')::date + 2,
+           interval '1 day'
+         ) AS d
+),
+located AS (
+  SELECT a.engineer_id, d.day, loc.timezone AS tzid, loc.country, loc.region
+    FROM attendee a
+   CROSS JOIN days d
+    JOIN engineer_location loc
+      ON loc.engineer_id = a.engineer_id AND loc.located_during @> d.day
+),
+free_days AS (
+  SELECT l.engineer_id,
+         tstzrange(
+           (l.day::text || ' ' || ws.starts::text)::timestamp AT TIME ZONE l.tzid,
+           (l.day::text || ' ' || ws.ends::text)::timestamp AT TIME ZONE l.tzid,
+           '[)') AS win
+    FROM located l
+    JOIN work_schedule ws
+      ON ws.engineer_id = l.engineer_id
+     AND ws.valid_at @> l.day
+     AND ws.weekday = extract(isodow FROM l.day)::int - 1
+),
+free AS (
+  SELECT a.engineer_id,
+         coalesce(range_agg(f.win), '{}'::tstzmultirange) AS free
+    FROM attendee a
+    LEFT JOIN free_days f ON f.engineer_id = a.engineer_id
+   GROUP BY a.engineer_id
+),
+busy_source AS MATERIALIZED (
+  SELECT ma.engineer_id, b.occupies AS r
+    FROM meeting_attendee ma
+    JOIN attendee a ON a.engineer_id = ma.engineer_id
+    JOIN meeting_booking b
+      ON b.meeting_id = ma.meeting_id AND upper_inf(b.booked_during)
+   WHERE b.occupies && (SELECT occupies FROM params)
+     AND b.meeting_id IS DISTINCT FROM nullif($6, 0)
+  UNION ALL
+  SELECT f.engineer_id, f.busy_at
+    FROM focus_block f
+    JOIN attendee a ON a.engineer_id = f.engineer_id
+   WHERE f.busy_at && (SELECT occupies FROM params)
+  UNION ALL
+  SELECT l.engineer_id,
+         tstzrange((l.day::text || ' 00:00')::timestamp AT TIME ZONE l.tzid,
+                   ((l.day + 1)::text || ' 00:00')::timestamp AT TIME ZONE l.tzid, '[)')
+    FROM located l
+    JOIN leave lv ON lv.engineer_id = l.engineer_id AND lv.on_leave_during @> l.day
+  UNION ALL
+  SELECT l.engineer_id,
+         tstzrange((l.day::text || ' 00:00')::timestamp AT TIME ZONE l.tzid,
+                   ((l.day + 1)::text || ' 00:00')::timestamp AT TIME ZONE l.tzid, '[)')
+    FROM located l
+    JOIN holiday h
+      ON h.country = l.country AND h.region IN ('', l.region) AND h.holiday_on = l.day
+),
+busy AS (
+  SELECT engineer_id, range_agg(r) AS busy FROM busy_source GROUP BY engineer_id
+),
+avail AS (
+  SELECT f.engineer_id, f.free - coalesce(b.busy, '{}'::tstzmultirange) AS available
+    FROM free f
+    LEFT JOIN busy b USING (engineer_id)
+)
+SELECT a.engineer_id
+  FROM avail a, params p
+ WHERE NOT (a.available @> p.occupies)
+ ORDER BY a.engineer_id;
+"
+  |> pog.query
+  |> pog.parameter(pog.text(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(pog.text(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.int(arg_6))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `engineer_lock` query
+/// defined in `./src/tempo/server/meeting/sql/engineer_lock.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type EngineerLockRow {
+  EngineerLockRow(id: Int)
+}
+
+/// engineer_lock.sql — take a row lock on the required attendees' engineer rows
+/// before re-checking availability inside the booking transaction: the finder's
+/// suggestion was computed seconds-to-minutes earlier and may be stale by the time
+/// a human books it, so the write path must serialize against any other write
+/// racing the same attendee rather than trust a bare re-check under READ COMMITTED
+/// (write-skew: two concurrent bookings could each see the OLD committed state and
+/// both pass). Always acquired in ascending id order (ORDER BY id) so two bookings
+/// sharing attendees never lock in opposite orders and deadlock. $1 = required
+/// engineer ids (comma-separated text).
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn engineer_lock(
+  db: pog.Connection,
+  arg_1: String,
+) -> Result(pog.Returned(EngineerLockRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(EngineerLockRow(id:))
+  }
+
+  "-- engineer_lock.sql — take a row lock on the required attendees' engineer rows
+-- before re-checking availability inside the booking transaction: the finder's
+-- suggestion was computed seconds-to-minutes earlier and may be stale by the time
+-- a human books it, so the write path must serialize against any other write
+-- racing the same attendee rather than trust a bare re-check under READ COMMITTED
+-- (write-skew: two concurrent bookings could each see the OLD committed state and
+-- both pass). Always acquired in ascending id order (ORDER BY id) so two bookings
+-- sharing attendees never lock in opposite orders and deadlock. $1 = required
+-- engineer ids (comma-separated text).
+SELECT id FROM engineer WHERE id = ANY(string_to_array($1, ',')::bigint[]) ORDER BY id FOR UPDATE;
+"
+  |> pog.query
+  |> pog.parameter(pog.text(arg_1))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 /// A row you get from running the `find_a_time` query
 /// defined in `./src/tempo/server/meeting/sql/find_a_time.sql`.
 ///
@@ -506,6 +708,43 @@ pub fn meeting_create(
 INSERT INTO meeting DEFAULT VALUES RETURNING id;
 "
   |> pog.query
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `meeting_required_attendees` query
+/// defined in `./src/tempo/server/meeting/sql/meeting_required_attendees.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.7.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type MeetingRequiredAttendeesRow {
+  MeetingRequiredAttendeesRow(engineer_id: Int)
+}
+
+/// meeting_required_attendees.sql — the required attendees on $1's roster, for the
+/// RequireFree reschedule guard to lock and re-check (only required attendees gate
+/// a booking; optional attendees never block it). $1 = meeting_id.
+///
+/// > 🐿️ This function was generated automatically using v4.7.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn meeting_required_attendees(
+  db: pog.Connection,
+  meeting_id: Int,
+) -> Result(pog.Returned(MeetingRequiredAttendeesRow), pog.QueryError) {
+  let decoder = {
+    use engineer_id <- decode.field(0, decode.int)
+    decode.success(MeetingRequiredAttendeesRow(engineer_id:))
+  }
+
+  "-- meeting_required_attendees.sql — the required attendees on $1's roster, for the
+-- RequireFree reschedule guard to lock and re-check (only required attendees gate
+-- a booking; optional attendees never block it). $1 = meeting_id.
+SELECT engineer_id FROM meeting_attendee WHERE meeting_id = $1 AND attendance = 'required' ORDER BY engineer_id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(meeting_id))
   |> pog.returning(decoder)
   |> pog.execute(db)
 }

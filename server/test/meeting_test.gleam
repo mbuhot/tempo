@@ -167,19 +167,18 @@ pub fn schedule_meeting_records_detail_and_attendees_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Design review",
-            timezone: "Europe/London",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: Some("https://meet.example/xyz"),
-            client_id: None,
-            project_id: None,
-            attendees: [#(alice, Required), #(bob, Optional)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Design review",
+          timezone: "Europe/London",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: Some("https://meet.example/xyz"),
+          client_id: None,
+          project_id: None,
+          attendees: [#(alice, Required), #(bob, Optional)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Design review")
     assert booking_is_open(conn, meeting_id)
@@ -197,19 +196,18 @@ pub fn reschedule_meeting_moves_the_start_time_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Sprint planning",
-            timezone: "Europe/London",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(engineer_id, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Sprint planning",
+          timezone: "Europe/London",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(engineer_id, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Sprint planning")
     let assert Ok(_) =
@@ -222,6 +220,7 @@ pub fn reschedule_meeting_moves_the_start_time_test() {
           date: Date(2026, July, 11),
           starts_at: "14:30",
           duration_minutes: 30,
+          check: meeting_command.AllowOverlap,
         )),
       )
     assert open_booking_starts_at_local(conn, meeting_id, "Europe/London")
@@ -239,19 +238,18 @@ pub fn cancel_meeting_closes_the_open_booking_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Retro",
-            timezone: "Europe/London",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(engineer_id, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Retro",
+          timezone: "Europe/London",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(engineer_id, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Retro")
     let assert Ok(_) =
@@ -274,19 +272,18 @@ pub fn add_then_remove_attendee_changes_the_roster_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Client sync",
-            timezone: "Europe/London",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(organizer, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Client sync",
+          timezone: "Europe/London",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(organizer, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Client sync")
     assert attendee_count(conn, meeting_id) == 1
@@ -323,19 +320,18 @@ pub fn schedule_meeting_rejects_an_unknown_timezone_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Broken zone",
-            timezone: "Mars/Olympus_Mons",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(engineer_id, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Broken zone",
+          timezone: "Mars/Olympus_Mons",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(engineer_id, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     })
   assert outcome == Error(operation.InvalidValue)
@@ -353,6 +349,7 @@ pub fn reschedule_a_nonexistent_meeting_is_rejected_test() {
           date: Date(2026, July, 10),
           starts_at: "09:00",
           duration_minutes: 60,
+          check: meeting_command.AllowOverlap,
         )),
       )
     })
@@ -367,19 +364,18 @@ pub fn cancel_an_already_cancelled_meeting_is_rejected_test() {
         command.dispatch_in(
           conn,
           "tester",
-          gateway.MeetingCommand(
-            meeting_command.ScheduleMeeting(
-              title: "Budget review",
-              timezone: "Europe/London",
-              date: Date(2026, July, 10),
-              starts_at: "09:00",
-              duration_minutes: 60,
-              location: None,
-              client_id: None,
-              project_id: None,
-              attendees: [#(engineer_id, Required)],
-            ),
-          ),
+          gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+            title: "Budget review",
+            timezone: "Europe/London",
+            date: Date(2026, July, 10),
+            starts_at: "09:00",
+            duration_minutes: 60,
+            location: None,
+            client_id: None,
+            project_id: None,
+            attendees: [#(engineer_id, Required)],
+            check: meeting_command.AllowOverlap,
+          )),
         )
       let meeting_id = meeting_id_by_title(conn, "Budget review")
       let assert Ok(_) =
@@ -404,19 +400,18 @@ pub fn a_rescheduled_meetings_prior_booking_survives_test() {
       command.dispatch_in(
         conn,
         "tester",
-        gateway.MeetingCommand(
-          meeting_command.ScheduleMeeting(
-            title: "Roadmap sync",
-            timezone: "Europe/London",
-            date: Date(2026, July, 10),
-            starts_at: "09:00",
-            duration_minutes: 60,
-            location: None,
-            client_id: None,
-            project_id: None,
-            attendees: [#(engineer_id, Required)],
-          ),
-        ),
+        gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+          title: "Roadmap sync",
+          timezone: "Europe/London",
+          date: Date(2026, July, 10),
+          starts_at: "09:00",
+          duration_minutes: 60,
+          location: None,
+          client_id: None,
+          project_id: None,
+          attendees: [#(engineer_id, Required)],
+          check: meeting_command.AllowOverlap,
+        )),
       )
     let meeting_id = meeting_id_by_title(conn, "Roadmap sync")
     let assert Ok(_) =
@@ -429,6 +424,7 @@ pub fn a_rescheduled_meetings_prior_booking_survives_test() {
           date: Date(2026, July, 11),
           starts_at: "14:30",
           duration_minutes: 30,
+          check: meeting_command.AllowOverlap,
         )),
       )
     assert booking_row_count(conn, meeting_id) == 2

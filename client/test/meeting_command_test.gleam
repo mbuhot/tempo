@@ -33,6 +33,7 @@ pub fn build_reschedule_command_test() {
         date: calendar.Date(2026, calendar.July, 11),
         starts_at: "14:00",
         duration_minutes: 30,
+        check: meeting_command.AllowOverlap,
       )),
     )
 }
@@ -99,22 +100,21 @@ pub fn build_schedule_command_from_a_valid_form_test() {
     )
   assert meetings.build_schedule_command(form)
     == Ok(
-      gateway.MeetingCommand(
-        meeting_command.ScheduleMeeting(
-          title: "Kickoff",
-          timezone: "Europe/London",
-          date: calendar.Date(2026, calendar.July, 10),
-          starts_at: "09:30",
-          duration_minutes: 45,
-          location: option.None,
-          client_id: option.None,
-          project_id: option.Some(3),
-          attendees: [
-            #(1, meeting_command.Required),
-            #(2, meeting_command.Optional),
-          ],
-        ),
-      ),
+      gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+        title: "Kickoff",
+        timezone: "Europe/London",
+        date: calendar.Date(2026, calendar.July, 10),
+        starts_at: "09:30",
+        duration_minutes: 45,
+        location: option.None,
+        client_id: option.None,
+        project_id: option.Some(3),
+        attendees: [
+          #(1, meeting_command.Required),
+          #(2, meeting_command.Optional),
+        ],
+        check: meeting_command.AllowOverlap,
+      )),
     )
 }
 

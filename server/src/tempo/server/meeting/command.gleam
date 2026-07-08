@@ -7,12 +7,14 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/result
+import gleam/string
 import gleam/time/calendar.{type Date}
 import pog
 import shared/command as gateway
 import shared/meeting/command.{
-  type Attendance, type MeetingCommand, AddAttendee, CancelMeeting, Optional,
-  RemoveAttendee, Required, RescheduleMeeting, ScheduleMeeting,
+  type Attendance, type BookingCheck, type MeetingCommand, AddAttendee,
+  AllowOverlap, CancelMeeting, Optional, RemoveAttendee, RequireFree, Required,
+  RescheduleMeeting, ScheduleMeeting,
 }
 import tempo/server/fact.{
   type Recorded, MeetingAttendeeAdded, MeetingAttendeeRemoved,
@@ -40,6 +42,7 @@ pub fn route(
       client_id:,
       project_id:,
       attendees:,
+      check:,
     ) ->
       schedule(
         conn,
@@ -53,6 +56,7 @@ pub fn route(
         client_id:,
         project_id:,
         attendees:,
+        check:,
       )
     RescheduleMeeting(
       meeting_id:,
@@ -60,6 +64,7 @@ pub fn route(
       date:,
       starts_at:,
       duration_minutes:,
+      check:,
     ) ->
       reschedule(
         conn,
@@ -69,6 +74,7 @@ pub fn route(
         date:,
         starts_at:,
         duration_minutes:,
+        check:,
       )
     CancelMeeting(meeting_id:) -> Ok(cancel(command, meeting_id:))
     AddAttendee(meeting_id:, engineer_id:, attendance:) ->
@@ -87,7 +93,9 @@ fn attendance_tag(attendance: Attendance) -> String {
 
 /// Mint the meeting id and record its subject, an open booking, and one
 /// `MeetingAttendeeAdded` per attendee, once its IANA TZID is confirmed against
-/// `pg_timezone_names`.
+/// `pg_timezone_names`. `check: RequireFree` locks and re-checks the required
+/// attendees before the meeting id is minted, so a stale finder suggestion fails
+/// as `SlotTaken` rather than silently double-booking someone.
 fn schedule(
   conn: pog.Connection,
   command: MeetingCommand,
@@ -100,12 +108,23 @@ fn schedule(
   client_id client_id: Option(Int),
   project_id project_id: Option(Int),
   attendees attendees: List(#(Int, Attendance)),
+  check check: BookingCheck,
 ) -> Result(Recorded, OperationError) {
   use valid <- operation.try(meeting_sql.timezone_valid(conn, timezone))
-  let assert [check] = valid.rows
-  case check.valid {
+  let assert [zone_check] = valid.rows
+  case zone_check.valid {
     False -> Error(operation.InvalidValue)
     True -> {
+      use _ <- result.try(assert_slot_free(
+        conn,
+        check,
+        required_ids: required_engineer_ids(attendees),
+        date:,
+        starts_at:,
+        duration_minutes:,
+        timezone:,
+        exclude: 0,
+      ))
       use meeting_id <- result.try(repository.create_meeting(conn))
       let MeetingId(id) = meeting_id
       let subject =
@@ -157,7 +176,9 @@ fn schedule(
 
 /// Move a meeting in place, once its IANA TZID is confirmed against
 /// `pg_timezone_names`. `repository.write` gates a missing meeting via
-/// `NoSuchVersion`.
+/// `NoSuchVersion`. `check: RequireFree` locks and re-checks the meeting's own
+/// required attendees before the move is recorded, excluding the meeting's own
+/// current booking so vacating its own slot never conflicts with itself.
 fn reschedule(
   conn: pog.Connection,
   command: MeetingCommand,
@@ -166,12 +187,28 @@ fn reschedule(
   date date: Date,
   starts_at starts_at: String,
   duration_minutes duration_minutes: Int,
+  check check: BookingCheck,
 ) -> Result(Recorded, OperationError) {
   use valid <- operation.try(meeting_sql.timezone_valid(conn, timezone))
-  let assert [check] = valid.rows
-  case check.valid {
+  let assert [zone_check] = valid.rows
+  case zone_check.valid {
     False -> Error(operation.InvalidValue)
-    True ->
+    True -> {
+      use required_ids <- result.try(required_attendees_of(
+        conn,
+        meeting_id,
+        check,
+      ))
+      use _ <- result.try(assert_slot_free(
+        conn,
+        check,
+        required_ids:,
+        date:,
+        starts_at:,
+        duration_minutes:,
+        timezone:,
+        exclude: meeting_id,
+      ))
       Ok(
         Recorded(
           entry: Event(
@@ -198,6 +235,78 @@ fn reschedule(
           ],
         ),
       )
+    }
+  }
+}
+
+/// The engineer ids marked `Required` in a schedule command's attendee list —
+/// only required attendees gate a `RequireFree` booking.
+fn required_engineer_ids(attendees: List(#(Int, Attendance))) -> List(Int) {
+  list.filter_map(attendees, fn(pair) {
+    case pair {
+      #(engineer_id, Required) -> Ok(engineer_id)
+      #(_, Optional) -> Error(Nil)
+    }
+  })
+}
+
+/// The meeting's currently required attendees, for a `RequireFree` reschedule's
+/// guard. Skipped for `AllowOverlap` so the manual reschedule path stays
+/// byte-for-byte the existing behaviour (no extra query).
+fn required_attendees_of(
+  conn: pog.Connection,
+  meeting_id: Int,
+  check: BookingCheck,
+) -> Result(List(Int), OperationError) {
+  case check {
+    AllowOverlap -> Ok([])
+    RequireFree -> {
+      use required <- operation.try(meeting_sql.meeting_required_attendees(
+        conn,
+        meeting_id,
+      ))
+      Ok(list.map(required.rows, fn(row) { row.engineer_id }))
+    }
+  }
+}
+
+/// Lock the required attendees' engineer rows (`engineer_lock.sql`, ascending id
+/// order) then re-check their availability against now-committed state
+/// (`booking_conflicts.sql`) for a `RequireFree` booking. `AllowOverlap` and an
+/// empty required list are both a no-op — the manual paths and attendee-less
+/// bookings never gate. Any conflicted required attendee fails the whole
+/// operation as `SlotTaken`; the lock must run FIRST, or the re-check alone is
+/// write-skew under READ COMMITTED.
+fn assert_slot_free(
+  conn: pog.Connection,
+  check: BookingCheck,
+  required_ids required_ids: List(Int),
+  date date: Date,
+  starts_at starts_at: String,
+  duration_minutes duration_minutes: Int,
+  timezone timezone: String,
+  exclude exclude: Int,
+) -> Result(Nil, OperationError) {
+  case check, required_ids {
+    AllowOverlap, _ -> Ok(Nil)
+    RequireFree, [] -> Ok(Nil)
+    RequireFree, ids -> {
+      let required_csv = ids |> list.map(int.to_string) |> string.join(",")
+      use _ <- operation.try(meeting_sql.engineer_lock(conn, required_csv))
+      use conflicts <- operation.try(meeting_sql.booking_conflicts(
+        conn,
+        required_csv,
+        operation.iso(date),
+        starts_at,
+        int.to_string(duration_minutes),
+        timezone,
+        exclude,
+      ))
+      case conflicts.rows {
+        [] -> Ok(Nil)
+        [_, ..] -> Error(operation.SlotTaken)
+      }
+    }
   }
 }
 

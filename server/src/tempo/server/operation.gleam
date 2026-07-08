@@ -63,6 +63,13 @@ pub type OperationError {
   NoSuchVersion
   /// The project has logged timesheets or issued invoices; its schedule is pinned.
   ProjectPinned
+  /// A `RequireFree` schedule/reschedule found a required attendee no longer free
+  /// for the window once the transaction re-checked availability against
+  /// now-committed state (the finder's suggestion went stale between the read and
+  /// the write). The client re-runs the finder rather than retrying the same
+  /// window. Not a database constraint — the check runs after the engineer-row
+  /// lock, inside `meeting/command`'s own guard.
+  SlotTaken
   /// The authenticated principal is not permitted to run this command (issue #6):
   /// the authorization gate refused it BEFORE any transaction opened. `actor` is
   /// the principal that was refused and `command` names the command. Maps to a 403.
@@ -179,6 +186,7 @@ pub fn describe(error: OperationError) -> String {
       <> ")"
     NoSuchVersion -> "no covering version exists at that date"
     ProjectPinned -> "the project has logged time or invoices"
+    SlotTaken -> "a required attendee is no longer free for that window"
     Unauthorized(actor:, command:) ->
       actor <> " is not permitted to run " <> command
     DatabaseError(_) -> "database error"
