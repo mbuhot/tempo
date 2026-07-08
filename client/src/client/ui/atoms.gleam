@@ -187,6 +187,68 @@ pub fn chip(label label: String, tone tone: ChipTone) -> Element(msg) {
   html.span([attribute.class(tone_class)], [html.text(label)])
 }
 
+/// A `chip` rendered as a clickable `<button>` — the meeting attendance pill
+/// toggle: `text` is the chip's own caption (e.g. "Required"), `label` the
+/// accessible name for the action clicking it performs (e.g. "Make optional"),
+/// also rendered as its tooltip. Kept distinct from `chip` (which is inert) so a
+/// clickable pill can never be built without an accessible name.
+pub fn chip_button(
+  label label: String,
+  text text: String,
+  tone tone: ChipTone,
+  on_press on_press: msg,
+) -> Element(msg) {
+  let tone_class = case tone {
+    Neutral -> "chip chip--neutral chip--btn"
+    Accent -> "chip chip--accent chip--btn"
+  }
+  html.button(
+    [
+      attribute.class(tone_class),
+      attribute.attribute("aria-label", label),
+      attribute.attribute("title", label),
+      event.on_click(on_press),
+    ],
+    [html.text(text)],
+  )
+}
+
+/// How an `icon_button` is tinted on hover: `IconNeutral` the default accent
+/// tint (row actions like Reschedule/Add attendee), `IconDanger` a red tint
+/// (destructive actions like Cancel), `IconPlain` a borderless glyph that only
+/// picks up a subtle danger tint on hover (inline removes/dismissals).
+pub type IconTone {
+  IconNeutral
+  IconDanger
+  IconPlain
+}
+
+/// An icon-only button: the icon (from `client/icons`) is decorative
+/// (`aria-hidden`), so `label` alone is the accessible name — also rendered as
+/// a `title` tooltip. The only place the `icon-btn` class is emitted, so an
+/// icon button can never be built without an accessible name.
+pub fn icon_button(
+  label label: String,
+  icon icon: Element(msg),
+  tone tone: IconTone,
+  on_press on_press: msg,
+) -> Element(msg) {
+  let tone_class = case tone {
+    IconNeutral -> "icon-btn"
+    IconDanger -> "icon-btn icon-btn--danger"
+    IconPlain -> "icon-btn icon-btn--plain"
+  }
+  html.button(
+    [
+      attribute.class(tone_class),
+      attribute.attribute("aria-label", label),
+      attribute.attribute("title", label),
+      event.on_click(on_press),
+    ],
+    [icon],
+  )
+}
+
 /// How a `button` is styled and sized. `Primary` is the filled accent button,
 /// `Ghost` the bordered surface variant; `Medium` is the default size, `Small`
 /// the dense `btn--sm` variant.

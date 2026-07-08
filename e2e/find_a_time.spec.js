@@ -48,12 +48,18 @@ test("a cross-timezone search renders the fairness view with each attendee's loc
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-15");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-19");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  await dialog.getByLabel("Timezone (IANA TZID)").fill("Europe/London");
+  // The Timezone select offers the selected attendees' own zones (Priya's
+  // Australia/Sydney, Marcus's America/Los_Angeles) plus UTC; it starts at,
+  // and stays at, UTC — the reset rule only fires once the CURRENT selection
+  // is no longer among the options, and UTC is always one of them.
+  await expect(
+    dialog.getByRole("combobox", { name: "Timezone" }),
+  ).toHaveValue("UTC");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
   const slots = dialog.locator(".finder-slot");
   await expect(slots.first()).toBeVisible();
-  await expect(slots).toHaveCount(4);
+  await expect(slots).toHaveCount(3);
 
   const firstSlot = slots.first();
   await expect(firstSlot).toContainText("Priya Sharma: 09:00");
@@ -69,12 +75,21 @@ test("an optional attendee rides along without narrowing the search", async ({
   await addAttendee(dialog, "Aisha Okafor");
   await dialog
     .getByRole("listitem", { name: "Aisha Okafor" })
-    .getByRole("combobox", { name: "Attendance" })
-    .selectOption("optional");
+    .getByRole("button", { name: "Make optional" })
+    .click();
+  await expect(
+    dialog
+      .getByRole("listitem", { name: "Aisha Okafor" })
+      .getByRole("button", { name: "Make required" }),
+  ).toBeVisible();
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-15");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-19");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  await dialog.getByLabel("Timezone (IANA TZID)").fill("Europe/London");
+  // Stays at UTC (the blank default) — it's still a valid option, so nothing
+  // resets it.
+  await expect(
+    dialog.getByRole("combobox", { name: "Timezone" }),
+  ).toHaveValue("UTC");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
   const slots = dialog.locator(".finder-slot");
@@ -97,7 +112,9 @@ test("booking a suggested slot schedules the meeting through the RequireFree gua
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-23");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-26");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  await dialog.getByLabel("Timezone (IANA TZID)").fill("America/Los_Angeles");
+  await dialog
+    .getByRole("combobox", { name: "Timezone" })
+    .selectOption("America/Los_Angeles");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
   const firstSlot = dialog.locator(".finder-slot").first();
@@ -109,6 +126,8 @@ test("booking a suggested slot schedules the meeting through the RequireFree gua
 
   await firstSlot.getByRole("button", { name: "Book this slot" }).click();
   await expect(findATimeDialog(page)).toHaveCount(0);
+
+  await expect(page.getByText(`Booked "${title}"`)).toBeVisible();
 
   const row = meetingRow(page, title);
   await expect(row).toBeVisible();
@@ -142,7 +161,9 @@ test("a search with zero common windows shows the empty state and no bookable sl
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-15");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-19");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  await dialog.getByLabel("Timezone (IANA TZID)").fill("Europe/London");
+  await expect(
+    dialog.getByRole("combobox", { name: "Timezone" }),
+  ).toHaveValue("UTC");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
   await expect(

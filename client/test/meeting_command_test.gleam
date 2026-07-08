@@ -6,6 +6,7 @@ import gleam/result
 import gleam/time/calendar
 import rsvp
 import shared/command as gateway
+import shared/location/view as location_view
 import shared/meeting/command as meeting_command
 import shared/meeting/view as meeting_view
 
@@ -366,4 +367,81 @@ pub fn is_slot_taken_is_false_for_a_different_error_tag_test() {
 
 pub fn is_slot_taken_is_false_for_a_network_error_test() {
   assert !meetings.is_slot_taken(rsvp.NetworkError)
+}
+
+// --- Find-a-time wizard: the Timezone select's options + reset rule ---------
+
+/// An engineer located in `timezone` as-of the fixture's (arbitrary) date.
+fn located_engineer(
+  engineer_id: Int,
+  name: String,
+  timezone: String,
+) -> location_view.EngineerLocation {
+  location_view.EngineerLocation(
+    engineer_id:,
+    name:,
+    location: option.Some(location_view.LocationRecord(
+      country: "UK",
+      region: option.None,
+      timezone:,
+      valid_from: calendar.Date(2020, calendar.January, 1),
+      valid_to: option.None,
+      utc_offset_minutes: 0,
+    )),
+  )
+}
+
+pub fn finder_timezone_options_dedupes_in_attendee_order_test() {
+  let roster = [
+    located_engineer(1, "A", "Europe/London"),
+    located_engineer(2, "B", "America/Los_Angeles"),
+    located_engineer(3, "C", "Europe/London"),
+  ]
+  let attendees = [
+    meetings.Attendee(1, meeting_command.Required),
+    meetings.Attendee(2, meeting_command.Optional),
+    meetings.Attendee(3, meeting_command.Required),
+  ]
+  assert meetings.finder_timezone_options(attendees, roster)
+    == ["Europe/London", "America/Los_Angeles", "UTC"]
+}
+
+pub fn finder_timezone_options_always_ends_with_utc_test() {
+  assert meetings.finder_timezone_options([], []) == ["UTC"]
+}
+
+pub fn finder_timezone_options_skips_an_unlocated_attendee_test() {
+  let roster = [
+    location_view.EngineerLocation(
+      engineer_id: 1,
+      name: "A",
+      location: option.None,
+    ),
+  ]
+  let attendees = [meetings.Attendee(1, meeting_command.Required)]
+  assert meetings.finder_timezone_options(attendees, roster) == ["UTC"]
+}
+
+pub fn finder_timezone_options_does_not_duplicate_an_attendee_already_in_utc_test() {
+  let roster = [located_engineer(1, "A", "UTC")]
+  let attendees = [meetings.Attendee(1, meeting_command.Required)]
+  assert meetings.finder_timezone_options(attendees, roster) == ["UTC"]
+}
+
+pub fn reconcile_finder_timezone_keeps_a_still_valid_selection_test() {
+  assert meetings.reconcile_finder_timezone("America/Los_Angeles", [
+      "Europe/London", "America/Los_Angeles", "UTC",
+    ])
+    == "America/Los_Angeles"
+}
+
+pub fn reconcile_finder_timezone_resets_to_the_first_option_test() {
+  assert meetings.reconcile_finder_timezone("Europe/Paris", [
+      "Europe/London", "UTC",
+    ])
+    == "Europe/London"
+}
+
+pub fn reconcile_finder_timezone_resets_to_utc_with_no_attendees_test() {
+  assert meetings.reconcile_finder_timezone("", ["UTC"]) == "UTC"
 }

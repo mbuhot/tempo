@@ -127,6 +127,7 @@ pub type Model {
     projects: List(Ref),
     create: Option(CreateForm),
     finder: Option(FinderForm),
+    notice: Option(String),
   )
 }
 
@@ -138,6 +139,13 @@ pub type Msg {
   CancelOpened(permit: ops.Permit, meeting_id: Int)
   AddAttendeeOpened(permit: ops.Permit, meeting_id: Int)
   RemoveAttendeeOpened(permit: ops.Permit, meeting_id: Int, engineer_id: Int)
+  AttendanceToggled(
+    permit: ops.Permit,
+    meeting_id: Int,
+    engineer_id: Int,
+    attendance: command.Attendance,
+  )
+  NoticeDismissed
   OpCancelled
   OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
@@ -183,6 +191,7 @@ pub fn init(_route, as_of: Date, actor: String) -> #(Model, Effect(Msg)) {
       projects: [],
       create: None,
       finder: None,
+      notice: None,
     ),
     effect.batch([fetch(as_of), fetch_roster(as_of), fetch_projects(as_of)]),
   )
@@ -335,6 +344,24 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       )
     }
 
+    AttendanceToggled(permit:, meeting_id:, engineer_id:, attendance:) -> {
+      let _ = permit
+      #(
+        model,
+        api.submit_operation(
+          gateway.MeetingCommand(command.AddAttendee(
+            meeting_id:,
+            engineer_id:,
+            attendance:,
+          )),
+          OperationReturned,
+        ),
+        [],
+      )
+    }
+
+    NoticeDismissed -> #(Model(..model, notice: None), effect.none(), [])
+
     OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
     OpFieldEdited(field:, value:) ->
@@ -380,7 +407,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         Ok(_events) -> {
           let #(refreshed, fetch_effect) =
             refetch(
-              Model(..model, op: None, create: None),
+              Model(..model, op: None, create: None, notice: None),
               model.as_of,
               model.actor,
             )
@@ -481,7 +508,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       }
 
     FinderOpened -> #(
-      Model(..model, finder: Some(blank_finder_form(model.as_of))),
+      Model(
+        ..model,
+        finder: Some(finder_reconcile_timezone(
+          blank_finder_form(model.as_of),
+          model.roster,
+        )),
+      ),
       effect.none(),
       [],
     )
@@ -518,9 +551,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         Some(form) -> #(
           Model(
             ..model,
-            finder: Some(
+            finder: Some(finder_reconcile_timezone(
               FinderForm(..finder_add_ids(form, [engineer_id]), query: ""),
-            ),
+              model.roster,
+            )),
           ),
           effect.none(),
           [],
@@ -535,7 +569,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             located_roster(model.roster)
             |> list.map(fn(entry) { entry.engineer_id })
           #(
-            Model(..model, finder: Some(finder_add_ids(form, located_ids))),
+            Model(
+              ..model,
+              finder: Some(finder_reconcile_timezone(
+                finder_add_ids(form, located_ids),
+                model.roster,
+              )),
+            ),
             effect.none(),
             [],
           )
@@ -548,14 +588,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         Some(form) -> #(
           Model(
             ..model,
-            finder: Some(
+            finder: Some(finder_reconcile_timezone(
               FinderForm(
                 ..form,
                 attendees: list.filter(form.attendees, fn(attendee) {
                   attendee.engineer_id != engineer_id
                 }),
               ),
-            ),
+              model.roster,
+            )),
           ),
           effect.none(),
           [],
@@ -624,9 +665,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
               #(
                 Model(
                   ..model,
-                  finder: Some(finder_add_ids(
-                    FinderForm(..form, booking_project_id: Some(project_id)),
-                    offerable,
+                  finder: Some(finder_reconcile_timezone(
+                    finder_add_ids(
+                      FinderForm(..form, booking_project_id: Some(project_id)),
+                      offerable,
+                    ),
+                    model.roster,
                   )),
                 ),
                 effect.none(),
@@ -720,8 +764,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     FinderBookingReturned(result:) ->
       case result {
         Ok(_events) -> {
+          let notice = case model.finder {
+            Some(form) -> Some("Booked \"" <> form.title <> "\"")
+            None -> None
+          }
           let #(refreshed, fetch_effect) =
-            refetch(Model(..model, finder: None), model.as_of, model.actor)
+            refetch(
+              Model(..model, finder: None, notice:),
+              model.as_of,
+              model.actor,
+            )
           #(refreshed, fetch_effect, [OperationCommitted])
         }
         Error(error) ->
@@ -985,8 +1037,9 @@ fn pad2(value: Int) -> String {
 // --- Find-a-time wizard -------------------------------------------------------
 
 /// A blank finder form, opened by the "Find a time" launcher: the search window
-/// defaults to `as_of .. as_of+13 days`, duration to 60 minutes, timezone blank
-/// (the same default the create form uses for its timezone field).
+/// defaults to `as_of .. as_of+13 days`, duration to 60 minutes, timezone blank —
+/// the caller (`FinderOpened`) runs it through `finder_reconcile_timezone` right
+/// away, which snaps the blank value to `"UTC"` (no attendees yet).
 fn blank_finder_form(as_of: Date) -> FinderForm {
   FinderForm(
     attendees: [],
@@ -1047,6 +1100,63 @@ fn add_one(attendees: List(Attendee), engineer_id: Int) -> List(Attendee) {
     False ->
       list.append(attendees, [Attendee(engineer_id:, attendance: Required)])
   }
+}
+
+/// The distinct timezones of `attendees`' roster locations, in attendee order,
+/// with `"UTC"` always appended last (deduped against an attendee already
+/// located there) — the find-a-time wizard's `Timezone` select options. An
+/// attendee with no as-of location contributes no option.
+pub fn finder_timezone_options(
+  attendees: List(Attendee),
+  roster: List(EngineerLocation),
+) -> List(String) {
+  let zones =
+    attendees
+    |> list.filter_map(fn(attendee) {
+      attendee_timezone(attendee.engineer_id, roster)
+    })
+    |> list.unique
+    |> list.filter(fn(timezone) { timezone != "UTC" })
+  list.append(zones, ["UTC"])
+}
+
+fn attendee_timezone(
+  engineer_id: Int,
+  roster: List(EngineerLocation),
+) -> Result(String, Nil) {
+  use entry <- result.try(
+    list.find(roster, fn(entry) { entry.engineer_id == engineer_id }),
+  )
+  use location <- result.try(option.to_result(entry.location, Nil))
+  Ok(location.timezone)
+}
+
+/// Snap `current` to `options`: kept if still present, otherwise reset to the
+/// first option (an attendee's own zone, or `"UTC"` once the attendee list is
+/// empty) — mirroring `ops.reconcile_ref`'s stale-selection reset.
+pub fn reconcile_finder_timezone(
+  current: String,
+  options: List(String),
+) -> String {
+  case list.contains(options, current), options {
+    True, _ -> current
+    False, [first, ..] -> first
+    False, [] -> current
+  }
+}
+
+/// Reconcile `form.timezone` against the options its CURRENT attendees now
+/// offer — called everywhere the attendee list changes, so the selection never
+/// points at a zone no attendee is in.
+fn finder_reconcile_timezone(
+  form: FinderForm,
+  roster: List(EngineerLocation),
+) -> FinderForm {
+  let options = finder_timezone_options(form.attendees, roster)
+  FinderForm(
+    ..form,
+    timezone: reconcile_finder_timezone(form.timezone, options),
+  )
 }
 
 /// Split `attendees` into (required ids, optional ids), each deduplicated and

@@ -5,7 +5,9 @@
 //// the server enforces with.
 
 import client/time
-import client/ui/atoms.{type ButtonKind, type ButtonSize, Medium, Primary}
+import client/ui/atoms.{
+  type ButtonKind, type ButtonSize, type IconTone, Medium, Primary,
+}
 import gleam/float
 import gleam/int
 import gleam/list
@@ -182,6 +184,21 @@ pub fn launch(
 ) -> Element(msg) {
   when_permitted(permit, fn(granted) {
     atoms.button(label:, kind:, size:, on_press: to_msg(granted))
+  })
+}
+
+/// A permitted op-launching icon button: shown only when `permit` was granted,
+/// dispatching `to_msg(permit)` — mirrors `launch` for the dense icon-only row
+/// actions (Reschedule/Cancel/Add attendee/Remove attendee).
+pub fn launch_icon(
+  permit: Result(Permit, Nil),
+  to_msg to_msg: fn(Permit) -> msg,
+  label label: String,
+  icon icon: Element(msg),
+  tone tone: IconTone,
+) -> Element(msg) {
+  when_permitted(permit, fn(granted) {
+    atoms.icon_button(label:, icon:, tone:, on_press: to_msg(granted))
   })
 }
 

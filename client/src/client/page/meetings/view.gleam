@@ -1,25 +1,29 @@
 //// The Meetings page's views: the page head with the "New meeting"/"Find a
-//// time" actions, the upcoming-meetings table (canonical time plus each
-//// attendee's local wall-clock time, and the granular Reschedule/Cancel/Add
-//// attendee/Remove attendee launchers), the granular op-form modal, the
-//// bespoke "Schedule meeting" create modal with its attendee builder, and the
-//// find-a-time wizard modal.
+//// time" actions, a dismissible booking-confirmation notice, the
+//// upcoming-meetings table (canonical time plus each attendee's local
+//// wall-clock time, the attendance-pill toggle, and the icon-button
+//// Reschedule/Cancel/Add attendee/Remove attendee launchers), the granular
+//// op-form modal, the bespoke "Schedule meeting" create modal with its
+//// attendee builder, and the find-a-time wizard modal (guided sections, the
+//// same one-line attendee rows, and the Timezone select).
 
+import client/icons
 import client/page/meetings/op_form.{view_op_modal}
 import client/page/meetings/update.{
   type Attendee, type CreateField, type CreateForm, type FinderField,
   type FinderForm, type Model, type Msg, type State, AddAttendeeOpened,
-  AttendanceSet, Attendee, AttendeeAdded, AttendeeQueryChanged, AttendeeRemoved,
-  CancelOpened, CreateCancelled, CreateClientId, CreateDate,
-  CreateDurationMinutes, CreateFieldEdited, CreateLocation, CreateOpened,
-  CreateProjectId, CreateStartsAt, CreateSubmitted, CreateTimezone, CreateTitle,
-  FinderAllAdded, FinderAttendanceSet, FinderAttendeeAdded,
-  FinderAttendeeQueryChanged, FinderAttendeeRemoved, FinderCancelled,
-  FinderDurationMinutes, FinderFieldEdited, FinderFillFromProjectRequested,
-  FinderFromDate, FinderOpened, FinderProjectChoice, FinderSearchRequested,
-  FinderSlotBooked, FinderTimezone, FinderTitle, FinderToDate, Found,
-  MeetingsFailed, MeetingsLoaded, MeetingsLoading, NotSearched,
-  RemoveAttendeeOpened, RescheduleOpened, Searching, SlotTaken, local_time,
+  AttendanceSet, AttendanceToggled, Attendee, AttendeeAdded,
+  AttendeeQueryChanged, AttendeeRemoved, CancelOpened, CreateCancelled,
+  CreateClientId, CreateDate, CreateDurationMinutes, CreateFieldEdited,
+  CreateLocation, CreateOpened, CreateProjectId, CreateStartsAt, CreateSubmitted,
+  CreateTimezone, CreateTitle, FinderAllAdded, FinderAttendanceSet,
+  FinderAttendeeAdded, FinderAttendeeQueryChanged, FinderAttendeeRemoved,
+  FinderCancelled, FinderDurationMinutes, FinderFieldEdited,
+  FinderFillFromProjectRequested, FinderFromDate, FinderOpened,
+  FinderProjectChoice, FinderSearchRequested, FinderSlotBooked, FinderTimezone,
+  FinderTitle, FinderToDate, Found, MeetingsFailed, MeetingsLoaded,
+  MeetingsLoading, NotSearched, NoticeDismissed, RemoveAttendeeOpened,
+  RescheduleOpened, Searching, SlotTaken, finder_timezone_options, local_time,
   located_roster, slot_local_start,
 }
 import client/time
@@ -58,9 +62,30 @@ pub fn view(
       title: "Meetings",
       blurb: "Every upcoming meeting as of the rail date, with each attendee's local wall-clock time.",
       actions: view_actions(permissions),
-      body: view_body(model.state, permissions),
+      body: html.div([], [
+        view_notice(model.notice),
+        view_body(model.state, permissions),
+      ]),
     ),
   ])
+}
+
+/// A dismissible confirmation bar above the table — set by a successful
+/// find-a-time booking, cleared by its own × or by any subsequent write.
+fn view_notice(notice: Option(String)) -> Element(Msg) {
+  case notice {
+    None -> element.none()
+    Some(message) ->
+      html.div([attribute.class("notice notice--success")], [
+        html.span([], [html.text(message)]),
+        atoms.icon_button(
+          label: "Dismiss",
+          icon: icons.remove(),
+          tone: atoms.IconPlain,
+          on_press: NoticeDismissed,
+        ),
+      ])
+  }
 }
 
 fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
@@ -99,15 +124,17 @@ fn view_table(
   case records {
     [] -> atoms.empty_state(message: "No upcoming meetings.")
     _ ->
-      atoms.data_table(
-        headers: [
-          #("Meeting", False),
-          #("When", False),
-          #("Attendees", False),
-          #("", False),
-        ],
-        rows: list.map(records, view_row(_, permissions)),
-      )
+      html.div([attribute.class("mtg-table")], [
+        atoms.data_table(
+          headers: [
+            #("Meeting", False),
+            #("When", False),
+            #("Attendees", False),
+            #("", False),
+          ],
+          rows: list.map(records, view_row(_, permissions)),
+        ),
+      ])
   }
 }
 
@@ -122,59 +149,63 @@ fn view_row(record: MeetingRecord, permissions: Set(String)) -> Element(Msg) {
     ..,
   ) = record
   html.tr([], [
-    html.td([], [html.text(title)]),
+    html.td([attribute.class("mtg-title")], [html.text(title)]),
     html.td([attribute.class("mono")], [
-      html.text(canonical_time(starts_at, canonical_offset_minutes, meeting_tz)),
+      html.div([], [
+        html.text(canonical_time_line(starts_at, canonical_offset_minutes)),
+      ]),
+      html.div([attribute.class("cell-sub")], [
+        html.text("(" <> meeting_tz <> ")"),
+      ]),
     ]),
     html.td([], [view_attendees(meeting_id, starts_at, attendees, permissions)]),
     html.td([], [view_meeting_actions(record, permissions)]),
   ])
 }
 
-/// The per-row "Reschedule"/"Cancel"/"Add attendee" launchers, each gated by
-/// `meeting.manage` and opening the shared op-form modal pre-filled with this
-/// meeting's id (reschedule also pre-fills its current date/start/duration/tz).
+/// The per-row "Reschedule"/"Cancel"/"Add attendee" icon-button launchers, each
+/// gated by `meeting.manage` and opening the shared op-form modal pre-filled
+/// with this meeting's id (reschedule also pre-fills its current
+/// date/start/duration/tz).
 fn view_meeting_actions(
   record: MeetingRecord,
   permissions: Set(String),
 ) -> Element(Msg) {
   let meeting_view.MeetingRecord(meeting_id:, ..) = record
   html.div([attribute.class("action-row")], [
-    ops.launch(
+    ops.launch_icon(
       ops.permit(permissions, own: False, kind: ops.OpRescheduleMeeting),
       to_msg: fn(granted) { RescheduleOpened(permit: granted, record:) },
       label: "Reschedule",
-      kind: atoms.Ghost,
-      size: atoms.Small,
+      icon: icons.reschedule(),
+      tone: atoms.IconNeutral,
     ),
-    ops.launch(
+    ops.launch_icon(
       ops.permit(permissions, own: False, kind: ops.OpCancelMeeting),
       to_msg: fn(granted) { CancelOpened(permit: granted, meeting_id:) },
       label: "Cancel",
-      kind: atoms.Ghost,
-      size: atoms.Small,
+      icon: icons.cancel(),
+      tone: atoms.IconDanger,
     ),
-    ops.launch(
+    ops.launch_icon(
       ops.permit(permissions, own: False, kind: ops.OpAddAttendee),
       to_msg: fn(granted) { AddAttendeeOpened(permit: granted, meeting_id:) },
       label: "Add attendee",
-      kind: atoms.Ghost,
-      size: atoms.Small,
+      icon: icons.person_add(),
+      tone: atoms.IconNeutral,
     ),
   ])
 }
 
-fn canonical_time(
+/// The meeting's canonical time as "HH:MM UTC±HH:MM" — the `.when` cell's own
+/// line; the zone name renders beneath it separately.
+fn canonical_time_line(
   starts_at: String,
   canonical_offset_minutes: Int,
-  meeting_tz: String,
 ) -> String {
   local_time(starts_at, canonical_offset_minutes)
   <> " "
   <> time.utc_offset(canonical_offset_minutes)
-  <> " ("
-  <> meeting_tz
-  <> ")"
 }
 
 fn view_attendees(
@@ -184,11 +215,15 @@ fn view_attendees(
   permissions: Set(String),
 ) -> Element(Msg) {
   html.div(
-    [],
+    [attribute.class("attendee-rows"), attribute.role("list")],
     list.map(attendees, view_attendee(meeting_id, starts_at, _, permissions)),
   )
 }
 
+/// One attendee row, one line: name + local time, the attendance pill (a
+/// toggle button for a `meeting.manage` viewer, a plain pill otherwise), and a
+/// name-scoped Remove icon button. `role="listitem"` + an aria-label naming
+/// the attendee lets e2e scope a click to exactly one attendee's controls.
 fn view_attendee(
   meeting_id: Int,
   starts_at: String,
@@ -202,25 +237,30 @@ fn view_attendee(
     local_offset_minutes:,
     ..,
   ) = attendee
-  html.div([], [
-    html.span([], [
-      html.text(
-        name <> ": " <> attendee_local_time(starts_at, local_offset_minutes),
+  html.div(
+    [
+      attribute.class("attendee-row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.span([attribute.class("attendee-row__name")], [
+        html.text(
+          name <> ": " <> attendee_local_time(starts_at, local_offset_minutes),
+        ),
+      ]),
+      view_attendance_control(meeting_id, engineer_id, attendance, permissions),
+      ops.launch_icon(
+        ops.permit(permissions, own: False, kind: ops.OpRemoveAttendee),
+        to_msg: fn(granted) {
+          RemoveAttendeeOpened(permit: granted, meeting_id:, engineer_id:)
+        },
+        label: "Remove " <> name,
+        icon: icons.remove(),
+        tone: atoms.IconPlain,
       ),
-    ]),
-    html.text(" "),
-    attendance_chip(attendance),
-    html.text(" "),
-    ops.launch(
-      ops.permit(permissions, own: False, kind: ops.OpRemoveAttendee),
-      to_msg: fn(granted) {
-        RemoveAttendeeOpened(permit: granted, meeting_id:, engineer_id:)
-      },
-      label: "Remove",
-      kind: atoms.Ghost,
-      size: atoms.Small,
-    ),
-  ])
+    ],
+  )
 }
 
 fn attendee_local_time(
@@ -238,6 +278,52 @@ fn attendance_chip(attendance: command.Attendance) -> Element(Msg) {
     Required -> atoms.chip(label: "Required", tone: atoms.Neutral)
     Optional -> atoms.chip(label: "Optional", tone: atoms.Accent)
   }
+}
+
+/// The Required/Optional pill: a toggle button dispatching the flipped
+/// `AddAttendee` when the viewer holds `meeting.manage` (the server insert is
+/// an upsert, so re-adding with a new attendance simply re-marks it), a plain
+/// inert pill otherwise.
+fn view_attendance_control(
+  meeting_id: Int,
+  engineer_id: Int,
+  attendance: command.Attendance,
+  permissions: Set(String),
+) -> Element(Msg) {
+  case ops.permit(permissions, own: False, kind: ops.OpAddAttendee) {
+    Ok(permit) ->
+      attendance_toggle_button(
+        fn(flipped) {
+          AttendanceToggled(
+            permit:,
+            meeting_id:,
+            engineer_id:,
+            attendance: flipped,
+          )
+        },
+        attendance,
+      )
+    Error(Nil) -> attendance_chip(attendance)
+  }
+}
+
+/// The chip-button shared by the table's attendance toggle and the finder's
+/// attendee-row pill toggle: the flipped `Attendance` plus its caption/label/
+/// tone, handed to `to_msg` to become each caller's own message.
+fn attendance_toggle_button(
+  to_msg: fn(command.Attendance) -> Msg,
+  attendance: command.Attendance,
+) -> Element(Msg) {
+  let #(flipped, text, toggle_label, tone) = case attendance {
+    Required -> #(Optional, "Required", "Make optional", atoms.Neutral)
+    Optional -> #(Required, "Optional", "Make required", atoms.Accent)
+  }
+  atoms.chip_button(
+    label: toggle_label,
+    text:,
+    tone:,
+    on_press: to_msg(flipped),
+  )
 }
 
 // --- Create form ------------------------------------------------------------
@@ -473,26 +559,39 @@ fn view_finder_modal(
   }
 }
 
+/// The criteria column grouped under guided section headings (Title/Attendees/
+/// Dates/Duration/Timezone) mirroring the app's `wizard__card` section style. A
+/// single-field section drops that field's own micro-label (the heading above
+/// already names it, via `finder_bare_field`); a multi-field section keeps each
+/// field's own label to tell its fields apart (Dates' From/To).
 fn view_finder_criteria(
   form: FinderForm,
   roster: List(EngineerLocation),
   projects: List(Ref),
 ) -> Element(Msg) {
   html.div([attribute.class("finder__criteria")], [
-    finder_field("Title", FinderTitle, form.title, "text"),
-    view_finder_attendee_builder(form, roster),
-    view_finder_project_fill(form, projects),
-    html.div([attribute.class("finder__row")], [
-      finder_field("From", FinderFromDate, form.from_date, "date"),
-      finder_field("To", FinderToDate, form.to_date, "date"),
+    finder_section("Title", [
+      finder_bare_field(FinderTitle, form.title, "text", "Title"),
     ]),
-    finder_field(
-      "Duration (minutes)",
-      FinderDurationMinutes,
-      form.duration_minutes,
-      "text",
-    ),
-    finder_field("Timezone (IANA TZID)", FinderTimezone, form.timezone, "text"),
+    finder_section("Attendees", [
+      view_finder_attendee_builder(form, roster),
+      view_finder_project_fill(form, projects),
+    ]),
+    finder_section("Dates", [
+      html.div([attribute.class("finder__row")], [
+        finder_field("From", FinderFromDate, form.from_date, "date"),
+        finder_field("To", FinderToDate, form.to_date, "date"),
+      ]),
+    ]),
+    finder_section("Duration", [
+      finder_bare_field(
+        FinderDurationMinutes,
+        form.duration_minutes,
+        "text",
+        "Duration (minutes)",
+      ),
+    ]),
+    finder_section("Timezone", [view_finder_timezone(form, roster)]),
     finder_error(form.error),
     atoms.button(
       label: "Find windows",
@@ -500,6 +599,13 @@ fn view_finder_criteria(
       size: atoms.Medium,
       on_press: FinderSearchRequested,
     ),
+  ])
+}
+
+fn finder_section(title: String, body: List(Element(Msg))) -> Element(Msg) {
+  html.section([attribute.class("wizard__card")], [
+    html.h3([attribute.class("wizard__card-title")], [html.text(title)]),
+    ..body
   ])
 }
 
@@ -517,6 +623,52 @@ fn finder_field(
       attribute.value(value),
       event.on_input(fn(value) { FinderFieldEdited(field, value) }),
     ]),
+  ])
+}
+
+/// A `finder_field` without its own visible micro-label — for a section whose
+/// heading already names its one field; `aria_label` still carries the
+/// accessible name so `getByLabel` keeps resolving it.
+fn finder_bare_field(
+  field: FinderField,
+  value: String,
+  input_type: String,
+  aria_label: String,
+) -> Element(Msg) {
+  html.label([attribute.class("op-form__field")], [
+    html.input([
+      attribute.type_(input_type),
+      attribute.attribute("aria-label", aria_label),
+      attribute.value(value),
+      event.on_input(fn(value) { FinderFieldEdited(field, value) }),
+    ]),
+  ])
+}
+
+/// The `Timezone` select: options are `finder_timezone_options` (the selected
+/// attendees' deduped zones plus `UTC` last); no visible micro-label since the
+/// `Timezone` section heading already names it.
+fn view_finder_timezone(
+  form: FinderForm,
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  let options = finder_timezone_options(form.attendees, roster)
+  html.label([attribute.class("op-form__field")], [
+    html.select(
+      [
+        attribute.attribute("aria-label", "Timezone"),
+        event.on_change(fn(value) { FinderFieldEdited(FinderTimezone, value) }),
+      ],
+      list.map(options, fn(timezone) {
+        html.option(
+          [
+            attribute.value(timezone),
+            attribute.selected(timezone == form.timezone),
+          ],
+          timezone,
+        )
+      }),
+    ),
   ])
 }
 
@@ -613,6 +765,9 @@ fn view_finder_current_attendees(
   )
 }
 
+/// One attendee row, mirroring the meetings table's one-line shape: name, the
+/// attendance pill toggle (pure `FinderForm` state — no command dispatched
+/// until the wizard books), and a name-scoped Remove icon button.
 fn view_finder_current_attendee(
   attendee: Attendee,
   located: List(EngineerLocation),
@@ -621,52 +776,21 @@ fn view_finder_current_attendee(
   let name = roster_name(located, engineer_id)
   html.div(
     [
-      attribute.class("attendee-builder__row"),
+      attribute.class("attendee-row"),
       attribute.role("listitem"),
       attribute.aria_label(name),
     ],
     [
-      html.span([], [html.text(name)]),
-      finder_attendance_select(engineer_id, attendance),
-      atoms.button(
-        label: "Remove",
-        kind: atoms.Ghost,
-        size: atoms.Small,
+      html.span([attribute.class("attendee-row__name")], [html.text(name)]),
+      attendance_toggle_button(
+        fn(flipped) { FinderAttendanceSet(engineer_id, flipped) },
+        attendance,
+      ),
+      atoms.icon_button(
+        label: "Remove " <> name,
+        icon: icons.remove(),
+        tone: atoms.IconPlain,
         on_press: FinderAttendeeRemoved(engineer_id),
-      ),
-    ],
-  )
-}
-
-fn finder_attendance_select(
-  engineer_id: Int,
-  selected: command.Attendance,
-) -> Element(Msg) {
-  let selected_value = case selected {
-    Required -> "required"
-    Optional -> "optional"
-  }
-  html.select(
-    [
-      attribute.attribute("aria-label", "Attendance"),
-      event.on_change(fn(value) {
-        FinderAttendanceSet(engineer_id, attendance_from_string(value))
-      }),
-    ],
-    [
-      html.option(
-        [
-          attribute.value("required"),
-          attribute.selected(selected_value == "required"),
-        ],
-        "Required",
-      ),
-      html.option(
-        [
-          attribute.value("optional"),
-          attribute.selected(selected_value == "optional"),
-        ],
-        "Optional",
       ),
     ],
   )

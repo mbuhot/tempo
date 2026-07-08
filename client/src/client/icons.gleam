@@ -171,3 +171,35 @@ pub fn meetings() -> Element(msg) {
     path("M3 10h18"),
   ])
 }
+
+/// `calendar-clock` — reschedule a meeting.
+pub fn reschedule() -> Element(msg) {
+  icon([
+    path("M8 2v4"),
+    path("M16 2v4"),
+    path("M21 11.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5.5"),
+    path("M3 10h18"),
+    circle("17.5", "17.5", "4.5"),
+    path("M17.5 16v1.5l1 1"),
+  ])
+}
+
+/// `circle-x` — cancel a meeting.
+pub fn cancel() -> Element(msg) {
+  icon([circle("12", "12", "10"), path("M15 9l-6 6"), path("M9 9l6 6")])
+}
+
+/// `user-plus` — add an attendee.
+pub fn person_add() -> Element(msg) {
+  icon([
+    path("M2 21a8 8 0 0 1 13.292-6"),
+    circle("10", "8", "5"),
+    path("M19 16v6"),
+    path("M22 19h-6"),
+  ])
+}
+
+/// `x` — remove/dismiss.
+pub fn remove() -> Element(msg) {
+  icon([path("M18 6 6 18"), path("M6 6l12 12")])
+}

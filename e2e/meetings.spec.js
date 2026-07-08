@@ -36,7 +36,8 @@ test("the Meetings page lists an upcoming meeting with each attendee's local tim
   await scrubTo(page, "2026-07-05");
 
   const row = meetingRow(page, "July all-hands");
-  await expect(row).toContainText("09:00 UTC+01:00 (Europe/London)");
+  await expect(row).toContainText("09:00 UTC+01:00");
+  await expect(row).toContainText("(Europe/London)");
   await expect(row).toContainText("Priya Sharma: 09:00");
   await expect(row).toContainText("Marcus Chen: 01:00");
 });
@@ -79,10 +80,21 @@ test("an admin schedules, reschedules, and cancels a meeting", async ({
   await expect(opModal(page)).toHaveCount(0);
 
   let row = meetingRow(page, title);
-  await expect(row).toContainText("10:00 UTC+01:00 (Europe/London)");
+  await expect(row).toContainText("10:00 UTC+01:00");
+  await expect(row).toContainText("(Europe/London)");
   await expect(row).toContainText("Priya Sharma");
   await expect(row).toContainText("Marcus Chen");
   await expect(row).toContainText("Optional");
+
+  // Marcus is Optional: his pill is a "Make required" toggle button. Clicking
+  // it flips his attendance (an AddAttendee upsert) and the pill's own text.
+  const marcus = row.getByRole("listitem", { name: "Marcus Chen" });
+  await expect(marcus).toContainText("Optional");
+  await marcus.getByRole("button", { name: "Make required" }).click();
+  await expect(marcus).toContainText("Required");
+  await expect(
+    marcus.getByRole("button", { name: "Make optional" }),
+  ).toBeVisible();
 
   await row.getByRole("button", { name: "Reschedule", exact: true }).click();
   const rescheduleModal = opModal(page);
@@ -91,7 +103,8 @@ test("an admin schedules, reschedules, and cancels a meeting", async ({
   await expect(opModal(page)).toHaveCount(0);
 
   row = meetingRow(page, title);
-  await expect(row).toContainText("14:00 UTC+01:00 (Europe/London)");
+  await expect(row).toContainText("14:00 UTC+01:00");
+  await expect(row).toContainText("(Europe/London)");
 
   await row.getByRole("button", { name: "Cancel", exact: true }).click();
   await confirmOp(page, "Cancel meeting");
@@ -122,7 +135,9 @@ test("a role without meeting.manage sees no meeting write actions", async ({
   await expect(
     row.getByRole("button", { name: "Add attendee", exact: true }),
   ).toHaveCount(0);
+  await expect(row.getByRole("button", { name: /^Remove / })).toHaveCount(0);
   await expect(
-    row.getByRole("button", { name: "Remove", exact: true }),
+    row.getByRole("button", { name: /^Make (optional|required)$/ }),
   ).toHaveCount(0);
+  await expect(row).toContainText("Required");
 });

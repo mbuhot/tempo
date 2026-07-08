@@ -92,6 +92,52 @@
     font-size: var(--text-xs);
 }
 
+/* An icon-only button (a row action, or an inline remove/dismiss): a square
+ * control sized to --size-control, its glyph centred and inheriting its own
+ * `currentColor`. `--danger` tints its hover red for a destructive action
+ * (Cancel); `--plain` starts borderless (an inline × beside text) and only
+ * picks up a subtle danger tint on hover. */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: var(--size-control);
+    height: var(--size-control);
+    padding: 0;
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    transition:
+        background var(--ease),
+        border-color var(--ease),
+        color var(--ease);
+}
+.icon-btn svg {
+    width: var(--size-icon);
+    height: var(--size-icon);
+}
+.icon-btn:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+    color: var(--color-on-accent);
+}
+.icon-btn--danger:hover {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: var(--color-on-accent);
+}
+.icon-btn--plain {
+    border-color: transparent;
+    background: none;
+}
+.icon-btn--plain:hover {
+    background: var(--color-danger-soft);
+    border-color: var(--color-danger-border);
+    color: var(--color-danger);
+}
+
 /* ---------- Cards / stats ---------- */
 .stats {
     display: grid;
@@ -315,6 +361,12 @@ th.num {
 .chip--accent {
     background: var(--color-accent-soft);
     color: var(--color-accent);
+}
+/* A chip rendered as a button (the meeting attendance pill toggle): the same
+ * chip visuals, plus a hairline in its own colour on hover to hint it's
+ * clickable. */
+.chip--btn:hover {
+    border-color: currentColor;
 }
 
 /* ---------- Tabs ---------- */
