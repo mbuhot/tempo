@@ -297,6 +297,40 @@ pub fn build_finder_schedule_command_from_a_filled_form_test() {
     )
 }
 
+pub fn build_finder_schedule_command_trims_a_padded_timezone_test() {
+  let form =
+    meetings.FinderForm(
+      ..finder_form(),
+      timezone: " Europe/London ",
+      booking_project_id: option.Some(300),
+    )
+  let slot =
+    meeting_view.CandidateSlot(
+      starts_at: "2026-06-15T23:00:00Z",
+      ends_at: "2026-06-16T00:00:00Z",
+      attendees: [],
+      viewer_offset_minutes: 60,
+    )
+  assert meetings.build_finder_schedule_command(form, slot)
+    == Ok(
+      gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+        title: "Kickoff",
+        timezone: "Europe/London",
+        date: calendar.Date(2026, calendar.June, 16),
+        starts_at: "00:00",
+        duration_minutes: 60,
+        location: option.None,
+        client_id: option.None,
+        project_id: option.Some(300),
+        attendees: [
+          #(1, meeting_command.Required),
+          #(2, meeting_command.Optional),
+        ],
+        check: meeting_command.RequireFree,
+      )),
+    )
+}
+
 pub fn build_finder_schedule_command_requires_a_title_test() {
   let form = meetings.FinderForm(..finder_form(), title: "")
   let slot =

@@ -1175,7 +1175,7 @@ pub fn build_finder_schedule_command(
       Ok(
         gateway.MeetingCommand(command.ScheduleMeeting(
           title:,
-          timezone: form.timezone,
+          timezone: string.trim(form.timezone),
           date:,
           starts_at:,
           duration_minutes: duration,
