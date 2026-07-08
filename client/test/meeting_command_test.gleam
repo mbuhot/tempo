@@ -18,6 +18,49 @@ pub fn local_time_applies_a_negative_offset_test() {
   assert meetings.local_time("2026-07-10T09:00:00Z", -420) == "02:00"
 }
 
+// --- Viewer-local time toggle (#57) ------------------------------------------
+
+pub fn resolve_offset_picks_the_origin_offset_in_origin_mode_test() {
+  assert meetings.resolve_offset(meetings.OriginTime, 60, 600) == 60
+}
+
+pub fn resolve_offset_picks_the_browser_offset_in_local_mode_test() {
+  assert meetings.resolve_offset(meetings.LocalTime, 60, 600) == 600
+}
+
+pub fn when_line_renders_the_origin_offset_in_origin_mode_test() {
+  assert meetings.when_line(
+      meetings.OriginTime,
+      "2026-07-10T08:00:00Z",
+      60,
+      600,
+    )
+    == "09:00 UTC+01:00"
+}
+
+pub fn when_line_renders_the_browser_offset_in_local_mode_test() {
+  assert meetings.when_line(meetings.LocalTime, "2026-07-10T08:00:00Z", 60, 600)
+    == "18:00 UTC+10:00"
+}
+
+pub fn resolve_zone_picks_the_origin_timezone_in_origin_mode_test() {
+  assert meetings.resolve_zone(
+      meetings.OriginTime,
+      "Europe/London",
+      "Australia/Sydney",
+    )
+    == "Europe/London"
+}
+
+pub fn resolve_zone_picks_the_browser_timezone_in_local_mode_test() {
+  assert meetings.resolve_zone(
+      meetings.LocalTime,
+      "Europe/London",
+      "Australia/Sydney",
+    )
+    == "Australia/Sydney"
+}
+
 pub fn build_reschedule_command_test() {
   let form =
     ops.blank_op_form(

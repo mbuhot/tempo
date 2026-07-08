@@ -8,11 +8,12 @@
 //// same one-line attendee rows, and the Timezone select).
 
 import client/icons
+import client/page/meetings/browser_time
 import client/page/meetings/op_form.{view_op_modal}
 import client/page/meetings/update.{
   type Attendee, type CreateField, type CreateForm, type FinderField,
-  type FinderForm, type Model, type Msg, type State, AddAttendeeOpened,
-  AttendanceSet, AttendanceToggled, Attendee, AttendeeAdded,
+  type FinderForm, type Model, type Msg, type State, type TimeDisplay,
+  AddAttendeeOpened, AttendanceSet, AttendanceToggled, Attendee, AttendeeAdded,
   AttendeeQueryChanged, AttendeeRemoved, CancelOpened, CreateCancelled,
   CreateClientId, CreateDate, CreateDurationMinutes, CreateFieldEdited,
   CreateLocation, CreateOpened, CreateProjectId, CreateStartsAt, CreateSubmitted,
@@ -21,10 +22,11 @@ import client/page/meetings/update.{
   FinderCancelled, FinderDurationMinutes, FinderFieldEdited,
   FinderFillFromProjectRequested, FinderFromDate, FinderOpened,
   FinderProjectChoice, FinderSearchRequested, FinderSlotBooked, FinderTimezone,
-  FinderTitle, FinderToDate, Found, MeetingsFailed, MeetingsLoaded,
-  MeetingsLoading, NotSearched, NoticeDismissed, RemoveAttendeeOpened,
-  RescheduleOpened, Searching, SlotTaken, finder_timezone_options, local_time,
-  located_roster, slot_local_start,
+  FinderTitle, FinderToDate, Found, LocalTime, MeetingsFailed, MeetingsLoaded,
+  MeetingsLoading, NotSearched, NoticeDismissed, OriginTime,
+  RemoveAttendeeOpened, RescheduleOpened, Searching, SlotTaken, TimeDisplaySet,
+  finder_timezone_options, local_time, located_roster, resolve_offset,
+  resolve_zone, slot_local_start, when_line,
 }
 import client/time
 import client/ui/atoms
@@ -57,14 +59,19 @@ pub fn view(
   html.div([], [
     view_op_modal(model.op),
     view_create_modal(model.create, model.roster),
-    view_finder_modal(model.finder, model.roster, model.projects),
+    view_finder_modal(
+      model.finder,
+      model.roster,
+      model.projects,
+      model.time_display,
+    ),
     atoms.list_page(
       title: "Meetings",
       blurb: "Every upcoming meeting as of the rail date, with each attendee's local wall-clock time.",
-      actions: view_actions(permissions),
+      actions: view_actions(permissions, model.time_display),
       body: html.div([], [
         view_notice(model.notice),
-        view_body(model.state, permissions),
+        view_body(model.state, permissions, model.time_display),
       ]),
     ),
   ])
@@ -88,7 +95,14 @@ fn view_notice(notice: Option(String)) -> Element(Msg) {
   }
 }
 
-fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
+fn view_actions(
+  permissions: Set(String),
+  time_display: TimeDisplay,
+) -> List(Element(Msg)) {
+  [view_time_toggle(time_display), ..view_write_actions(permissions)]
+}
+
+fn view_write_actions(permissions: Set(String)) -> List(Element(Msg)) {
   case set.contains(permissions, perm.meeting_manage) {
     True -> [
       atoms.button(
@@ -108,18 +122,65 @@ fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
   }
 }
 
-fn view_body(state: State, permissions: Set(String)) -> Element(Msg) {
+/// The Origin time / Local time segmented toggle (#57): two mutually
+/// exclusive `aria-pressed` buttons in a labelled group, the active one styled
+/// as the primary `.btn`, the inactive one as `.btn--ghost`. Visible to every
+/// viewer regardless of `meeting.manage` — it only changes how times render,
+/// never what can be written.
+fn view_time_toggle(time_display: TimeDisplay) -> Element(Msg) {
+  html.div(
+    [
+      attribute.class("action-row"),
+      attribute.role("group"),
+      attribute.aria_label("Time display"),
+    ],
+    [
+      view_time_toggle_button("Origin time", OriginTime, time_display),
+      view_time_toggle_button("Local time", LocalTime, time_display),
+    ],
+  )
+}
+
+fn view_time_toggle_button(
+  label: String,
+  value: TimeDisplay,
+  current: TimeDisplay,
+) -> Element(Msg) {
+  let active = value == current
+  let class = case active {
+    True -> "btn"
+    False -> "btn btn--ghost"
+  }
+  html.button(
+    [
+      attribute.class(class),
+      attribute.aria_pressed(case active {
+        True -> "true"
+        False -> "false"
+      }),
+      event.on_click(TimeDisplaySet(value)),
+    ],
+    [html.text(label)],
+  )
+}
+
+fn view_body(
+  state: State,
+  permissions: Set(String),
+  time_display: TimeDisplay,
+) -> Element(Msg) {
   case state {
     MeetingsLoading -> atoms.empty_state(message: "Loading meetings…")
     MeetingsFailed(detail:) ->
       atoms.empty_state(message: "Could not load meetings: " <> detail)
-    MeetingsLoaded(records:) -> view_table(records, permissions)
+    MeetingsLoaded(records:) -> view_table(records, permissions, time_display)
   }
 }
 
 fn view_table(
   records: List(MeetingRecord),
   permissions: Set(String),
+  time_display: TimeDisplay,
 ) -> Element(Msg) {
   case records {
     [] -> atoms.empty_state(message: "No upcoming meetings.")
@@ -132,13 +193,17 @@ fn view_table(
             #("Attendees", False),
             #("", False),
           ],
-          rows: list.map(records, view_row(_, permissions)),
+          rows: list.map(records, view_row(_, permissions, time_display)),
         ),
       ])
   }
 }
 
-fn view_row(record: MeetingRecord, permissions: Set(String)) -> Element(Msg) {
+fn view_row(
+  record: MeetingRecord,
+  permissions: Set(String),
+  time_display: TimeDisplay,
+) -> Element(Msg) {
   let meeting_view.MeetingRecord(
     meeting_id:,
     title:,
@@ -148,14 +213,23 @@ fn view_row(record: MeetingRecord, permissions: Set(String)) -> Element(Msg) {
     attendees:,
     ..,
   ) = record
+  let browser_offset_minutes = browser_time.timezone_offset_minutes(starts_at)
+  let browser_timezone = browser_time.browser_timezone()
   html.tr([], [
     html.td([attribute.class("mtg-title")], [html.text(title)]),
     html.td([attribute.class("mono")], [
       html.div([], [
-        html.text(canonical_time_line(starts_at, canonical_offset_minutes)),
+        html.text(when_line(
+          time_display,
+          starts_at,
+          canonical_offset_minutes,
+          browser_offset_minutes,
+        )),
       ]),
       html.div([attribute.class("cell-sub")], [
-        html.text("(" <> meeting_tz <> ")"),
+        html.text(
+          "(" <> resolve_zone(time_display, meeting_tz, browser_timezone) <> ")",
+        ),
       ]),
     ]),
     html.td([], [view_attendees(meeting_id, starts_at, attendees, permissions)]),
@@ -195,17 +269,6 @@ fn view_meeting_actions(
       tone: atoms.IconNeutral,
     ),
   ])
-}
-
-/// The meeting's canonical time as "HH:MM UTC±HH:MM" — the `.when` cell's own
-/// line; the zone name renders beneath it separately.
-fn canonical_time_line(
-  starts_at: String,
-  canonical_offset_minutes: Int,
-) -> String {
-  local_time(starts_at, canonical_offset_minutes)
-  <> " "
-  <> time.utc_offset(canonical_offset_minutes)
 }
 
 fn view_attendees(
@@ -543,6 +606,7 @@ fn view_finder_modal(
   finder: Option(FinderForm),
   roster: List(EngineerLocation),
   projects: List(Ref),
+  time_display: TimeDisplay,
 ) -> Element(Msg) {
   case finder {
     None -> element.none()
@@ -553,7 +617,7 @@ fn view_finder_modal(
         body: html.div([attribute.class("finder")], [
           view_finder_criteria(form, roster, projects),
           html.div([attribute.class("finder__divider")], []),
-          view_finder_results(form),
+          view_finder_results(form, time_display),
         ]),
       )
   }
@@ -844,43 +908,63 @@ fn view_finder_project_options(
   }
 }
 
-fn view_finder_results(form: FinderForm) -> Element(Msg) {
+fn view_finder_results(
+  form: FinderForm,
+  time_display: TimeDisplay,
+) -> Element(Msg) {
   html.div([attribute.class("finder__results")], case form.results {
     NotSearched -> [
       atoms.empty_state(message: "Search to see available windows."),
     ]
     Searching -> [atoms.empty_state(message: "Searching…")]
-    Found(slots:) -> view_finder_slots(slots)
+    Found(slots:) -> view_finder_slots(slots, time_display)
     SlotTaken(slots:) -> [
       html.p([attribute.class("finder__notice")], [
         html.text("That slot was just taken — here are fresh times."),
       ]),
-      ..view_finder_slots(slots)
+      ..view_finder_slots(slots, time_display)
     ]
   })
 }
 
-fn view_finder_slots(slots: List(CandidateSlot)) -> List(Element(Msg)) {
+fn view_finder_slots(
+  slots: List(CandidateSlot),
+  time_display: TimeDisplay,
+) -> List(Element(Msg)) {
   case slots {
     [] -> [atoms.empty_state(message: "No windows found for these criteria.")]
-    _ -> list.map(slots, view_finder_slot)
+    _ -> list.map(slots, view_finder_slot(_, time_display))
   }
 }
 
-fn view_finder_slot(slot: CandidateSlot) -> Element(Msg) {
+/// One candidate slot: `OriginTime` renders the start/end in the searched zone
+/// (`viewer_offset_minutes` — today's rendering, no zone name since the
+/// Timezone select already names it); `LocalTime` renders them in the
+/// browser's own zone, with that zone named beneath so it reads as distinct
+/// from the searched zone above it.
+fn view_finder_slot(
+  slot: CandidateSlot,
+  time_display: TimeDisplay,
+) -> Element(Msg) {
   let meeting_view.CandidateSlot(
     starts_at:,
     ends_at:,
     attendees:,
     viewer_offset_minutes:,
   ) = slot
-  let #(date, starts_local) = slot_local_start(starts_at, viewer_offset_minutes)
-  let ends_local = local_time(ends_at, viewer_offset_minutes)
+  let browser_offset_minutes = browser_time.timezone_offset_minutes(starts_at)
+  let offset =
+    resolve_offset(time_display, viewer_offset_minutes, browser_offset_minutes)
+  let #(date, starts_local) = slot_local_start(starts_at, offset)
+  let ends_local = local_time(ends_at, offset)
   html.div([attribute.class("finder-slot")], [
     html.div([attribute.class("finder-slot__when")], [
-      html.text(
-        time.format_date(date) <> " " <> starts_local <> "–" <> ends_local,
-      ),
+      html.div([], [
+        html.text(
+          time.format_date(date) <> " " <> starts_local <> "–" <> ends_local,
+        ),
+      ]),
+      view_finder_slot_zone(time_display),
     ]),
     html.div(
       [attribute.class("finder-slot__attendees")],
@@ -893,6 +977,20 @@ fn view_finder_slot(slot: CandidateSlot) -> Element(Msg) {
       on_press: FinderSlotBooked(slot),
     ),
   ])
+}
+
+/// The slot header's own zone sub-line — `LocalTime` mode only, naming the
+/// browser zone the start/end above it were just rendered in; `OriginTime`
+/// shows none (the searched zone is already named by the wizard's own
+/// Timezone select).
+fn view_finder_slot_zone(time_display: TimeDisplay) -> Element(Msg) {
+  case time_display {
+    OriginTime -> element.none()
+    LocalTime ->
+      html.div([attribute.class("cell-sub")], [
+        html.text("(" <> browser_time.browser_timezone() <> ")"),
+      ])
+  }
 }
 
 fn view_finder_slot_attendee(

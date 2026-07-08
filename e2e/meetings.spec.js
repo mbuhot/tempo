@@ -42,6 +42,127 @@ test("the Meetings page lists an upcoming meeting with each attendee's local tim
   await expect(row).toContainText("Marcus Chen: 01:00");
 });
 
+// Behaviour-driven coverage of the Origin time / Local time toggle (#57): the
+// When column and the find-a-time slot headers both switch between a
+// meeting's canonical zone and the viewer's own browser zone, while the
+// attendee fairness chips (row-level and wizard-level) stay put — they always
+// read each attendee's OWN local time regardless of the toggle. Playwright
+// pins the browser zone to Australia/Sydney so every Local-time render is
+// deterministic.
+//
+// The wizard assertion below reads the raw find-a-time API response for its
+// EXACT expected string rather than a hardcoded clock reading: the suite's
+// other write tests keep booking into this same Marcus/LA search window (the
+// event log is append-only), so which slot comes back "first" drifts across
+// runs — deriving the expectation from the same instant the UI itself just
+// fetched keeps the assertion exact without being tied to a specific slot.
+test.describe("the Origin time / Local time toggle", () => {
+  test.use({ timezoneId: "Australia/Sydney" });
+
+  const MONTH_ABBREV = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const SYDNEY_OFFSET_MINUTES = 600; // AEST, no DST in June/July
+
+  function sydneyLocal(iso) {
+    const shifted = new Date(
+      new Date(iso).getTime() + SYDNEY_OFFSET_MINUTES * 60_000,
+    );
+    const date = `${shifted.getUTCDate()} ${MONTH_ABBREV[shifted.getUTCMonth()]} ${shifted.getUTCFullYear()}`;
+    const hh = String(shifted.getUTCHours()).padStart(2, "0");
+    const mm = String(shifted.getUTCMinutes()).padStart(2, "0");
+    return { date, time: `${hh}:${mm}` };
+  }
+
+  test("switches the When column between a meeting's origin zone and the viewer's browser zone", async ({
+    page,
+  }) => {
+    await signInAs(page, "Admin");
+    await navigateTo(page, "Meetings");
+    await scrubTo(page, "2026-07-05");
+
+    const row = meetingRow(page, "July all-hands");
+    await expect(row).toContainText("09:00 UTC+01:00");
+    await expect(row).toContainText("(Europe/London)");
+
+    await page
+      .getByRole("group", { name: "Time display" })
+      .getByRole("button", { name: "Local time" })
+      .click();
+    await expect(row).toContainText("18:00 UTC+10:00");
+    await expect(row).toContainText("(Australia/Sydney)");
+    await expect(row).toContainText("Priya Sharma: 09:00");
+
+    await page
+      .getByRole("group", { name: "Time display" })
+      .getByRole("button", { name: "Origin time" })
+      .click();
+    await expect(row).toContainText("09:00 UTC+01:00");
+    await expect(row).toContainText("(Europe/London)");
+  });
+
+  test("the toggle is a labelled, mutually exclusive pair of pressed buttons", async ({
+    page,
+  }) => {
+    await signInAs(page, "Admin");
+    await navigateTo(page, "Meetings");
+
+    const toggle = page.getByRole("group", { name: "Time display" });
+    const origin = toggle.getByRole("button", { name: "Origin time" });
+    const local = toggle.getByRole("button", { name: "Local time" });
+    await expect(origin).toHaveAttribute("aria-pressed", "true");
+    await expect(local).toHaveAttribute("aria-pressed", "false");
+
+    await local.click();
+    await expect(origin).toHaveAttribute("aria-pressed", "false");
+    await expect(local).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("with Local time active, a found slot's header renders in the viewer's browser zone", async ({
+    page,
+  }) => {
+    await signInAs(page, "Admin");
+    await navigateTo(page, "Meetings");
+    await page
+      .getByRole("group", { name: "Time display" })
+      .getByRole("button", { name: "Local time" })
+      .click();
+
+    await page.getByRole("button", { name: "Find a time" }).click();
+    const dialog = page.getByRole("dialog", { name: "Find a time" });
+    await dialog.getByLabel("Search engineers").fill("Marcus");
+    await dialog
+      .getByRole("listitem", { name: "Marcus Chen" })
+      .getByRole("button", { name: "Add" })
+      .click();
+    await dialog.getByLabel("From", { exact: true }).fill("2026-06-23");
+    await dialog.getByLabel("To", { exact: true }).fill("2026-06-26");
+    await dialog.getByLabel("Duration (minutes)").fill("60");
+    await dialog
+      .getByRole("combobox", { name: "Timezone" })
+      .selectOption("America/Los_Angeles");
+
+    const slots = await page.evaluate(async () => {
+      const response = await fetch(
+        "/api/meetings/find-a-time?from=2026-06-23&to=2026-06-26&tz=America/Los_Angeles&duration=60&required=2",
+      );
+      return response.json();
+    });
+    const [firstCandidate] = slots;
+    const start = sydneyLocal(firstCandidate.starts_at);
+    const end = sydneyLocal(firstCandidate.ends_at);
+
+    await dialog.getByRole("button", { name: "Find windows" }).click();
+    const firstSlot = dialog.locator(".finder-slot").first();
+    await expect(firstSlot).toBeVisible();
+    await expect(firstSlot).toContainText(
+      `${start.date} ${start.time}–${end.time}`,
+    );
+    await expect(firstSlot).toContainText("(Australia/Sydney)");
+  });
+});
+
 test("an admin schedules, reschedules, and cancels a meeting", async ({
   page,
 }) => {

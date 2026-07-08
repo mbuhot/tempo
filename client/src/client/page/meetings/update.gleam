@@ -34,6 +34,15 @@ pub type State {
   MeetingsFailed(detail: String)
 }
 
+/// The Meetings page's When-column display mode (#57): `OriginTime` renders a
+/// meeting in the zone it was scheduled in (today's rendering), `LocalTime` in
+/// the viewer's own browser zone. Page-local UI state — never persisted, and
+/// reset to `OriginTime` on every navigation to the page (`init`'s default).
+pub type TimeDisplay {
+  OriginTime
+  LocalTime
+}
+
 /// One row of the create form's attendee list: an engineer plus the
 /// `Attendance` they are invited with.
 pub type Attendee {
@@ -128,6 +137,7 @@ pub type Model {
     create: Option(CreateForm),
     finder: Option(FinderForm),
     notice: Option(String),
+    time_display: TimeDisplay,
   )
 }
 
@@ -146,6 +156,7 @@ pub type Msg {
     attendance: command.Attendance,
   )
   NoticeDismissed
+  TimeDisplaySet(display: TimeDisplay)
   OpCancelled
   OpFieldEdited(field: ops.OpField, value: String)
   OpSubmitted
@@ -192,6 +203,7 @@ pub fn init(_route, as_of: Date, actor: String) -> #(Model, Effect(Msg)) {
       create: None,
       finder: None,
       notice: None,
+      time_display: OriginTime,
     ),
     effect.batch([fetch(as_of), fetch_roster(as_of), fetch_projects(as_of)]),
   )
@@ -361,6 +373,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     }
 
     NoticeDismissed -> #(Model(..model, notice: None), effect.none(), [])
+
+    TimeDisplaySet(display:) -> #(
+      Model(..model, time_display: display),
+      effect.none(),
+      [],
+    )
 
     OpCancelled -> #(Model(..model, op: None), effect.none(), [])
 
@@ -1018,6 +1036,51 @@ pub fn local_time(starts_at_iso: String, offset_minutes: Int) -> String {
 fn local_date(starts_at_iso: String, offset_minutes: Int) -> Date {
   let #(date, _time_of_day) = shift_local(starts_at_iso, offset_minutes)
   date
+}
+
+/// Which of a pair of offsets/zones `mode` selects: `origin` (the meeting's
+/// canonical zone, or the find-a-time wizard's searched zone) for
+/// `OriginTime`, `browser` (the viewer's own browser-read zone, from
+/// `browser_time` — kept out of this module so the dispatch stays pure and
+/// testable) for `LocalTime`. Shared by every `When`-column and find-a-time
+/// slot render, so origin and viewer-local can never resolve inconsistently.
+pub fn resolve_offset(
+  mode: TimeDisplay,
+  origin_offset_minutes: Int,
+  browser_offset_minutes: Int,
+) -> Int {
+  case mode {
+    OriginTime -> origin_offset_minutes
+    LocalTime -> browser_offset_minutes
+  }
+}
+
+/// The `When`-column's own line — "HH:MM UTC±HH:MM" — using the origin
+/// (canonical) offset in `OriginTime` mode or the browser offset in
+/// `LocalTime` mode.
+pub fn when_line(
+  mode: TimeDisplay,
+  starts_at_iso: String,
+  origin_offset_minutes: Int,
+  browser_offset_minutes: Int,
+) -> String {
+  let offset =
+    resolve_offset(mode, origin_offset_minutes, browser_offset_minutes)
+  local_time(starts_at_iso, offset) <> " " <> time.utc_offset(offset)
+}
+
+/// The zone NAME to display beneath a time — the meeting's own `meeting_tz`
+/// (or the wizard's searched zone) in `OriginTime` mode, the browser's own
+/// zone in `LocalTime` mode.
+pub fn resolve_zone(
+  mode: TimeDisplay,
+  origin_timezone: String,
+  browser_timezone: String,
+) -> String {
+  case mode {
+    OriginTime -> origin_timezone
+    LocalTime -> browser_timezone
+  }
 }
 
 /// The whole-minute span between two ISO-8601 UTC instants — used to pre-fill
