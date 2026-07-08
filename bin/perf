@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# EXPLAIN ANALYZE perf gate (issue #20): runs tempo/perf against the scaled
+# dataset (tempo_perf by default, built by bin/seed-scale), prints a
+# query/baseline/measured/ratio table, and exits non-zero if any query
+# exceeds 3x its committed baseline (server/priv/perf/baseline.json). The
+# baseline is machine-local by nature (a laptop is not a CI runner) — the 3x
+# threshold absorbs everyday variance so the gate only fires on a genuine
+# regression, not routine noise. Run `bin/perf --update-baseline` to rewrite
+# the baseline from the current machine's numbers after an intentional query
+# change (a new index, a rewritten join, ...).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+export TEMPO_DB_NAME="${TEMPO_DB_NAME:-tempo_perf}"
+
+cd server && gleam run -m tempo/perf -- "$@"

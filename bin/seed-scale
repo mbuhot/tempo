@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Build the perf gate's scaled dataset (issue #20): ensure the dedicated
+# tempo_perf database exists, migrate its schema, then apply
+# priv/seed/scale_seed.sql (500 engineers, 150 clients/contracts, 200 projects,
+# rolling allocations, leave, payroll, invoices — see tempo/seed_scale for the
+# generator). Never touches tempo/tempo_test*/tempo_e2e*. Idempotent: a re-run
+# against an already-scaled database is a no-op (tempo/seed_scale's empty-DB
+# guard), so iterate with a fresh name (tempo_perf2, ...) and only rename the
+# final result to tempo_perf.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+export TEMPO_DB_NAME="${TEMPO_DB_NAME:-tempo_perf}"
+
+bin/ensure-db "$TEMPO_DB_NAME"
+bin/migrate
+
+cd server && gleam run -m tempo/seed_scale
