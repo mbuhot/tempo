@@ -1,7 +1,7 @@
 /* Capabilities & skills — the taxonomy admin page, the engineer skill matrix
- * (Phase 1), and the project-detail capability coverage tab (Phase 2). Token-only
- * per ADR-038; lifted from the design prototype's CSS block. The recommender is
- * Phase 3, not styled here. */
+ * (Phase 1), the project-detail capability coverage tab (Phase 2), and the
+ * "Recommended assignments" panel (Phase 3). Token-only per ADR-038; lifted
+ * from the design prototype's CSS block. */
 
 .lvl-badge {
     font-family: var(--mono);
@@ -289,4 +289,69 @@
     flex-wrap: wrap;
     margin-top: var(--space-sm);
     align-items: center;
+}
+
+.rec {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: var(--border-thin) solid var(--color-border);
+}
+.rec:last-child {
+    border-bottom: none;
+}
+.rec__rank {
+    font-family: var(--mono);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-faint);
+    width: var(--size-control);
+    text-align: center;
+    flex: none;
+}
+.rec__info {
+    min-width: 0;
+    flex: 1;
+}
+.rec__name {
+    font-weight: var(--weight-semibold);
+}
+.rec__rationale {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    margin-top: var(--space-2xs);
+}
+.rec__pair {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.rec__fit {
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
+    flex: none;
+    text-align: right;
+}
+.rec__fit small {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-faint);
+    font-weight: var(--weight-normal);
+}
+.rec__action {
+    flex: none;
+}
+.rec--mentor {
+    background: var(--color-accent-soft);
+}
+.tag-mentor {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--color-accent);
+    background: var(--color-surface);
+    border: var(--border-thin) solid var(--color-accent);
+    border-radius: var(--radius-pill);
+    padding: var(--space-2xs) var(--space-sm);
 }

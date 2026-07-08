@@ -5,10 +5,10 @@
 
 import client/page/projects/op_form.{op_modal}
 import client/page/projects/update.{
-  type Load, type Model, type Msg, type Tab, BackToListClicked, Coverage,
-  CreateProjectClicked, DetailView, Failed, InvoiceRowClicked, ListView, Loaded,
-  Loading, OpStarted, OpStartedFor, Overview, TabClicked, TableHostMsg,
-  TeamCardClicked, WizardMsg, config,
+  type Load, type Model, type Msg, type Tab, AssignRecommendationOpened,
+  BackToListClicked, Coverage, CreateProjectClicked, DetailView, Failed,
+  InvoiceRowClicked, ListView, Loaded, Loading, OpStarted, OpStartedFor,
+  Overview, TabClicked, TableHostMsg, TeamCardClicked, WizardMsg, config,
 }
 import client/table_host
 import client/time
@@ -36,7 +36,9 @@ import shared/project/view.{
 } as _
 import shared/project_capability/view.{
   type CoverageEngineer, type CoverageRequirement, type CoverageSnapshot,
-  CoverageEngineer, CoverageRequirement, CoverageSnapshot,
+  type GapRecommendations, type Pairing, type Recommendation, CoverageEngineer,
+  CoverageRequirement, CoverageSnapshot, GapRecommendations, Pairing,
+  Recommendation,
 } as _
 import shared/roster/view.{type Roster} as _
 import shared/settings/view.{type RateCardRow} as _
@@ -52,8 +54,17 @@ pub fn view(
   case model {
     ListView(host:, roster:, op:, wizard:, rates:, ..) ->
       view_list(host, roster, op, wizard, rates, as_of, permissions)
-    DetailView(detail:, roster:, op:, tab:, coverage:, ..) ->
-      view_detail(detail, roster, op, tab, coverage, as_of, permissions)
+    DetailView(detail:, roster:, op:, tab:, coverage:, recommendations:, ..) ->
+      view_detail(
+        detail,
+        roster,
+        op,
+        tab,
+        coverage,
+        recommendations,
+        as_of,
+        permissions,
+      )
   }
 }
 
@@ -154,6 +165,7 @@ fn view_detail(
   op: Option(ops.OpState),
   tab: Tab,
   coverage: Load(CoverageSnapshot),
+  recommendations: Load(List(GapRecommendations)),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -166,7 +178,16 @@ fn view_detail(
     Failed(message:) ->
       atoms.empty_state(message: "Could not load project: " <> message)
     Loaded(value:) ->
-      view_project_detail(value, roster, op, tab, coverage, as_of, permissions)
+      view_project_detail(
+        value,
+        roster,
+        op,
+        tab,
+        coverage,
+        recommendations,
+        as_of,
+        permissions,
+      )
   }
   html.div([], [back, body])
 }
@@ -177,6 +198,7 @@ fn view_project_detail(
   op: Option(ops.OpState),
   tab: Tab,
   coverage: Load(CoverageSnapshot),
+  recommendations: Load(List(GapRecommendations)),
   as_of: calendar.Date,
   permissions: Set(String),
 ) -> Element(Msg) {
@@ -280,7 +302,13 @@ fn view_project_detail(
     stats,
     view_tabs(tab),
     subpage(tab == Overview, grid),
-    subpage(tab == Coverage, coverage_panel(coverage, permissions, as_of)),
+    subpage(
+      tab == Coverage,
+      html.div([], [
+        coverage_panel(coverage, permissions, as_of),
+        recommendations_panel(recommendations, permissions),
+      ]),
+    ),
     op_modal(op, roster, coverage, Some(detail.profile.project_id)),
   ])
 }
@@ -589,6 +617,148 @@ fn coverage_engineer_chip(engineer: CoverageEngineer) -> Element(Msg) {
 fn engineer_summary(engineer: CoverageEngineer) -> String {
   let CoverageEngineer(name:, proficiency:, ..) = engineer
   name <> " " <> format.days(proficiency)
+}
+
+/// The "Recommended assignments" panel, below Capability coverage: one panel
+/// per unmet requirement (`GapRecommendations`), each badged with the gap it
+/// addresses and listing the server's top candidates. `Loading`/`Failed` mirror
+/// `coverage_panel`'s treatment; an empty gap list reads as every requirement
+/// being covered.
+fn recommendations_panel(
+  recommendations: Load(List(GapRecommendations)),
+  permissions: Set(String),
+) -> Element(Msg) {
+  case recommendations {
+    Loading -> recommendations_status_panel("Loading recommendations…")
+    Failed(message:) ->
+      recommendations_status_panel(
+        "Could not load recommendations: " <> message,
+      )
+    Loaded(value: []) ->
+      recommendations_status_panel("All capability requirements are covered.")
+    Loaded(value: gaps) ->
+      html.div([], list.map(gaps, fn(gap) { gap_panel(gap, permissions) }))
+  }
+}
+
+fn recommendations_status_panel(message: String) -> Element(Msg) {
+  atoms.panel(title: "Recommended assignments", count: "", right: [], body: [
+    atoms.empty_state(message:),
+  ])
+}
+
+/// One gap's section: the panel badged with the capability it addresses,
+/// listing the top 4 ranked recommendations (or "No suitable candidates.").
+fn gap_panel(
+  gap: GapRecommendations,
+  permissions: Set(String),
+) -> Element(Msg) {
+  let GapRecommendations(capability_name:, target_level:, recommendations:, ..) =
+    gap
+  let body = case list.take(recommendations, 4) {
+    [] -> [atoms.empty_state(message: "No suitable candidates.")]
+    rows ->
+      list.index_map(rows, fn(recommendation, index) {
+        recommendation_row(recommendation, index, target_level, permissions)
+      })
+  }
+  atoms.panel(
+    title: "Recommended assignments",
+    count: capability_name <> " gap",
+    right: [],
+    body:,
+  )
+}
+
+fn recommendation_row(
+  recommendation: Recommendation,
+  index: Int,
+  target_level: Int,
+  permissions: Set(String),
+) -> Element(Msg) {
+  let Recommendation(name:, level:, proficiency:, rationale:, pairing:, ..) =
+    recommendation
+  let row_class = case pairing {
+    Some(_) -> "rec rec--mentor"
+    None -> "rec"
+  }
+  html.div([attribute.class(row_class)], [
+    html.div([attribute.class("rec__rank")], [
+      html.text(int.to_string(index + 1)),
+    ]),
+    atoms.avatar(name:, category: index, class: "avatar"),
+    html.div([attribute.class("rec__info")], [
+      recommendation_name(name, level, pairing),
+      html.div([attribute.class("rec__rationale")], [html.text(rationale)]),
+    ]),
+    recommendation_fit(proficiency, target_level, pairing),
+    html.div([attribute.class("rec__action")], [
+      assign_button(recommendation, permissions),
+    ]),
+  ])
+}
+
+fn recommendation_name(
+  name: String,
+  level: Int,
+  pairing: Option(Pairing),
+) -> Element(Msg) {
+  let level_chip =
+    atoms.chip(label: format.level_band(level), tone: atoms.Neutral)
+  case pairing {
+    None ->
+      html.div([attribute.class("rec__name")], [html.text(name), level_chip])
+    Some(Pairing(teacher_name:, ..)) ->
+      html.div([attribute.class("rec__name")], [
+        html.span([attribute.class("rec__pair")], [
+          html.text(name),
+          level_chip,
+          html.span([attribute.class("tag-mentor")], [
+            html.text("pair with " <> teacher_name),
+          ]),
+        ]),
+      ])
+  }
+}
+
+fn recommendation_fit(
+  proficiency: Float,
+  target_level: Int,
+  pairing: Option(Pairing),
+) -> Element(Msg) {
+  case pairing {
+    Some(_) ->
+      html.div([attribute.class("rec__fit")], [
+        html.text("growth"),
+        html.small([], [html.text("mentorship")]),
+      ])
+    None ->
+      html.div([attribute.class("rec__fit")], [
+        html.text(fit_percent(proficiency, target_level)),
+        html.small([], [html.text("ready-now fit")]),
+      ])
+  }
+}
+
+/// `min(proficiency / target_level, 1.0)` as a whole-number percentage.
+fn fit_percent(proficiency: Float, target_level: Int) -> String {
+  let ratio = float.min(proficiency /. int.to_float(target_level), 1.0)
+  format.pct(ratio *. 100.0)
+}
+
+fn assign_button(
+  recommendation: Recommendation,
+  permissions: Set(String),
+) -> Element(Msg) {
+  ops.launch(
+    ops.permit(permissions, own: False, kind: ops.OpAssignToProject),
+    to_msg: fn(granted) {
+      AssignRecommendationOpened(permit: granted, recommendation:)
+    },
+    label: "Assign",
+    kind: atoms.Ghost,
+    size: atoms.Small,
+  )
 }
 
 fn invoices_panel(invoices: List(Invoice)) -> Element(Msg) {

@@ -21,7 +21,10 @@ import rsvp
 import shared/invoice/view as _
 import shared/money
 import shared/project/view.{type ProjectDetail} as project_view
-import shared/project_capability/view.{type CoverageSnapshot, CoverageSnapshot} as coverage_view
+import shared/project_capability/view.{
+  type CoverageSnapshot, type GapRecommendations, type Recommendation,
+  CoverageSnapshot, Recommendation,
+} as coverage_view
 
 import shared/roster/view.{type Ref, type Roster} as roster_view
 import shared/settings/view.{type RateCardRow} as settings_view
@@ -55,6 +58,7 @@ pub type Model {
     op: Option(ops.OpState),
     tab: Tab,
     coverage: Load(CoverageSnapshot),
+    recommendations: Load(List(GapRecommendations)),
   )
 }
 
@@ -94,6 +98,11 @@ pub type Msg {
     result: Result(CoverageSnapshot, rsvp.Error(String)),
     as_of: calendar.Date,
   )
+  RecommendationsFetched(
+    project_id: Int,
+    result: Result(List(GapRecommendations), rsvp.Error(String)),
+    as_of: calendar.Date,
+  )
   RosterFetched(
     result: Result(Roster, rsvp.Error(String)),
     as_of: calendar.Date,
@@ -108,6 +117,7 @@ pub type Msg {
   InvoiceRowClicked(invoice_id: Int)
   OpStarted(permit: ops.Permit)
   OpStartedFor(permit: ops.Permit, engineer_id: Int)
+  AssignRecommendationOpened(permit: ops.Permit, recommendation: Recommendation)
   OpFieldEdited(field: ops.OpField, value: String)
   OpCancelled
   OpSubmitted
@@ -136,11 +146,13 @@ pub fn init(
         op: None,
         tab: Overview,
         coverage: Loading,
+        recommendations: Loading,
       ),
       effect.batch([
         fetch_detail(project_id, as_of),
         fetch_roster(as_of),
         fetch_coverage(project_id, as_of),
+        fetch_recommendations(project_id, as_of),
       ]),
     )
     _ -> {
@@ -204,11 +216,13 @@ pub fn refetch(
         op:,
         tab:,
         coverage: Loading,
+        recommendations: Loading,
       ),
       effect.batch([
         fetch_detail(project_id, as_of),
         fetch_roster(as_of),
         fetch_coverage(project_id, as_of),
+        fetch_recommendations(project_id, as_of),
       ]),
     )
   }
@@ -233,6 +247,17 @@ fn fetch_coverage(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
       <> iso_date(as_of),
     coverage_view.coverage_snapshot_decoder(),
     fn(result) { CoverageFetched(project_id:, result:, as_of:) },
+  )
+}
+
+fn fetch_recommendations(project_id: Int, as_of: calendar.Date) -> Effect(Msg) {
+  api.get(
+    "/api/projects/"
+      <> int.to_string(project_id)
+      <> "/recommendations?as_of="
+      <> iso_date(as_of),
+    decode.list(coverage_view.gap_recommendations_decoder()),
+    fn(result) { RecommendationsFetched(project_id:, result:, as_of:) },
   )
 }
 
@@ -371,6 +396,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
         _ -> #(model, effect.none(), [])
       }
 
+    RecommendationsFetched(project_id:, result:, as_of:) ->
+      case model {
+        DetailView(project_id: current, as_of: current_as_of, ..)
+          if current == project_id && current_as_of == as_of
+        -> #(set_recommendations(model, load_result(result)), effect.none(), [])
+        _ -> #(model, effect.none(), [])
+      }
+
     RosterFetched(result:, as_of:) ->
       case as_of == view_as_of(model) {
         True -> #(set_roster(model, load_result(result)), effect.none(), [])
@@ -409,6 +442,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
       effect.none(),
       [],
     )
+
+    AssignRecommendationOpened(permit:, recommendation:) -> {
+      let kind = ops.permit_kind(permit)
+      let seeded = open_op(model, kind, Some(recommendation.engineer_id))
+      let form =
+        recommendation_op_form(seeded.form, view_as_of(model), recommendation)
+      #(set_op(model, Some(ops.OpState(..seeded, form:))), effect.none(), [])
+    }
 
     OpFieldEdited(field:, value:) ->
       case current_op(model) {
@@ -513,11 +554,13 @@ fn reload(model: Model) -> #(Model, Effect(Msg)) {
         op:,
         tab:,
         coverage: Loading,
+        recommendations: Loading,
       ),
       effect.batch([
         fetch_detail(project_id, as_of),
         fetch_roster(as_of),
         fetch_coverage(project_id, as_of),
+        fetch_recommendations(project_id, as_of),
       ]),
     )
   }
@@ -561,6 +604,16 @@ fn set_roster(model: Model, roster: Load(Roster)) -> Model {
 fn set_coverage(model: Model, coverage: Load(CoverageSnapshot)) -> Model {
   case model {
     DetailView(..) -> DetailView(..model, coverage:)
+    _ -> model
+  }
+}
+
+fn set_recommendations(
+  model: Model,
+  recommendations: Load(List(GapRecommendations)),
+) -> Model {
+  case model {
+    DetailView(..) -> DetailView(..model, recommendations:)
     _ -> model
   }
 }
@@ -753,6 +806,32 @@ pub fn roster_projects(roster: Load(Roster)) -> List(Ref) {
   case roster {
     Loaded(value:) -> value.projects
     _ -> []
+  }
+}
+
+// --- Recommendation prefill --------------------------------------------------
+
+/// Pre-fill an `OpAssignToProject` form from a recommender row: the engineer,
+/// the page's as-of date as the valid-from, and the row's `free` capacity as
+/// the fraction — blank when `free` is 0.0, since seeding an over-allocation
+/// would violate `allocation.fraction > 0` and must instead be a deliberate
+/// human entry.
+pub fn recommendation_op_form(
+  form: ops.OpForm,
+  as_of: calendar.Date,
+  recommendation: Recommendation,
+) -> ops.OpForm {
+  let Recommendation(engineer_id:, free:, ..) = recommendation
+  form
+  |> ops.update_op_form(ops.FEngineerId, int.to_string(engineer_id))
+  |> ops.update_op_form(ops.FValidFrom, iso_date(as_of))
+  |> ops.update_op_form(ops.FFraction, recommendation_fraction_text(free))
+}
+
+fn recommendation_fraction_text(free: Float) -> String {
+  case free == 0.0 {
+    True -> ""
+    False -> float_text(free)
   }
 }
 
