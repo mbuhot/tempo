@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export TEMPO_DB_NAME="tempo_e2e$(bin/worktree-db-suffix)"
+export TEMPO_DB_NAME="${TEMPO_DB_NAME:-tempo_e2e$(bin/worktree-db-suffix)}"
 
 bin/ensure-db "$TEMPO_DB_NAME"
 bin/migrate

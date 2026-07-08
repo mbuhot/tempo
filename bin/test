@@ -7,11 +7,12 @@
 # by — interactive dev (tempo), the Playwright e2e suite (tempo_e2e*), or another
 # checkout's test runs. The suite is effectively read-only (tx-fixture rollbacks),
 # so ensure + migrate + base-seed is a one-time idempotent setup; later runs are
-# no-ops.
+# no-ops. An exported TEMPO_DB_NAME wins, so seed-changing work can target a fresh
+# database name (bin/seed only seeds an empty database).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export TEMPO_DB_NAME="tempo_test$(bin/worktree-db-suffix)"
+export TEMPO_DB_NAME="${TEMPO_DB_NAME:-tempo_test$(bin/worktree-db-suffix)}"
 
 bin/ensure-db "$TEMPO_DB_NAME"
 bin/migrate
