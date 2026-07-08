@@ -73,6 +73,14 @@ pub fn level_gaps_open_when_the_requirement_window_starts_test() {
   assert edge.annotation == None
 }
 
+// Every employed engineer at L3+ as of 2026-06-15 qualifies (PRD candidate rule),
+// ordered level DESC then name ASC. The original three are fully committed for the
+// whole Aug-Dec window (free 0.0); the recommender bench (#40 Phase 3 Stage 1)
+// adds six more L3+ engineers, each free by 1 minus their worst-week load in the
+// window: Omar 1 - 0.6 = 0.4 (project 200 ends 2026-12-01, inside the window),
+// Tunde 1 - 0.8 = 0.2 (project 200 ends 2026-11-01, inside the window), Mei
+// 1 - 1.0 = 0.0 (project 300 covers the whole window), Sofia/Jonas/Hannah 1 - 0 =
+// 1.0 (unallocated).
 pub fn candidates_list_every_qualifier_with_free_fraction_test() {
   let assert Ok(candidates) =
     schedule_view.candidates(
@@ -90,7 +98,13 @@ pub fn candidates_list_every_qualifier_with_free_fraction_test() {
   assert names
     == [
       #("Aisha Okafor", 6, 0.0),
+      #("Hannah Park", 6, 1.0),
+      #("Mei Lin", 5, 0.0),
       #("Priya Sharma", 5, 0.0),
       #("Marcus Chen", 4, 0.0),
+      #("Omar Haddad", 4, 0.4),
+      #("Sofia Rossi", 4, 1.0),
+      #("Jonas Weber", 3, 1.0),
+      #("Tunde Okafor", 3, 0.2),
     ]
 }

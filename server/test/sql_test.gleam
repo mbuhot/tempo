@@ -13,7 +13,10 @@
 import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{Some}
-import gleam/time/calendar.{April, August, Date, January, June, March, May}
+import gleam/time/calendar.{
+  April, August, Date, December, February, January, June, March, May, November,
+  October,
+}
 import pog
 import tempo/server/board/sql as board_sql
 import tempo/server/fact.{ClientId}
@@ -93,11 +96,23 @@ pub fn board_engaged_past_test() {
 // On the seed "now" (2026-06-15): Priya is on both half-time projects at L5
 // (rate 1200, pre-bump); Marcus is full-time on Data Platform at L4 (rate 1000,
 // pre-promotion); Aisha is suppressed because she is on leave across this date.
+// The recommender bench (#40 Phase 3 Stage 1) adds five more engaged rows: Omar
+// and Tunde on Inventory Sync, Dmitri/Mei/Rohan on Data Platform.
 pub fn board_engaged_now_test() {
   let assert Ok(returned) = board_sql.board_engaged(db(), Date(2026, June, 15))
 
   assert returned.rows
     == [
+      board_sql.BoardEngagedRow(
+        engineer: "Dmitri Volkov",
+        level: 2,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 1.0,
+        day_rate: "600.00",
+        valid_from: Date(2026, March, 1),
+        valid_to: Date(2027, January, 1),
+      ),
       board_sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 4,
@@ -107,6 +122,26 @@ pub fn board_engaged_now_test() {
         day_rate: "1000.00",
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Mei Lin",
+        level: 5,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 1.0,
+        day_rate: "1200.00",
+        valid_from: Date(2026, February, 1),
+        valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Omar Haddad",
+        level: 4,
+        project: "Inventory Sync",
+        client: "Northwind Trading",
+        fraction: 0.6,
+        day_rate: "1000.00",
+        valid_from: Date(2026, March, 1),
+        valid_to: Date(2026, December, 1),
       ),
       board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
@@ -128,12 +163,34 @@ pub fn board_engaged_now_test() {
         valid_from: Date(2024, January, 1),
         valid_to: Date(2027, January, 1),
       ),
+      board_sql.BoardEngagedRow(
+        engineer: "Rohan Sharma",
+        level: 2,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 0.5,
+        day_rate: "600.00",
+        valid_from: Date(2026, May, 1),
+        valid_to: Date(2026, October, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Tunde Okafor",
+        level: 3,
+        project: "Inventory Sync",
+        client: "Northwind Trading",
+        fraction: 0.8,
+        day_rate: "800.00",
+        valid_from: Date(2026, April, 1),
+        valid_to: Date(2026, November, 1),
+      ),
     ]
 }
 
 // Scrub into the future past 2026-07-01: Marcus's seeded promotion (L4 -> L5)
 // and the L5 rate-card bump (1200 -> 1400) both activate unaided (PRD FR-3), and
-// Aisha's leave has ended so she reappears on the board, full-time at L6.
+// Aisha's leave has ended so she reappears on the board, full-time at L6. Mei
+// (also L5) picks up the same rate-card bump; the rest of the bench is
+// unaffected. All five bench rows are still within their allocation windows.
 pub fn board_engaged_future_test() {
   let assert Ok(returned) = board_sql.board_engaged(db(), Date(2026, August, 1))
 
@@ -150,6 +207,16 @@ pub fn board_engaged_future_test() {
         valid_to: Date(2027, January, 1),
       ),
       board_sql.BoardEngagedRow(
+        engineer: "Dmitri Volkov",
+        level: 2,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 1.0,
+        day_rate: "600.00",
+        valid_from: Date(2026, March, 1),
+        valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
         engineer: "Marcus Chen",
         level: 5,
         project: "Data Platform",
@@ -158,6 +225,26 @@ pub fn board_engaged_future_test() {
         day_rate: "1400.00",
         valid_from: Date(2025, January, 1),
         valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Mei Lin",
+        level: 5,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 1.0,
+        day_rate: "1400.00",
+        valid_from: Date(2026, February, 1),
+        valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Omar Haddad",
+        level: 4,
+        project: "Inventory Sync",
+        client: "Northwind Trading",
+        fraction: 0.6,
+        day_rate: "1000.00",
+        valid_from: Date(2026, March, 1),
+        valid_to: Date(2026, December, 1),
       ),
       board_sql.BoardEngagedRow(
         engineer: "Priya Sharma",
@@ -178,6 +265,26 @@ pub fn board_engaged_future_test() {
         day_rate: "1400.00",
         valid_from: Date(2024, January, 1),
         valid_to: Date(2027, January, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Rohan Sharma",
+        level: 2,
+        project: "Data Platform",
+        client: "Globex Corporation",
+        fraction: 0.5,
+        day_rate: "600.00",
+        valid_from: Date(2026, May, 1),
+        valid_to: Date(2026, October, 1),
+      ),
+      board_sql.BoardEngagedRow(
+        engineer: "Tunde Okafor",
+        level: 3,
+        project: "Inventory Sync",
+        client: "Northwind Trading",
+        fraction: 0.8,
+        day_rate: "800.00",
+        valid_from: Date(2026, April, 1),
+        valid_to: Date(2026, November, 1),
       ),
     ]
 }

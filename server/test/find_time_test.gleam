@@ -374,11 +374,11 @@ pub fn a_duplicate_required_id_does_not_fail_the_coverage_guard_test() {
   })
 }
 
-pub fn project_team_for_project_300_returns_its_two_engineers_test() {
+pub fn project_team_for_project_300_returns_its_five_engineers_test() {
   rolling_back(fn(conn) {
     let assert Ok(team) =
       meeting_view.project_team(ctx(conn), 300, Date(2026, calendar.June, 15))
-    assert team == [2, 3]
+    assert team == [2, 3, 6, 8, 9]
   })
 }
 

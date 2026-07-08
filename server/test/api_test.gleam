@@ -21,7 +21,9 @@ import gleam/time/calendar
 import pog
 import shared/access
 import shared/availability/view.{type AvailabilityRecord, type HolidayListing} as availability_view
-import shared/board/view.{type BoardSnapshot, BoardRow, OnLeave, OnProject} as board_view
+import shared/board/view.{
+  type BoardSnapshot, BoardRow, OnLeave, OnProject, Unassigned,
+} as board_view
 import shared/client/view.{type ClientDetail, type ClientList} as client_view
 import shared/command.{type Event, EngineerCommand} as gateway
 import shared/engineer/command as engineer_command
@@ -165,6 +167,20 @@ pub fn board_now_returns_snapshot_test() {
         ),
       ),
       BoardRow(
+        engineer: "Dmitri Volkov",
+        level: 2,
+        engagement: OnProject(
+          project: "Data Platform",
+          client: "Globex Corporation",
+          fraction: 1.0,
+          day_rate: money_of("600.00"),
+          valid_from: calendar.Date(2026, calendar.March, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+      ),
+      BoardRow(engineer: "Hannah Park", level: 6, engagement: Unassigned),
+      BoardRow(engineer: "Jonas Weber", level: 3, engagement: Unassigned),
+      BoardRow(
         engineer: "Marcus Chen",
         level: 4,
         engagement: OnProject(
@@ -174,6 +190,30 @@ pub fn board_now_returns_snapshot_test() {
           day_rate: money_of("1000.00"),
           valid_from: calendar.Date(2025, calendar.January, 1),
           valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+      ),
+      BoardRow(
+        engineer: "Mei Lin",
+        level: 5,
+        engagement: OnProject(
+          project: "Data Platform",
+          client: "Globex Corporation",
+          fraction: 1.0,
+          day_rate: money_of("1200.00"),
+          valid_from: calendar.Date(2026, calendar.February, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+      ),
+      BoardRow(
+        engineer: "Omar Haddad",
+        level: 4,
+        engagement: OnProject(
+          project: "Inventory Sync",
+          client: "Northwind Trading",
+          fraction: 0.6,
+          day_rate: money_of("1000.00"),
+          valid_from: calendar.Date(2026, calendar.March, 1),
+          valid_to: calendar.Date(2026, calendar.December, 1),
         ),
       ),
       BoardRow(
@@ -200,11 +240,42 @@ pub fn board_now_returns_snapshot_test() {
           valid_to: calendar.Date(2027, calendar.January, 1),
         ),
       ),
+      BoardRow(
+        engineer: "Rohan Sharma",
+        level: 2,
+        engagement: OnProject(
+          project: "Data Platform",
+          client: "Globex Corporation",
+          fraction: 0.5,
+          day_rate: money_of("600.00"),
+          valid_from: calendar.Date(2026, calendar.May, 1),
+          valid_to: calendar.Date(2026, calendar.October, 1),
+        ),
+      ),
+      BoardRow(engineer: "Sofia Rossi", level: 4, engagement: Unassigned),
+      BoardRow(
+        engineer: "Tunde Okafor",
+        level: 3,
+        engagement: OnProject(
+          project: "Inventory Sync",
+          client: "Northwind Trading",
+          fraction: 0.8,
+          day_rate: money_of("800.00"),
+          valid_from: calendar.Date(2026, calendar.April, 1),
+          valid_to: calendar.Date(2026, calendar.November, 1),
+        ),
+      ),
     ]
   // Each employed engineer carries a leave balance as of the date (exact values
-  // are asserted at clean dates in leave_test); the board is name-ordered.
+  // are asserted at clean dates in leave_test); the board is name-ordered. The
+  // recommender bench (#40 Phase 3 Stage 1, engineers 4-11) is employed from
+  // 2026-01-01, so it appears here too.
   assert list.map(snapshot.balances, fn(balance) { balance.engineer })
-    == ["Aisha Okafor", "Marcus Chen", "Priya Sharma"]
+    == [
+      "Aisha Okafor", "Dmitri Volkov", "Hannah Park", "Jonas Weber",
+      "Marcus Chen", "Mei Lin", "Omar Haddad", "Priya Sharma", "Rohan Sharma",
+      "Sofia Rossi", "Tunde Okafor",
+    ]
 }
 
 // A missing date is a 400, not a crash or a 500.
@@ -1571,8 +1642,10 @@ pub fn find_a_time_with_unknown_timezone_is_bad_request_test() {
 // --- GET /api/meetings/find-a-time/project-team ------------------------------
 
 // Project 300 (seeded) has engineers 2 (Marcus) and 3 (Aisha) allocated across
-// 2025-01-01..2027-01-01, so an as-of read on the seed "now" returns exactly
-// that pair — the "Fill from project" wizard affordance's data source.
+// 2025-01-01..2027-01-01, plus three bench engineers (#40 Phase 3 Stage 1) whose
+// allocations cover the seed "now": 6 (Mei), 8 (Rohan), 9 (Dmitri) — so an as-of
+// read on 2026-06-15 returns all five, ids ascending — the "Fill from project"
+// wizard affordance's data source.
 pub fn find_a_time_project_team_returns_the_seeded_allocation_test() {
   let response =
     simulate.request(
@@ -1582,7 +1655,7 @@ pub fn find_a_time_project_team_returns_the_seeded_allocation_test() {
     |> read()
 
   assert response.status == 200
-  assert decode_int_list(response) == [2, 3]
+  assert decode_int_list(response) == [2, 3, 6, 8, 9]
 }
 
 // --- GET /api/engineers/:id/availability, GET /api/holidays -----------------

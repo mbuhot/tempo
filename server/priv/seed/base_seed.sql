@@ -651,3 +651,234 @@ FROM e, (VALUES
   ('US', 'US-CA', '2026-09-09', 'California Admission Day'),
   ('GB', '', '2026-08-31', 'Summer Bank Holiday')
 ) AS v(country, region, holiday_on, name);
+
+-- Recommender candidate bench (#40 Phase 3 Stage 1): eight engineers (4-11) built
+-- purely for the skills/allocation picture the assignment recommender (Stage 2)
+-- will rank against. No salary, timesheet, location, work-schedule, leave, or
+-- focus-block rows -- none of that feeds the recommender, and every existing
+-- seed row (engineers 1-3, project 100) stays untouched. All eight are employed
+-- [2026-01-01, 2027-01-01), hold their level from 2026-01-01, and are assessed
+-- from 2026-01-12 (bounded to the employment upper, as above).
+--
+-- Against Ledger Migration's Payments Platform gap (target L3 x2.00, covered only
+-- by Priya) as of the seed now (2026-06-15): Mei is an above-target fit but 0%
+-- free; Omar is an at-target fit with 40% free; Sofia is a strong near-fit fully
+-- free; Tunde is a partial fit with 20% free; Rohan and Dmitri are level-1/2
+-- learners in the gap skills with 50%/0% free; Jonas has zero Payments fit and is
+-- fully free; Hannah has an API-Design-only sliver fit and is fully free.
+INSERT INTO engineer (id) VALUES (4), (5), (6), (7), (8), (9), (10), (11);
+
+SELECT setval(pg_get_serial_sequence('engineer', 'id'), 11);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Omar Haddad at L4 (engineer 4) from 2026-01-01',
+     '{"name":"Omar Haddad","level":4,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 4, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 4, 4, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 4, 'Omar Haddad', 'omar.haddad@alembic.com.au', '+61 400 000 004', '4 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Sofia Rossi at L4 (engineer 5) from 2026-01-01',
+     '{"name":"Sofia Rossi","level":4,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 5, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 5, 4, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 5, 'Sofia Rossi', 'sofia.rossi@alembic.com.au', '+61 400 000 005', '5 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Mei Lin at L5 (engineer 6) from 2026-01-01',
+     '{"name":"Mei Lin","level":5,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 6, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 6, 5, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 6, 'Mei Lin', 'mei.lin@alembic.com.au', '+61 400 000 006', '6 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Tunde Okafor at L3 (engineer 7) from 2026-01-01',
+     '{"name":"Tunde Okafor","level":3,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 7, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 7, 3, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 7, 'Tunde Okafor', 'tunde.okafor@alembic.com.au', '+61 400 000 007', '7 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Rohan Sharma at L2 (engineer 8) from 2026-01-01',
+     '{"name":"Rohan Sharma","level":2,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 8, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 8, 2, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 8, 'Rohan Sharma', 'rohan.sharma@alembic.com.au', '+61 400 000 008', '8 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Dmitri Volkov at L2 (engineer 9) from 2026-01-01',
+     '{"name":"Dmitri Volkov","level":2,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 9, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 9, 2, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 9, 'Dmitri Volkov', 'dmitri.volkov@alembic.com.au', '+61 400 000 009', '9 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Jonas Weber at L3 (engineer 10) from 2026-01-01',
+     '{"name":"Jonas Weber","level":3,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 10, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 10, 3, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 10, 'Jonas Weber', 'jonas.weber@alembic.com.au', '+61 400 000 010', '10 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Hannah Park at L6 (engineer 11) from 2026-01-01',
+     '{"name":"Hannah Park","level":6,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 11, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 11, 6, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 11, 'Hannah Park', 'hannah.park@alembic.com.au', '+61 400 000 011', '11 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+-- Assess the bench against the skill catalog, from 2026-01-12 bounded to each
+-- engineer's employment upper (2027-01-01), the same shape as Priya/Marcus/Aisha
+-- above. -----------------------------------------------------------------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 4 (Omar): at-target Payments Platform fit',
+     '{"engineer_id":4,"levels":{"1":4,"2":2,"3":3,"4":3},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 4, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 4), (2, 2), (3, 3), (4, 3)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 5 (Sofia): strong Payments Platform near-fit',
+     '{"engineer_id":5,"levels":{"1":3,"2":3,"3":2,"4":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 5, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 3), (2, 3), (3, 2), (4, 2)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 6 (Mei): above-target Payments Platform fit',
+     '{"engineer_id":6,"levels":{"1":4,"2":4,"3":3,"4":3},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 6, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 4), (2, 4), (3, 3), (4, 3)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 7 (Tunde): partial Payments Platform fit',
+     '{"engineer_id":7,"levels":{"1":2,"2":2,"3":2,"4":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 7, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 2), (2, 2), (3, 2), (4, 2)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 8 (Rohan): entry-level Payments Platform learner',
+     '{"engineer_id":8,"levels":{"1":1,"2":1,"4":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 8, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (1, 1), (2, 1), (4, 2)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 9 (Dmitri): entry-level Payments Platform learner',
+     '{"engineer_id":9,"levels":{"2":1,"3":1},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 9, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (2, 1), (3, 1)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 10 (Jonas): Data Engineering / Platform specialist, zero Payments Platform fit',
+     '{"engineer_id":10,"levels":{"5":4,"6":3,"10":3,"11":2},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 10, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (5, 4), (6, 3), (10, 3), (11, 2)) AS v(skill_id, level);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 11 (Hannah): senior Frontend/UX engineer with an API-Design-only Payments Platform sliver',
+     '{"engineer_id":11,"levels":{"8":4,"9":3,"4":4},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 11, v.skill_id, v.level, daterange('2026-01-12', '2027-01-01', '[)'), e.id
+FROM e, (VALUES (8, 4), (9, 3), (4, 4)) AS v(skill_id, level);
+
+-- Allocate part of the bench to projects 200/300 (project 100 stays untouched, so
+-- its seeded Payments Platform coverage gap is unchanged). ---------------------
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-03-01', 'seed', 'assign_to_project', 'Assign engineer 4 to project 200 at 0.6 over 2026-03-01..2026-12-01',
+     '{"engineer_id":4,"project_id":200,"fraction":0.6,"valid_from":"2026-03-01","valid_to":"2026-12-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 4, 200, 0.60, daterange('2026-03-01','2026-12-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-02-01', 'seed', 'assign_to_project', 'Assign engineer 6 to project 300 at 1.0 over 2026-02-01..2027-01-01',
+     '{"engineer_id":6,"project_id":300,"fraction":1.0,"valid_from":"2026-02-01","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 6, 300, 1.00, daterange('2026-02-01','2027-01-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-04-01', 'seed', 'assign_to_project', 'Assign engineer 7 to project 200 at 0.8 over 2026-04-01..2026-11-01',
+     '{"engineer_id":7,"project_id":200,"fraction":0.8,"valid_from":"2026-04-01","valid_to":"2026-11-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 7, 200, 0.80, daterange('2026-04-01','2026-11-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-05-01', 'seed', 'assign_to_project', 'Assign engineer 8 to project 300 at 0.5 over 2026-05-01..2026-10-01',
+     '{"engineer_id":8,"project_id":300,"fraction":0.5,"valid_from":"2026-05-01","valid_to":"2026-10-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 8, 300, 0.50, daterange('2026-05-01','2026-10-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-03-01', 'seed', 'assign_to_project', 'Assign engineer 9 to project 300 at 1.0 over 2026-03-01..2027-01-01',
+     '{"engineer_id":9,"project_id":300,"fraction":1.0,"valid_from":"2026-03-01","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 9, 300, 1.00, daterange('2026-03-01','2027-01-01'), e.id FROM e;

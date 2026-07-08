@@ -25,11 +25,13 @@ const {
 // issued/paid invoices behind) stay green.
 //
 // Data: Data Platform (project 300) for Globex Corporation bills Marcus (L4 @1000)
-// + Aisha (L6 @1800) full-time over the 30-day June 2026 month at the agreed 2025
-// rates = $84,000. June is before Marcus's 2026-07-01 promotion, so the total is
-// stable.
+// + Aisha (L6 @1800) + the recommender bench (#40 Phase 3 Stage 1) also allocated
+// there — Mei (L5 @1200), Rohan (L2 @600 at 0.5), Dmitri (L2 @600) — full-time (or
+// at their seeded fraction) over the 30-day June 2026 month at the agreed 2025
+// rates: 30000 + 54000 + 36000 + 9000 + 18000 = $147,000. June is before Marcus's
+// 2026-07-01 promotion, so the total is stable.
 const PROJECT = { id: 300, name: "Data Platform", client: "Globex Corporation" };
-const TOTAL = "$84,000";
+const TOTAL = "$147,000";
 const MONTH = "Jun 2026";
 
 // Draft an invoice for Data Platform's June 2026 month and return the id of the
