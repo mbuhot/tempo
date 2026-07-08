@@ -1,10 +1,13 @@
 import client/page/meetings/update as meetings
 import client/ui/ops
+import gleam/http/response
 import gleam/option
 import gleam/result
 import gleam/time/calendar
+import rsvp
 import shared/command as gateway
 import shared/meeting/command as meeting_command
+import shared/meeting/view as meeting_view
 
 pub fn local_time_applies_a_positive_offset_test() {
   assert meetings.local_time("2026-07-10T09:00:00Z", 60) == "10:00"
@@ -154,4 +157,179 @@ pub fn build_schedule_command_rejects_a_non_numeric_project_id_test() {
     )
   assert meetings.build_schedule_command(form)
     == Error("project id must be a number")
+}
+
+// --- Find-a-time wizard -------------------------------------------------------
+
+/// A valid finder form (one required attendee, a searchable window, a filled
+/// title) that individual tests override via record update — every override
+/// is still an explicit, deterministic value.
+fn finder_form() -> meetings.FinderForm {
+  meetings.FinderForm(
+    attendees: [
+      meetings.Attendee(1, meeting_command.Required),
+      meetings.Attendee(2, meeting_command.Optional),
+    ],
+    query: "",
+    project_choice: "",
+    booking_project_id: option.None,
+    from_date: "2026-06-15",
+    to_date: "2026-06-19",
+    duration_minutes: "60",
+    timezone: "Europe/London",
+    title: "Kickoff",
+    results: meetings.NotSearched,
+    error: option.None,
+  )
+}
+
+pub fn slot_local_start_applies_a_positive_offset_test() {
+  assert meetings.slot_local_start("2026-07-10T09:00:00Z", 60)
+    == #(calendar.Date(2026, calendar.July, 10), "10:00")
+}
+
+pub fn slot_local_start_applies_a_negative_offset_test() {
+  assert meetings.slot_local_start("2026-07-10T09:00:00Z", -420)
+    == #(calendar.Date(2026, calendar.July, 10), "02:00")
+}
+
+pub fn slot_local_start_crosses_midnight_into_the_next_day_test() {
+  assert meetings.slot_local_start("2026-07-10T23:30:00Z", 60)
+    == #(calendar.Date(2026, calendar.July, 11), "00:30")
+}
+
+pub fn slot_local_start_crosses_midnight_into_the_previous_day_test() {
+  assert meetings.slot_local_start("2026-07-10T00:30:00Z", -420)
+    == #(calendar.Date(2026, calendar.July, 9), "17:30")
+}
+
+pub fn partition_attendee_ids_splits_required_from_optional_test() {
+  assert meetings.partition_attendee_ids(finder_form().attendees) == #([1], [2])
+}
+
+pub fn partition_attendee_ids_dedupes_and_required_wins_test() {
+  let attendees = [
+    meetings.Attendee(2, meeting_command.Optional),
+    meetings.Attendee(2, meeting_command.Required),
+    meetings.Attendee(3, meeting_command.Optional),
+  ]
+  assert meetings.partition_attendee_ids(attendees) == #([2], [3])
+}
+
+pub fn finder_add_ids_keeps_existing_attendance_and_dedupes_test() {
+  let form =
+    meetings.FinderForm(..finder_form(), attendees: [
+      meetings.Attendee(2, meeting_command.Optional),
+    ])
+  let updated = meetings.finder_add_ids(form, [2, 3])
+  assert updated.attendees
+    == [
+      meetings.Attendee(2, meeting_command.Optional),
+      meetings.Attendee(3, meeting_command.Required),
+    ]
+}
+
+pub fn build_search_url_from_a_filled_form_test() {
+  assert meetings.build_search_url(finder_form())
+    == Ok(
+      "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Europe/London&duration=60&required=1&optional=2",
+    )
+}
+
+pub fn build_search_url_requires_a_required_attendee_test() {
+  let form =
+    meetings.FinderForm(..finder_form(), attendees: [
+      meetings.Attendee(2, meeting_command.Optional),
+    ])
+  assert meetings.build_search_url(form)
+    == Error("add at least one required attendee")
+}
+
+pub fn build_search_url_requires_a_timezone_test() {
+  let form = meetings.FinderForm(..finder_form(), timezone: "")
+  assert meetings.build_search_url(form) == Error("timezone is required")
+}
+
+pub fn build_search_url_requires_a_positive_duration_test() {
+  let form = meetings.FinderForm(..finder_form(), duration_minutes: "0")
+  assert meetings.build_search_url(form)
+    == Error("duration must be a positive number of minutes")
+}
+
+pub fn build_search_url_requires_from_on_or_before_to_test() {
+  let form =
+    meetings.FinderForm(
+      ..finder_form(),
+      from_date: "2026-06-19",
+      to_date: "2026-06-15",
+    )
+  assert meetings.build_search_url(form)
+    == Error("from date must be on or before to date")
+}
+
+pub fn build_finder_schedule_command_from_a_filled_form_test() {
+  let form =
+    meetings.FinderForm(..finder_form(), booking_project_id: option.Some(300))
+  let slot =
+    meeting_view.CandidateSlot(
+      starts_at: "2026-06-15T23:00:00Z",
+      ends_at: "2026-06-16T00:00:00Z",
+      attendees: [],
+      viewer_offset_minutes: 60,
+    )
+  assert meetings.build_finder_schedule_command(form, slot)
+    == Ok(
+      gateway.MeetingCommand(meeting_command.ScheduleMeeting(
+        title: "Kickoff",
+        timezone: "Europe/London",
+        date: calendar.Date(2026, calendar.June, 16),
+        starts_at: "00:00",
+        duration_minutes: 60,
+        location: option.None,
+        client_id: option.None,
+        project_id: option.Some(300),
+        attendees: [
+          #(1, meeting_command.Required),
+          #(2, meeting_command.Optional),
+        ],
+        check: meeting_command.RequireFree,
+      )),
+    )
+}
+
+pub fn build_finder_schedule_command_requires_a_title_test() {
+  let form = meetings.FinderForm(..finder_form(), title: "")
+  let slot =
+    meeting_view.CandidateSlot(
+      starts_at: "2026-06-15T23:00:00Z",
+      ends_at: "2026-06-16T00:00:00Z",
+      attendees: [],
+      viewer_offset_minutes: 60,
+    )
+  assert meetings.build_finder_schedule_command(form, slot)
+    == Error("title is required")
+}
+
+pub fn is_slot_taken_detects_the_slot_taken_error_tag_test() {
+  let error =
+    rsvp.HttpError(response.Response(
+      status: 409,
+      headers: [],
+      body: "{\"error\":\"slot_taken\",\"detail\":\"a required attendee is no longer free for that window\"}",
+    ))
+  assert meetings.is_slot_taken(error)
+}
+
+pub fn is_slot_taken_is_false_for_a_different_error_tag_test() {
+  let error =
+    rsvp.HttpError(response.Response(
+      status: 422,
+      headers: [],
+      body: "{\"error\":\"invalid_value\",\"detail\":\"bad\"}",
+    ))
+  assert !meetings.is_slot_taken(error)
+}
+
+pub fn is_slot_taken_is_false_for_a_network_error_test() {
+  assert !meetings.is_slot_taken(rsvp.NetworkError)
 }

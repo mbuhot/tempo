@@ -1,18 +1,26 @@
-//// The Meetings page's views: the page head with the "New meeting" action,
-//// the upcoming-meetings table (canonical time plus each attendee's local
-//// wall-clock time, and the granular Reschedule/Cancel/Add attendee/Remove
-//// attendee launchers), the granular op-form modal, and the bespoke
-//// "Schedule meeting" create modal with its attendee builder.
+//// The Meetings page's views: the page head with the "New meeting"/"Find a
+//// time" actions, the upcoming-meetings table (canonical time plus each
+//// attendee's local wall-clock time, and the granular Reschedule/Cancel/Add
+//// attendee/Remove attendee launchers), the granular op-form modal, the
+//// bespoke "Schedule meeting" create modal with its attendee builder, and the
+//// find-a-time wizard modal.
 
 import client/page/meetings/op_form.{view_op_modal}
 import client/page/meetings/update.{
-  type Attendee, type CreateField, type CreateForm, type Model, type Msg,
-  type State, AddAttendeeOpened, AttendanceSet, Attendee, AttendeeAdded,
-  AttendeeQueryChanged, AttendeeRemoved, CancelOpened, CreateCancelled,
-  CreateClientId, CreateDate, CreateDurationMinutes, CreateFieldEdited,
-  CreateLocation, CreateOpened, CreateProjectId, CreateStartsAt, CreateSubmitted,
-  CreateTimezone, CreateTitle, MeetingsFailed, MeetingsLoaded, MeetingsLoading,
-  RemoveAttendeeOpened, RescheduleOpened, local_time,
+  type Attendee, type CreateField, type CreateForm, type FinderField,
+  type FinderForm, type Model, type Msg, type State, AddAttendeeOpened,
+  AttendanceSet, Attendee, AttendeeAdded, AttendeeQueryChanged, AttendeeRemoved,
+  CancelOpened, CreateCancelled, CreateClientId, CreateDate,
+  CreateDurationMinutes, CreateFieldEdited, CreateLocation, CreateOpened,
+  CreateProjectId, CreateStartsAt, CreateSubmitted, CreateTimezone, CreateTitle,
+  FinderAllAdded, FinderAttendanceSet, FinderAttendeeAdded,
+  FinderAttendeeQueryChanged, FinderAttendeeRemoved, FinderCancelled,
+  FinderDurationMinutes, FinderFieldEdited, FinderFillFromProjectRequested,
+  FinderFromDate, FinderOpened, FinderProjectChoice, FinderSearchRequested,
+  FinderSlotBooked, FinderTimezone, FinderTitle, FinderToDate, Found,
+  MeetingsFailed, MeetingsLoaded, MeetingsLoading, NotSearched,
+  RemoveAttendeeOpened, RescheduleOpened, Searching, SlotTaken, local_time,
+  located_roster, slot_local_start,
 }
 import client/time
 import client/ui/atoms
@@ -31,7 +39,10 @@ import lustre/event
 import shared/access as perm
 import shared/location/view.{type EngineerLocation} as location_view
 import shared/meeting/command.{Optional, Required}
-import shared/meeting/view.{type AttendeeRecord, type MeetingRecord} as meeting_view
+import shared/meeting/view.{
+  type AttendeeRecord, type CandidateSlot, type MeetingRecord, type SlotAttendee,
+} as meeting_view
+import shared/roster/view.{type Ref} as roster_view
 
 pub fn view(
   model: Model,
@@ -42,6 +53,7 @@ pub fn view(
   html.div([], [
     view_op_modal(model.op),
     view_create_modal(model.create, model.roster),
+    view_finder_modal(model.finder, model.roster, model.projects),
     atoms.list_page(
       title: "Meetings",
       blurb: "Every upcoming meeting as of the rail date, with each attendee's local wall-clock time.",
@@ -59,6 +71,12 @@ fn view_actions(permissions: Set(String)) -> List(Element(Msg)) {
         kind: atoms.Primary,
         size: atoms.Medium,
         on_press: CreateOpened,
+      ),
+      atoms.button(
+        label: "Find a time",
+        kind: atoms.Ghost,
+        size: atoms.Medium,
+        on_press: FinderOpened,
       ),
     ]
     False -> []
@@ -431,4 +449,334 @@ fn attendance_from_string(raw: String) -> command.Attendance {
     "optional" -> Optional
     _ -> Required
   }
+}
+
+// --- Find-a-time wizard ------------------------------------------------------
+
+fn view_finder_modal(
+  finder: Option(FinderForm),
+  roster: List(EngineerLocation),
+  projects: List(Ref),
+) -> Element(Msg) {
+  case finder {
+    None -> element.none()
+    Some(form) ->
+      atoms.dialog(
+        title: "Find a time",
+        on_dismiss: FinderCancelled,
+        body: html.div([attribute.class("finder")], [
+          view_finder_criteria(form, roster, projects),
+          html.div([attribute.class("finder__divider")], []),
+          view_finder_results(form),
+        ]),
+      )
+  }
+}
+
+fn view_finder_criteria(
+  form: FinderForm,
+  roster: List(EngineerLocation),
+  projects: List(Ref),
+) -> Element(Msg) {
+  html.div([attribute.class("finder__criteria")], [
+    finder_field("Title", FinderTitle, form.title, "text"),
+    view_finder_attendee_builder(form, roster),
+    view_finder_project_fill(form, projects),
+    html.div([attribute.class("finder__row")], [
+      finder_field("From", FinderFromDate, form.from_date, "date"),
+      finder_field("To", FinderToDate, form.to_date, "date"),
+    ]),
+    finder_field(
+      "Duration (minutes)",
+      FinderDurationMinutes,
+      form.duration_minutes,
+      "text",
+    ),
+    finder_field("Timezone (IANA TZID)", FinderTimezone, form.timezone, "text"),
+    finder_error(form.error),
+    atoms.button(
+      label: "Find windows",
+      kind: atoms.Primary,
+      size: atoms.Medium,
+      on_press: FinderSearchRequested,
+    ),
+  ])
+}
+
+fn finder_field(
+  label: String,
+  field: FinderField,
+  value: String,
+  input_type: String,
+) -> Element(Msg) {
+  html.label([attribute.class("op-form__field")], [
+    html.span([], [html.text(label)]),
+    html.input([
+      attribute.type_(input_type),
+      attribute.attribute("aria-label", label),
+      attribute.value(value),
+      event.on_input(fn(value) { FinderFieldEdited(field, value) }),
+    ]),
+  ])
+}
+
+fn finder_error(error: Option(String)) -> Element(Msg) {
+  case error {
+    None -> element.none()
+    Some(message) ->
+      html.div([attribute.class("op-form__error")], [html.text(message)])
+  }
+}
+
+/// The wizard's attendee builder: a name search plus "Add everyone" over the
+/// LOCATED roster (an engineer with no location as-of the date can never
+/// produce a slot, so none of the wizard's pickers ever offer one), and the
+/// current attendee rows each with a required/optional select and a remove
+/// button.
+fn view_finder_attendee_builder(
+  form: FinderForm,
+  roster: List(EngineerLocation),
+) -> Element(Msg) {
+  let located = located_roster(roster)
+  html.div([attribute.class("attendee-builder")], [
+    html.div([attribute.class("finder__row")], [
+      html.label([attribute.class("op-form__field")], [
+        html.span([], [html.text("Search engineers")]),
+        html.input([
+          attribute.type_("text"),
+          attribute.attribute("aria-label", "Search engineers"),
+          attribute.value(form.query),
+          event.on_input(FinderAttendeeQueryChanged),
+        ]),
+      ]),
+      atoms.button(
+        label: "Add everyone",
+        kind: atoms.Ghost,
+        size: atoms.Small,
+        on_press: FinderAllAdded,
+      ),
+    ]),
+    view_finder_roster_matches(form, located),
+    view_finder_current_attendees(form.attendees, located),
+  ])
+}
+
+fn view_finder_roster_matches(
+  form: FinderForm,
+  located: List(EngineerLocation),
+) -> Element(Msg) {
+  let query = string.trim(form.query) |> string.lowercase
+  case query {
+    "" -> element.none()
+    _ ->
+      html.div(
+        [attribute.class("attendee-builder__matches"), attribute.role("list")],
+        located
+          |> list.filter(fn(entry) {
+            !list.any(form.attendees, fn(attendee) {
+              attendee.engineer_id == entry.engineer_id
+            })
+            && string.contains(string.lowercase(entry.name), query)
+          })
+          |> list.map(view_finder_roster_match),
+      )
+  }
+}
+
+fn view_finder_roster_match(entry: EngineerLocation) -> Element(Msg) {
+  let location_view.EngineerLocation(engineer_id:, name:, ..) = entry
+  html.div(
+    [
+      attribute.class("attendee-builder__match"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.span([], [html.text(name)]),
+      atoms.button(
+        label: "Add",
+        kind: atoms.Ghost,
+        size: atoms.Small,
+        on_press: FinderAttendeeAdded(engineer_id),
+      ),
+    ],
+  )
+}
+
+fn view_finder_current_attendees(
+  attendees: List(Attendee),
+  located: List(EngineerLocation),
+) -> Element(Msg) {
+  html.div(
+    [attribute.class("attendee-builder__rows"), attribute.role("list")],
+    list.map(attendees, view_finder_current_attendee(_, located)),
+  )
+}
+
+fn view_finder_current_attendee(
+  attendee: Attendee,
+  located: List(EngineerLocation),
+) -> Element(Msg) {
+  let Attendee(engineer_id:, attendance:) = attendee
+  let name = roster_name(located, engineer_id)
+  html.div(
+    [
+      attribute.class("attendee-builder__row"),
+      attribute.role("listitem"),
+      attribute.aria_label(name),
+    ],
+    [
+      html.span([], [html.text(name)]),
+      finder_attendance_select(engineer_id, attendance),
+      atoms.button(
+        label: "Remove",
+        kind: atoms.Ghost,
+        size: atoms.Small,
+        on_press: FinderAttendeeRemoved(engineer_id),
+      ),
+    ],
+  )
+}
+
+fn finder_attendance_select(
+  engineer_id: Int,
+  selected: command.Attendance,
+) -> Element(Msg) {
+  let selected_value = case selected {
+    Required -> "required"
+    Optional -> "optional"
+  }
+  html.select(
+    [
+      attribute.attribute("aria-label", "Attendance"),
+      event.on_change(fn(value) {
+        FinderAttendanceSet(engineer_id, attendance_from_string(value))
+      }),
+    ],
+    [
+      html.option(
+        [
+          attribute.value("required"),
+          attribute.selected(selected_value == "required"),
+        ],
+        "Required",
+      ),
+      html.option(
+        [
+          attribute.value("optional"),
+          attribute.selected(selected_value == "optional"),
+        ],
+        "Optional",
+      ),
+    ],
+  )
+}
+
+/// A project `<select>` plus the "Fill from project" button that fetches that
+/// project's as-of team and adds it to the attendee list.
+fn view_finder_project_fill(
+  form: FinderForm,
+  projects: List(Ref),
+) -> Element(Msg) {
+  html.div([attribute.class("finder__row")], [
+    html.label([attribute.class("op-form__field")], [
+      html.span([], [html.text("Fill from project")]),
+      html.select(
+        [
+          attribute.attribute("aria-label", "Fill from project"),
+          event.on_change(fn(value) {
+            FinderFieldEdited(FinderProjectChoice, value)
+          }),
+        ],
+        view_finder_project_options(form.project_choice, projects),
+      ),
+    ]),
+    atoms.button(
+      label: "Fill from project",
+      kind: atoms.Ghost,
+      size: atoms.Small,
+      on_press: FinderFillFromProjectRequested,
+    ),
+  ])
+}
+
+fn view_finder_project_options(
+  selected: String,
+  projects: List(Ref),
+) -> List(Element(Msg)) {
+  case projects {
+    [] -> [
+      html.option([attribute.value(""), attribute.disabled(True)], "Loading…"),
+    ]
+    refs ->
+      list.map(refs, fn(reference) {
+        let roster_view.Ref(id:, name:) = reference
+        let id_text = int.to_string(id)
+        html.option(
+          [attribute.value(id_text), attribute.selected(id_text == selected)],
+          name,
+        )
+      })
+  }
+}
+
+fn view_finder_results(form: FinderForm) -> Element(Msg) {
+  html.div([attribute.class("finder__results")], case form.results {
+    NotSearched -> [
+      atoms.empty_state(message: "Search to see available windows."),
+    ]
+    Searching -> [atoms.empty_state(message: "Searching…")]
+    Found(slots:) -> view_finder_slots(slots)
+    SlotTaken(slots:) -> [
+      html.p([attribute.class("finder__notice")], [
+        html.text("That slot was just taken — here are fresh times."),
+      ]),
+      ..view_finder_slots(slots)
+    ]
+  })
+}
+
+fn view_finder_slots(slots: List(CandidateSlot)) -> List(Element(Msg)) {
+  case slots {
+    [] -> [atoms.empty_state(message: "No windows found for these criteria.")]
+    _ -> list.map(slots, view_finder_slot)
+  }
+}
+
+fn view_finder_slot(slot: CandidateSlot) -> Element(Msg) {
+  let meeting_view.CandidateSlot(
+    starts_at:,
+    ends_at:,
+    attendees:,
+    viewer_offset_minutes:,
+  ) = slot
+  let #(date, starts_local) = slot_local_start(starts_at, viewer_offset_minutes)
+  let ends_local = local_time(ends_at, viewer_offset_minutes)
+  html.div([attribute.class("finder-slot")], [
+    html.div([attribute.class("finder-slot__when")], [
+      html.text(
+        time.format_date(date) <> " " <> starts_local <> "–" <> ends_local,
+      ),
+    ]),
+    html.div(
+      [attribute.class("finder-slot__attendees")],
+      list.map(attendees, view_finder_slot_attendee(starts_at, _)),
+    ),
+    atoms.button(
+      label: "Book this slot",
+      kind: atoms.Primary,
+      size: atoms.Small,
+      on_press: FinderSlotBooked(slot),
+    ),
+  ])
+}
+
+fn view_finder_slot_attendee(
+  starts_at: String,
+  attendee: SlotAttendee,
+) -> Element(Msg) {
+  let meeting_view.SlotAttendee(name:, offset_minutes:, ..) = attendee
+  html.span([], [
+    html.text(name <> ": " <> attendee_local_time(starts_at, offset_minutes)),
+  ])
 }

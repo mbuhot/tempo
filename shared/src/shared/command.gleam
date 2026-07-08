@@ -320,3 +320,16 @@ pub fn decode_error_detail(body: String) -> Result(String, Nil) {
   json.parse(body, detail_decoder)
   |> result.replace_error(Nil)
 }
+
+/// Pull the short `error` tag out of the handler's typed error body (`{error,
+/// detail}`), e.g. `"slot_taken"`. Lets a caller branch on WHICH rejection
+/// happened rather than string-matching the human-readable `detail` sentence.
+/// Returns `Error(Nil)` if the body is not that shape.
+pub fn decode_error_tag(body: String) -> Result(String, Nil) {
+  let tag_decoder = {
+    use tag <- decode.field("error", decode.string)
+    decode.success(tag)
+  }
+  json.parse(body, tag_decoder)
+  |> result.replace_error(Nil)
+}

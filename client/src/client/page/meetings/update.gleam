@@ -1,7 +1,7 @@
 //// The Meetings page's state machine: the loadable-list model, the messages,
-//// init/refetch, the update fold (granular op-form launches plus the bespoke
-//// `ScheduleMeeting` create form), the fetches, and the pure command-building
-//// and local-time helpers the view and tests draw from.
+//// init/refetch, the update fold (granular op-form launches, the bespoke
+//// `ScheduleMeeting` create form, and the find-a-time wizard), the fetches, and
+//// the pure command-building and local-time helpers the view and tests draw from.
 
 import client/api
 import client/page.{type OutMsg, OperationCommitted}
@@ -22,7 +22,11 @@ import rsvp
 import shared/command as gateway
 import shared/location/view.{type EngineerLocation, engineer_location_decoder}
 import shared/meeting/command.{Required}
-import shared/meeting/view.{type MeetingRecord, meeting_record_decoder} as meeting_view
+import shared/meeting/view.{
+  type CandidateSlot, type MeetingRecord, candidate_slot_decoder,
+  meeting_record_decoder,
+} as meeting_view
+import shared/roster/view.{type Ref, roster_decoder} as _
 
 pub type State {
   MeetingsLoading
@@ -68,6 +72,51 @@ pub type CreateForm {
   )
 }
 
+/// The find-a-time wizard's search outcome: no search run yet, a search
+/// in flight, a completed search, or a completed RE-search run automatically
+/// because the presenter's booked pick was just taken by someone else — a
+/// distinct state rather than a "stale" boolean flag, so the view can name it.
+pub type FinderResults {
+  NotSearched
+  Searching
+  Found(slots: List(CandidateSlot))
+  SlotTaken(slots: List(CandidateSlot))
+}
+
+/// Names a slot of the `FinderForm` — the wizard's own field enum, mirroring
+/// `CreateField` since `find_time`/`ScheduleMeeting` are also composed directly
+/// rather than through the scalar op-form engine.
+pub type FinderField {
+  FinderTitle
+  FinderProjectChoice
+  FinderFromDate
+  FinderToDate
+  FinderDurationMinutes
+  FinderTimezone
+}
+
+/// The "Find a time" wizard: the criteria (attendees, search window, duration,
+/// timezone), the meeting title to book, and the current `results`.
+/// `booking_project_id` is set only once "Fill from project" has actually run,
+/// so a booked meeting attaches to that project exactly when the wizard was
+/// used to staff it from one — an id, not a bare flag, doubling as both "was it
+/// used" and "which project".
+pub type FinderForm {
+  FinderForm(
+    attendees: List(Attendee),
+    query: String,
+    project_choice: String,
+    booking_project_id: Option(Int),
+    from_date: String,
+    to_date: String,
+    duration_minutes: String,
+    timezone: String,
+    title: String,
+    results: FinderResults,
+    error: Option(String),
+  )
+}
+
 pub type Model {
   Model(
     as_of: Date,
@@ -75,13 +124,16 @@ pub type Model {
     state: State,
     op: Option(ops.OpState),
     roster: List(EngineerLocation),
+    projects: List(Ref),
     create: Option(CreateForm),
+    finder: Option(FinderForm),
   )
 }
 
 pub type Msg {
   Fetched(as_of: Date, result: Result(List(MeetingRecord), rsvp.Error(String)))
   RosterFetched(result: Result(List(EngineerLocation), rsvp.Error(String)))
+  ProjectsFetched(result: Result(List(Ref), rsvp.Error(String)))
   RescheduleOpened(permit: ops.Permit, record: MeetingRecord)
   CancelOpened(permit: ops.Permit, meeting_id: Int)
   AddAttendeeOpened(permit: ops.Permit, meeting_id: Int)
@@ -98,6 +150,26 @@ pub type Msg {
   AttendeeRemoved(engineer_id: Int)
   AttendanceSet(engineer_id: Int, attendance: command.Attendance)
   CreateSubmitted
+  FinderOpened
+  FinderCancelled
+  FinderFieldEdited(field: FinderField, value: String)
+  FinderAttendeeQueryChanged(query: String)
+  FinderAttendeeAdded(engineer_id: Int)
+  FinderAllAdded
+  FinderAttendeeRemoved(engineer_id: Int)
+  FinderAttendanceSet(engineer_id: Int, attendance: command.Attendance)
+  FinderFillFromProjectRequested
+  FinderProjectTeamFetched(
+    project_id: Int,
+    result: Result(List(Int), rsvp.Error(String)),
+  )
+  FinderSearchRequested
+  FinderSlotsFetched(result: Result(List(CandidateSlot), rsvp.Error(String)))
+  FinderSlotsRefetchedAfterTaken(
+    result: Result(List(CandidateSlot), rsvp.Error(String)),
+  )
+  FinderSlotBooked(slot: CandidateSlot)
+  FinderBookingReturned(result: Result(Nil, rsvp.Error(String)))
 }
 
 pub fn init(_route, as_of: Date, actor: String) -> #(Model, Effect(Msg)) {
@@ -108,9 +180,11 @@ pub fn init(_route, as_of: Date, actor: String) -> #(Model, Effect(Msg)) {
       state: MeetingsLoading,
       op: None,
       roster: [],
+      projects: [],
       create: None,
+      finder: None,
     ),
-    effect.batch([fetch(as_of), fetch_roster(as_of)]),
+    effect.batch([fetch(as_of), fetch_roster(as_of), fetch_projects(as_of)]),
   )
 }
 
@@ -121,7 +195,7 @@ pub fn refetch(
 ) -> #(Model, Effect(Msg)) {
   #(
     Model(..model, as_of:, actor:),
-    effect.batch([fetch(as_of), fetch_roster(as_of)]),
+    effect.batch([fetch(as_of), fetch_roster(as_of), fetch_projects(as_of)]),
   )
 }
 
@@ -143,6 +217,42 @@ fn fetch_roster(as_of: Date) -> Effect(Msg) {
   )
 }
 
+/// The as-of project directory the find-a-time wizard's "Fill from project"
+/// dropdown picks from.
+fn fetch_projects(as_of: Date) -> Effect(Msg) {
+  api.get(
+    "/api/roster?as_of=" <> time.iso_date(as_of),
+    roster_decoder(),
+    fn(outcome) {
+      ProjectsFetched(
+        result: result.map(outcome, fn(roster) { roster.projects }),
+      )
+    },
+  )
+}
+
+/// Fetch every candidate slot `url` (a fully-built find-a-time query string)
+/// names, handing the outcome to `to_msg` — shared by the wizard's initial
+/// search and its automatic re-search after a slot-taken rejection.
+fn fetch_slots(
+  url: String,
+  to_msg: fn(Result(List(CandidateSlot), rsvp.Error(String))) -> Msg,
+) -> Effect(Msg) {
+  api.get(url, decode.list(candidate_slot_decoder()), to_msg)
+}
+
+/// The engineers allocated to `project_id` as-of `as_of` — "Fill from project".
+fn fetch_project_team(project_id: Int, as_of: Date) -> Effect(Msg) {
+  api.get(
+    "/api/meetings/find-a-time/project-team?project_id="
+      <> int.to_string(project_id)
+      <> "&as_of="
+      <> time.iso_date(as_of),
+    decode.list(decode.int),
+    fn(result) { FinderProjectTeamFetched(project_id:, result:) },
+  )
+}
+
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
   case msg {
     Fetched(as_of:, result:) ->
@@ -160,6 +270,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     RosterFetched(result:) -> {
       let roster = result |> result.unwrap([])
       #(Model(..model, roster:), effect.none(), [])
+    }
+
+    ProjectsFetched(result:) -> {
+      let projects = result |> result.unwrap([])
+      #(Model(..model, projects:), effect.none(), [])
     }
 
     RescheduleOpened(permit:, record:) -> {
@@ -363,6 +478,287 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
             )
           }
         None -> #(model, effect.none(), [])
+      }
+
+    FinderOpened -> #(
+      Model(..model, finder: Some(blank_finder_form(model.as_of))),
+      effect.none(),
+      [],
+    )
+
+    FinderCancelled -> #(Model(..model, finder: None), effect.none(), [])
+
+    FinderFieldEdited(field:, value:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(
+            ..model,
+            finder: Some(
+              FinderForm(..update_finder_field(form, field, value), error: None),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderAttendeeQueryChanged(query:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(..model, finder: Some(FinderForm(..form, query:))),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderAttendeeAdded(engineer_id:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(
+            ..model,
+            finder: Some(
+              FinderForm(..finder_add_ids(form, [engineer_id]), query: ""),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderAllAdded ->
+      case model.finder {
+        Some(form) -> {
+          let located_ids =
+            located_roster(model.roster)
+            |> list.map(fn(entry) { entry.engineer_id })
+          #(
+            Model(..model, finder: Some(finder_add_ids(form, located_ids))),
+            effect.none(),
+            [],
+          )
+        }
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderAttendeeRemoved(engineer_id:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(
+            ..model,
+            finder: Some(
+              FinderForm(
+                ..form,
+                attendees: list.filter(form.attendees, fn(attendee) {
+                  attendee.engineer_id != engineer_id
+                }),
+              ),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderAttendanceSet(engineer_id:, attendance:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(
+            ..model,
+            finder: Some(
+              FinderForm(
+                ..form,
+                attendees: list.map(form.attendees, fn(attendee) {
+                  case attendee.engineer_id == engineer_id {
+                    True -> Attendee(..attendee, attendance:)
+                    False -> attendee
+                  }
+                }),
+              ),
+            ),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderFillFromProjectRequested ->
+      case model.finder {
+        Some(form) ->
+          case int.parse(string.trim(form.project_choice)) {
+            Ok(project_id) -> #(
+              model,
+              fetch_project_team(project_id, model.as_of),
+              [],
+            )
+            Error(Nil) -> #(
+              Model(
+                ..model,
+                finder: Some(
+                  FinderForm(..form, error: Some("choose a project")),
+                ),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderProjectTeamFetched(project_id:, result:) ->
+      case model.finder {
+        Some(form) ->
+          case result {
+            Ok(engineer_ids) -> {
+              let located_ids =
+                located_roster(model.roster)
+                |> list.map(fn(entry) { entry.engineer_id })
+              let offerable =
+                list.filter(engineer_ids, fn(id) {
+                  list.contains(located_ids, id)
+                })
+              #(
+                Model(
+                  ..model,
+                  finder: Some(finder_add_ids(
+                    FinderForm(..form, booking_project_id: Some(project_id)),
+                    offerable,
+                  )),
+                ),
+                effect.none(),
+                [],
+              )
+            }
+            Error(error) -> #(
+              Model(
+                ..model,
+                finder: Some(
+                  FinderForm(..form, error: Some(api.describe_error(error))),
+                ),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderSearchRequested ->
+      case model.finder {
+        Some(form) ->
+          case build_search_url(form) {
+            Ok(url) -> #(
+              Model(
+                ..model,
+                finder: Some(
+                  FinderForm(..form, results: Searching, error: None),
+                ),
+              ),
+              fetch_slots(url, FinderSlotsFetched),
+              [],
+            )
+            Error(message) -> #(
+              Model(
+                ..model,
+                finder: Some(FinderForm(..form, error: Some(message))),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderSlotsFetched(result:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(..model, finder: Some(apply_slots_fetched(form, Found, result))),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderSlotsRefetchedAfterTaken(result:) ->
+      case model.finder {
+        Some(form) -> #(
+          Model(
+            ..model,
+            finder: Some(apply_slots_fetched(form, SlotTaken, result)),
+          ),
+          effect.none(),
+          [],
+        )
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderSlotBooked(slot:) ->
+      case model.finder {
+        Some(form) ->
+          case build_finder_schedule_command(form, slot) {
+            Ok(command) -> #(
+              model,
+              api.submit_operation(command, FinderBookingReturned),
+              [],
+            )
+            Error(message) -> #(
+              Model(
+                ..model,
+                finder: Some(FinderForm(..form, error: Some(message))),
+              ),
+              effect.none(),
+              [],
+            )
+          }
+        None -> #(model, effect.none(), [])
+      }
+
+    FinderBookingReturned(result:) ->
+      case result {
+        Ok(_events) -> {
+          let #(refreshed, fetch_effect) =
+            refetch(Model(..model, finder: None), model.as_of, model.actor)
+          #(refreshed, fetch_effect, [OperationCommitted])
+        }
+        Error(error) ->
+          case is_slot_taken(error), model.finder {
+            True, Some(form) ->
+              case build_search_url(form) {
+                Ok(url) -> #(
+                  Model(
+                    ..model,
+                    finder: Some(
+                      FinderForm(..form, results: Searching, error: None),
+                    ),
+                  ),
+                  fetch_slots(url, FinderSlotsRefetchedAfterTaken),
+                  [],
+                )
+                Error(message) -> #(
+                  Model(
+                    ..model,
+                    finder: Some(FinderForm(..form, error: Some(message))),
+                  ),
+                  effect.none(),
+                  [],
+                )
+              }
+            False, Some(form) -> #(
+              Model(
+                ..model,
+                finder: Some(
+                  FinderForm(..form, error: Some(api.describe_error(error))),
+                ),
+              ),
+              effect.none(),
+              [],
+            )
+            _, None -> #(model, effect.none(), [])
+          }
       }
   }
 }
@@ -584,4 +980,225 @@ fn minutes_between(starts_at_iso: String, ends_at_iso: String) -> Int {
 
 fn pad2(value: Int) -> String {
   int.to_string(value) |> string.pad_start(to: 2, with: "0")
+}
+
+// --- Find-a-time wizard -------------------------------------------------------
+
+/// A blank finder form, opened by the "Find a time" launcher: the search window
+/// defaults to `as_of .. as_of+13 days`, duration to 60 minutes, timezone blank
+/// (the same default the create form uses for its timezone field).
+fn blank_finder_form(as_of: Date) -> FinderForm {
+  FinderForm(
+    attendees: [],
+    query: "",
+    project_choice: "",
+    booking_project_id: None,
+    from_date: time.iso_date(as_of),
+    to_date: time.iso_date(plus_days(as_of, 13)),
+    duration_minutes: "60",
+    timezone: "",
+    title: "",
+    results: NotSearched,
+    error: None,
+  )
+}
+
+fn plus_days(date: Date, days: Int) -> Date {
+  time.day_index_to_date(time.date_to_day_index(date) + days)
+}
+
+/// Fold a `FinderFieldEdited` edit into the matching `FinderForm` slot.
+fn update_finder_field(
+  form: FinderForm,
+  field: FinderField,
+  value: String,
+) -> FinderForm {
+  case field {
+    FinderTitle -> FinderForm(..form, title: value)
+    FinderProjectChoice -> FinderForm(..form, project_choice: value)
+    FinderFromDate -> FinderForm(..form, from_date: value)
+    FinderToDate -> FinderForm(..form, to_date: value)
+    FinderDurationMinutes -> FinderForm(..form, duration_minutes: value)
+    FinderTimezone -> FinderForm(..form, timezone: value)
+  }
+}
+
+/// The roster narrowed to engineers with a location as-of the date — the only
+/// engineers any wizard picker (search, add everyone, fill from project) can
+/// ever offer, since an unlocated engineer can never produce a free slot.
+pub fn located_roster(
+  roster: List(EngineerLocation),
+) -> List(EngineerLocation) {
+  list.filter(roster, fn(entry) { option.is_some(entry.location) })
+}
+
+/// Add every id in `ids` to `form.attendees` as `Required`, skipping any id
+/// already present so an existing attendee KEEPS whichever attendance the
+/// presenter already chose for them.
+pub fn finder_add_ids(form: FinderForm, ids: List(Int)) -> FinderForm {
+  FinderForm(..form, attendees: list.fold(ids, form.attendees, add_one))
+}
+
+fn add_one(attendees: List(Attendee), engineer_id: Int) -> List(Attendee) {
+  case
+    list.any(attendees, fn(attendee) { attendee.engineer_id == engineer_id })
+  {
+    True -> attendees
+    False ->
+      list.append(attendees, [Attendee(engineer_id:, attendance: Required)])
+  }
+}
+
+/// Split `attendees` into (required ids, optional ids), each deduplicated and
+/// disjoint — an id present as both stays only in `required` — mirroring the
+/// server's own `find_time` dedupe guard.
+pub fn partition_attendee_ids(
+  attendees: List(Attendee),
+) -> #(List(Int), List(Int)) {
+  let required =
+    attendees
+    |> list.filter(fn(attendee) { attendee.attendance == command.Required })
+    |> list.map(fn(attendee) { attendee.engineer_id })
+    |> list.unique
+  let optional =
+    attendees
+    |> list.filter(fn(attendee) { attendee.attendance == command.Optional })
+    |> list.map(fn(attendee) { attendee.engineer_id })
+    |> list.unique
+    |> list.filter(fn(id) { !list.contains(required, id) })
+  #(required, optional)
+}
+
+/// Validate the wizard's criteria and build the `GET /api/meetings/find-a-time`
+/// query string, or report the first thing missing: at least one required
+/// attendee, a non-empty timezone, a positive duration, and `from` on or before
+/// `to`.
+pub fn build_search_url(form: FinderForm) -> Result(String, String) {
+  use from <- result.try(parse_date(form.from_date))
+  use to <- result.try(parse_date(form.to_date))
+  use duration <- result.try(
+    int.parse(form.duration_minutes)
+    |> result.replace_error("duration must be a number"),
+  )
+  let #(required, optional) = partition_attendee_ids(form.attendees)
+  let timezone = string.trim(form.timezone)
+  case
+    required,
+    timezone,
+    duration > 0,
+    time.date_to_day_index(from) <= time.date_to_day_index(to)
+  {
+    [], _, _, _ -> Error("add at least one required attendee")
+    _, "", _, _ -> Error("timezone is required")
+    _, _, False, _ -> Error("duration must be a positive number of minutes")
+    _, _, _, False -> Error("from date must be on or before to date")
+    _, _, _, _ ->
+      Ok(
+        "/api/meetings/find-a-time?from="
+        <> time.iso_date(from)
+        <> "&to="
+        <> time.iso_date(to)
+        <> "&tz="
+        <> timezone
+        <> "&duration="
+        <> int.to_string(duration)
+        <> "&required="
+        <> ids_to_csv(required)
+        <> optional_ids_query(optional),
+      )
+  }
+}
+
+fn ids_to_csv(ids: List(Int)) -> String {
+  ids |> list.map(int.to_string) |> string.join(",")
+}
+
+fn optional_ids_query(optional: List(Int)) -> String {
+  case optional {
+    [] -> ""
+    ids -> "&optional=" <> ids_to_csv(ids)
+  }
+}
+
+/// Fold a `FinderSlotsFetched`/`FinderSlotsRefetchedAfterTaken` outcome into
+/// the form: on success wrap the slots in `wrap` (`Found` for a normal search,
+/// `SlotTaken` for the automatic re-search after a booking collision); on
+/// failure fall back to `NotSearched` and surface the error inline.
+fn apply_slots_fetched(
+  form: FinderForm,
+  wrap: fn(List(CandidateSlot)) -> FinderResults,
+  result: Result(List(CandidateSlot), rsvp.Error(String)),
+) -> FinderForm {
+  case result {
+    Ok(slots) -> FinderForm(..form, results: wrap(slots), error: None)
+    Error(error) ->
+      FinderForm(
+        ..form,
+        results: NotSearched,
+        error: Some(api.describe_error(error)),
+      )
+  }
+}
+
+/// A candidate slot's UTC `starts_at_iso`, shifted by `viewer_offset_minutes`
+/// into the viewer-local calendar date and "HH:MM" wall-clock time the booking
+/// command needs — the client has no timezone database, so the server ships
+/// the offset and this is where it gets applied to a BOOKING (as opposed to a
+/// read-only local-time render, which uses `local_time` alone).
+pub fn slot_local_start(
+  starts_at_iso: String,
+  viewer_offset_minutes: Int,
+) -> #(Date, String) {
+  #(
+    local_date(starts_at_iso, viewer_offset_minutes),
+    local_time(starts_at_iso, viewer_offset_minutes),
+  )
+}
+
+/// The pure, testable heart of booking a slot: validate + assemble a
+/// `ScheduleMeeting(check: RequireFree)` command from the wizard's criteria and
+/// the chosen slot, or report the first thing missing.
+pub fn build_finder_schedule_command(
+  form: FinderForm,
+  slot: CandidateSlot,
+) -> Result(gateway.Command, String) {
+  use duration <- result.try(
+    int.parse(form.duration_minutes)
+    |> result.replace_error("duration must be a number"),
+  )
+  case string.trim(form.title), form.attendees {
+    "", _ -> Error("title is required")
+    _, [] -> Error("add at least one attendee")
+    title, attendees -> {
+      let #(date, starts_at) =
+        slot_local_start(slot.starts_at, slot.viewer_offset_minutes)
+      Ok(
+        gateway.MeetingCommand(command.ScheduleMeeting(
+          title:,
+          timezone: form.timezone,
+          date:,
+          starts_at:,
+          duration_minutes: duration,
+          location: None,
+          client_id: None,
+          project_id: form.booking_project_id,
+          attendees: list.map(attendees, fn(attendee) {
+            #(attendee.engineer_id, attendee.attendance)
+          }),
+          check: command.RequireFree,
+        )),
+      )
+    }
+  }
+}
+
+/// Whether `error` is the operations handler's `slot_taken` rejection — the
+/// wizard automatically re-searches on this ONE failure and surfaces every
+/// other error inline instead.
+pub fn is_slot_taken(error: rsvp.Error(String)) -> Bool {
+  case error {
+    rsvp.HttpError(response) ->
+      gateway.decode_error_tag(response.body) == Ok("slot_taken")
+    _ -> False
+  }
 }

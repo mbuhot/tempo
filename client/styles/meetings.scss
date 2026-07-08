@@ -1,0 +1,73 @@
+// Meetings — the find-a-time wizard panel (#45 stage 3): a two-column dialog
+// body (criteria | results) opened as a `.modal--wide` dialog beside the
+// "Schedule meeting" create modal. Reuses the op-form field atoms for inputs
+// and the global `.btn`, adding only the layout + results-list chrome.
+
+@use "mixins" as *;
+
+.finder {
+    display: grid;
+    grid-template-columns: minmax(0, 18rem) 1px minmax(0, 1fr);
+    gap: var(--space-lg);
+    padding: var(--space-lg);
+    align-items: start;
+}
+
+.finder__criteria {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.finder__divider {
+    align-self: stretch;
+    background: var(--color-border);
+}
+
+.finder__row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.finder__row .op-form__field {
+    flex: 1 1 auto;
+}
+
+.finder__results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.finder__notice {
+    @include hairline;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-warn-soft);
+    color: var(--color-warn);
+    font-size: var(--text-sm);
+}
+
+.finder-slot {
+    @include hairline;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.finder-slot__when {
+    font-family: var(--mono);
+    font-weight: var(--weight-semibold);
+}
+
+.finder-slot__attendees {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+}
