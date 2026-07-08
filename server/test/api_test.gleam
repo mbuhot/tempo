@@ -36,7 +36,9 @@ import shared/payroll/command as payroll_command
 import shared/people/view.{type PeopleList, RosterOnProjects} as people_view
 import shared/project/view.{type ProjectDetail, type ProjectList} as project_view
 import shared/project_capability/view.{
-  type CoverageSnapshot, CapabilityChoice, CoverageEngineer, CoverageRequirement,
+  type CoverageSnapshot, type GapRecommendations, CapabilityChoice,
+  CoverageEngineer, CoverageRequirement, GapRecommendations, Pairing,
+  Recommendation,
 } as project_capability_view
 import shared/settings/view.{type Settings} as settings_view
 import shared/skill/view.{
@@ -1504,6 +1506,133 @@ pub fn project_capability_coverage_without_as_of_is_bad_request_test() {
   assert response.status == 400
 }
 
+// --- GET /api/projects/:id/recommendations -----------------------------------
+
+// The seeded recommender bench (#40 Phase 3 Stage 2) against Ledger
+// Migration's Payments Platform gap (target L3 x2.00, covered only by Priya):
+// ready-now fits first (capped fit DESC, then free DESC, then name — Omar ties
+// Mei's capped 1.0 but wins on free), then growth pairings (free DESC, then
+// name). Frontend Delivery is fully covered so it produces no gap at all.
+pub fn project_capability_recommendations_now_returns_the_seeded_gaps_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/projects/100/recommendations?as_of=2026-06-15",
+    )
+    |> read()
+
+  assert response.status == 200
+
+  let gaps = decode_gap_recommendations_list(response)
+  assert gaps
+    == [
+      GapRecommendations(
+        capability_id: 1,
+        capability_name: "Payments Platform",
+        target_level: 3,
+        quantity: 2.0,
+        covered: 1,
+        recommendations: [
+          Recommendation(
+            engineer_id: 4,
+            name: "Omar Haddad",
+            level: 4,
+            proficiency: 3.0,
+            free: 0.4,
+            rationale: "covers the Payments Platform gap at 3.0; 40% available",
+            pairing: option.None,
+          ),
+          Recommendation(
+            engineer_id: 6,
+            name: "Mei Lin",
+            level: 5,
+            proficiency: 3.6666666666666665,
+            free: 0.0,
+            rationale: "covers the Payments Platform gap at 3.7; 0% available",
+            pairing: option.None,
+          ),
+          Recommendation(
+            engineer_id: 5,
+            name: "Sofia Rossi",
+            level: 4,
+            proficiency: 2.6666666666666665,
+            free: 1.0,
+            rationale: "covers the Payments Platform gap at 2.7; 100% available",
+            pairing: option.None,
+          ),
+          Recommendation(
+            engineer_id: 7,
+            name: "Tunde Okafor",
+            level: 3,
+            proficiency: 2.0,
+            free: 0.2,
+            rationale: "covers the Payments Platform gap at 2.0; 20% available",
+            pairing: option.None,
+          ),
+          Recommendation(
+            engineer_id: 8,
+            name: "Rohan Sharma",
+            level: 2,
+            proficiency: 0.8888888888888888,
+            free: 0.5,
+            rationale: "growth: learns Payment Gateways under Priya Sharma; 50% available",
+            pairing: option.Some(Pairing(
+              teacher_id: 1,
+              teacher_name: "Priya Sharma",
+              skill_name: "Payment Gateways",
+            )),
+          ),
+          Recommendation(
+            engineer_id: 9,
+            name: "Dmitri Volkov",
+            level: 2,
+            proficiency: 0.5555555555555556,
+            free: 0.0,
+            rationale: "growth: learns Ledger Accounting Systems under Priya Sharma; 0% available",
+            pairing: option.Some(Pairing(
+              teacher_id: 1,
+              teacher_name: "Priya Sharma",
+              skill_name: "Ledger Accounting Systems",
+            )),
+          ),
+        ],
+      ),
+    ]
+}
+
+// A non-integer project id is a 400 (mirrors the coverage route).
+pub fn project_capability_recommendations_bad_id_is_bad_request_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/projects/abc/recommendations?as_of=2026-06-15",
+    )
+    |> read()
+
+  assert response.status == 400
+}
+
+// An unknown project is a 404 (mirrors the coverage route).
+pub fn project_capability_recommendations_unknown_project_is_not_found_test() {
+  let response =
+    simulate.request(
+      http.Get,
+      "/api/projects/999/recommendations?as_of=2026-06-15",
+    )
+    |> read()
+
+  assert response.status == 404
+}
+
+// A missing as_of is a 400 (mirrors the coverage route).
+pub fn project_capability_recommendations_without_as_of_is_bad_request_test() {
+  let response =
+    simulate.request(http.Get, "/api/projects/100/recommendations")
+    |> read()
+
+  assert response.status == 400
+}
+
 // --- GET /api/settings ------------------------------------------------------
 
 // The settings read as of "now" carries the rate card, salaries, and leave policy.
@@ -1849,6 +1978,15 @@ fn decode_coverage_snapshot(response) -> CoverageSnapshot {
     simulate.read_body(response)
     |> json.parse(project_capability_view.coverage_snapshot_decoder())
   snapshot
+}
+
+fn decode_gap_recommendations_list(response) -> List(GapRecommendations) {
+  let assert Ok(gaps) =
+    simulate.read_body(response)
+    |> json.parse(
+      decode.list(project_capability_view.gap_recommendations_decoder()),
+    )
+  gaps
 }
 
 fn decode_settings(response) -> Settings {

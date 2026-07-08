@@ -249,6 +249,10 @@ pub fn route_request(request: wisp.Request, context: Context) -> wisp.Response {
       use _principal <- guard.require(context, access.read_projects)
       project_capability_http.handle(request, context, id)
     }
+    ["api", "projects", id, "recommendations"] -> {
+      use _principal <- guard.require(context, access.read_projects)
+      project_capability_http.handle_recommendations(request, context, id)
+    }
     ["api", "settings"] -> {
       use _principal <- guard.require(context, access.read_finances)
       settings.handle(request, context)
