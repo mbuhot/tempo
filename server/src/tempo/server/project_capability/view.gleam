@@ -206,6 +206,10 @@ fn gap_recommendations(
         list.filter(candidate_rows, fn(row) {
           row.capability_id == requirement.capability_id
         })
+      let requirement_pairing_rows =
+        list.filter(pairing_rows, fn(row) {
+          row.capability_id == requirement.capability_id
+        })
       let ready_now =
         pool
         |> list.filter(fn(row) { row.proficiency >=. 1.0 })
@@ -214,7 +218,7 @@ fn gap_recommendations(
       let growth =
         pool
         |> list.filter(fn(row) { row.proficiency <. 1.0 })
-        |> list.filter_map(growth_recommendation(_, pairing_rows))
+        |> list.filter_map(growth_recommendation(_, requirement_pairing_rows))
         |> rank_growth
       option.Some(GapRecommendations(
         capability_id: requirement.capability_id,

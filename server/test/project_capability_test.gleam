@@ -206,3 +206,41 @@ pub fn recommendations_reflects_ended_allocations_and_returning_leave_six_months
   assert aisha.rationale
     == "growth: learns Payment Gateways under Priya Sharma; 0% available"
 }
+
+// Warehouse Automation (project 600, seeded with two SIMULTANEOUS unmet
+// requirements) is the cross-capability contamination regression: Ines Duarte
+// (engineer 13) has zero Data Engineering skill (proficiency 0, growth-
+// eligible but no qualifying Data Engineering pairing) and a level-1 CI/CD
+// skill that only qualifies her for a Platform Infrastructure pairing under
+// Noah Fischer (engineer 12, level-4 CI/CD, on the Warehouse Automation
+// team). A pairing lookup that isn't scoped to the requirement's own
+// capability would leak Noah's CI/CD pairing into the Data Engineering gap.
+pub fn growth_recommendations_never_leak_a_pairing_from_another_unmet_requirement_test() {
+  let assert Ok(Ok(gaps)) =
+    project_capability_view.recommendations(
+      test_pool.ctx(),
+      600,
+      Date(2026, calendar.June, 15),
+    )
+
+  let assert Ok(data_engineering) =
+    list.find(gaps, fn(gap) { gap.capability_id == 2 })
+  let assert Ok(platform_infrastructure) =
+    list.find(gaps, fn(gap) { gap.capability_id == 4 })
+
+  assert list.find(data_engineering.recommendations, fn(rec) {
+      rec.engineer_id == 13
+    })
+    == Error(Nil)
+
+  let assert Ok(ines) =
+    list.find(platform_infrastructure.recommendations, fn(rec) {
+      rec.engineer_id == 13
+    })
+  assert ines.pairing
+    == Some(Pairing(
+      teacher_id: 12,
+      teacher_name: "Noah Fischer",
+      skill_name: "CI/CD",
+    ))
+}

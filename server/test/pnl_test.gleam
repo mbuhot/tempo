@@ -328,8 +328,9 @@ pub fn invoice_detail_unknown_id_is_not_found_test() {
 // 14000) plus the recommender bench (#40 Phase 3 Stage 1, engineers 4-11), who are
 // employed and so draw a salary line too, regardless of allocation: Omar L4 8000,
 // Sofia L4 8000, Mei L5 10000, Tunde L3 6000, Rohan L2 4000, Dmitri L2 4000, Jonas
-// L3 6000, Hannah L6 14000. The run is materialized, so `run` is Some and the paid
-// columns are populated.
+// L3 6000, Hannah L6 14000. The cross-capability pairing fixture (#40 review fix,
+// engineers 12-13) adds two more: Noah L5 10000, Ines L2 4000. The run is
+// materialized, so `run` is Some and the paid columns are populated.
 pub fn payroll_run_reconciles_preview_against_paid_test() {
   let run =
     rolling_back(fn(conn) {
@@ -400,6 +401,20 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
           ],
         ),
         PayrollLine(
+          engineer_id: 13,
+          engineer: "Ines Duarte",
+          preview_amount: money_of("4000.00"),
+          preview_days: 30.0,
+          paid_amount: Some(money_of("4000.00")),
+          paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(2, 30.0, money_of("4000.00"), money_of("4000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(2, 30.0, money_of("4000.00"), money_of("4000.00")),
+          ],
+        ),
+        PayrollLine(
           engineer_id: 10,
           engineer: "Jonas Weber",
           preview_amount: money_of("6000.00"),
@@ -430,6 +445,20 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
         PayrollLine(
           engineer_id: 6,
           engineer: "Mei Lin",
+          preview_amount: money_of("10000.00"),
+          preview_days: 30.0,
+          paid_amount: Some(money_of("10000.00")),
+          paid_days: Some(30.0),
+          preview_segments: [
+            PayrollSegment(5, 30.0, money_of("10000.00"), money_of("10000.00")),
+          ],
+          paid_segments: [
+            PayrollSegment(5, 30.0, money_of("10000.00"), money_of("10000.00")),
+          ],
+        ),
+        PayrollLine(
+          engineer_id: 12,
+          engineer: "Noah Fischer",
           preview_amount: money_of("10000.00"),
           preview_days: 30.0,
           paid_amount: Some(money_of("10000.00")),
@@ -517,10 +546,12 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
 
 // --- GET /api/pnl?as_of= — FR-F7/FR-F8 --------------------------------------
 
-// The P&L for as-of 2026-06-15: June payroll (cost 92000, all 11 employed
-// engineers — #40 Phase 3 Stage 1) and the three June invoices issued before the
-// month closes (revenue 220200, folding in the bench's project 200/300
-// allocations). Month totals: revenue 220200, cost 92000, profit 128200.
+// The P&L for as-of 2026-06-15: June payroll (cost 106000, all 13 employed
+// engineers — #40 Phase 3 Stage 1 bench plus the #40 review fix pairing
+// fixture, engineers 12-13) and the three June invoices issued before the
+// month closes (revenue 256200, folding in the bench's project 200/300
+// allocations and Noah's project 600 allocation). Month totals: revenue
+// 256200, cost 106000, profit 150200.
 //
 // YTD (Jan 1 .. Jul 1) revenue is CAPACITY-based (ADR-043): the billable value of
 // the work over Jan-June, day-counted per allocation ∩ role ∩ rate_card
@@ -531,13 +562,15 @@ pub fn payroll_run_reconciles_preview_against_paid_test() {
 // (project 200, 2026-03-01..); Tunde 0.8×91d×800=58240 (project 200,
 // 2026-04-01..); Mei 1.0×150d×1200=180000 (project 300, 2026-02-01..); Rohan
 // 0.5×61d×600=18300 (project 300, 2026-05-01..); Dmitri 1.0×122d×600=73200
-// (project 300, 2026-03-01..) — 402940 more, so ytd_revenue = 1126940.
+// (project 300, 2026-03-01..) — 402940 more. Noah mirrors Mei's shape exactly
+// (project 600, 2026-02-01..), adding another 180000. ytd_revenue =
+// 1126940 + 180000 = 1306940.
 //
 // YTD cost blends ACTUALS and ESTIMATE month by month. No engineer's level/salary
 // changes before July, so every one of the 6 YTD months (Jan-Jun) costs the same
-// 92000 as June's payroll run (June is the ACTUAL snapshot; Jan-May are the
-// EXPECTED-salary estimate) — ytd_cost = 92000 × 6 = 552000. ytd_profit =
-// 1126940 - 552000 = 574940.
+// 106000 as June's payroll run (June is the ACTUAL snapshot; Jan-May are the
+// EXPECTED-salary estimate) — ytd_cost = 106000 × 6 = 636000. ytd_profit =
+// 1306940 - 636000 = 670940.
 //
 // Aisha's per-engineer row is untouched by the bench (her own allocation and
 // salary are unchanged): revenue 54000, cost 14000, profit 40000, margin
@@ -560,12 +593,12 @@ pub fn pnl_totals_and_per_engineer_row_test() {
     })
 
   // Month totals.
-  assert pnl.month_revenue == money_of("220200.00")
-  assert pnl.month_cost == money_of("92000.00")
-  assert pnl.month_profit == money_of("128200.00")
-  assert pnl.ytd_revenue == money_of("1126940.00")
-  assert pnl.ytd_cost == money_of("552000.00")
-  assert pnl.ytd_profit == money_of("574940.00")
+  assert pnl.month_revenue == money_of("256200.00")
+  assert pnl.month_cost == money_of("106000.00")
+  assert pnl.month_profit == money_of("150200.00")
+  assert pnl.ytd_revenue == money_of("1306940.00")
+  assert pnl.ytd_cost == money_of("636000.00")
+  assert pnl.ytd_profit == money_of("670940.00")
 
   // Aisha's per-engineer month row (revenue/cost/profit/margin/utilization). The
   // margin uses the same float arithmetic the domain does, so the comparison is
@@ -582,7 +615,7 @@ pub fn pnl_totals_and_per_engineer_row_test() {
 
   // The per-engineer rows reconcile to the month totals.
   let row_revenue = money.sum(list.map(pnl.rows, fn(row) { row.revenue }))
-  assert row_revenue == money_of("220200.00")
+  assert row_revenue == money_of("256200.00")
 }
 
 // Capacity-based recognition (ADR-043): P&L revenue is the billable value of the
@@ -631,19 +664,19 @@ pub fn pnl_recognizes_capacity_revenue_regardless_of_invoice_status_test() {
 
   // Capacity recognizes June's work in full despite no issued invoice (same
   // month totals as pnl_totals_and_per_engineer_row_test, which folds in the
-  // recommender bench's project 200/300 allocations and payroll lines).
-  assert pnl.month_revenue == money_of("220200.00")
-  assert pnl.month_cost == money_of("92000.00")
-  assert pnl.month_profit == money_of("128200.00")
+  // recommender bench's project 200/300/600 allocations and payroll lines).
+  assert pnl.month_revenue == money_of("256200.00")
+  assert pnl.month_cost == money_of("106000.00")
+  assert pnl.month_profit == money_of("150200.00")
 }
 
 // FORECASTED COST (the cost-side mirror of capacity revenue): scrubbing the P&L to a
 // FUTURE month — one with no payroll run yet — must NOT read $0 cost against accrued
 // revenue. With no run, each employed engineer's cost is the EXPECTED salary (the
 // payroll_amounts proration), so the month shows a real profit. For September 2026
-// (no run on record), all 11 employed engineers cost the same as June's payroll
-// (92000, see the module doc) except Marcus, now L5 (10000, up from L4's 8000) after
-// his 2026-07-01 promotion — 92000 - 8000 + 10000 = 94000.
+// (no run on record), all 13 employed engineers cost the same as June's payroll
+// (106000, see the module doc) except Marcus, now L5 (10000, up from L4's 8000) after
+// his 2026-07-01 promotion — 106000 - 8000 + 10000 = 108000.
 pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
   let pnl =
     serial_pool.run(fn(context) {
@@ -651,7 +684,7 @@ pub fn pnl_estimates_cost_for_a_future_month_with_no_payroll_run_test() {
       pnl
     })
 
-  assert pnl.month_cost == money_of("94000.00")
+  assert pnl.month_cost == money_of("108000.00")
   assert row_for(pnl.rows, "Priya Sharma").cost == money_of("10000.00")
   assert row_for(pnl.rows, "Marcus Chen").cost == money_of("10000.00")
   assert row_for(pnl.rows, "Aisha Okafor").cost == money_of("14000.00")

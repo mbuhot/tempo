@@ -181,6 +181,7 @@ pub fn board_now_returns_snapshot_test() {
         ),
       ),
       BoardRow(engineer: "Hannah Park", level: 6, engagement: Unassigned),
+      BoardRow(engineer: "Ines Duarte", level: 2, engagement: Unassigned),
       BoardRow(engineer: "Jonas Weber", level: 3, engagement: Unassigned),
       BoardRow(
         engineer: "Marcus Chen",
@@ -200,6 +201,18 @@ pub fn board_now_returns_snapshot_test() {
         engagement: OnProject(
           project: "Data Platform",
           client: "Globex Corporation",
+          fraction: 1.0,
+          day_rate: money_of("1200.00"),
+          valid_from: calendar.Date(2026, calendar.February, 1),
+          valid_to: calendar.Date(2027, calendar.January, 1),
+        ),
+      ),
+      BoardRow(
+        engineer: "Noah Fischer",
+        level: 5,
+        engagement: OnProject(
+          project: "Warehouse Automation",
+          client: "Northwind Trading",
           fraction: 1.0,
           day_rate: money_of("1200.00"),
           valid_from: calendar.Date(2026, calendar.February, 1),
@@ -271,12 +284,13 @@ pub fn board_now_returns_snapshot_test() {
   // Each employed engineer carries a leave balance as of the date (exact values
   // are asserted at clean dates in leave_test); the board is name-ordered. The
   // recommender bench (#40 Phase 3 Stage 1, engineers 4-11) is employed from
-  // 2026-01-01, so it appears here too.
+  // 2026-01-01, so it appears here too, as does the cross-capability pairing
+  // fixture (#40 review fix, engineers 12-13) employed from 2026-01-15.
   assert list.map(snapshot.balances, fn(balance) { balance.engineer })
     == [
-      "Aisha Okafor", "Dmitri Volkov", "Hannah Park", "Jonas Weber",
-      "Marcus Chen", "Mei Lin", "Omar Haddad", "Priya Sharma", "Rohan Sharma",
-      "Sofia Rossi", "Tunde Okafor",
+      "Aisha Okafor", "Dmitri Volkov", "Hannah Park", "Ines Duarte",
+      "Jonas Weber", "Marcus Chen", "Mei Lin", "Noah Fischer", "Omar Haddad",
+      "Priya Sharma", "Rohan Sharma", "Sofia Rossi", "Tunde Okafor",
     ]
 }
 

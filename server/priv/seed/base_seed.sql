@@ -882,3 +882,103 @@ WITH e AS (
   RETURNING id)
 INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
 SELECT 9, 300, 1.00, daterange('2026-03-01','2027-01-01'), e.id FROM e;
+
+-- Warehouse Automation (project 600, #40 review fix regression fixture): a
+-- SECOND project with two simultaneously unmet capability requirements (Data
+-- Engineering and Platform Infrastructure), so the recommender must scope
+-- each requirement's growth pairings to its own capability rather than the
+-- whole project. Noah Fischer (engineer 12) and Ines Duarte (engineer 13)
+-- are onboarded on the same 2026-01-01 employment/role anchor as the
+-- recommender bench (engineers 4-11), and Noah's project-600 allocation
+-- mirrors Mei Lin's project-300 shape exactly (L5, fraction 1.0, 2026-02-01..
+-- 2027-01-01) so this fixture's board/payroll/P&L ripple reuses the bench's
+-- already-derived per-engineer numbers rather than introducing new
+-- part-month proration. Noah has a level-4 CI/CD assessment (Platform
+-- Infrastructure, weight 2) but no Data Engineering skill at all, so neither
+-- requirement is covered (covered: 0 against quantity 1 on both). Ines is an
+-- unallocated candidate with zero Data Engineering fit (growth-eligible at
+-- proficiency 0, but no Data Engineering skill to pair on) and a level-1
+-- CI/CD assessment that qualifies her for exactly one growth pairing:
+-- Platform Infrastructure under Noah. Neither engineer nor project touches
+-- the existing seed rows (engineers 1-11, projects 100-500).
+INSERT INTO project (id) VALUES (600);
+INSERT INTO engineer (id) VALUES (12), (13);
+
+SELECT setval(pg_get_serial_sequence('project',  'id'), 600);
+SELECT setval(pg_get_serial_sequence('engineer', 'id'), 13);
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-15', 'seed', 'start_project', 'Start project Warehouse Automation under contract 10 (project 600) over 2026-01-15..2027-01-01',
+     '{"name":"Warehouse Automation","contract_id":10,"valid_from":"2026-01-15","valid_to":"2027-01-01"}')
+  RETURNING id),
+  run AS (INSERT INTO project_run (project_id, contract_id, active_during, audit_id)
+          SELECT 600, 10, daterange('2026-01-15','2027-01-01'), e.id FROM e),
+  pro AS (INSERT INTO project_profile (project_id, title, summary, recorded_during, audit_id)
+          SELECT 600, 'Warehouse Automation', '', daterange('2026-01-15', NULL), e.id FROM e)
+INSERT INTO project_plan (project_id, budget, target_completion, planned_during, audit_id)
+SELECT 600, 350000.00, '2026-12-31', daterange('2026-01-15', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-15', 'seed', 'set_project_capability', 'Set Warehouse Automation capability: Data Engineering target L2 x1.00 over 2026-01-15..2027-01-01',
+     '{"project_id":600,"capability_id":2,"target_level":2,"quantity":1.00,"valid_from":"2026-01-15","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
+SELECT 600, 2, 2, 1.00, daterange('2026-01-15','2027-01-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-15', 'seed', 'set_project_capability', 'Set Warehouse Automation capability: Platform Infrastructure target L2 x1.00 over 2026-01-15..2027-01-01',
+     '{"project_id":600,"capability_id":4,"target_level":2,"quantity":1.00,"valid_from":"2026-01-15","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO project_capability (project_id, capability_id, target_level, quantity, required_during, audit_id)
+SELECT 600, 4, 2, 1.00, daterange('2026-01-15','2027-01-01'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Noah Fischer at L5 (engineer 12) from 2026-01-01',
+     '{"name":"Noah Fischer","level":5,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 12, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 12, 5, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 12, 'Noah Fischer', 'noah.fischer@alembic.com.au', '+61 400 000 012', '12 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-01', 'seed', 'onboard_engineer', 'Onboard Ines Duarte at L2 (engineer 13) from 2026-01-01',
+     '{"name":"Ines Duarte","level":2,"effective":"2026-01-01"}')
+  RETURNING id),
+  emp AS (INSERT INTO employment (engineer_id, employed_during, audit_id)
+          SELECT 13, daterange('2026-01-01','2027-01-01'), e.id FROM e),
+  rol AS (INSERT INTO engineer_role (engineer_id, level, held_during, audit_id)
+          SELECT 13, 2, daterange('2026-01-01','2027-01-01'), e.id FROM e)
+INSERT INTO engineer_contact (engineer_id, name, email, phone, postal_address, recorded_during, audit_id)
+SELECT 13, 'Ines Duarte', 'ines.duarte@alembic.com.au', '+61 400 000 013', '13 Demo St, Brisbane', daterange('2026-01-01', NULL), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 12 (Noah): level-4 CI/CD, no Data Engineering skill',
+     '{"engineer_id":12,"levels":{"11":4},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 12, 11, 4, daterange('2026-01-12', '2027-01-01', '[)'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-01-12', 'seed', 'assess_skill', 'Assess engineer 13 (Ines): entry-level CI/CD learner, no Data Engineering skill',
+     '{"engineer_id":13,"levels":{"11":1},"effective":"2026-01-12"}')
+  RETURNING id)
+INSERT INTO engineer_skill (engineer_id, skill_id, level, assessed_during, audit_id)
+SELECT 13, 11, 1, daterange('2026-01-12', '2027-01-01', '[)'), e.id FROM e;
+
+WITH e AS (
+  INSERT INTO event_log (occurred_at, actor, operation, summary, payload) VALUES
+    ('2026-02-01', 'seed', 'assign_to_project', 'Assign engineer 12 to project 600 at 1.0 over 2026-02-01..2027-01-01',
+     '{"engineer_id":12,"project_id":600,"fraction":1.0,"valid_from":"2026-02-01","valid_to":"2027-01-01"}')
+  RETURNING id)
+INSERT INTO allocation (engineer_id, project_id, fraction, allocated_during, audit_id)
+SELECT 12, 600, 1.00, daterange('2026-02-01','2027-01-01'), e.id FROM e;
