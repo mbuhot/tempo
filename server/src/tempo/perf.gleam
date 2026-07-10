@@ -325,17 +325,22 @@ fn encode_baseline_entry(entry: BaselineEntry) -> String {
 /// (`bin/seed-scale`) so every query returns real rows rather than measuring
 /// an empty-result fast path.
 fn measured_queries() -> List(Measured) {
+  list.flatten([
+    board_fanout_measurements(),
+    engineer_detail_fanout_measurements(),
+    project_detail_fanout_measurements(),
+    pnl_fanout_measurements(),
+    forecast_measurements(),
+    deferred_fanout_candidate_measurements(),
+  ])
+}
+
+/// The 5 queries behind the board fan-out.
+fn board_fanout_measurements() -> List(Measured) {
   let as_of = Date(2025, June, 15)
   let as_of_display = "as_of=2025-06-15"
-  let engineer_id = 250
-  let project_id = 100
-  let client_id = 75
-  let month_start = Date(2025, June, 1)
-  let month_end = Date(2025, July, 1)
-  let year_start = Date(2025, January, 1)
 
   [
-    // Board fan-out (5 queries).
     Measured(
       "board_engaged",
       "src/tempo/server/board/sql/board_engaged.sql",
@@ -366,7 +371,16 @@ fn measured_queries() -> List(Measured) {
       [pog.calendar_date(as_of)],
       as_of_display,
     ),
-    // Engineer detail fan-out (4 queries).
+  ]
+}
+
+/// The 4 queries behind the engineer detail fan-out.
+fn engineer_detail_fanout_measurements() -> List(Measured) {
+  let as_of = Date(2025, June, 15)
+  let as_of_display = "as_of=2025-06-15"
+  let engineer_id = 250
+
+  [
     Measured(
       "engineer_employment_asof",
       "src/tempo/server/engineer/sql/engineer_employment_asof.sql",
@@ -394,7 +408,16 @@ fn measured_queries() -> List(Measured) {
         <> ", kind=annual, "
         <> as_of_display,
     ),
-    // Project detail fan-out (3 queries).
+  ]
+}
+
+/// The 3 queries behind the project detail fan-out.
+fn project_detail_fanout_measurements() -> List(Measured) {
+  let as_of = Date(2025, June, 15)
+  let as_of_display = "as_of=2025-06-15"
+  let project_id = 100
+
+  [
     Measured(
       "project_team",
       "src/tempo/server/project/sql/project_team.sql",
@@ -413,8 +436,17 @@ fn measured_queries() -> List(Measured) {
       [pog.int(project_id), pog.calendar_date(as_of)],
       "project_id=" <> int.to_string(project_id) <> ", " <> as_of_display,
     ),
-    // pnl fan-out: the month window and the YTD window are two separate
-    // entries, both running the SAME pnl_rows.sql over different windows.
+  ]
+}
+
+/// The pnl fan-out: the month window and the YTD window are two separate
+/// entries, both running the SAME pnl_rows.sql over different windows.
+fn pnl_fanout_measurements() -> List(Measured) {
+  let month_start = Date(2025, June, 1)
+  let month_end = Date(2025, July, 1)
+  let year_start = Date(2025, January, 1)
+
+  [
     Measured(
       "pnl_rows_month",
       "src/tempo/server/pnl/sql/pnl_rows.sql",
@@ -427,15 +459,32 @@ fn measured_queries() -> List(Measured) {
       [pog.calendar_date(year_start), pog.calendar_date(month_end)],
       "period=[2025-01-01,2025-07-01)",
     ),
-    // forecast (single query, no fan-out to compare against).
+  ]
+}
+
+/// The forecast query: a single query, no fan-out to compare against.
+fn forecast_measurements() -> List(Measured) {
+  let as_of = Date(2025, June, 15)
+  let as_of_display = "as_of=2025-06-15"
+
+  [
     Measured(
       "forecast",
       "src/tempo/server/forecast/sql/forecast.sql",
       [pog.calendar_date(as_of)],
       as_of_display,
     ),
-    // Deferred fan-out candidates (issue #20 decision question 2): client
-    // detail, roster, and settings singles, never fanned out.
+  ]
+}
+
+/// Deferred fan-out candidates (issue #20 decision question 2): client
+/// detail, roster, and settings singles, never fanned out.
+fn deferred_fanout_candidate_measurements() -> List(Measured) {
+  let as_of = Date(2025, June, 15)
+  let as_of_display = "as_of=2025-06-15"
+  let client_id = 75
+
+  [
     Measured(
       "client_contracts",
       "src/tempo/server/client/sql/client_contracts.sql",
