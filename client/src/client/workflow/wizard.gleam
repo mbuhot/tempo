@@ -5,10 +5,12 @@
 //// `model.step` (Next also persists the open step) — so there is no URL per step;
 //// the draft is durable in the DB and reopened by resuming from the People list.
 //// The schema drives rendering generically; field values autosave on blur with a
-//// no-op guard; undo/redo is a per-step buffer that re-saves. Hand-off and Finish both
-//// wait for any in-flight autosaves to land before they fire, so a blur-then-advance
-//// gesture can't commit against stale stored values; a save that comes back an error
-//// cancels the queued hand-off/commit instead.
+//// no-op guard, serialized through `save_queue` so at most one save is ever in
+//// flight and a stale document can never clobber a newer one; undo/redo is a
+//// per-step buffer that re-saves through the same queue. Hand-off and Finish both
+//// wait for the save queue to drain before they fire, so a blur-then-advance
+//// gesture can't commit against stale stored values; a save that comes back an
+//// error cancels the queued saves and the pending hand-off/commit.
 
 import client/api
 import client/focus
@@ -19,6 +21,7 @@ import client/workflow/render.{
   type FieldEvent, Committed as FieldCommitted, Edited, RowAdded,
   RowFieldChanged, RowFieldEdited, RowRemoved,
 }
+import client/workflow/save_queue
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -52,22 +55,8 @@ pub type Model {
     undo: List(Dict(String, value.FieldValue)),
     redo: List(Dict(String, value.FieldValue)),
     error: String,
-    save_status: SaveStatus,
+    save_status: save_queue.Pending(Dict(String, value.FieldValue)),
   )
-}
-
-/// In-flight field saves for the current step, and whether an advance (hand-off or
-/// commit) is queued behind them.
-pub type SaveStatus {
-  AllSaved
-  Saving(pending: Int)
-  SavingThenAdvance(pending: Int, then: QueuedAdvance)
-}
-
-/// The step-ending action deferred behind a `SavingThenAdvance`.
-pub type QueuedAdvance {
-  QueuedHandOff
-  QueuedCommit
 }
 
 pub type Msg {
@@ -112,7 +101,7 @@ pub fn init(
       undo: [],
       redo: [],
       error: "",
-      save_status: AllSaved,
+      save_status: save_queue.Idle,
     )
   #(
     model,
@@ -162,23 +151,32 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
       )
 
     Saved(Ok(_)) -> {
-      let #(save_status, dispatch_advance) = save_succeeded(model.save_status)
+      let #(save_status, next) = save_queue.completed(model.save_status)
       let model = Model(..model, save_status:)
-      case dispatch_advance {
-        Some(QueuedHandOff) -> #(
+      case next {
+        save_queue.DispatchSave(step:, doc:) -> #(
+          model,
+          wapi.save_step(model.instance_id, step, doc, Saved),
+          Working,
+        )
+        save_queue.FireAdvance(save_queue.HandOff) -> #(
           model,
           wapi.hand_off(model.instance_id, HandedOff),
           Working,
         )
-        Some(QueuedCommit) -> #(model, commit_effect(model), Working)
-        None -> working(model)
+        save_queue.FireAdvance(save_queue.Commit) -> #(
+          model,
+          commit_effect(model),
+          Working,
+        )
+        save_queue.Settled -> working(model)
       }
     }
     Saved(Error(error)) ->
       working(
         Model(
           ..model,
-          save_status: save_failed(model.save_status),
+          save_status: save_queue.failed(model.save_status),
           error: api.describe_error(error),
         ),
       )
@@ -211,7 +209,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
     HandOffClicked -> {
       let #(save_status, dispatch_now) =
-        request_advance(model.save_status, QueuedHandOff)
+        save_queue.request_advance(model.save_status, save_queue.HandOff)
       let model = Model(..model, save_status:)
       case dispatch_now {
         True -> #(model, wapi.hand_off(model.instance_id, HandedOff), Working)
@@ -224,7 +222,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
     CommitClicked -> {
       let #(save_status, dispatch_now) =
-        request_advance(model.save_status, QueuedCommit)
+        save_queue.request_advance(model.save_status, save_queue.Commit)
       let model = Model(..model, save_status:)
       case dispatch_now {
         True -> #(model, commit_effect(model), Working)
@@ -241,51 +239,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), Outcome) {
 
 fn working(model: Model) -> #(Model, Effect(Msg), Outcome) {
   #(model, effect.none(), Working)
-}
-
-fn save_dispatched(status: SaveStatus) -> SaveStatus {
-  case status {
-    AllSaved -> Saving(1)
-    Saving(pending) -> Saving(pending + 1)
-    SavingThenAdvance(pending, then) -> SavingThenAdvance(pending + 1, then)
-  }
-}
-
-fn save_succeeded(status: SaveStatus) -> #(SaveStatus, Option(QueuedAdvance)) {
-  case status {
-    Saving(1) -> #(AllSaved, None)
-    Saving(pending) -> #(Saving(pending - 1), None)
-    SavingThenAdvance(1, then) -> #(AllSaved, Some(then))
-    SavingThenAdvance(pending, then) -> #(
-      SavingThenAdvance(pending - 1, then),
-      None,
-    )
-    AllSaved -> #(AllSaved, None)
-  }
-}
-
-fn save_failed(status: SaveStatus) -> SaveStatus {
-  case status {
-    Saving(1) -> AllSaved
-    Saving(pending) -> Saving(pending - 1)
-    SavingThenAdvance(1, _) -> AllSaved
-    SavingThenAdvance(pending, _) -> Saving(pending - 1)
-    AllSaved -> AllSaved
-  }
-}
-
-fn request_advance(
-  status: SaveStatus,
-  advance: QueuedAdvance,
-) -> #(SaveStatus, Bool) {
-  case status {
-    AllSaved -> #(AllSaved, True)
-    Saving(pending) -> #(SavingThenAdvance(pending, advance), False)
-    SavingThenAdvance(pending, _) -> #(
-      SavingThenAdvance(pending, advance),
-      False,
-    )
-  }
 }
 
 /// The commit effect for the draft's kind — the journaled command that turns it into
@@ -327,6 +280,8 @@ fn commit_field(
         Ok(field_value), _ -> {
           let prev_doc = step_values_for(model, step)
           let new_doc = dict.insert(prev_doc, field, field_value)
+          let #(save_status, dispatch) =
+            save_queue.enqueue(model.save_status, step, new_doc)
           let model =
             Model(
               ..model,
@@ -335,13 +290,9 @@ fn commit_field(
               undo: [prev_doc, ..model.undo],
               redo: [],
               error: "",
-              save_status: save_dispatched(model.save_status),
+              save_status:,
             )
-          #(
-            model,
-            wapi.save_step(model.instance_id, step, new_doc, Saved),
-            Working,
-          )
+          #(model, save_effect(model, dispatch), Working)
         }
         Error(_), _ ->
           working(
@@ -387,6 +338,8 @@ fn restore_doc(
   undo undo: List(Dict(String, value.FieldValue)),
   redo redo: List(Dict(String, value.FieldValue)),
 ) -> #(Model, Effect(Msg), Outcome) {
+  let #(save_status, dispatch) =
+    save_queue.enqueue(model.save_status, model.step, doc)
   let model =
     Model(
       ..model,
@@ -395,9 +348,20 @@ fn restore_doc(
       undo:,
       redo:,
       error: "",
-      save_status: save_dispatched(model.save_status),
+      save_status:,
     )
-  #(model, wapi.save_step(model.instance_id, model.step, doc, Saved), Working)
+  #(model, save_effect(model, dispatch), Working)
+}
+
+/// The autosave effect for a queued dispatch, or none while it waits its turn.
+fn save_effect(
+  model: Model,
+  dispatch: Option(#(String, Dict(String, value.FieldValue))),
+) -> Effect(Msg) {
+  case dispatch {
+    Some(#(step, doc)) -> wapi.save_step(model.instance_id, step, doc, Saved)
+    None -> effect.none()
+  }
 }
 
 /// The current step id.
@@ -757,6 +721,8 @@ fn save_group(
 ) -> #(Model, Effect(Msg), Outcome) {
   let prev_doc = step_values_for(model, step_id)
   let new_doc = dict.insert(prev_doc, field_key, value.RowsValue(new_rows))
+  let #(save_status, dispatch) =
+    save_queue.enqueue(model.save_status, step_id, new_doc)
   let model =
     Model(
       ..model,
@@ -764,9 +730,9 @@ fn save_group(
       edits:,
       undo: [prev_doc, ..model.undo],
       redo: [],
-      save_status: save_dispatched(model.save_status),
+      save_status:,
     )
-  #(model, wapi.save_step(model.instance_id, step_id, new_doc, Saved), Working)
+  #(model, save_effect(model, dispatch), Working)
 }
 
 fn add_group_row(

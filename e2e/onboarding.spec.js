@@ -91,3 +91,70 @@ test("a manager onboards via the People modal and Finance commits it", async ({
   await navigateTo(page, "Activity");
   await expect(page.getByText(new RegExp(`Onboard ${name}`)).first()).toBeVisible();
 });
+
+test("a delayed earlier autosave never clobbers a later field", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const name = `Slow Autosave ${Date.now()}`;
+
+  await page.route("**/values", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (body.includes("account_no") && !body.includes("account_name")) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    await route.continue();
+  });
+
+  await signInAs(page, "Ops");
+  await navigateTo(page, "People");
+  await page.getByRole("button", { name: "+ Onboard" }).click();
+  await page.getByLabel("Full name").fill(name);
+  await page.getByLabel("Work email").fill("slow-autosave@example.com");
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByLabel("Level").waitFor();
+  await page.getByLabel("Level").selectOption("5");
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByLabel("Start date").waitFor();
+  await page.getByLabel("Start date").fill("2026-07-13");
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("heading", { name: "Contact" }).waitFor();
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("heading", { name: "Emergency" }).waitFor();
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByLabel("Bank").waitFor();
+  await page.getByLabel("Bank").fill("ANZ");
+  await page.getByLabel("Account number").fill("00112233");
+  await page.getByLabel("Account name").fill("Slow Autosave Onboard");
+  const accountNameSaved = page.waitForResponse(
+    (r) =>
+      r.url().includes("/values") &&
+      r.request().method() === "POST" &&
+      (r.request().postData() ?? "").includes("account_name"),
+  );
+  await page.getByLabel("Account name").blur();
+  await accountNameSaved;
+  await page.getByRole("button", { name: /Hand off for approval/ }).click();
+  await expect(rosterRow(page, name)).toBeVisible({ timeout: 10000 });
+
+  await page.unroute("**/values");
+  await page.context().clearCookies();
+  await page.reload();
+  await signIn(page, "Finance");
+  await navigateTo(page, "People");
+  await rosterRow(page, name).click();
+
+  const confirm = page.getByLabel("Payroll details entered externally");
+  await confirm.waitFor();
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/values") && r.request().method() === "POST",
+    ),
+    confirm.check(),
+  ]);
+  const [commit] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/operations")),
+    page.getByRole("button", { name: "Finish" }).click(),
+  ]);
+  expect(commit.status()).toBe(200);
+});

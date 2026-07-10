@@ -1,4 +1,5 @@
 import client/workflow/render
+import client/workflow/save_queue
 import client/workflow/wizard
 import gleam/dict
 import gleam/option
@@ -141,66 +142,68 @@ fn blurred_full_name(model: wizard.Model) -> wizard.Model {
 
 pub fn hand_off_requested_while_a_save_is_in_flight_defers_the_commit_test() {
   let saving_model = blurred_full_name(loaded_model())
-  assert saving_model.save_status == wizard.Saving(1)
+  assert saving_model.save_status
+    == save_queue.Saving(queued: [], advance: option.None)
 
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
   assert queued_model.save_status
-    == wizard.SavingThenAdvance(1, wizard.QueuedHandOff)
+    == save_queue.Saving(queued: [], advance: option.Some(save_queue.HandOff))
 
   let #(flushed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Ok(Nil)))
-  assert flushed_model.save_status == wizard.AllSaved
+  assert flushed_model.save_status == save_queue.Idle
 }
 
 pub fn hand_off_with_no_saves_in_flight_dispatches_immediately_test() {
   let model = loaded_model()
-  assert model.save_status == wizard.AllSaved
+  assert model.save_status == save_queue.Idle
 
   let #(after_hand_off, _, _) = wizard.update(model, wizard.HandOffClicked)
-  assert after_hand_off.save_status == wizard.AllSaved
+  assert after_hand_off.save_status == save_queue.Idle
 }
 
 pub fn a_failed_save_with_a_queued_hand_off_cancels_it_and_records_the_error_test() {
   let saving_model = blurred_full_name(loaded_model())
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.HandOffClicked)
   assert queued_model.save_status
-    == wizard.SavingThenAdvance(1, wizard.QueuedHandOff)
+    == save_queue.Saving(queued: [], advance: option.Some(save_queue.HandOff))
 
   let #(failed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Error(rsvp.NetworkError)))
-  assert failed_model.save_status == wizard.AllSaved
+  assert failed_model.save_status == save_queue.Idle
   assert failed_model.error == "could not reach the API"
 }
 
 pub fn commit_requested_while_a_save_is_in_flight_defers_the_commit_test() {
   let saving_model = blurred_full_name(loaded_model())
-  assert saving_model.save_status == wizard.Saving(1)
+  assert saving_model.save_status
+    == save_queue.Saving(queued: [], advance: option.None)
 
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.CommitClicked)
   assert queued_model.save_status
-    == wizard.SavingThenAdvance(1, wizard.QueuedCommit)
+    == save_queue.Saving(queued: [], advance: option.Some(save_queue.Commit))
 
   let #(flushed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Ok(Nil)))
-  assert flushed_model.save_status == wizard.AllSaved
+  assert flushed_model.save_status == save_queue.Idle
 }
 
 pub fn commit_with_no_saves_in_flight_dispatches_immediately_test() {
   let model = loaded_model()
-  assert model.save_status == wizard.AllSaved
+  assert model.save_status == save_queue.Idle
 
   let #(after_commit, _, _) = wizard.update(model, wizard.CommitClicked)
-  assert after_commit.save_status == wizard.AllSaved
+  assert after_commit.save_status == save_queue.Idle
 }
 
 pub fn a_failed_save_with_a_queued_commit_cancels_it_and_records_the_error_test() {
   let saving_model = blurred_full_name(loaded_model())
   let #(queued_model, _, _) = wizard.update(saving_model, wizard.CommitClicked)
   assert queued_model.save_status
-    == wizard.SavingThenAdvance(1, wizard.QueuedCommit)
+    == save_queue.Saving(queued: [], advance: option.Some(save_queue.Commit))
 
   let #(failed_model, _, _) =
     wizard.update(queued_model, wizard.Saved(Error(rsvp.NetworkError)))
-  assert failed_model.save_status == wizard.AllSaved
+  assert failed_model.save_status == save_queue.Idle
   assert failed_model.error == "could not reach the API"
 }
