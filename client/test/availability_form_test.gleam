@@ -1,5 +1,6 @@
 import client/page/locations
 import client/page/people/detail/update as detail_update
+import client/ui/op_commands
 import client/ui/ops
 import gleam/option.{None, Some}
 import gleam/time/calendar
@@ -83,7 +84,7 @@ pub fn build_add_focus_block_command_test() {
     |> ops.update_op_form(ops.FDurationMinutes, "90")
     |> ops.update_op_form(ops.FTimezone, "America/Los_Angeles")
     |> ops.update_op_form(ops.FTitle, "Design deep-dive")
-  assert ops.build_command(ops.OpAddFocusBlock, form)
+  assert op_commands.build_command(ops.OpAddFocusBlock, form)
     == Ok(
       gateway.AvailabilityCommand(availability_command.AddFocusBlock(
         engineer_id: 2,
@@ -104,7 +105,7 @@ pub fn build_remove_focus_block_command_test() {
     )
     |> ops.update_op_form(ops.FEngineerId, "2")
     |> ops.update_op_form(ops.FFocusBlockId, "7")
-  assert ops.build_command(ops.OpRemoveFocusBlock, form)
+  assert op_commands.build_command(ops.OpRemoveFocusBlock, form)
     == Ok(
       gateway.AvailabilityCommand(availability_command.RemoveFocusBlock(
         engineer_id: 2,

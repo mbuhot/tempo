@@ -15,6 +15,7 @@ import client/api
 import client/page.{type OutMsg, OperationCommitted}
 import client/time
 import client/ui/atoms
+import client/ui/op_commands
 import client/ui/ops
 import gleam/dynamic/decode
 import gleam/int
@@ -196,7 +197,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(ops.OpState(kind:, form:, ..)) ->
-          case ops.build_command(kind, form) {
+          case op_commands.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OperationReturned),

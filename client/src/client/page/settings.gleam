@@ -23,6 +23,7 @@ import client/table_host
 import client/time
 import client/ui/atoms
 import client/ui/format
+import client/ui/op_commands
 import client/ui/ops
 import gleam/float
 import gleam/int
@@ -223,7 +224,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(state) ->
-          case ops.build_command(state.kind, state.form) {
+          case op_commands.build_command(state.kind, state.form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpResponded),

@@ -8,6 +8,7 @@ import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/time
+import client/ui/op_commands
 import client/ui/ops
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -429,7 +430,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case model.op {
         Some(ops.OpState(kind:, form:, ..)) ->
-          case ops.build_command(kind, form) {
+          case op_commands.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OperationReturned),

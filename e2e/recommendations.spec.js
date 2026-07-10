@@ -46,8 +46,10 @@ function recommendationsPanel(page) {
     .filter({ hasText: "Payments Platform gap" });
 }
 
-function recommendationRows(page) {
-  return recommendationsPanel(page).locator("div.rec");
+function recommendationRow(page, rank, name) {
+  return recommendationsPanel(page).getByRole("listitem", {
+    name: `Rank ${rank}: ${name}`,
+  });
 }
 
 test("the Recommended assignments panel ranks ready-now candidates then growth pairings for the seeded gap (#40)", async ({
@@ -62,40 +64,30 @@ test("the Recommended assignments panel ranks ready-now candidates then growth p
     panel.getByText("Payments Platform gap", { exact: true }),
   ).toBeVisible();
 
-  const rows = recommendationRows(page);
-  await expect(rows).toHaveCount(6);
+  await expect(panel.getByRole("listitem")).toHaveCount(6);
 
   const readyNowNames = ["Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor"];
   for (const [zeroBasedIndex, name] of readyNowNames.entries()) {
-    const row = rows.nth(zeroBasedIndex);
-    await expect(row.locator(".rec__rank")).toHaveText(String(zeroBasedIndex + 1));
-    await expect(row.locator(".rec__name")).toContainText(name);
+    await expect(recommendationRow(page, zeroBasedIndex + 1, name)).toBeVisible();
   }
 
-  const omarRow = rows.nth(0);
-  await expect(omarRow.locator(".rec__fit")).toContainText("100%");
-  await expect(omarRow.locator(".rec__fit small")).toHaveText("ready-now fit");
-  await expect(omarRow.locator(".rec__rationale")).toHaveText(
-    "covers the Payments Platform gap at 3.0; 40% available",
-  );
+  const omarRow = recommendationRow(page, 1, "Omar Haddad");
+  await expect(omarRow.getByText("100%")).toBeVisible();
+  await expect(omarRow.getByText("ready-now fit")).toBeVisible();
+  await expect(
+    omarRow.getByText("covers the Payments Platform gap at 3.0; 40% available"),
+  ).toBeVisible();
 
-  const rohanRow = rows.nth(4);
-  await expect(rohanRow).toHaveClass(/rec--mentor/);
-  await expect(rohanRow.locator(".rec__rank")).toHaveText("5");
-  await expect(rohanRow.locator(".rec__name")).toContainText("Rohan Sharma");
-  await expect(rohanRow.locator(".rec__fit")).toContainText("growth");
-  await expect(rohanRow.locator(".rec__fit small")).toHaveText("mentorship");
-  await expect(rohanRow.locator("span.tag-mentor")).toHaveText(
-    "pair with Priya Sharma",
-  );
-  await expect(rohanRow.locator(".rec__rationale")).toHaveText(
-    "growth: learns Payment Gateways under Priya Sharma; 50% available",
-  );
+  const rohanRow = recommendationRow(page, 5, "Rohan Sharma");
+  await expect(rohanRow.getByText("mentorship")).toBeVisible();
+  await expect(rohanRow.getByText("pair with Priya Sharma")).toBeVisible();
+  await expect(
+    rohanRow.getByText(
+      "growth: learns Payment Gateways under Priya Sharma; 50% available",
+    ),
+  ).toBeVisible();
 
-  const dmitriRow = rows.nth(5);
-  await expect(dmitriRow).toHaveClass(/rec--mentor/);
-  await expect(dmitriRow.locator(".rec__rank")).toHaveText("6");
-  await expect(dmitriRow.locator(".rec__name")).toContainText("Dmitri Volkov");
+  await expect(recommendationRow(page, 6, "Dmitri Volkov")).toBeVisible();
 });
 
 test("a recommendation row's Assign pre-fills the assign-to-project modal and cancels without writing (#40)", async ({
@@ -105,8 +97,7 @@ test("a recommendation row's Assign pre-fills the assign-to-project modal and ca
   await openLedgerMigration(page);
   await openCoverageTab(page);
 
-  const rows = recommendationRows(page);
-  const omarRow = rows.nth(0);
+  const omarRow = recommendationRow(page, 1, "Omar Haddad");
   await omarRow.getByRole("button", { name: "Assign", exact: true }).click();
 
   const modal = opModal(page);
@@ -123,8 +114,7 @@ test("a recommendation row's Assign pre-fills the assign-to-project modal and ca
   await modal.getByRole("button", { name: "Cancel" }).click();
   await expect(opModal(page)).toHaveCount(0);
 
-  await expect(omarRow.locator(".rec__rank")).toHaveText("1");
-  await expect(omarRow.locator(".rec__name")).toContainText("Omar Haddad");
+  await expect(recommendationRow(page, 1, "Omar Haddad")).toBeVisible();
 });
 
 test("scrubbing the as-of rail refetches recommendations as allocations free up (#40)", async ({
@@ -134,19 +124,20 @@ test("scrubbing the as-of rail refetches recommendations as allocations free up 
   await openLedgerMigration(page);
   await openCoverageTab(page);
 
-  const rows = recommendationRows(page);
-  const omarRow = rows.nth(0);
-  await expect(omarRow.locator(".rec__rationale")).toHaveText(
-    "covers the Payments Platform gap at 3.0; 40% available",
-  );
+  const omarRow = recommendationRow(page, 1, "Omar Haddad");
+  await expect(
+    omarRow.getByText("covers the Payments Platform gap at 3.0; 40% available"),
+  ).toBeVisible();
 
   await scrubTo(page, "2026-12-15");
 
-  await expect(omarRow.locator(".rec__rationale")).toHaveText(
-    "covers the Payments Platform gap at 3.0; 100% available",
-  );
-  const rohanRow = rows.nth(4);
-  await expect(rohanRow.locator(".rec__rationale")).toHaveText(
-    "growth: learns Payment Gateways under Priya Sharma; 100% available",
-  );
+  await expect(
+    omarRow.getByText("covers the Payments Platform gap at 3.0; 100% available"),
+  ).toBeVisible();
+  const rohanRow = recommendationRow(page, 5, "Rohan Sharma");
+  await expect(
+    rohanRow.getByText(
+      "growth: learns Payment Gateways under Priya Sharma; 100% available",
+    ),
+  ).toBeVisible();
 });

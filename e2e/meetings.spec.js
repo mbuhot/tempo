@@ -154,7 +154,10 @@ test.describe("the Origin time / Local time toggle", () => {
     const end = sydneyLocal(firstCandidate.ends_at);
 
     await dialog.getByRole("button", { name: "Find windows" }).click();
-    const firstSlot = dialog.locator(".finder-slot").first();
+    const firstSlot = dialog
+      .getByRole("list", { name: "Available windows" })
+      .getByRole("listitem")
+      .first();
     await expect(firstSlot).toBeVisible();
     await expect(firstSlot).toContainText(
       `${start.date} ${start.time}–${end.time}`,
@@ -207,8 +210,6 @@ test("an admin schedules, reschedules, and cancels a meeting", async ({
   await expect(row).toContainText("Marcus Chen");
   await expect(row).toContainText("Optional");
 
-  // Marcus is Optional: his pill is a "Make required" toggle button. Clicking
-  // it flips his attendance (an AddAttendee upsert) and the pill's own text.
   const marcus = row.getByRole("listitem", { name: "Marcus Chen" });
   await expect(marcus).toContainText("Optional");
   await marcus.getByRole("button", { name: "Make required" }).click();

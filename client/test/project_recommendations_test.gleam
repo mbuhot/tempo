@@ -1,8 +1,11 @@
 import client/page/projects/update
 import client/ui/ops
-import gleam/option.{None}
+import gleam/list
+import gleam/option.{None, Some}
 import gleam/time/calendar
-import shared/project_capability/view.{type Recommendation, Recommendation}
+import shared/project_capability/view.{
+  type Recommendation, Pairing, Recommendation,
+}
 
 fn as_of() -> calendar.Date {
   calendar.Date(2026, calendar.June, 15)
@@ -42,4 +45,90 @@ pub fn recommendation_op_form_formats_a_whole_free_capacity_without_a_decimal_te
   let form =
     update.recommendation_op_form(blank_form(), as_of(), recommendation(1.0))
   assert form.fraction == "1"
+}
+
+fn ready_now_recommendation(name: String) -> Recommendation {
+  Recommendation(
+    engineer_id: 1,
+    name:,
+    level: 4,
+    proficiency: 3.0,
+    free: 0.4,
+    rationale: "covers the gap; 40% available",
+    pairing: None,
+  )
+}
+
+fn growth_recommendation(name: String) -> Recommendation {
+  Recommendation(
+    engineer_id: 2,
+    name:,
+    level: 2,
+    proficiency: 0.5,
+    free: 0.5,
+    rationale: "growth: learns the skill under a teacher; 50% available",
+    pairing: Some(Pairing(
+      teacher_id: 99,
+      teacher_name: "Priya Sharma",
+      skill_name: "Payment Gateways",
+    )),
+  )
+}
+
+pub fn ranked_recommendations_shows_only_the_top_four_ready_now_candidates_test() {
+  let ready_now_names = [
+    "Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor", "Amara Nwosu",
+  ]
+  let recommendations = list.map(ready_now_names, ready_now_recommendation)
+
+  let displayed = update.ranked_recommendations(recommendations)
+
+  assert list.map(displayed, fn(recommendation) { recommendation.name })
+    == ["Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor"]
+}
+
+pub fn ranked_recommendations_shows_every_growth_candidate_past_the_ready_now_cutoff_test() {
+  let ready_now_names = [
+    "Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor", "Amara Nwosu",
+  ]
+  let growth_names = ["Rohan Sharma", "Dmitri Volkov"]
+  let recommendations =
+    list.append(
+      list.map(ready_now_names, ready_now_recommendation),
+      list.map(growth_names, growth_recommendation),
+    )
+
+  let displayed = update.ranked_recommendations(recommendations)
+
+  assert list.map(displayed, fn(recommendation) { recommendation.name })
+    == [
+      "Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor", "Rohan Sharma",
+      "Dmitri Volkov",
+    ]
+}
+
+pub fn ranked_recommendations_numbers_ranks_continuously_across_the_ready_now_growth_boundary_test() {
+  let ready_now_names = [
+    "Omar Haddad", "Mei Lin", "Sofia Rossi", "Tunde Okafor", "Amara Nwosu",
+  ]
+  let growth_names = ["Rohan Sharma", "Dmitri Volkov"]
+  let recommendations =
+    list.append(
+      list.map(ready_now_names, ready_now_recommendation),
+      list.map(growth_names, growth_recommendation),
+    )
+
+  let displayed = update.ranked_recommendations(recommendations)
+
+  assert list.index_map(displayed, fn(recommendation, index) {
+      #(index + 1, recommendation.name)
+    })
+    == [
+      #(1, "Omar Haddad"),
+      #(2, "Mei Lin"),
+      #(3, "Sofia Rossi"),
+      #(4, "Tunde Okafor"),
+      #(5, "Rohan Sharma"),
+      #(6, "Dmitri Volkov"),
+    ]
 }

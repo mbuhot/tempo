@@ -1,4 +1,7 @@
+import client/page/meetings/finder
+import client/page/meetings/time_display
 import client/page/meetings/update as meetings
+import client/ui/op_commands
 import client/ui/ops
 import gleam/http/response
 import gleam/option
@@ -11,26 +14,26 @@ import shared/meeting/command as meeting_command
 import shared/meeting/view as meeting_view
 
 pub fn local_time_applies_a_positive_offset_test() {
-  assert meetings.local_time("2026-07-10T09:00:00Z", 60) == "10:00"
+  assert time_display.local_time("2026-07-10T09:00:00Z", 60) == "10:00"
 }
 
 pub fn local_time_applies_a_negative_offset_test() {
-  assert meetings.local_time("2026-07-10T09:00:00Z", -420) == "02:00"
+  assert time_display.local_time("2026-07-10T09:00:00Z", -420) == "02:00"
 }
 
 // --- Viewer-local time toggle (#57) ------------------------------------------
 
 pub fn resolve_offset_picks_the_origin_offset_in_origin_mode_test() {
-  assert meetings.resolve_offset(meetings.OriginTime, 60, 600) == 60
+  assert time_display.resolve_offset(time_display.OriginTime, 60, 600) == 60
 }
 
 pub fn resolve_offset_picks_the_browser_offset_in_local_mode_test() {
-  assert meetings.resolve_offset(meetings.LocalTime, 60, 600) == 600
+  assert time_display.resolve_offset(time_display.LocalTime, 60, 600) == 600
 }
 
 pub fn when_line_renders_the_origin_offset_in_origin_mode_test() {
-  assert meetings.when_line(
-      meetings.OriginTime,
+  assert time_display.when_line(
+      time_display.OriginTime,
       "2026-07-10T08:00:00Z",
       60,
       600,
@@ -39,13 +42,18 @@ pub fn when_line_renders_the_origin_offset_in_origin_mode_test() {
 }
 
 pub fn when_line_renders_the_browser_offset_in_local_mode_test() {
-  assert meetings.when_line(meetings.LocalTime, "2026-07-10T08:00:00Z", 60, 600)
+  assert time_display.when_line(
+      time_display.LocalTime,
+      "2026-07-10T08:00:00Z",
+      60,
+      600,
+    )
     == "18:00 UTC+10:00"
 }
 
 pub fn resolve_zone_picks_the_origin_timezone_in_origin_mode_test() {
-  assert meetings.resolve_zone(
-      meetings.OriginTime,
+  assert time_display.resolve_zone(
+      time_display.OriginTime,
       "Europe/London",
       "Australia/Sydney",
     )
@@ -53,8 +61,8 @@ pub fn resolve_zone_picks_the_origin_timezone_in_origin_mode_test() {
 }
 
 pub fn resolve_zone_picks_the_browser_timezone_in_local_mode_test() {
-  assert meetings.resolve_zone(
-      meetings.LocalTime,
+  assert time_display.resolve_zone(
+      time_display.LocalTime,
       "Europe/London",
       "Australia/Sydney",
     )
@@ -72,7 +80,7 @@ pub fn build_reschedule_command_test() {
     |> ops.update_op_form(ops.FEffective, "2026-07-11")
     |> ops.update_op_form(ops.FStartsAt, "14:00")
     |> ops.update_op_form(ops.FDurationMinutes, "30")
-  assert ops.build_command(ops.OpRescheduleMeeting, form)
+  assert op_commands.build_command(ops.OpRescheduleMeeting, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.RescheduleMeeting(
         meeting_id: 7,
@@ -91,7 +99,7 @@ pub fn build_cancel_command_rejects_missing_id_test() {
       ops.OpCancelMeeting,
       calendar.Date(2026, calendar.July, 10),
     )
-  assert ops.build_command(ops.OpCancelMeeting, form) |> result.is_error
+  assert op_commands.build_command(ops.OpCancelMeeting, form) |> result.is_error
 }
 
 pub fn build_add_attendee_command_test() {
@@ -100,7 +108,7 @@ pub fn build_add_attendee_command_test() {
     |> ops.update_op_form(ops.FMeetingId, "7")
     |> ops.update_op_form(ops.FEngineerId, "3")
     |> ops.update_op_form(ops.FAttendance, "optional")
-  assert ops.build_command(ops.OpAddAttendee, form)
+  assert op_commands.build_command(ops.OpAddAttendee, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.AddAttendee(
         meeting_id: 7,
@@ -118,7 +126,7 @@ pub fn build_remove_attendee_command_test() {
     )
     |> ops.update_op_form(ops.FMeetingId, "7")
     |> ops.update_op_form(ops.FEngineerId, "3")
-  assert ops.build_command(ops.OpRemoveAttendee, form)
+  assert op_commands.build_command(ops.OpRemoveAttendee, form)
     == Ok(
       gateway.MeetingCommand(meeting_command.RemoveAttendee(
         meeting_id: 7,
@@ -139,8 +147,8 @@ pub fn build_schedule_command_from_a_valid_form_test() {
       client_id: "",
       project_id: "3",
       attendees: [
-        meetings.Attendee(1, meeting_command.Required),
-        meetings.Attendee(2, meeting_command.Optional),
+        finder.Attendee(1, meeting_command.Required),
+        finder.Attendee(2, meeting_command.Optional),
       ],
       query: "",
       error: option.None,
@@ -195,7 +203,7 @@ pub fn build_schedule_command_rejects_a_non_numeric_project_id_test() {
       location: "",
       client_id: "",
       project_id: "3x",
-      attendees: [meetings.Attendee(1, meeting_command.Required)],
+      attendees: [finder.Attendee(1, meeting_command.Required)],
       query: "",
       error: option.None,
     )
@@ -208,11 +216,11 @@ pub fn build_schedule_command_rejects_a_non_numeric_project_id_test() {
 /// A valid finder form (one required attendee, a searchable window, a filled
 /// title) that individual tests override via record update — every override
 /// is still an explicit, deterministic value.
-fn finder_form() -> meetings.FinderForm {
-  meetings.FinderForm(
+fn finder_form() -> finder.FinderForm {
+  finder.FinderForm(
     attendees: [
-      meetings.Attendee(1, meeting_command.Required),
-      meetings.Attendee(2, meeting_command.Optional),
+      finder.Attendee(1, meeting_command.Required),
+      finder.Attendee(2, meeting_command.Optional),
     ],
     query: "",
     project_choice: "",
@@ -222,59 +230,59 @@ fn finder_form() -> meetings.FinderForm {
     duration_minutes: "60",
     timezone: "Europe/London",
     title: "Kickoff",
-    results: meetings.NotSearched,
+    results: finder.NotSearched,
     error: option.None,
   )
 }
 
 pub fn slot_local_start_applies_a_positive_offset_test() {
-  assert meetings.slot_local_start("2026-07-10T09:00:00Z", 60)
+  assert time_display.slot_local_start("2026-07-10T09:00:00Z", 60)
     == #(calendar.Date(2026, calendar.July, 10), "10:00")
 }
 
 pub fn slot_local_start_applies_a_negative_offset_test() {
-  assert meetings.slot_local_start("2026-07-10T09:00:00Z", -420)
+  assert time_display.slot_local_start("2026-07-10T09:00:00Z", -420)
     == #(calendar.Date(2026, calendar.July, 10), "02:00")
 }
 
 pub fn slot_local_start_crosses_midnight_into_the_next_day_test() {
-  assert meetings.slot_local_start("2026-07-10T23:30:00Z", 60)
+  assert time_display.slot_local_start("2026-07-10T23:30:00Z", 60)
     == #(calendar.Date(2026, calendar.July, 11), "00:30")
 }
 
 pub fn slot_local_start_crosses_midnight_into_the_previous_day_test() {
-  assert meetings.slot_local_start("2026-07-10T00:30:00Z", -420)
+  assert time_display.slot_local_start("2026-07-10T00:30:00Z", -420)
     == #(calendar.Date(2026, calendar.July, 9), "17:30")
 }
 
 pub fn partition_attendee_ids_splits_required_from_optional_test() {
-  assert meetings.partition_attendee_ids(finder_form().attendees) == #([1], [2])
+  assert finder.partition_attendee_ids(finder_form().attendees) == #([1], [2])
 }
 
 pub fn partition_attendee_ids_dedupes_and_required_wins_test() {
   let attendees = [
-    meetings.Attendee(2, meeting_command.Optional),
-    meetings.Attendee(2, meeting_command.Required),
-    meetings.Attendee(3, meeting_command.Optional),
+    finder.Attendee(2, meeting_command.Optional),
+    finder.Attendee(2, meeting_command.Required),
+    finder.Attendee(3, meeting_command.Optional),
   ]
-  assert meetings.partition_attendee_ids(attendees) == #([2], [3])
+  assert finder.partition_attendee_ids(attendees) == #([2], [3])
 }
 
 pub fn finder_add_ids_keeps_existing_attendance_and_dedupes_test() {
   let form =
-    meetings.FinderForm(..finder_form(), attendees: [
-      meetings.Attendee(2, meeting_command.Optional),
+    finder.FinderForm(..finder_form(), attendees: [
+      finder.Attendee(2, meeting_command.Optional),
     ])
-  let updated = meetings.finder_add_ids(form, [2, 3])
+  let updated = finder.finder_add_ids(form, [2, 3])
   assert updated.attendees
     == [
-      meetings.Attendee(2, meeting_command.Optional),
-      meetings.Attendee(3, meeting_command.Required),
+      finder.Attendee(2, meeting_command.Optional),
+      finder.Attendee(3, meeting_command.Required),
     ]
 }
 
 pub fn build_search_url_from_a_filled_form_test() {
-  assert meetings.build_search_url(finder_form())
+  assert finder.build_search_url(finder_form())
     == Ok(
       "/api/meetings/find-a-time?from=2026-06-15&to=2026-06-19&tz=Europe/London&duration=60&required=1&optional=2",
     )
@@ -282,38 +290,38 @@ pub fn build_search_url_from_a_filled_form_test() {
 
 pub fn build_search_url_requires_a_required_attendee_test() {
   let form =
-    meetings.FinderForm(..finder_form(), attendees: [
-      meetings.Attendee(2, meeting_command.Optional),
+    finder.FinderForm(..finder_form(), attendees: [
+      finder.Attendee(2, meeting_command.Optional),
     ])
-  assert meetings.build_search_url(form)
+  assert finder.build_search_url(form)
     == Error("add at least one required attendee")
 }
 
 pub fn build_search_url_requires_a_timezone_test() {
-  let form = meetings.FinderForm(..finder_form(), timezone: "")
-  assert meetings.build_search_url(form) == Error("timezone is required")
+  let form = finder.FinderForm(..finder_form(), timezone: "")
+  assert finder.build_search_url(form) == Error("timezone is required")
 }
 
 pub fn build_search_url_requires_a_positive_duration_test() {
-  let form = meetings.FinderForm(..finder_form(), duration_minutes: "0")
-  assert meetings.build_search_url(form)
+  let form = finder.FinderForm(..finder_form(), duration_minutes: "0")
+  assert finder.build_search_url(form)
     == Error("duration must be a positive number of minutes")
 }
 
 pub fn build_search_url_requires_from_on_or_before_to_test() {
   let form =
-    meetings.FinderForm(
+    finder.FinderForm(
       ..finder_form(),
       from_date: "2026-06-19",
       to_date: "2026-06-15",
     )
-  assert meetings.build_search_url(form)
+  assert finder.build_search_url(form)
     == Error("from date must be on or before to date")
 }
 
 pub fn build_finder_schedule_command_from_a_filled_form_test() {
   let form =
-    meetings.FinderForm(..finder_form(), booking_project_id: option.Some(300))
+    finder.FinderForm(..finder_form(), booking_project_id: option.Some(300))
   let slot =
     meeting_view.CandidateSlot(
       starts_at: "2026-06-15T23:00:00Z",
@@ -321,7 +329,7 @@ pub fn build_finder_schedule_command_from_a_filled_form_test() {
       attendees: [],
       viewer_offset_minutes: 60,
     )
-  assert meetings.build_finder_schedule_command(form, slot)
+  assert finder.build_finder_schedule_command(form, slot)
     == Ok(
       gateway.MeetingCommand(meeting_command.ScheduleMeeting(
         title: "Kickoff",
@@ -343,7 +351,7 @@ pub fn build_finder_schedule_command_from_a_filled_form_test() {
 
 pub fn build_finder_schedule_command_trims_a_padded_timezone_test() {
   let form =
-    meetings.FinderForm(
+    finder.FinderForm(
       ..finder_form(),
       timezone: " Europe/London ",
       booking_project_id: option.Some(300),
@@ -355,7 +363,7 @@ pub fn build_finder_schedule_command_trims_a_padded_timezone_test() {
       attendees: [],
       viewer_offset_minutes: 60,
     )
-  assert meetings.build_finder_schedule_command(form, slot)
+  assert finder.build_finder_schedule_command(form, slot)
     == Ok(
       gateway.MeetingCommand(meeting_command.ScheduleMeeting(
         title: "Kickoff",
@@ -376,7 +384,7 @@ pub fn build_finder_schedule_command_trims_a_padded_timezone_test() {
 }
 
 pub fn build_finder_schedule_command_requires_a_title_test() {
-  let form = meetings.FinderForm(..finder_form(), title: "")
+  let form = finder.FinderForm(..finder_form(), title: "")
   let slot =
     meeting_view.CandidateSlot(
       starts_at: "2026-06-15T23:00:00Z",
@@ -384,7 +392,7 @@ pub fn build_finder_schedule_command_requires_a_title_test() {
       attendees: [],
       viewer_offset_minutes: 60,
     )
-  assert meetings.build_finder_schedule_command(form, slot)
+  assert finder.build_finder_schedule_command(form, slot)
     == Error("title is required")
 }
 
@@ -395,7 +403,7 @@ pub fn is_slot_taken_detects_the_slot_taken_error_tag_test() {
       headers: [],
       body: "{\"error\":\"slot_taken\",\"detail\":\"a required attendee is no longer free for that window\"}",
     ))
-  assert meetings.is_slot_taken(error)
+  assert finder.is_slot_taken(error)
 }
 
 pub fn is_slot_taken_is_false_for_a_different_error_tag_test() {
@@ -405,11 +413,11 @@ pub fn is_slot_taken_is_false_for_a_different_error_tag_test() {
       headers: [],
       body: "{\"error\":\"invalid_value\",\"detail\":\"bad\"}",
     ))
-  assert !meetings.is_slot_taken(error)
+  assert !finder.is_slot_taken(error)
 }
 
 pub fn is_slot_taken_is_false_for_a_network_error_test() {
-  assert !meetings.is_slot_taken(rsvp.NetworkError)
+  assert !finder.is_slot_taken(rsvp.NetworkError)
 }
 
 // --- Find-a-time wizard: the Timezone select's options + reset rule ---------
@@ -441,16 +449,16 @@ pub fn finder_timezone_options_dedupes_in_attendee_order_test() {
     located_engineer(3, "C", "Europe/London"),
   ]
   let attendees = [
-    meetings.Attendee(1, meeting_command.Required),
-    meetings.Attendee(2, meeting_command.Optional),
-    meetings.Attendee(3, meeting_command.Required),
+    finder.Attendee(1, meeting_command.Required),
+    finder.Attendee(2, meeting_command.Optional),
+    finder.Attendee(3, meeting_command.Required),
   ]
-  assert meetings.finder_timezone_options(attendees, roster)
+  assert finder.finder_timezone_options(attendees, roster)
     == ["Europe/London", "America/Los_Angeles", "UTC"]
 }
 
 pub fn finder_timezone_options_always_ends_with_utc_test() {
-  assert meetings.finder_timezone_options([], []) == ["UTC"]
+  assert finder.finder_timezone_options([], []) == ["UTC"]
 }
 
 pub fn finder_timezone_options_skips_an_unlocated_attendee_test() {
@@ -461,30 +469,30 @@ pub fn finder_timezone_options_skips_an_unlocated_attendee_test() {
       location: option.None,
     ),
   ]
-  let attendees = [meetings.Attendee(1, meeting_command.Required)]
-  assert meetings.finder_timezone_options(attendees, roster) == ["UTC"]
+  let attendees = [finder.Attendee(1, meeting_command.Required)]
+  assert finder.finder_timezone_options(attendees, roster) == ["UTC"]
 }
 
 pub fn finder_timezone_options_does_not_duplicate_an_attendee_already_in_utc_test() {
   let roster = [located_engineer(1, "A", "UTC")]
-  let attendees = [meetings.Attendee(1, meeting_command.Required)]
-  assert meetings.finder_timezone_options(attendees, roster) == ["UTC"]
+  let attendees = [finder.Attendee(1, meeting_command.Required)]
+  assert finder.finder_timezone_options(attendees, roster) == ["UTC"]
 }
 
 pub fn reconcile_finder_timezone_keeps_a_still_valid_selection_test() {
-  assert meetings.reconcile_finder_timezone("America/Los_Angeles", [
+  assert finder.reconcile_finder_timezone("America/Los_Angeles", [
       "Europe/London", "America/Los_Angeles", "UTC",
     ])
     == "America/Los_Angeles"
 }
 
 pub fn reconcile_finder_timezone_resets_to_the_first_option_test() {
-  assert meetings.reconcile_finder_timezone("Europe/Paris", [
+  assert finder.reconcile_finder_timezone("Europe/Paris", [
       "Europe/London", "UTC",
     ])
     == "Europe/London"
 }
 
 pub fn reconcile_finder_timezone_resets_to_utc_with_no_attendees_test() {
-  assert meetings.reconcile_finder_timezone("", ["UTC"]) == "UTC"
+  assert finder.reconcile_finder_timezone("", ["UTC"]) == "UTC"
 }

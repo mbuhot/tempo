@@ -8,12 +8,14 @@ import client/api
 import client/page.{type OutMsg, Navigate, OperationCommitted}
 import client/route
 import client/table_host
+import client/ui/op_commands
 import client/ui/ops
 import client/workflow/host
 import client/workflow/wizard
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar
 import lustre/effect.{type Effect}
@@ -469,7 +471,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg), List(OutMsg)) {
     OpSubmitted ->
       case current_op(model) {
         Some(ops.OpState(kind:, form:, ..)) ->
-          case ops.build_command(kind, form) {
+          case op_commands.build_command(kind, form) {
             Ok(command) -> #(
               model,
               api.submit_operation(command, OpResponded),
@@ -826,6 +828,21 @@ pub fn recommendation_op_form(
   |> ops.update_op_form(ops.FEngineerId, int.to_string(engineer_id))
   |> ops.update_op_form(ops.FValidFrom, iso_date(as_of))
   |> ops.update_op_form(ops.FFraction, recommendation_fraction_text(free))
+}
+
+/// The displayed order for one gap's recommendations: the top 4 ready-now
+/// candidates (no pairing) followed by every growth (mentorship) candidate,
+/// so a deep ready-now bench never crowds growth rows out of view. Rank
+/// numbers are assigned by this displayed order, continuing across the
+/// ready-now/growth boundary.
+pub fn ranked_recommendations(
+  recommendations: List(Recommendation),
+) -> List(Recommendation) {
+  let #(ready_now, growth) =
+    list.partition(recommendations, fn(recommendation) {
+      recommendation.pairing == None
+    })
+  list.append(list.take(ready_now, 4), growth)
 }
 
 fn recommendation_fraction_text(free: Float) -> String {

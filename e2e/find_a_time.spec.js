@@ -48,18 +48,16 @@ test("a cross-timezone search renders the fairness view with each attendee's loc
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-15");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-19");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  // The Timezone select offers the selected attendees' own zones (Priya's
-  // Australia/Sydney, Marcus's America/Los_Angeles) plus UTC; it starts at,
-  // and stays at, UTC — the reset rule only fires once the CURRENT selection
-  // is no longer among the options, and UTC is always one of them.
   await expect(
     dialog.getByRole("combobox", { name: "Timezone" }),
   ).toHaveValue("UTC");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
-  const slots = dialog.locator(".finder-slot");
+  const slots = dialog
+    .getByRole("list", { name: "Available windows" })
+    .getByRole("listitem");
   await expect(slots.first()).toBeVisible();
-  await expect(slots).toHaveCount(3);
+  await expect(slots).toHaveCount(4);
 
   const firstSlot = slots.first();
   await expect(firstSlot).toContainText("Priya Sharma: 09:00");
@@ -85,14 +83,14 @@ test("an optional attendee rides along without narrowing the search", async ({
   await dialog.getByLabel("From", { exact: true }).fill("2026-06-15");
   await dialog.getByLabel("To", { exact: true }).fill("2026-06-19");
   await dialog.getByLabel("Duration (minutes)").fill("60");
-  // Stays at UTC (the blank default) — it's still a valid option, so nothing
-  // resets it.
   await expect(
     dialog.getByRole("combobox", { name: "Timezone" }),
   ).toHaveValue("UTC");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
-  const slots = dialog.locator(".finder-slot");
+  const slots = dialog
+    .getByRole("list", { name: "Available windows" })
+    .getByRole("listitem");
   await expect(slots.first()).toBeVisible();
   await expect(slots).toHaveCount(5);
 
@@ -117,12 +115,13 @@ test("booking a suggested slot schedules the meeting through the RequireFree gua
     .selectOption("America/Los_Angeles");
   await dialog.getByRole("button", { name: "Find windows" }).click();
 
-  const firstSlot = dialog.locator(".finder-slot").first();
+  const firstSlot = dialog
+    .getByRole("list", { name: "Available windows" })
+    .getByRole("listitem")
+    .first();
   await expect(firstSlot).toBeVisible();
-  const attendeeText = await firstSlot
-    .locator(".finder-slot__attendees")
-    .innerText();
-  const [, startTime] = attendeeText.match(/Marcus Chen: (\d{2}:\d{2})/);
+  const slotText = await firstSlot.innerText();
+  const [, startTime] = slotText.match(/Marcus Chen: (\d{2}:\d{2})/);
 
   await firstSlot.getByRole("button", { name: "Book this slot" }).click();
   await expect(findATimeDialog(page)).toHaveCount(0);

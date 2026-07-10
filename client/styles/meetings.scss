@@ -67,6 +67,12 @@
     font-size: var(--text-sm);
 }
 
+.finder__slots {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
 .finder-slot {
     @include hairline;
     padding: var(--space-md);

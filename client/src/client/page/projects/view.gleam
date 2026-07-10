@@ -658,17 +658,17 @@ fn gap_panel(
 ) -> Element(Msg) {
   let GapRecommendations(capability_name:, target_level:, recommendations:, ..) =
     gap
-  let #(ready_now, growth) =
-    list.partition(recommendations, fn(recommendation) {
-      recommendation.pairing == None
-    })
-  let displayed = list.append(list.take(ready_now, 4), growth)
+  let displayed = update.ranked_recommendations(recommendations)
   let body = case displayed {
     [] -> [atoms.empty_state(message: "No suitable candidates.")]
-    rows ->
-      list.index_map(rows, fn(recommendation, index) {
-        recommendation_row(recommendation, index, target_level, permissions)
-      })
+    rows -> [
+      html.div(
+        [attribute.class("rec-rows"), attribute.role("list")],
+        list.index_map(rows, fn(recommendation, index) {
+          recommendation_row(recommendation, index, target_level, permissions)
+        }),
+      ),
+    ]
   }
   atoms.panel(
     title: "Recommended assignments",
@@ -690,20 +690,28 @@ fn recommendation_row(
     Some(_) -> "rec rec--mentor"
     None -> "rec"
   }
-  html.div([attribute.class(row_class)], [
-    html.div([attribute.class("rec__rank")], [
-      html.text(int.to_string(index + 1)),
-    ]),
-    atoms.avatar(name:, category: index, class: "avatar"),
-    html.div([attribute.class("rec__info")], [
-      recommendation_name(name, level, pairing),
-      html.div([attribute.class("rec__rationale")], [html.text(rationale)]),
-    ]),
-    recommendation_fit(proficiency, target_level, pairing),
-    html.div([attribute.class("rec__action")], [
-      assign_button(recommendation, permissions),
-    ]),
-  ])
+  let rank = index + 1
+  html.div(
+    [
+      attribute.class(row_class),
+      attribute.role("listitem"),
+      attribute.aria_label("Rank " <> int.to_string(rank) <> ": " <> name),
+    ],
+    [
+      html.div([attribute.class("rec__rank")], [
+        html.text(int.to_string(rank)),
+      ]),
+      atoms.avatar(name:, category: index, class: "avatar"),
+      html.div([attribute.class("rec__info")], [
+        recommendation_name(name, level, pairing),
+        html.div([attribute.class("rec__rationale")], [html.text(rationale)]),
+      ]),
+      recommendation_fit(proficiency, target_level, pairing),
+      html.div([attribute.class("rec__action")], [
+        assign_button(recommendation, permissions),
+      ]),
+    ],
+  )
 }
 
 fn recommendation_name(
