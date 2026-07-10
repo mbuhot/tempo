@@ -16,9 +16,7 @@ const {
 // gate; and availability.manage.own vs .any permission gating.
 
 function availabilityPanel(page) {
-  return page.locator(".panel", {
-    has: page.getByRole("heading", { name: "Availability" }),
-  });
+  return page.getByRole("region", { name: "Availability" });
 }
 
 async function openEngineerDetail(page, name) {
@@ -97,10 +95,7 @@ test("an admin adds and removes a focus block on Marcus's detail", async ({
   const panel = availabilityPanel(page);
   await expect(panel).toContainText("Architecture review");
 
-  await panel
-    .locator(".list-row", { hasText: "Architecture review" })
-    .getByRole("button", { name: "Remove", exact: true })
-    .click();
+  await panel.getByRole("button", { name: "Remove", exact: true }).click();
   const removeModal = opModal(page);
   await expect(removeModal.getByText("Remove focus block")).toBeVisible();
   await confirmOp(page, "Remove");
@@ -116,9 +111,7 @@ test("the Locations page lists public holidays and gates the import button", asy
   await navigateTo(page, "Locations");
   await expect(page.getByRole("heading", { name: "Locations" })).toBeVisible();
 
-  const holidaysPanel = page.locator(".panel", {
-    has: page.getByRole("heading", { name: "Public holidays" }),
-  });
+  const holidaysPanel = page.getByRole("region", { name: "Public holidays" });
   const labourDayRow = holidaysPanel.getByRole("row", { name: /Labour Day/ });
   await expect(labourDayRow).toContainText("New South Wales");
   await expect(
@@ -148,9 +141,7 @@ test("a role with availability.manage.any but not holiday.manage sees Edit hours
 
   await navigateTo(page, "Locations");
   await expect(page.getByRole("heading", { name: "Locations" })).toBeVisible();
-  const holidaysPanel = page.locator(".panel", {
-    has: page.getByRole("heading", { name: "Public holidays" }),
-  });
+  const holidaysPanel = page.getByRole("region", { name: "Public holidays" });
   await expect(
     holidaysPanel.getByRole("button", { name: "Import holidays" }),
   ).toHaveCount(0);

@@ -112,3 +112,6 @@ are exhaustive with no catch-all, omitting any of these is a compile error.
   `event_log` row (never assert `occurred_at`). Use `assert x == expected`.
 - **e2e** (`e2e/*.spec.js`): `signInAs` → `navigateTo` → op modal → `scrubTo` a date;
   assert user-visible content only. Financial writes need Admin.
+- **seed breadth**: when the read fans out over every child per parent (a list, a
+  join, a `group by`), the seed gives at least one parent two or more of that child,
+  so the multi-item path is exercised.

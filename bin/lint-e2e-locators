@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Fail if any e2e/*.spec.js locates an element by CSS class rather than an
+# accessible affordance (PHILOSOPHY.md: "e2e locates elements by their
+# accessible affordances ... when only a CSS class can find an element, the
+# element is missing accessibility metadata — fix the markup, then the
+# locator"). Flags `toHaveClass(` assertions and any `.locator(...)` call whose
+# selector string contains a class token (`.name`) or an `element.class` form.
+# getByRole/getByLabel/getByText/getByTitle, attribute selectors
+# (`input[type="date"]`), pseudo-classes (`option:checked`), bare element
+# names (`div`), and `:has-text` filters remain allowed.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+offenders=$(perl -ne '
+  print "$ARGV:$.: $_" if /toHaveClass\(/;
+  print "$ARGV:$.: $_" if /\.locator\(\s*([\x27"])((?:(?!\1).)*)\1/ && $2 =~ /\./;
+' e2e/*.spec.js)
+
+if [ -n "$offenders" ]; then
+  echo "lint-e2e-locators: class-based element location found:" >&2
+  printf '%s\n' "$offenders" >&2
+  echo "Locate by role, label, text, or title instead — see PHILOSOPHY.md." >&2
+  exit 1
+fi
+
+echo "lint-e2e-locators: OK — no class-based locators in e2e/*.spec.js."

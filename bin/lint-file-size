@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Fail if any hand-written .gleam file under server/src, client/src, or shared/src
+# exceeds 1000 lines (PHILOSOPHY.md: "split a file before it reaches a thousand
+# lines"). Files named sql.gleam are Squirrel-generated and exempt; the growth of
+# server/src/tempo/server/repository.gleam is explicitly sanctioned by
+# PHILOSOPHY.md as the one place a fact's write semantic lives, so it is exempt
+# too.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+limit=1000
+offenders=""
+
+while IFS= read -r -d '' file; do
+  case "$file" in
+    */sql.gleam) continue ;;
+    server/src/tempo/server/repository.gleam) continue ;;
+  esac
+  lines=$(wc -l < "$file")
+  if [ "$lines" -gt "$limit" ]; then
+    offenders="$offenders$lines	$file
+"
+  fi
+done < <(find server/src client/src shared/src -name '*.gleam' -print0)
+
+if [ -n "$offenders" ]; then
+  echo "lint-file-size: file(s) over the ${limit}-line budget:" >&2
+  printf '%s' "$offenders" | sort -rn >&2
+  echo "Split along a domain boundary — see PHILOSOPHY.md." >&2
+  exit 1
+fi
+
+echo "lint-file-size: OK — no hand-written .gleam file exceeds $limit lines."

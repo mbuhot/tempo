@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run the Gleam test suite (layers 1-4), check formatting, and lint the stylesheet
-# design tokens (#26).
+# design tokens (#26), hand-written .gleam file size, and e2e locator style.
 #
 # Targets its OWN database (tempo_test, suffixed per git worktree by
 # bin/worktree-db-suffix) so the gleam suite never clobbers — and is never clobbered
@@ -21,3 +21,5 @@ bin/seed
 ( cd server && gleam test && gleam format --check src test )
 ( cd client && gleam test && gleam format --check src test )
 bin/lint-css
+bin/lint-file-size
+bin/lint-e2e-locators
