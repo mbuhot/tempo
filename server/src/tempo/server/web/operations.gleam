@@ -13,8 +13,9 @@
 //// written, and the stable wire shape the client decodes (it also refetches
 //// /api/events). A malformed body is a 400; a rejected operation maps by its
 //// `OperationError`: `Unauthorized` → 403, `ContainmentViolated`/`OverlappingFact`/
-//// `SlotTaken` → 409, `InvalidValue`/`InsufficientLeaveBalance` → 422,
-//// `DatabaseError` → 500 (503 when the cause is a saturated connection pool).
+//// `SlotTaken` → 409, `InvalidValue`/`InsufficientLeaveBalance`/
+//// `MissingAgreedRate`/`EmptyInvoiceDraft` → 422, `DatabaseError` → 500 (503 when
+//// the cause is a saturated connection pool).
 
 import gleam/dynamic/decode
 import gleam/float
@@ -26,9 +27,10 @@ import tempo/server/auth.{type Principal}
 import tempo/server/command
 import tempo/server/context.{type Context}
 import tempo/server/operation.{
-  type OperationError, ContainmentViolated, DatabaseError, EngineerNotEmployed,
-  InsufficientLeaveBalance, InvalidValue, NoSuchVersion, OverlappingFact,
-  ProjectNotRunning, ProjectPinned, SlotTaken, Unauthorized,
+  type OperationError, ContainmentViolated, DatabaseError, EmptyInvoiceDraft,
+  EngineerNotEmployed, InsufficientLeaveBalance, InvalidValue, MissingAgreedRate,
+  NoSuchVersion, OverlappingFact, ProjectNotRunning, ProjectPinned, SlotTaken,
+  Unauthorized,
 }
 import tempo/server/web/guard
 import tempo/server/web/response
@@ -159,6 +161,18 @@ pub fn error_response(error: OperationError) -> wisp.Response {
         409,
         "slot_taken",
         "a required attendee is no longer free for that window",
+      )
+    MissingAgreedRate(..) as error ->
+      response.error_response(
+        422,
+        "missing_agreed_rate",
+        operation.describe(error),
+      )
+    EmptyInvoiceDraft as error ->
+      response.error_response(
+        422,
+        "empty_invoice_draft",
+        operation.describe(error),
       )
     DatabaseError(error) -> response.db_error_response(error)
   }

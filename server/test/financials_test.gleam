@@ -622,7 +622,6 @@ pub fn set_contract_rate_takes_precedence_over_the_rate_card_test() {
       read_invoice_lines(conn, invoice_id)
     })
 
-  // The negotiated 650/day, not the rate card's 800: 650 × 30 days = 19500.
   assert lines == [Line("Katherine Johnson", 1, 650.0, 30.0, 19_500.0)]
 }
 
@@ -761,10 +760,7 @@ pub fn contract_rate_freezes_billing_at_the_agreed_date_test() {
     })
 
   assert june_lines == [Line("Grace Hopper", 1, 650.0, 30.0, 19_500.0)]
-  // Unchanged by the later contract-rate negotiation and rate-card revision.
   assert june_lines_after_revisions == june_lines
-  // September still resolves the rate covering the agreed date, not the 700
-  // negotiated from August.
   assert september_lines == [Line("Grace Hopper", 1, 650.0, 30.0, 19_500.0)]
 }
 
@@ -803,13 +799,11 @@ pub fn set_contract_rate_twice_clips_the_first_to_the_seconds_start_test() {
       #(read_contract_rate(conn, 90_205, 1), read_journal(conn))
     })
 
-  // 650 clipped to [Jan,Aug), 700 opened [Aug, term end 2027-01-01).
   assert rates
     == [
       #("650.00", "2026-01-01", "2026-08-01"),
       #("700.00", "2026-08-01", "2027-01-01"),
     ]
-  // Newest-first: the second negotiation, then the first.
   let assert [second, first] = journal
   assert first.actor == "tester"
   assert first.operation == "set_contract_rate"
@@ -865,6 +859,118 @@ pub fn set_contract_rate_outside_the_signed_term_is_rejected_test() {
     })
 
   assert outcome == Error(operation.NoSuchVersion)
+}
+
+// --- Uncovered agreed rate + zero billable lines (#31 follow-up) -------------
+
+/// Reopen a level's rate_card so it no longer covers `agreed_date` (the fixture's
+/// baseline opens from 2024-01-01) — the gap a negotiated `contract_rate` must be
+/// able to fill on its own.
+fn open_rate_card_gap_over_the_agreed_date(conn: pog.Connection) -> Nil {
+  exec(conn, "DELETE FROM rate_card WHERE level = 1")
+  exec(
+    conn,
+    "INSERT INTO rate_card (level, day_rate, effective_during) VALUES "
+      <> "(1, 800.00, daterange('2026-07-01', NULL, '[)'))",
+  )
+}
+
+// A contract signed before the rate card even opens a version for the level still
+// bills correctly when its own SetContractRate covers the agreed date — the
+// negotiated rate does not depend on the rate_card also having a covering row.
+pub fn draft_invoice_bills_a_level_the_rate_card_has_no_covering_version_for_test() {
+  let lines =
+    rolling_back(fn(conn) {
+      let _engineer_id =
+        billing_fixture(
+          conn,
+          "Marie Curie",
+          "Fission Labs",
+          90_301,
+          80_301,
+          "800.00",
+        )
+      open_rate_card_gap_over_the_agreed_date(conn)
+      apply(
+        conn,
+        gateway.RateCardCommand(rate_card_command.SetContractRate(
+          90_301,
+          1,
+          money_of("650.00"),
+          Date(2026, January, 1),
+        )),
+      )
+      apply(
+        conn,
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_301,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+      let invoice_id = invoice_id_for_project(conn, 80_301)
+      read_invoice_lines(conn, invoice_id)
+    })
+
+  assert lines == [Line("Marie Curie", 1, 650.0, 30.0, 19_500.0)]
+}
+
+// Drafting a level neither the rate_card nor a contract_rate covers at the agreed
+// date is rejected — the level never bills silently, and no invoice is recorded.
+pub fn draft_invoice_rejects_a_level_with_no_agreed_rate_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let _engineer_id =
+        billing_fixture(
+          conn,
+          "Rosalind Franklin",
+          "Double Helix Systems",
+          90_302,
+          80_302,
+          "800.00",
+        )
+      open_rate_card_gap_over_the_agreed_date(conn)
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_302,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.MissingAgreedRate(levels: [1]))
+}
+
+// Drafting a month with no allocations yields zero billable lines — rejected as a
+// typed error rather than recording an empty draft invoice.
+pub fn draft_invoice_rejects_a_month_with_zero_billable_lines_test() {
+  let outcome =
+    rolling_back(fn(conn) {
+      let _engineer_id =
+        billing_fixture(
+          conn,
+          "Ada Yalow",
+          "Tracer Diagnostics",
+          90_303,
+          80_303,
+          "800.00",
+        )
+      exec(conn, "DELETE FROM allocation WHERE project_id = 80303")
+      command.dispatch_in(
+        conn,
+        "tester",
+        gateway.InvoiceCommand(invoice_command.DraftInvoice(
+          80_303,
+          Date(2026, June, 1),
+          Date(2026, July, 1),
+        )),
+      )
+    })
+
+  assert outcome == Error(operation.EmptyInvoiceDraft)
 }
 
 // --- Issue / Pay — the temporal status lifecycle (FR-F3, FR-F4) --------------

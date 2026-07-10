@@ -74,6 +74,14 @@ pub type OperationError {
   /// the authorization gate refused it BEFORE any transaction opened. `actor` is
   /// the principal that was refused and `command` names the command. Maps to a 403.
   Unauthorized(actor: String, command: String)
+  /// `draft_invoice` found a billed level with neither a covering `contract_rate`
+  /// nor a covering `rate_card` version at the contract's agreed date (issue #31).
+  /// `levels` names every such level so the operator knows exactly which rate is
+  /// missing.
+  MissingAgreedRate(levels: List(Int))
+  /// `draft_invoice` computed zero billable lines for the month (e.g. no allocation
+  /// overlapped it).
+  EmptyInvoiceDraft
   /// Any other database failure — surfaced opaquely.
   DatabaseError(pog.QueryError)
 }
@@ -189,8 +197,19 @@ pub fn describe(error: OperationError) -> String {
     SlotTaken -> "a required attendee is no longer free for that window"
     Unauthorized(actor:, command:) ->
       actor <> " is not permitted to run " <> command
+    MissingAgreedRate(levels:) ->
+      "no agreed rate covers level(s) " <> levels_to_string(levels)
+    EmptyInvoiceDraft -> "no billable lines for that project and month"
     DatabaseError(_) -> "database error"
   }
+}
+
+/// Render a level list for a `describe`/error-body message, e.g. `[1, 3]`.
+fn levels_to_string(levels: List(Int)) -> String {
+  levels
+  |> list.map(int.to_string)
+  |> string.join(", ")
+  |> fn(rendered) { "[" <> rendered <> "]" }
 }
 
 /// Render a float to one decimal place for a `describe` message.

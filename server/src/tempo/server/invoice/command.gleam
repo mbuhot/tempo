@@ -10,13 +10,16 @@
 //// `invoice_billing_lines` resolves the contract's own negotiated `contract_rate`
 //// as of the contract's signing date when one covers it, else the firm-wide
 //// `rate_card` at that same date, FR-F2), and records the anchor, subject, opening
-//// `draft` status, and one line per
-//// row. `issue_invoice`/`pay_invoice` guard that the status in effect at `at` is the
-//// expected predecessor (else `InvalidValue`) then record the next `InvoiceInStatus`
-//// (the repository caps the prior status where the next begins).
+//// `draft` status, and one line per row. A month with zero billable lines, or a
+//// billed level with no agreed rate from either source, is rejected as a typed
+//// `OperationError` (`billing_line_facts`). `issue_invoice`/
+//// `pay_invoice` guard that the status in effect at `at` is the expected
+//// predecessor (else `InvalidValue`) then record the next `InvoiceInStatus` (the
+//// repository caps the prior status where the next begins).
 
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/time/calendar.{type Date}
 import pog
@@ -27,8 +30,10 @@ import shared/invoice/command.{
 import shared/invoice/status.{type InvoiceStatus, Draft, Issued, Paid}
 import shared/money
 import tempo/server/fact.{type Recorded, Recorded}
-import tempo/server/invoice/sql
-import tempo/server/operation.{type OperationError, Event, InvalidValue}
+import tempo/server/invoice/sql.{type InvoiceBillingLinesRow}
+import tempo/server/operation.{
+  type OperationError, EmptyInvoiceDraft, Event, InvalidValue, MissingAgreedRate,
+}
 import tempo/server/repository
 
 /// Route an invoice command to its operation, returning the audit entry and the
@@ -65,17 +70,7 @@ pub fn draft_invoice(
     billing_from,
     billing_to,
   ))
-  let line_facts =
-    list.map(lines.rows, fn(line) {
-      fact.InvoiceLine(
-        invoice_id:,
-        engineer_id: fact.EngineerId(line.engineer_id),
-        level: line.level,
-        day_rate: money.trusted_from_string(line.day_rate),
-        days: line.days,
-        amount: money.trusted_from_string(line.amount),
-      )
-    })
+  use line_facts <- result.try(billing_line_facts(invoice_id, lines.rows))
   Ok(Recorded(
     entry: Event(
       operation: "draft_invoice",
@@ -100,6 +95,55 @@ pub fn draft_invoice(
       line_facts,
     ]),
   ))
+}
+
+/// Turn the billing query's rows into `InvoiceLine` facts. Rejects the draft
+/// when there is nothing to bill (`EmptyInvoiceDraft`) or a billed level has no
+/// agreed rate at the contract's signing date (`MissingAgreedRate`).
+fn billing_line_facts(
+  invoice_id: fact.InvoiceId,
+  rows: List(InvoiceBillingLinesRow),
+) -> Result(List(fact.Fact), OperationError) {
+  case rows {
+    [] -> Error(EmptyInvoiceDraft)
+    _ ->
+      case uncovered_levels(rows) {
+        [] -> Ok(list.map(rows, to_invoice_line_fact(invoice_id, _)))
+        levels -> Error(MissingAgreedRate(levels:))
+      }
+  }
+}
+
+/// The distinct levels among `rows` with no agreed day_rate — neither a
+/// contract_rate nor a rate_card version covers them at the agreed date.
+fn uncovered_levels(rows: List(InvoiceBillingLinesRow)) -> List(Int) {
+  rows
+  |> list.filter_map(fn(row) {
+    case row.day_rate {
+      None -> Ok(row.level)
+      Some(_) -> Error(Nil)
+    }
+  })
+  |> list.unique
+}
+
+/// Build one `InvoiceLine` fact from a billing row already known to carry an
+/// agreed rate (`billing_line_facts` guards every row via `uncovered_levels`
+/// before this runs).
+fn to_invoice_line_fact(
+  invoice_id: fact.InvoiceId,
+  row: InvoiceBillingLinesRow,
+) -> fact.Fact {
+  let assert Some(day_rate) = row.day_rate
+  let assert Some(amount) = row.amount
+  fact.InvoiceLine(
+    invoice_id:,
+    engineer_id: fact.EngineerId(row.engineer_id),
+    level: row.level,
+    day_rate: money.trusted_from_string(day_rate),
+    days: row.days,
+    amount: money.trusted_from_string(amount),
+  )
 }
 
 /// Issue an invoice: guard it is currently `draft` at `at`, then record `issued`

@@ -1368,6 +1368,11 @@ guarantee `rate_card` already gives every other bill). Scoping the override to t
 contract (rejected — the issue is explicitly a per-contract negotiation; a client can hold several
 contracts at different rates).
 
+**Amended (rate-coverage guard).** Both `contract_rate` and `rate_card` are now LEFT JOINed, so a
+negotiated rate stands alone at the agreed date and bills a level correctly even when the rate card has no
+covering version there. Drafting a level neither source covers, or a month with zero billable lines, is
+rejected as a typed `OperationError` (`MissingAgreedRate`/`EmptyInvoiceDraft`).
+
 ---
 
 ## Documentation format

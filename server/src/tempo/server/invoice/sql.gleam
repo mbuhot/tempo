@@ -20,9 +20,9 @@ pub type InvoiceBillingLinesRow {
     engineer_id: Int,
     engineer: String,
     level: Int,
-    day_rate: String,
+    day_rate: Option(String),
     days: Float,
-    amount: String,
+    amount: Option(String),
   )
 }
 
@@ -43,6 +43,14 @@ pub type InvoiceBillingLinesRow {
 /// contract active over the month (project ⊂ contract, both overlapping the
 /// month) and pinned for every line.
 ///
+/// Both rate sources are LEFT JOINed: a negotiated contract_rate stands alone at
+/// the agreed date, and bills correctly even when the firm-wide rate_card has no
+/// covering version there. day_rate/amount come back NULL for a level neither
+/// source covers, so the caller can name exactly which level is missing its
+/// agreed rate rather than the line silently vanishing. The `?` alias suffix
+/// forces Squirrel to generate Option(String) rather than inferring non-null off
+/// the seed (every seed level has a covering rate_card row).
+///
 /// Day counting. A daterange's day count is upper - lower (integer days; PG returns
 /// e.g. 30 for a June [1st, next-1st) range). The billable sub-period for a line is
 /// the THREE-way intersection (the * operator) of the allocation, the engineer_role
@@ -59,15 +67,13 @@ pub type InvoiceBillingLinesRow {
 ///
 /// Assumptions:
 /// * Exactly one contract is active over the month for the project (project ⊂
-/// contract by construction); LIMIT 1 pins the agreed date if the schema ever
-/// admits more.
+/// contract by construction); ORDER BY the contract's own signing date then
+/// LIMIT 1 pins the agreed date deterministically if the schema ever admits
+/// more than one covering row.
 /// * Leave does NOT reduce billing (billing is allocation-fraction-weighted
 /// working days; leave is a payroll concern, paid in full — FR-F6).
 /// * Calendar days, not business days: "working days in the month" is the day
 /// width of the intersection, matching the day-count convention used elsewhere.
-/// * rate_card has a version covering agreed_date for every billed level (true in
-/// the seed: the baseline rate card opens at the earliest contract date), so the
-/// coalesce to rate_card always has a fallback to land on.
 ///
 /// > 🐿️ This function was generated automatically using v4.7.0 of
 /// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
@@ -82,9 +88,9 @@ pub fn invoice_billing_lines(
     use engineer_id <- decode.field(0, decode.int)
     use engineer <- decode.field(1, decode.string)
     use level <- decode.field(2, decode.int)
-    use day_rate <- decode.field(3, decode.string)
+    use day_rate <- decode.field(3, decode.optional(decode.string))
     use days <- decode.field(4, pog.numeric_decoder())
-    use amount <- decode.field(5, decode.string)
+    use amount <- decode.field(5, decode.optional(decode.string))
     decode.success(InvoiceBillingLinesRow(
       engineer_id:,
       engineer:,
@@ -112,6 +118,14 @@ pub fn invoice_billing_lines(
 -- contract active over the month (project ⊂ contract, both overlapping the
 -- month) and pinned for every line.
 --
+-- Both rate sources are LEFT JOINed: a negotiated contract_rate stands alone at
+-- the agreed date, and bills correctly even when the firm-wide rate_card has no
+-- covering version there. day_rate/amount come back NULL for a level neither
+-- source covers, so the caller can name exactly which level is missing its
+-- agreed rate rather than the line silently vanishing. The `?` alias suffix
+-- forces Squirrel to generate Option(String) rather than inferring non-null off
+-- the seed (every seed level has a covering rate_card row).
+--
 -- Day counting. A daterange's day count is upper - lower (integer days; PG returns
 -- e.g. 30 for a June [1st, next-1st) range). The billable sub-period for a line is
 -- the THREE-way intersection (the * operator) of the allocation, the engineer_role
@@ -128,15 +142,13 @@ pub fn invoice_billing_lines(
 --
 -- Assumptions:
 --   * Exactly one contract is active over the month for the project (project ⊂
---     contract by construction); LIMIT 1 pins the agreed date if the schema ever
---     admits more.
+--     contract by construction); ORDER BY the contract's own signing date then
+--     LIMIT 1 pins the agreed date deterministically if the schema ever admits
+--     more than one covering row.
 --   * Leave does NOT reduce billing (billing is allocation-fraction-weighted
 --     working days; leave is a payroll concern, paid in full — FR-F6).
 --   * Calendar days, not business days: \"working days in the month\" is the day
 --     width of the intersection, matching the day-count convention used elsewhere.
---   * rate_card has a version covering agreed_date for every billed level (true in
---     the seed: the baseline rate card opens at the earliest contract date), so the
---     coalesce to rate_card always has a fallback to land on.
 WITH params AS (
   SELECT
     $1::int AS project_id,
@@ -151,6 +163,7 @@ agreed AS (
                      AND project_run.active_during && params.month
   JOIN contract_terms ON contract_terms.contract_id = project_run.contract_id
                      AND contract_terms.term && params.month
+  ORDER BY lower(contract_terms.term) ASC
   LIMIT 1
 ),
 sub AS (
@@ -172,16 +185,16 @@ SELECT
   sub.engineer_id,
   coalesce(engineer.name, '') AS engineer,
   sub.level,
-  coalesce(contract_rate.day_rate, rate_card.day_rate)::text AS day_rate,
+  coalesce(contract_rate.day_rate, rate_card.day_rate)::text AS \"day_rate?\",
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period)))::numeric
     AS days,
   sum(sub.fraction * (upper(sub.sub_period) - lower(sub.sub_period))
-      * coalesce(contract_rate.day_rate, rate_card.day_rate))::text AS amount
+      * coalesce(contract_rate.day_rate, rate_card.day_rate))::text AS \"amount?\"
 FROM sub
 CROSS JOIN agreed
 JOIN engineer_current engineer ON engineer.id = sub.engineer_id
-JOIN rate_card ON rate_card.level = sub.level
-              AND rate_card.effective_during @> agreed.agreed_date
+LEFT JOIN rate_card ON rate_card.level = sub.level
+                   AND rate_card.effective_during @> agreed.agreed_date
 LEFT JOIN contract_rate ON contract_rate.contract_id = agreed.contract_id
                        AND contract_rate.level = sub.level
                        AND contract_rate.effective_during @> agreed.agreed_date
